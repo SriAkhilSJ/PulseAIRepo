@@ -187,6 +187,27 @@ _SETUP_COMMANDS: dict[tuple[str, str], dict[str, tuple[str, ...]]] = {
 }
 
 
+def _configure_console_output() -> None:
+    """Keep status icons from crashing on legacy Windows console encodings.
+
+    CPython's Windows stdout/stderr may use cp1252, which cannot encode the
+    status icons in the report. ``backslashreplace`` preserves readable output
+    (and leaves Unicode intact on UTF-8 terminals) instead of raising while the
+    setup plan is being printed. Streams such as pytest's capture wrappers do
+    not always expose ``reconfigure``; those are left untouched.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, TypeError, ValueError):
+            # Some embedded or already-used streams cannot be reconfigured.
+            # Do not make diagnostics less usable by failing before the report.
+            continue
+
+
 def _setup_plan(targets: list[str]) -> int:
     """Print a host- and target-specific setup recipe, without installing it."""
     host = host_platform()
@@ -284,6 +305,7 @@ def _print_workspace_report(workspace: Path, target: str, plan: bool, assertions
 
 
 def main(argv: list[str] | None = None) -> int:
+    _configure_console_output()
     parser = argparse.ArgumentParser(description="Target toolchain doctor (mobile/desktop/web).")
     parser.add_argument("-w", "--workspace", default="", help="workspace to detect targets in")
     parser.add_argument("-t", "--target", default="", help="target id or alias (android, ios, flutter, ...)")

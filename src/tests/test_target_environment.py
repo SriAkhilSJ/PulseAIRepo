@@ -13,6 +13,7 @@ and no install advice for a target this host cannot run at all.
 """
 from __future__ import annotations
 
+import io
 import stat
 import subprocess
 from pathlib import Path
@@ -226,6 +227,60 @@ def _run_setup(monkeypatch, targets, *, readiness, host):
     monkeypatch.setattr("builtins.print", lambda *args, **kwargs: captured.append(" ".join(str(a) for a in args)))
     code = doctor._setup_plan(list(targets))
     return code, "\n".join(captured)
+
+
+def test_setup_cli_does_not_crash_on_cp1252_console(monkeypatch):
+    import scripts.targets_doctor as doctor
+
+    output = io.BytesIO()
+    cp1252_stdout = io.TextIOWrapper(output, encoding="cp1252", errors="strict")
+    readiness = {
+        "android": {
+            "ready": False,
+            "missing": ["adb"],
+            "host_supported": True,
+            "host_reason": "",
+        }
+    }
+    monkeypatch.setattr(doctor, "host_platform", lambda *a, **k: HOST_WINDOWS)
+    monkeypatch.setattr(doctor, "target_readiness", lambda targets=None: readiness)
+    with monkeypatch.context() as patch:
+        patch.setattr(doctor.sys, "stdout", cp1252_stdout)
+        code = doctor.main(["--setup", "android"])
+        cp1252_stdout.flush()
+    rendered = output.getvalue()
+    cp1252_stdout.close()
+
+    assert code == 1  # Android tools are still missing; output itself succeeded.
+    assert b"Setup plan" in rendered
+    assert b"\\u26d4" in rendered  # unsupported icon is escaped instead of raising.
+    assert b"winget install --id Google.AndroidCLI" in rendered
+
+
+@pytest.mark.parametrize(
+    ("host", "expected_command"),
+    [
+        (HOST_WINDOWS, "winget install --id Google.AndroidCLI"),
+        (HOST_MACOS, "brew install openjdk@21"),
+        (HOST_LINUX, "sudo apt install openjdk-21-jdk"),
+    ],
+)
+def test_android_setup_plan_has_native_instructions_for_each_host(monkeypatch, host, expected_command):
+    code, output = _run_setup(
+        monkeypatch,
+        ["android"],
+        readiness={
+            "android": {
+                "ready": False,
+                "missing": ["adb"],
+                "host_supported": True,
+                "host_reason": "",
+            }
+        },
+        host=host,
+    )
+    assert code == 1
+    assert expected_command in output
 
 
 def test_setup_plan_lists_missing_tools_and_windows_commands(monkeypatch):
