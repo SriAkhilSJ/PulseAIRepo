@@ -32,17 +32,23 @@ jobs:
 
       - name: Test target detection, plans, receipts, and host-specific setup
         run: >-
-          python -m pytest -q
+          python -m pytest -q --junitxml=target-tests.xml
+          src/tests/test_ci_report_pytest.py
           src/tests/test_crusor_shell_launcher.py
           src/tests/test_target_environment.py
           src/tests/test_target_pipeline.py
           src/tests/test_target_scaffold.py
           src/tests/test_preview_target_probe.py
 
+      - name: Publish actionable pytest failures
+        if: failure()
+        run: python scripts/ci_report_pytest.py target-tests.xml
+
       # Missing Android tools are expected on these general-purpose runners.
       # Exit 1 means the Doctor correctly printed an incomplete setup plan;
       # exit 2 would mean a broken/unknown target and should fail CI.
       - name: Smoke-test the native-host Android setup plan
+        if: always()
         run: >-
           python -c "import sys; from scripts.targets_doctor import main;
           result = main(['--setup', 'android']);
