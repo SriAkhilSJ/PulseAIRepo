@@ -321,6 +321,8 @@ npm run valid-layers-check
 npm run compile
 ```
 
+Source launchers are provided for each desktop host: `crusor.bat [workspace]` on Windows and `./crusor.sh [workspace]` on macOS/Linux. Both delegate to the vendored Code OSS development launcher; they require the desktop checkout to be built first (see [`desktop/README.md`](desktop/README.md)). These are development launchers, not signed installers. The bridge starts the Preview proxy when it binds the opened workspace, so no separate proxy terminal is needed.
+
 Build outputs stay local, with one deliberate exception: `.gitignore` keeps `out/` untracked **except** the compiled Crusor panel `out/vs/workbench/contrib/crusorai/**` (nested `desktop/vscode/.gitignore:16-23`), so a fresh checkout still boots a working panel. `node_modules/` is never tracked.
 
 ### After changing workbench sources (`contrib/crusorai/`)
