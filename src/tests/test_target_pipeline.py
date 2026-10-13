@@ -50,6 +50,18 @@ from src.targets.runner import (
 )
 from src.targets.toolchain import doctor_report, missing as missing_tools, target_readiness
 
+
+@pytest.fixture(autouse=True)
+def _default_adb_adapter(monkeypatch):
+    """Keep ADB-plan contracts stable when a host image bundles Android CLI.
+
+    Tests for the optional Android CLI explicitly select that adapter; the rest
+    of this module models the ADB fallback regardless of tools on the runner's
+    PATH.
+    """
+    monkeypatch.setenv("CRUSORAI_ANDROID_RUNNER", "adb")
+
+
 ANDROID_MANIFEST = """<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.acme.demo">
   <application android:label="Demo">
     <activity android:name=".MainActivity">

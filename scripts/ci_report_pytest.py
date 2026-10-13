@@ -17,6 +17,16 @@ def _workflow_escape(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
+def _use_utf8_console() -> None:
+    """GitHub workflow commands and pytest tracebacks must survive legacy Windows code pages."""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     report = Path(argv[0]) if argv else Path("target-tests.xml")
@@ -61,4 +71,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    _use_utf8_console()
     raise SystemExit(main())
