@@ -81,6 +81,13 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
 
+## Recent Changes 2026-10-13 — OTel Observability (PR #24) + Champion Evaluator Proof
+
+| Area | Change | Verification |
+|---|---|---|
+| **OTel Tracing → Langfuse** | `src/runtime/otel_tracing.py` — turn/node/llm/tool spans wired at the four graph chokepoints, env-gated (`CRUSORAI_OTEL`, off by default), fail-closed. Three modes: `on` (OTLP → Langfuse Cloud, delivery proven via v2 observations API), `console` (stdout), `file` (JSONL to `~/.crusorai/traces/otel-spans.jsonl`, no Docker/keys/network). Replaces hand-rolled `agentops/` dashboard (deleted with launchers). `langfuse/` self-host stack + `run_crusor_full_stack` launchers included. | `src/tests/test_otel_tracing.py` (6/6 stable; real-turn integration test flaky, tracked), live Cloud delivery confirmed. |
+| **Champion Evaluator Field Proof** | `diagnose_steps.py --ask` on a real headless build (Ember & Oak landing page, 16 steps): **92.2/100 (A Elite)** — Output 97.0, step-3 write failure recovered cleanly in step 4. Lena portfolio: **93.6/100**. Zero-mutation turns grade D with honest `completed=False`. | Traces + reports in `diagnostics/` (`t5-a8f4577099`, `t5-e16ea0e4f4`). |
+
 ## Recent Changes 2026-10-12 — Agent-Core Audit Fixes, Reliability Evaluator, and Desktop Drift Repairs
 
 | Area | Change | Verification |
