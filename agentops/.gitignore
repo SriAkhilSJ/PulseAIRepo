@@ -1,5 +1,0 @@
-.venv/
-.demo-data/
-web/dist/
-web/node_modules/
-__pycache__/

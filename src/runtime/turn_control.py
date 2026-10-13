@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -18,6 +19,9 @@ class _Control:
     queued: deque[tuple[str, str | None]] = field(default_factory=deque)
     active: bool = False
     active_depth: int = 0
+    # Wall-clock moment the current turn's first owner began (for the
+    # observability receipt's duration_s). None once the turn ends.
+    turn_started_at: float | None = None
     lock: threading.RLock = field(default_factory=threading.RLock)
     aborts: set[AbortHandle] = field(default_factory=set)
 
@@ -58,8 +62,16 @@ class TurnControlRegistry:
         with item.lock:
             if item.active_depth == 0:
                 item.cancel_event.clear()
+                item.turn_started_at = time.time()
             item.active_depth += 1
             item.active = True
+        # OTel root span for the turn (no-op unless CRUSORAI_OTEL=on).
+        try:
+            from src.runtime.otel_tracing import on_turn_begin
+
+            on_turn_begin(session_id)
+        except Exception:
+            pass
 
     def end(self, session_id: str) -> None:
         """Release one turn owner; repeated cleanup is harmless.
@@ -72,12 +84,34 @@ class TurnControlRegistry:
         (inactive session), so nothing is lost.
         """
         item = self._get(session_id)
+        is_last = False
         with item.lock:
             if item.active_depth > 0:
                 item.active_depth -= 1
             item.active = item.active_depth > 0
             if item.active_depth == 0:
                 item.cancel_event.clear()
+                item.turn_started_at = None
+                is_last = True
+        # End the OTel turn span when the LAST owner releases (no-op unless on).
+        # Decided under the lock above; span teardown happens outside it.
+        if is_last:
+            try:
+                from src.runtime.otel_tracing import on_turn_end
+
+                on_turn_end(session_id)
+            except Exception:
+                pass
+
+    def turn_elapsed(self, session_id: str) -> float | None:
+        """Wall seconds since the current turn began, or None if no turn is
+        active. Best-effort: used by the observability receipt's duration_s."""
+        item = self._get(session_id)
+        with item.lock:
+            started = item.turn_started_at
+        if started is None:
+            return None
+        return max(0.0, time.time() - started)
 
     def cancel(self, session_id: str) -> bool:
         """Cancel an active turn and interrupt its registered requests.

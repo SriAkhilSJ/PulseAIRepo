@@ -926,6 +926,17 @@ class RetryLLMProxy:
         return min(base + jitter, 30.0)
 
 
+# OTel generation span: every proxied model call (ai_node, planner,
+# compaction, aux lanes, sub-agents) passes through RetryLLMProxy.invoke,
+# so one wrap here = full LLM coverage. No-op unless CRUSORAI_OTEL=on.
+try:
+    from src.runtime.otel_tracing import traced_llm_invoke
+
+    RetryLLMProxy.invoke = traced_llm_invoke(RetryLLMProxy.invoke)
+except Exception:
+    pass
+
+
 def default_request_timeout() -> float:
     """Provider request timeout in seconds — env-driven, read per call.
 

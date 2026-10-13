@@ -2248,15 +2248,35 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # Floor 6: the observability receipt (env-gated, fail-closed, JSONL).
     # Same shape as the analytics.update above but durable — this is the
     # cost-per-task ledger. Best-effort: never breaks the turn.
+    # model/provider come from the TURN's config (the bridge passes
+    # per-session provider/model), falling back to the process defaults.
+    _turn_cfg = config.get("configurable", {}) or {}
+    _turn_model = str(_turn_cfg.get("model") or LLM_MODEL)
+    _turn_provider = str(_turn_cfg.get("provider") or LLM_PROVIDER)
+    _turn_id = str(_turn_cfg.get("turn_id") or "")
+    _duration_s = 0.0
+    try:
+        from src.runtime.turn_control import turn_controls as _turn_controls
+        _elapsed = _turn_controls.turn_elapsed(_final_thread_id)
+        if _elapsed is not None:
+            _duration_s = round(_elapsed, 3)
+    except Exception:
+        pass
+    _trace = [a for a in (state.get("execution_trace") or []) if isinstance(a, dict)]
+    _tool_names = [str(a["tool"]) for a in _trace if a.get("tool")]
     try:
         from src.observability import record_turn_receipt
         record_turn_receipt(
             thread_id=_final_thread_id,
-            model=str(LLM_MODEL),
-            provider=str(LLM_PROVIDER),
+            turn_id=_turn_id,
+            model=_turn_model,
+            provider=_turn_provider,
             input_tokens=int(prompt_tokens or 0),
             output_tokens=int(completion_tokens or 0),
             estimated_cost_usd=float(cost_usd or 0.0),
+            duration_s=_duration_s,
+            tool_calls=len(_trace),
+            tool_names=_tool_names or None,
             execution_mode=str(state.get("execution_mode") or ""),
             completed=task_succeeded,
             error="; ".join(str(s) for s in (state.get("failed_steps") or [])[:3]),
@@ -4878,24 +4898,30 @@ tool_node = SafeToolNode(tools, SafetyGuard())
 
 builder = StateGraph(AgentState)
 
+# OTel node spans: every graph node gets a span (hermes langfuse-plugin
+# parity). Pass-through no-op unless CRUSORAI_OTEL=on. The `tools` node is
+# a SafeToolNode object, not a function — tool spans (tool_middleware)
+# cover its internals, so it is left unwrapped.
+from src.runtime.otel_tracing import traced_node  # noqa: E402
+
 builder.add_node(
     "task_manager",
-    task_manager_node,
+    traced_node("task_manager", task_manager_node),
 )
 
 builder.add_node(
     "finalize",
-    finalize_node,
+    traced_node("finalize", finalize_node),
 )
 
 builder.add_node(
     "planner",
-    planner_node,
+    traced_node("planner", planner_node),
 )
 
 builder.add_node(
     "ai",
-    ai_node,
+    traced_node("ai", ai_node),
 )
 
 builder.add_node(
@@ -4905,42 +4931,42 @@ builder.add_node(
 
 builder.add_node(
     "progress",
-    progress_node,
+    traced_node("progress", progress_node),
 )
 
 builder.add_node(
     "recovery_limit",
-    recovery_limit_node,
+    traced_node("recovery_limit", recovery_limit_node),
 )
 
 builder.add_node(
     "pivot",
-    pivot_node,
+    traced_node("pivot", pivot_node),
 )
 
 builder.add_node(
     "plan_preview",
-    plan_preview_node,
+    traced_node("plan_preview", plan_preview_node),
 )
 
 builder.add_node(
     "plan_reviser",
-    plan_reviser_node,
+    traced_node("plan_reviser", plan_reviser_node),
 )
 
 builder.add_node(
     "plan_cancelled",
-    plan_cancelled_node,
+    traced_node("plan_cancelled", plan_cancelled_node),
 )
 
 builder.add_node(
     "approval_without_plan",
-    approval_without_plan_node,
+    traced_node("approval_without_plan", approval_without_plan_node),
 )
 
 builder.add_node(
     "finish_gate",
-    finish_gate_node,
+    traced_node("finish_gate", finish_gate_node),
 )
 
 
