@@ -334,10 +334,20 @@ def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
         version = ""
         if spec.version_argv:
             try:
+                import time as _time
+
+                _t0 = _time.monotonic()
                 proc = subprocess.run(
                     [path, *spec.version_argv], capture_output=True, text=True,
-                    timeout=15, check=False,
+                    timeout=15, check=False, stdin=subprocess.DEVNULL,
                 )
+                _dt = _time.monotonic() - _t0
+                if _dt > 5.0:
+                    print(
+                        f"[toolchain] slow version probe: {spec.id} "
+                        f"({path}) took {_dt:.1f}s",
+                        flush=True,
+                    )
                 raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
                 for line in raw.splitlines():
                     line = line.strip()
@@ -354,10 +364,20 @@ def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
             version = ""
             if spec.version_argv:
                 try:
+                    import time as _time
+
+                    _t0 = _time.monotonic()
                     proc = subprocess.run(
                         [candidate, *spec.version_argv], capture_output=True, text=True,
-                        timeout=15, check=False,
+                        timeout=15, check=False, stdin=subprocess.DEVNULL,
                     )
+                    _dt = _time.monotonic() - _t0
+                    if _dt > 5.0:
+                        print(
+                            f"[toolchain] slow version probe: {spec.id} "
+                            f"({candidate}) took {_dt:.1f}s",
+                            flush=True,
+                        )
                     raw = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
                     for line in raw.splitlines():
                         if line.strip():
