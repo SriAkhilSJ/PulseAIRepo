@@ -47,17 +47,34 @@ _turn_lock = threading.Lock()
 
 def enabled() -> bool:
     return os.environ.get("CRUSORAI_OTEL", "off").strip().lower() in {
-        "1", "true", "yes", "on",
+        "1", "true", "yes", "on", "console",
     }
 
 
+def _console_mode() -> bool:
+    """No-Docker local mode: print spans to stdout instead of OTLP export."""
+    return os.environ.get("CRUSORAI_OTEL", "off").strip().lower() == "console"
+
+
 def _build_provider() -> Any:
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
+        ConsoleSpanExporter,
+        SimpleSpanProcessor,
+    )
+
+    if _console_mode():
+        provider = TracerProvider(
+            resource=Resource.create({"service.name": "crusor-agent"}),
+        )
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+        return provider
+
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
         OTLPSpanExporter,
     )
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     headers = {}
     pub = os.environ.get("CRUSORAI_LANGFUSE_PUBLIC_KEY", "").strip()
