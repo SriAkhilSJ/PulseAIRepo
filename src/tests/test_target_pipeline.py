@@ -48,7 +48,13 @@ from src.targets.runner import (
     execute_plan,
     resolve_tokens,
 )
-from src.targets.toolchain import doctor_report, missing as missing_tools, target_readiness
+from src.targets.toolchain import (
+    TOOLS_BY_ID,
+    ToolStatus,
+    doctor_report,
+    missing as missing_tools,
+    target_readiness,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -537,7 +543,14 @@ def test_doctor_report_lists_targets_and_install_hints():
     assert "android" in report and "ios" in report and "desktop" in report
 
 
-def test_missing_toolchain_is_reported_with_remediation(tmp_path):
+def test_missing_toolchain_is_reported_with_remediation(tmp_path, monkeypatch):
+    # Hosted macOS/Windows images may already have an Android SDK. This contract
+    # tests the missing-tools path, so stub it instead of depending on runner PATH.
+    monkeypatch.setattr(
+        registry,
+        "missing_tools",
+        lambda _required: [ToolStatus(TOOLS_BY_ID["adb"], available=False)],
+    )
     workspace = _android_workspace(tmp_path / "android")
     receipt = registry.run(workspace, "android", TargetRequest(mode="verify"))
     text = receipt.to_text()
