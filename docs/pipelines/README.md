@@ -1,8 +1,14 @@
 # Reference pipelines for multi-platform targets
 
-These are **inert templates**: GitHub only runs workflows in
-`.github/workflows/`, so nothing here fires by accident. Copy the file you need
-into `.github/workflows/` and adjust the paths.
+The active `.github/workflows/host-compatibility.yml` workflow runs the
+hermetic target-contract tests on Windows, macOS, and Linux. It verifies host
+normalization, SDK discovery, target planning, and setup guidance without
+installing Android SDKs, Xcode, or emulators. It is a host-compatibility check,
+not evidence that a native app has built or launched on every OS.
+
+The platform-specific files below are **inert templates**: GitHub only runs
+workflows in `.github/workflows/`, so nothing here fires by accident. Copy the
+file you need into `.github/workflows/` and adjust the paths.
 
 Each pipeline has the same three jobs, which is the whole point:
 
