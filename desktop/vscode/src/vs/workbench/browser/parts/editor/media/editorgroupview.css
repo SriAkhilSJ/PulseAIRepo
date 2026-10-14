@@ -109,6 +109,8 @@
 	justify-content: center;
 	padding: 20px;
 	box-sizing: border-box;
+	/* CrusorAI: optical centering — the mark reads slightly high, nudge the block down */
+	transform: translateY(6vh);
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container > .editor-group-watermark-wrapper > .editor-group-watermark > .watermark-container {
@@ -117,7 +119,8 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 12px;
+	/* CrusorAI: tight lockup — logo and title read as one unit */
+	gap: 2px;
 }
 
 .monaco-workbench .part.editor > .content .editor-group-container:not(.empty) > .editor-group-watermark-wrapper {
@@ -201,7 +204,7 @@
 	text-align: center;
 	font-size: 24px;
 	color: #e0e0e0;
-	margin-top: 12px;
+	margin-top: 2px;
 	font-weight: 600;
 	letter-spacing: 1px;
 }
