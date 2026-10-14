@@ -103,7 +103,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-02';
+const CRUSORAI_UI_STAMP = '2026-10-12';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2752,7 +2752,7 @@ function renderManager(root, model, host, openTools, activity, planOpen, setPlan
     const tabs = element('nav', 'crusorai-manager-tabs', button('Session', ui.tab === 'session' ? 'is-active' : '', () => ui.setTab('session'), 'comment-discussion'), element('button', undefined, icon('terminal'), `Tools ${model.tools.length}`), element('button', undefined, icon('diff'), 'Changes'), button(ui.skills.loaded && ui.skills.rows.length > 0 ? `Skills ${ui.skills.rows.length}` : 'Skills', ui.tab === 'skills' ? 'is-active' : '', () => ui.setTab('skills'), 'library'));
     main.append(element('header', 'crusorai-manager-titlebar', element('div', undefined, element('div', 'crusorai-manager-breadcrumb', model.workspaceLabel, ' / ', model.sessionId?.slice(0, 12) ?? 'new-session'), element('h1', undefined, model.userMessage || 'Crusor Manager')), engineStatus(model)), tabs, ...(ui.tab === 'skills'
         ? [skillsPanel(ui, host)]
-        : agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)), composer(model, host, true));
+        : [...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)]), composer(model, host, true));
     shell.append(sidebar, main, inspector(model));
     root.append(shell);
 }

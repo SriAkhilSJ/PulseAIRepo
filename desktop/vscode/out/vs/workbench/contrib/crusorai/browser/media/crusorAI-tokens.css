@@ -51,9 +51,12 @@
 	--crusorai-track-caps: 0.08em;
 
 	/* Terminal output window — hermes terminal-output.tsx `max-h-16`: a
-	 * 5rem viewport on stdout with the tail pinned (the end of the stream
-	 * is the payload), never a tall panel that eats the transcript. */
-	--crusorai-terminal-max-h: 5rem;
+	 * 4rem viewport on stdout with the tail pinned (the end of the stream
+	 * is the payload), never a tall panel that eats the transcript.
+	 * max-h-16 is 4rem in Tailwind; this token carried 5rem under a comment
+	 * claiming hermes parity, which is drift the type-grammar pin caught
+	 * (test_reveal_paths_and_terminal_obey_hermes). */
+	--crusorai-terminal-max-h: 4rem;
 }
 
 /* Tabular numerals wherever digits update in place (hermes meta grammar):
