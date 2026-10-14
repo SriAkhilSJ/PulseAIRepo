@@ -93,6 +93,25 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **Pipeline templates** | `docs/pipelines/` — `android.yml` (emulator-runner + AVD cache + Maestro JUnit), `ios.yml` (macos-14 + simctl + API-key TestFlight), `flutter.yml` (android/ios/desktop matrix), `react-native.yml` (Metro-before-install), `desktop-tauri.yml`, `desktop-electron.yml`. Each ends with the same step: run the registry, fail unless `✅`, upload evidence. | all six parse as valid workflow YAML |
 | **Stack research** | `docs/MULTI_PLATFORM_TARGETS.md` — the architecture, the named repositories worth building on (agent-device, mobile-mcp, argent, Maestro, Appium, emulator runners, xtool/pymobiledevice3, tauri-action, …), pipeline designs, rollout plan, and honest limits (iOS Simulator requires macOS; Android emulator requires `/dev/kvm`; WebView2/CDP only exists on some desktop webviews). | star/activity counts read 2026-10-12; licence cautions noted (argent ships proprietary binaries) |
 
+## Android / Flutter verification status (2026-10-14)
+
+- **Android smoke test — done on Windows:** `examples/android-smoke-test` built,
+  installed, launched, and passed foreground verification on the Android 15 / API 35
+  `crusor` emulator. Screenshot and tap evidence are in
+  `diagnostics/PERFORMANCE_REPORT_session-13e790b1f55b4a22b2446ae13a42ea56.md` and
+  its trace. A machine-specific, ignored `local.properties` supplied the SDK path;
+  do not commit it.
+- **CI scope:** target-contract checks passed on Windows, macOS, and Ubuntu. These
+  are not native Android emulator runs on macOS/Linux.
+- **Open / deferred:**
+  - [ ] Run the Flutter smoke test: check the SDK, run a widget test, build, and
+    verify Android install/launch/foreground.
+  - [ ] Verify the actual product app when its Android/Flutter project or APK is
+    available. `testCRUSOR` was not changed and is not a native project.
+  - [ ] Run native Android emulator verification on macOS and Linux if required.
+  - [ ] Optionally investigate the historical disk-use increase or prune
+    `.crusorai` traces; no cleanup has been performed.
+
 ## Recent Changes 2026-10-12 — Reasoning Latency Throttling, Champion Quality Evaluation, and Parallel Batching Engine
 
 | Area | Change | Verification |

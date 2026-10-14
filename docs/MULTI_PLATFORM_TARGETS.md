@@ -1,10 +1,44 @@
 # Multi-platform delivery: mobile, desktop, and Android targets for the Crusor agent
 
-Status: **implemented in this repo** (target layer + agent surface + hermetic tests); the
-Windows Android CLI/emulator setup still needs a native-machine run, and the
-external tooling choices and CI pipelines below remain templates.
+Status: **implemented and Windows Android smoke-verified** (target layer + agent
+surface + hermetic tests). The separate `examples/android-smoke-test` app passed
+build, install, launch, and foreground verification on an Android 15 / API 35
+emulator. Flutter and product-app validation, plus native Android emulator runs on
+macOS/Linux, remain open. The external tooling choices and CI pipelines below remain
+templates.
 Audience: whoever has to make the agent box a mobile/desktop app with the same
 confidence it currently boxes a website.
+
+---
+
+## Current verification snapshot (2026-10-14)
+
+### Completed
+
+- **Windows Android smoke run:** `examples/android-smoke-test` passed the Gradle
+  build, install, launch, and foreground checks on the Android 15 / API 35 x86_64
+  `crusor` emulator (`emulator-5554`). A live tap and screenshot/UI evidence were
+  also recorded. See
+  `diagnostics/PERFORMANCE_REPORT_session-13e790b1f55b4a22b2446ae13a42ea56.md` and
+  `diagnostics/traces/session-13e790b1f55b4a22b2446ae13a42ea56.jsonl`.
+- **Cross-host CI:** repository target-contract checks passed on Windows, macOS,
+  and Ubuntu. These checks do not constitute native Android emulator runs on
+  macOS/Linux.
+
+### Open / explicitly deferred
+
+- [ ] **Flutter smoke test:** confirm Flutter SDK availability, run widget tests,
+  build the Android app, and verify install/launch/foreground on the emulator.
+- [ ] **Product-app verification:** test the actual Android/Flutter project or APK
+  when supplied. `testCRUSOR` was not changed and is not a native project.
+- [ ] **macOS/Linux Android end-to-end:** run native emulator/device build and
+  verification on those hosts if required; only contract CI has been exercised
+  there so far.
+- [ ] **Optional disk-use follow-up:** investigate the historical disk increase or
+  prune `.crusorai` traces only if requested. No cleanup has been performed.
+
+The Windows run used a machine-specific ignored `local.properties` for the SDK
+path; keep that file out of Git.
 
 ---
 
@@ -200,10 +234,12 @@ The setup follows Google's [Android CLI install guide](https://developer.android
 reference. `android run --apks=… --device=…` consumes the APK Gradle produced; it
 is not a replacement for compiling the workspace with Gradle.
 
-> **Validation status:** command flags were checked against Google's current docs and
-> the setup planner is unit-tested, but this route has **not** yet run on a native
-> Windows machine or emulator. Treat it as unverified until `--require android`,
-> `adb devices -l`, and a real `verify_target_app` receipt succeed.
+> **Validation status (2026-10-14):** this route has now run on a native Windows
+> host. The separate `examples/android-smoke-test` app received a successful
+> `verify_target_app` result on the Android 15 / API 35 `crusor` AVD, including
+> build/install/launch/foreground verification; the live tap and screenshots are
+> recorded in the evidence linked above. This does not verify Flutter, `testCRUSOR`,
+> or native emulator runs on macOS/Linux.
 
 Ask the doctor for the host-specific block:
 
@@ -411,7 +447,7 @@ when `maestro/**` exists: `maestro test --format junit --output report.xml`.
 
 | Phase | Content | Acceptance |
 |---|---|---|
-| 1 | **Done (code-level; native host proof pending).** Target layer, 9 runtime tools, capability/toolsets/gates wiring, scaffolders, doctor CLI; 45 pipeline + 19 environment + 12 scaffold + 21 toolset tests | Those focused suites pass; `--require` refuses a bare host; Windows Android setup still needs a real emulator receipt |
+| 1 | **Done (code + Windows Android smoke proof).** Target layer, 9 runtime tools, capability/toolsets/gates wiring, scaffolders, doctor CLI; 45 pipeline + 19 environment + 12 scaffold + 21 toolset tests | Focused tests and target-contract CI pass on Windows/macOS/Linux; the Windows Android smoke app passed build/install/launch/foreground verification. Flutter, product-app validation, and native Android emulator runs on macOS/Linux remain open |
 | 2 | **Done (first cut).** Device mirror in the preview proxy + `device_preview` tool: live screen, real taps, honest errors | `src/tests/test_preview_device.py` (24 tests) green; verified live against the real CLI proxy — register → pane → multipart stream → normalized tap landing as `adb shell input tap 540 1200` |
 | 3 | 30–60 fps pane: scrcpy video socket or emulator WebRTC (WASM decoder in the pane); iOS `simctl` frames; device list + restart controls in the IDE panel | Smooth mirror, < 1 s input latency |
 | 4 | Pipelines for the platform the team actually ships (start with Android; add desktop next) | A PR that breaks the app fails CI with a screenshot, not a stack trace |
