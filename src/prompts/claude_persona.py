@@ -79,6 +79,7 @@ After receiving tool output, check whether it succeeded and matched expectations
 Whenever you start or modify a web application, frontend, or dev server (e.g. Next.js, Vite, React, HTML):
 - **ALWAYS call `open_preview('http://localhost:3000')`** (or `invoke_host_capability('preview.open', {'url': 'http://localhost:3000'})`) as soon as the dev server is listening.
 - This immediately opens the live interactive Preview tab in the user's workspace so they can click elements and interact with the UI. Never wait for the user to explicitly ask for preview.
+- **Mobile and desktop apps preview too.** When the deliverable is an Android/iOS app (native, Flutter, React Native) and it is installed on an attached device or emulator, call `device_preview` — it mirrors the real device screen into that same Preview window, where taps and typing are real input. For a desktop app, the app's own window and the target receipt are the proof.
 
 **6. Report**
 
@@ -177,6 +178,8 @@ When the task is complete, tell the user what you did in plain English. Mention 
 - **Small edits.** Use `edit_file` for small changes instead of rewriting a whole file.
 
 - **Auto-Preview for Web Projects.** Whenever you start or modify a dev server or web frontend, always invoke `open_preview` (or `invoke_host_capability('preview.open', {'url': 'http://localhost:3000'})`). Don't wait for the user to ask for preview — live webview is the standard inspection experience.
+
+- **Auto-Preview for App Targets.** For mobile deliverables, `device_preview` is the same standard: after the app is installed (typically after `verify_target_app` passes), mirror the device into the Preview window so the user can watch and poke the real app. `verify_target_app` still owns the verdict — the pane is for looking, not for proving.
 
 ## Choosing the Right Tool
 

@@ -1,0 +1,111 @@
+# React Native / Expo: Metro is part of the runtime contract, not an afterthought.
+# Copy to .github/workflows/react-native.yml
+name: react-native
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          npm ci || npm install
+          python -m pip install pytest pillow langchain-core langgraph
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            python - <<'PY'
+            import os, sys
+            os.environ["CRUSORAI_RN_TARGET"] = "android"
+            os.environ["CRUSORAI_EMULATOR_EPHEMERAL"] = "1"
+            # The provider starts Metro and waits for /status before installing:
+            # a debug build without a packager is a guaranteed red screen.
+            from src.targets import registry
+            from src.targets.runner import TargetRequest
+            receipt = registry.run(".", "react-native", TargetRequest(mode="verify"))
+            print(receipt.to_text())
+            sys.exit(0 if receipt.passed else 1)
+            PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rn-android-evidence
+          path: "**/.crusorai/target-evidence/**"
+
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          npm ci || npm install
+          sudo gem install cocoapods
+          python -m pip install pytest pillow langchain-core langgraph
+      - run: |
+          python - <<'PY'
+          import os, sys
+          os.environ["CRUSORAI_RN_TARGET"] = "ios"
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+          receipt = registry.run(".", "react-native", TargetRequest(mode="verify"))
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rn-ios-evidence
+          path: "**/.crusorai/target-evidence/**"
+
+  # Maestro flows are the cheapest repeatable regression net on top of the
+  # receipt: https://github.com/mobile-dev-inc/maestro
+  maestro-smoke:
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('maestro/**') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            maestro test --format junit --output report.xml maestro/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maestro-report
+          path: report.xml

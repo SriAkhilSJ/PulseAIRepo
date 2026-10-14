@@ -238,6 +238,20 @@ def classify_tool_outcome(tool_name: str, result: str) -> str:
         failed = not result.lstrip().startswith("✅")
     elif tool_name in {"verify_ui_workspace", "verify_ui_routes"}:
         failed = not result.lstrip().startswith("✅")
+    elif tool_name in {"verify_target_app", "build_target"}:
+        # Target receipts carry their own verdict prefixes (✅ passed, ❌ failed,
+        # ⛔ unavailable toolchain/host, 🧭 plan preview). An unavailable or
+        # preview receipt is an operator/tooling fact, NOT a failed repair loop:
+        # counting it as failure arms recovery and burns a REPLAN call per turn.
+        stripped = result.lstrip()
+        if stripped.startswith(("⛔", "🧭")):
+            return OUTCOME_SKIP
+        failed = not stripped.startswith("✅")
+    elif tool_name in {"device_action", "device_screenshot", "device_logs", "device_ui"}:
+        failed = result.lstrip().startswith("❌")
+    elif tool_name in {"detect_targets", "check_target_toolchains"}:
+        # Informational: never a failure, whatever the report says.
+        return OUTCOME_SKIP
     elif tool_name in ("run_terminal", "terminal"):
         # A promoted foreground call (over-cap timeout) returns the tracked-
         # background spawn receipt: no verdict exists yet — the process is

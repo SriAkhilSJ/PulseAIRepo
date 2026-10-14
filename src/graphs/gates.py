@@ -172,6 +172,9 @@ _VERIFY_TOOL_NAMES = frozenset({
     "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes", "run_terminal",
     "browser_navigate", "browser_snapshot", "browser_screenshot",
     "browser_click", "browser_type",
+    # Multi-platform receipts (src/targets/): a target build/verify receipt is
+    # the native analogue of the UI pipeline above.
+    "build_target", "verify_target_app", "device_ui", "device_screenshot", "device_logs",
 })
 
 # UI/frontend deliverables: for these, typecheck alone proves nothing at
@@ -788,6 +791,16 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             status["navigate"] = passed
             status["snapshot"] = passed
             status["screenshot"] = passed
+        elif name in {"verify_target_app", "build_target"}:
+            passed = content.startswith("✅ TARGET VERIFICATION PASSED")
+            status["static"] = passed
+            status["typecheck"] = passed
+            if name == "verify_target_app" and passed and _target_receipt_proves_render(content):
+                # A device/emulator/simulator/window receipt IS runtime proof:
+                # the app was launched and produced a UI dump/screenshot there.
+                status["navigate"] = True
+                status["snapshot"] = True
+                status["screenshot"] = True
         elif name == "typecheck_workspace":
             passed = content.startswith("✅") and "0 errors" in low
             status["typecheck"] = passed
@@ -847,6 +860,20 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "ran_any": bool(seen),
         "passed": not missing,
     }
+
+
+#: Target ids whose ✅ receipt implies a rendered surface (a device, emulator,
+#: simulator or desktop window actually displayed the app). The web target is
+#: deliberately absent: an HTTP-ready dev server proves nothing about rendering,
+#: so web tasks keep owing the browser pipeline its navigate/snapshot proof.
+_RENDER_PROVING_TARGETS = ("android", "ios", "desktop", "flutter", "react-native")
+
+
+def _target_receipt_proves_render(content: str) -> bool:
+    return any(
+        f"TARGET: {target}" in content or f"PROVIDER: {target}" in content
+        for target in _RENDER_PROVING_TARGETS
+    )
 
 
 def _ran_verification(state: AgentState) -> bool:

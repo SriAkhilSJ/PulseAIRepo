@@ -13,7 +13,9 @@ from typing import Any
 from src.agents.runtime_profile import (
     CAP_BROWSER,
     CAP_DELEGATION,
+    CAP_DESKTOP_APP,
     CAP_EXECUTION,
+    CAP_MOBILE_APP,
     CAP_RESEARCH,
     CAP_VERIFICATION,
     CAP_WORKSPACE_READ,
@@ -45,6 +47,24 @@ _EXECUTION_TOOLS: tuple[str, ...] = (
 _VERIFICATION_TOOLS: tuple[str, ...] = ("typecheck_workspace",)
 _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
     "scaffold_nextjs", "verify_ui_workspace", "verify_ui_routes",
+)
+# Multi-platform delivery (src/targets/): detect the target, check the
+# toolchain, build it, then prove it on a device/emulator/simulator/window.
+# `verify_target_app` is the composite receipt — the multi-platform peer of
+# verify_ui_workspace — so it is bound in one call, not as a chain of steps.
+_TARGET_TOOLS: tuple[str, ...] = (
+    "detect_targets", "check_target_toolchains", "build_target", "verify_target_app",
+)
+_MOBILE_DEVICE_TOOLS: tuple[str, ...] = (
+    "device_action", "device_screenshot", "device_ui", "device_logs",
+    # Mirror the device into the IDE's preview window (src/preview/device.py):
+    # the human watches and pokes the same device the agent is driving.
+    "device_preview",
+)
+# New projects for those targets (scaffold_tools.scaffold_nextjs is the web
+# peer). Guarded by the write capability: scaffolding is a workspace mutation.
+_TARGET_SCAFFOLD_TOOLS: tuple[str, ...] = (
+    "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
 )
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download", "generate_image")
@@ -98,6 +118,12 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
         names.extend(_browser_tool_names())
         if CAP_VERIFICATION in caps:
             names.extend(_UI_SCAFFOLD_TOOLS)
+    if CAP_MOBILE_APP in caps or CAP_DESKTOP_APP in caps:
+        names.extend(_TARGET_TOOLS)
+        if CAP_WORKSPACE_WRITE in caps:
+            names.extend(_TARGET_SCAFFOLD_TOOLS)
+        if CAP_MOBILE_APP in caps:
+            names.extend(_MOBILE_DEVICE_TOOLS)
     if CAP_DELEGATION in caps:
         names.extend(_DELEGATION_TOOLS)
 
@@ -132,6 +158,9 @@ def all_known_tool_names() -> list[str]:
         *_MEDIA_TOOLS,
         *_browser_tool_names(),
         *_UI_SCAFFOLD_TOOLS,
+        *_TARGET_TOOLS,
+        *_TARGET_SCAFFOLD_TOOLS,
+        *_MOBILE_DEVICE_TOOLS,
         *_DELEGATION_TOOLS,
     ]
     return list(dict.fromkeys(names))

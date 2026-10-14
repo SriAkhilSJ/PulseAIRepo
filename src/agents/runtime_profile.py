@@ -23,6 +23,12 @@ CAP_VERIFICATION = "verification"
 CAP_RESEARCH = "research"
 CAP_BROWSER = "browser"
 CAP_DELEGATION = "delegation"
+# Multi-platform delivery: the agent builds and PROVES an app on a real
+# device/emulator/simulator or as a desktop window (src/targets/). Kept as
+# separate capabilities because the tool waist, the prompt guidance and the
+# verification gate all differ from browser-only UI work.
+CAP_MOBILE_APP = "mobile_app"
+CAP_DESKTOP_APP = "desktop_app"
 
 CAPABILITY_ORDER: tuple[str, ...] = (
     CAP_WORKSPACE_READ,
@@ -32,6 +38,8 @@ CAPABILITY_ORDER: tuple[str, ...] = (
     CAP_RESEARCH,
     CAP_BROWSER,
     CAP_DELEGATION,
+    CAP_MOBILE_APP,
+    CAP_DESKTOP_APP,
 )
 KNOWN_CAPABILITIES = frozenset(CAPABILITY_ORDER)
 
@@ -60,6 +68,15 @@ _BROWSER_PATTERNS = (
     r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b", r"\bdashboard\b",
     r"\bcomponent\b", r"\bchat app\b", r"\bweb app(?:lication)?\b",
 )
+# If a prompt names a native target, generic UI/React terms describe that app's
+# UI—not a browser session. Only add browser tools to a mixed native+web task
+# when it also identifies an actual web surface (including React, but not React
+# Native). This keeps the postures separate without blocking explicit hybrids.
+_WEB_TARGET_PATTERNS = (
+    r"\bweb\b", r"\bbrowser\b", r"\bwebsite\b", r"\bweb page\b",
+    r"\bfrontend\b", r"\bfront-end\b", r"\breact\b(?![\s-]+native\b)",
+    r"\bnext\.?js\b", r"\bvue\b", r"\bsvelte\b",
+)
 _CODE_PATTERNS = (
     r"\bcode(?:base)?\b", r"\bbug\b", r"\bdebug\b", r"\brefactor\b",
     r"\bfunction\b", r"\bclass\b", r"\bmethod\b", r"\bmodule\b", r"\bapi\b",
@@ -80,6 +97,26 @@ _READ_PATTERNS = (
     r"\bread\b", r"\binspect\b", r"\banaly[sz]e\b", r"\bexplain\b",
     r"\breview\b", r"\bsummarize\b", r"\bfind in\b", r"\blocate\b",
     r"\bfolder\b", r"\bdirectory\b", r"\bworkspace\b", r"\bproject\b",
+)
+# Mobile/desktop vocabulary is deliberately specific: a bare "app" (or "app.py")
+# must not turn a web task into a native-build posture. Framework names, device
+# tooling and store names are the signals that actually imply a native target.
+_MOBILE_PATTERNS = (
+    r"\bandroid\b", r"\bapk\b", r"\baab\b", r"\bgradle\b", r"\bkotlin\b",
+    r"\bjetpack\b", r"\bcompose\b", r"\bavd\b", r"\badb\b", r"\buiautomator\b",
+    r"\bemulator\b", r"\bios\b", r"\biphone\b", r"\bipad\b", r"\bsimulator\b",
+    r"\bsimctl\b", r"\bxcode\b", r"\bswiftui?\b", r"\bswift\b", r"\btestflight\b",
+    r"\bflutter\b", r"\bdart\b", r"\breact native\b", r"\bexpo\b", r"\bmetro bundler\b",
+    r"\bmobile app(?:lication)?\b", r"\bmobile\b", r"\bplay store\b", r"\bapp store\b",
+    r"\bmobile ui\b", r"\bmaestro\b", r"\btablet app\b", r"\bapk build\b",
+    r"\bmobile test\b",
+)
+_DESKTOP_PATTERNS = (
+    r"\bdesktop app(?:lication)?\b", r"\belectron\b", r"\btauri\b", r"\bwails\b",
+    r"\bneutralino\b", r"\bwinui\b", r"\bwpf\b", r"\bwindows forms\b", r"\bmaui\b",
+    r"\b\.net desktop\b", r"\bnative window\b", r"\btray app\b", r"\bmenubar app\b",
+    r"\binstaller\b", r"\b\.msi\b", r"\b\.dmg\b", r"\bappimage\b", r"\bsnap package\b",
+    r"\bwindows app\b", r"\bmacos app\b", r"\blinux app\b", r"\bdesktop\b",
 )
 _EXECUTION_PATTERNS = (
     r"\brun\b", r"\bexecute\b", r"\binstall\b", r"\bterminal\b", r"\bshell\b",
@@ -133,6 +170,12 @@ def _ordered(capabilities: set[str]) -> tuple[str, ...]:
 
 
 def _profile_name(capabilities: set[str]) -> str:
+    if CAP_MOBILE_APP in capabilities and CAP_DESKTOP_APP in capabilities:
+        return "multi_platform_engineering"
+    if CAP_MOBILE_APP in capabilities:
+        return "mobile_engineering"
+    if CAP_DESKTOP_APP in capabilities:
+        return "desktop_engineering"
     if CAP_BROWSER in capabilities and CAP_VERIFICATION in capabilities:
         return "ui_engineering"
     if CAP_VERIFICATION in capabilities:
@@ -172,7 +215,11 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
         )
 
     research = _matches(text, _RESEARCH_PATTERNS)
+    mobile = _matches(text, _MOBILE_PATTERNS)
+    desktop = _matches(text, _DESKTOP_PATTERNS)
     browser = _matches(text, _BROWSER_PATTERNS)
+    if (mobile or desktop) and not _matches(text, _WEB_TARGET_PATTERNS):
+        browser = False
     coding = _matches(text, _CODE_PATTERNS)
     artifact = _matches(text, _ARTIFACT_PATTERNS)
     workspace_read = _matches(text, _READ_PATTERNS)
@@ -212,6 +259,20 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
                 CAP_EXECUTION,
                 CAP_VERIFICATION,
             })
+    if mobile:
+        # A native target is an engineering task, not a browse task: the plan
+        # needs the workspace, the shell, and a build/run receipt to be provable.
+        capabilities.update({
+            CAP_MOBILE_APP, CAP_WORKSPACE_READ, CAP_WORKSPACE_WRITE,
+            CAP_EXECUTION, CAP_VERIFICATION,
+        })
+        reasons.append("mobile")
+    if desktop:
+        capabilities.update({
+            CAP_DESKTOP_APP, CAP_WORKSPACE_READ, CAP_WORKSPACE_WRITE,
+            CAP_EXECUTION, CAP_VERIFICATION,
+        })
+        reasons.append("desktop")
     if complex_task:
         capabilities.add(CAP_DELEGATION)
         reasons.append("complex")
@@ -233,6 +294,8 @@ __all__ = [
     "RuntimeProfile",
     "resolve_runtime_profile",
     "KNOWN_CAPABILITIES",
+    "CAP_MOBILE_APP",
+    "CAP_DESKTOP_APP",
     "CAP_WORKSPACE_READ",
     "CAP_WORKSPACE_WRITE",
     "CAP_EXECUTION",

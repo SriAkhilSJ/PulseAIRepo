@@ -1,0 +1,90 @@
+# Electron: CDP verification (Playwright _electron) + packaged release.
+# Copy to .github/workflows/desktop-electron.yml
+name: desktop-electron
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: windows
+          - os: macos-14
+            target: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Linux GUI runtime
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0 libnss3 libasound2t64
+      - run: npm ci || npm install
+      - name: Build + launch with a debugging port + PROVE a titled window
+        run: |
+          python -m pip install pytest pillow langchain-core langgraph
+          python - <<'PY'
+          import sys
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+          # cdp_ready fails when the port answers but no window opened — the
+          # exact failure a green `npm run build` hides.
+          receipt = registry.run(".", "electron", TargetRequest(mode="verify"))
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+      - name: Playwright end-to-end (optional, uses the same CDP surface)
+        if: always()
+        run: npx playwright test --reporter=line || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electron-${{ matrix.target }}-evidence
+          path: |
+            **/.crusorai/target-evidence/**
+            test-results/**
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: --linux AppImage deb
+          - os: windows-latest
+            args: --win nsis
+          - os: macos-14
+            args: --mac dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm }
+      - run: npm ci || npm install
+      - name: Build installers (electron-builder / electron-forge)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WIN_CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_P12 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: npx electron-builder --publish always ${{ matrix.args }}

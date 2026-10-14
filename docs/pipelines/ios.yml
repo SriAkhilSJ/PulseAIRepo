@@ -1,0 +1,86 @@
+# Native iOS build + Simulator proof. iOS needs macOS: there is no honest
+# Linux/Windows substitute for xcodebuild + the iOS Simulator.
+# Copy to .github/workflows/ios.yml
+name: ios
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ios:
+    # macos-14 is Apple silicon (arm64) and the cheapest macOS runner that still
+    # has a supported Xcode. See docs/MULTI_PLATFORM_TARGETS.md § iOS for the
+    # cloud-Mac alternatives (MacStadium, Scaleway, Codemagic, Bitrise, Xcode Cloud).
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install the agent runtime
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pillow langchain-core langgraph
+          python -m pytest src/tests/test_target_pipeline.py -q
+
+      - name: Cache derived data + CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            build/ios-derived
+          key: ios-derived-${{ hashFiles('**/Podfile.lock', '**/*.xcodeproj/project.pbxproj') }}
+          restore-keys: ios-derived-
+
+      - name: Build + boot simulator + install + launch + PROVE
+        run: |
+          python - <<'PY'
+          import os, sys
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+
+          receipt = registry.run(
+              ".", "ios",
+              TargetRequest(mode="verify", device=os.environ.get("SIMULATOR_UDID", "")),
+          )
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+
+      - name: XCUITest suite (optional)
+        if: always()
+        run: |
+          python - <<'PY'
+          import sys
+          from src.targets import registry
+          from src.targets.runner import TargetRequest
+          receipt = registry.run(".", "ios", TargetRequest(mode="test"))
+          print(receipt.to_text())
+          sys.exit(0 if receipt.passed else 1)
+          PY
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-evidence
+          path: |
+            **/.crusorai/target-evidence/**
+            build/ios-tests.xcresult
+          retention-days: 14
+
+# TestFlight / App Store Connect upload belongs in a separate tag-triggered job
+# with App Store Connect API-key secrets (not certificates in the repo):
+#   xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios \
+#     --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

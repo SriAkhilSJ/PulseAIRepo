@@ -1,0 +1,55 @@
+name: Host compatibility
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  target-contracts:
+    name: Target contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Install only the locked dependencies needed by the hermetic target
+      # contracts; do not provision mobile SDKs or the IDE's optional ML stack.
+      - name: Install target-test dependencies
+        run: python -m pip install --disable-pip-version-check pytest==9.1.1 pillow==12.3.0 langchain-core==1.5.0 langgraph==1.2.9
+
+      - name: Test target detection, plans, receipts, and host-specific setup
+        run: >-
+          python -m pytest -q --junitxml=target-tests.xml
+          src/tests/test_ci_report_pytest.py
+          src/tests/test_crusor_shell_launcher.py
+          src/tests/test_target_environment.py
+          src/tests/test_target_pipeline.py
+          src/tests/test_target_scaffold.py
+          src/tests/test_preview_target_probe.py
+
+      - name: Publish actionable pytest failures
+        if: failure()
+        run: python scripts/ci_report_pytest.py target-tests.xml
+
+      # Missing Android tools are expected on these general-purpose runners.
+      # Exit 1 means the Doctor correctly printed an incomplete setup plan;
+      # exit 2 would mean a broken/unknown target and should fail CI.
+      - name: Smoke-test the native-host Android setup plan
+        if: always()
+        run: >-
+          python -c "import sys; from scripts.targets_doctor import main;
+          result = main(['--setup', 'android']);
+          sys.exit(0 if result in (0, 1) else result)"

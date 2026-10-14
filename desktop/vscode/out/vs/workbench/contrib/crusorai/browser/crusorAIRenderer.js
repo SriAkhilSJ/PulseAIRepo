@@ -2388,9 +2388,9 @@ const thinkOptions = [
 ];
 function thinkPicker(model, host) {
     const details = element('details', 'crusorai-mode-picker crusorai-think-picker');
-    const current = model.reasoningEffort ?? '';
-    const summary = element('summary', 'crusorai-mode-summary', element('span', undefined, current ? reasoningEffortLabel(current) : 'Think'), icon('chevron-down'));
-    summary.setAttribute('aria-label', `Thinking effort: ${current ? reasoningEffortLabel(current) : 'engine default'}`);
+    const current = model.reasoningEffort ?? 'none';
+    const summary = element('summary', 'crusorai-mode-summary', element('span', undefined, reasoningEffortLabel(current)), icon('chevron-down'));
+    summary.setAttribute('aria-label', `Thinking effort: ${reasoningEffortLabel(current)}`);
     if (model.running) {
         summary.setAttribute('aria-disabled', 'true');
         summary.addEventListener('click', event => event.preventDefault());
@@ -2399,7 +2399,7 @@ function thinkPicker(model, host) {
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', 'Thinking effort');
     for (const option of thinkOptions) {
-        const selected = option.id === current;
+        const selected = option.id === current || (!current && option.id === 'none');
         const item = element('button', selected ? 'crusorai-mode-option is-selected' : 'crusorai-mode-option', icon(option.id === 'none' ? 'circle-slash' : 'lightbulb'), element('span', 'crusorai-mode-option-copy', element('strong', undefined, reasoningEffortLabel(option.id)), element('small', undefined, option.description)), selected ? icon('check') : undefined);
         item.type = 'button';
         item.setAttribute('role', 'menuitemradio');

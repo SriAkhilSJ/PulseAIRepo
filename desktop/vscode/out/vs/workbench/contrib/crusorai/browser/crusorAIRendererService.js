@@ -99,8 +99,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.restartAttempts = 0;
         this.draft = '';
         this.mode = 'agent';
-        /** Think level ('' = inherit the engine's REASONING_EFFORT env default). */
-        this.reasoningEffort = '';
+        /** Think level ('none' = thinking disabled by default). */
+        this.reasoningEffort = 'none';
         this.running = false;
         this.cancelRequested = false;
         /** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
@@ -421,7 +421,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             engineSetupError: this.engineSetupError,
             sessionId: this.sessionId,
             mode: this.mode,
-            reasoningEffort: this.reasoningEffort || undefined,
+            reasoningEffort: this.reasoningEffort || 'none',
             running: this.running,
             cancelRequested: this.cancelRequested,
             interrupt: this.interrupt,
@@ -1175,7 +1175,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     startTurn(text) {
         this.archiveLiveTurn();
         this.resetTurnState(text);
-        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || undefined });
+        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
         this.render();
     }
     /**

@@ -31,6 +31,11 @@ Modules
     time a session binds the opened folder, windowless, reusing a healthy proxy for the same
     workspace and falling back to a free port if 8931 is taken. ``ensure_stdio`` keeps a windowless
     proxy's output readable in ``<runtime home>/preview/proxy-<session>.log``.
+``device``
+    The device pane: a live mirror of an attached Android device served by the same proxy
+    (multipart ``x-mixed-replace`` frames from ``adb screencap``, normalized tap/swipe/text/key
+    input mapped back to real device pixels), so a mobile app can be *looked at* in the preview
+    window the way a web page is.
 ``prompt``
     Batch -> scoped agent prompt -> bridge v2 ``prompt`` frame. This is what turns "click here and
     type" into an edit the agent can actually land: every fix names its element three ways (label,

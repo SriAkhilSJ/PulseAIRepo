@@ -3,7 +3,9 @@ import pytest
 
 from src.agents.runtime_profile import (
     CAP_BROWSER,
+    CAP_DESKTOP_APP,
     CAP_EXECUTION,
+    CAP_MOBILE_APP,
     CAP_RESEARCH,
     CAP_VERIFICATION,
     CAP_WORKSPACE_READ,
@@ -115,6 +117,41 @@ def test_browser_navigation_does_not_imply_code_mutation(with_browser):
     assert resolved & with_browser
     assert not (resolved & MUTATION)
     assert "typecheck_workspace" not in resolved
+
+
+def test_native_mobile_ui_resolves_native_tools_without_browser_tools():
+    task = "Build a React Native app and verify its UI on an Android emulator"
+    profile = resolve_runtime_profile(task)
+    resolved = set(resolve_toolset_names(task))
+    assert profile.name == "mobile_engineering"
+    assert profile.has(CAP_MOBILE_APP)
+    assert not profile.has(CAP_BROWSER)
+    assert {"detect_targets", "check_target_toolchains", "build_target", "verify_target_app"}.issubset(resolved)
+    assert {"device_action", "device_screenshot", "device_ui", "device_logs"}.issubset(resolved)
+    assert {"scaffold_flutter", "scaffold_react_native"}.issubset(resolved)
+    assert not (resolved & _BROWSER_NAMES)
+
+
+def test_desktop_ui_resolves_desktop_receipt_tools_without_browser_tools():
+    task = "Build and verify a Tauri desktop app UI"
+    profile = resolve_runtime_profile(task)
+    resolved = set(resolve_toolset_names(task))
+    assert profile.name == "desktop_engineering"
+    assert profile.has(CAP_DESKTOP_APP)
+    assert not profile.has(CAP_BROWSER)
+    assert {"detect_targets", "check_target_toolchains", "build_target", "verify_target_app"}.issubset(resolved)
+    assert "scaffold_tauri" in resolved
+    assert not (resolved & _BROWSER_NAMES)
+
+
+def test_native_and_web_targets_keep_both_explicit_capabilities(with_browser):
+    task = "Build an Android app and a React web app; verify the app on emulator and the website in browser"
+    profile = resolve_runtime_profile(task)
+    resolved = set(resolve_toolset_names(task))
+    assert profile.has(CAP_MOBILE_APP)
+    assert profile.has(CAP_BROWSER)
+    assert resolved & with_browser
+    assert {"verify_target_app", "device_ui"}.issubset(resolved)
 
 
 def test_explicit_client_capability_extension_is_supported():
