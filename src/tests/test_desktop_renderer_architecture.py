@@ -1369,6 +1369,7 @@ def test_main_chat_transcript_follows_opencode_message_anatomy():
     css = _text("browser", "media", "crusorAI.css")
     assert "OpenCode main-chat layer" in css
     assert "max-width: min(82%, 64ch)" in css
+    assert "color-mix(in srgb, var(--vscode-foreground) 9%, var(--vscode-editor-background))" in css, "bubble stays raised on the forced-black theme"
     assert ".crusorai-assistant-message [data-conversation-scaffold] { opacity: 1; }" in css
 
 

@@ -2142,7 +2142,12 @@
 	padding: 8px 12px;
 	border: 0;
 	border-radius: 10px;
-	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	/* Their bubble is bg-layer-02 — visibly RAISED above the page. On the
+	   forced-black theme the widget token collapses to #000 and the bubble
+	   vanished into the page (field 2026-10-15: "helo" floating bare), so
+	   the raise is mixed from the foreground instead: same raised-pill
+	   read on any theme, black included. */
+	background: color-mix(in srgb, var(--vscode-foreground) 9%, var(--vscode-editor-background));
 	font-size: var(--crusorai-conv-size);
 	line-height: 1.45;
 }
