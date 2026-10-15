@@ -318,6 +318,25 @@
 .crusorai-tool-inline.is-failed { color: var(--crusorai-failed); }
 .crusorai-tool-inline-error { min-width: 0; overflow: hidden; color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
 
+/* Read-row file chip (founder 2026-10-15): icon + filename only, shown
+   selected/loaded — the agent read this code. Click opens the file. */
+.crusorai-tool-file-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: 280px;
+	padding: 1px 8px;
+	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
+	color: var(--vscode-foreground);
+	font: inherit;
+	cursor: pointer;
+}
+.crusorai-tool-file-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-tool-file-chip:hover { background: color-mix(in srgb, var(--vscode-foreground) 16%, transparent); }
+.crusorai-tool-file-chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+
 .crusorai-tool-state {
 	padding: 1px 4px;
 	border: 1px solid var(--vscode-panel-border, transparent);

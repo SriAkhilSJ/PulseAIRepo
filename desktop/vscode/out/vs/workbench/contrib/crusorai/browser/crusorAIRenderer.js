@@ -935,6 +935,12 @@ function toolInlineInfo(tool) {
     const count = text.split('\n').filter(line => line.trim() && !line.startsWith('...')).length;
     return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : undefined;
 }
+/** A muted `key=value`-slot chip (OpenCode basic-tool-tool-arg). */
+function toolInfoChip(text) {
+    const chip = element('span', 'crusorai-tool-arg', text);
+    chip.dataset.slot = 'basic-tool-tool-arg';
+    return chip;
+}
 /** First error line of an inline row's result, when the tool failed in-band. */
 function toolInlineError(tool) {
     const result = resultRecord(tool.result);
@@ -1223,11 +1229,32 @@ function toolRow(tool, host, openTools, pendingClarify) {
     // no status glyph, the caret hugging the label. While a tool runs,
     // the spinner takes the label's left, exactly where their indicator
     // sits. State still earns colour in the body, not the label.
-    const titleMain = element('span', undefined, titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, ...toolArgsChips(tool));
-    titleMain.dataset.slot = 'basic-tool-tool-info-main';
+    const inlineInfo = isInline ? toolInlineInfo(tool) : undefined;
+    let subtitle;
     if (targetMeaningful) {
-        titleMain.lastElementChild.dataset.slot = 'basic-tool-tool-subtitle';
+        if (tool.name === 'read_file') {
+            // Founder 2026-10-15: the path becomes a file chip — icon +
+            // filename only, reading as "selected/loaded" (the agent read
+            // this code); the full path is the tooltip, and clicking the
+            // chip opens that file in the editor.
+            const fileName = targetText.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? targetText;
+            subtitle = element('button', 'crusorai-tool-file-chip', icon('file'), element('span', undefined, fileName));
+            subtitle.title = targetText;
+            subtitle.addEventListener('click', (event) => {
+                event.stopPropagation();
+                host.revealFile(targetText);
+            });
+        }
+        else {
+            subtitle = element('span', 'crusorai-tool-target', targetText);
+        }
+        subtitle.dataset.slot = 'basic-tool-tool-subtitle';
     }
+    const titleMain = element('span', undefined, titleSpan, subtitle, ...toolArgsChips(tool), 
+    // Inline info (#L1-N, match count) hugs the filename on the same
+    // line — never pushed to the row's far edge (founder 2026-10-15).
+    inlineInfo ? toolInfoChip(inlineInfo) : undefined);
+    titleMain.dataset.slot = 'basic-tool-tool-info-main';
     const titleStructured = element('span', undefined, titleMain);
     titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
     const toolInfo = element('span', undefined, titleStructured);
@@ -1254,12 +1281,6 @@ function toolRow(tool, host, openTools, pendingClarify) {
         row.dataset.toolId = tool.id;
         row.dataset.toolName = tool.name;
         row.append(trigger);
-        const info = toolInlineInfo(tool);
-        if (info) {
-            const chip = element('span', 'crusorai-tool-arg', info);
-            chip.dataset.slot = 'basic-tool-tool-arg';
-            row.append(chip);
-        }
         const errorLine = toolInlineError(tool);
         if (errorLine) {
             row.append(element('span', 'crusorai-tool-inline-error', errorLine));

@@ -1534,3 +1534,19 @@ def test_read_and_search_rows_are_single_line_info_rows():
     assert inline_at < body_at, "inline rows must return before familyBody runs"
     assert "crusorai-tool-inline" in renderer and ".crusorai-tool-inline {" in css
     assert "isPending || isInline ? undefined : icon('chevron-down')" in renderer, "no caret on a line that cannot open"
+
+
+def test_read_row_filename_is_a_clickable_file_chip():
+    """Founder screenshot 2026-10-15: '#L1... SHOULD BE NEAR TO THE FILE',
+    the path 'should be replaced with File icon and only File Name',
+    clicking it opens that file, shown selected like the agent read it.
+    So: the #L chip rides inside the title line next to the filename,
+    and a Read row's path is a file chip (icon + basename, full path as
+    tooltip) whose click opens the file via host.revealFile."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "inlineInfo ? toolInfoChip(inlineInfo) : undefined" in renderer
+    assert "element('button', 'crusorai-tool-file-chip', icon('file')" in renderer
+    assert "host.revealFile(targetText)" in renderer
+    assert ".crusorai-tool-file-chip {" in css
+    assert "subtitle.title = targetText" in renderer, "full path survives as the tooltip"
