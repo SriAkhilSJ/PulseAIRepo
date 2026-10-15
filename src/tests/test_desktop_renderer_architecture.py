@@ -1284,3 +1284,16 @@ def test_tool_output_frame_accumulates_into_the_running_terminal_card():
     assert "slice(-65_536)" in service
     protocol = _text("common", "crusorAIProtocol.ts")
     assert "type: 'tool_output'" in protocol
+
+
+def test_streaming_output_patches_the_box_not_the_transcript():
+    """OpenCode streaming feel: tool_output growth patches the running
+    card's <pre> in place (tail-follow per tool, user scroll-up respected);
+    only shape changes take the full paint."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "patchLiveToolOutputs" in renderer
+    assert "data-tool-output-for" in renderer and "toolOutputFor" in renderer
+    assert "bashFollow" in renderer, "follow choice survives repaints, keyed by tool id"
+    assert "stableSignature" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert "crusorai-submessage-in" in css, "their ShellSubmessage entrance, ported"

@@ -467,6 +467,9 @@ function expandableOutput(content) {
 // User disclosure choices survive re-renders — the same law toolRow's
 // openTools set serves one level up, here keyed by the owning tool id.
 const openPlanLists = new Set();
+// Per-tool tail-follow choices for streaming shell output (see terminalBody):
+// true/absent = follow the newest line; false = the user scrolled up to read.
+const bashFollow = new Map();
 // hermes DESKTOP status stack (apps/desktop composer/status-stack +
 // components/chat/status-section.tsx) — NOT the TUI TodoPanel. The desktop
 // chrome: chevron-right caret (rotates 90deg open, 150ms), the `checklist`
@@ -594,15 +597,26 @@ function terminalBody(tool, host) {
     codeEl.append(element('span', 'crusorai-terminal-command crusorai-bash-command', command));
     const resultSpan = element('span', 'crusorai-bash-result');
     resultSpan.append(terminalOutputContent(output, tool.state === 'running'));
+    // Streaming patch target: tool_output chunks rewrite THIS pre in place
+    // (see patchLiveToolOutputs) instead of repainting the transcript.
+    const outPre = resultSpan.querySelector('pre');
+    if (outPre) {
+        outPre.dataset.toolOutputFor = tool.id;
+    }
     codeEl.append(resultSpan);
     pre.append(codeEl);
     scroll.append(pre);
+    // Tail-follow (their followShellOutput discipline): follow the newest
+    // line until the user scrolls up to read; scrolling back re-engages.
+    // The choice survives repaints, keyed by tool id.
+    scroll.addEventListener('scroll', () => {
+        bashFollow.set(tool.id, scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 40);
+    });
     outputBox.append(copyWrap, scroll);
-    // First delivery pins to the latest output (their tail discipline); a
-    // later repaint must not yank a user reading earlier lines.
+    // Pin to the latest output while following (default on, and always on
+    // the first delivery); a user who scrolled up keeps their place.
     window.requestAnimationFrame(() => {
-        if (!scroll.dataset.tailed) {
-            scroll.dataset.tailed = 'true';
+        if (bashFollow.get(tool.id) !== false) {
             scroll.scrollTop = scroll.scrollHeight;
         }
     });
@@ -2976,13 +2990,64 @@ export function mountCrusorAIRenderer(root, surface, host) {
         runAction: runManagerAction,
         confirmRemoveFor: confirmManagerRemove,
     };
+    // Live tool-output patch (OpenCode streaming feel): when ONLY running
+    // tools' results grew (tool_output chunks) and the part shape is stable,
+    // rewrite those <pre> nodes in place and follow the tail — the transcript,
+    // scroll position, and every other card stay untouched. Returns true when
+    // it handled the paint. Plain-text form while streaming; the settle frame
+    // (state change) takes the full paint and restores ANSI colour.
+    let lastToolOutputSig = '';
+    const toolOutputSig = (model) => model.tools.map(t => `${t.id}:${t.state}:${typeof t.result === 'string' ? t.result.length : 0}`).join('|');
+    const patchLiveToolOutputs = (model) => {
+        const sig = toolOutputSig(model);
+        if (sig === lastToolOutputSig) {
+            return false;
+        }
+        let patched = false;
+        for (const tool of model.tools) {
+            if (tool.state !== 'running' || typeof tool.result !== 'string') {
+                continue;
+            }
+            const pre = root.querySelector(`pre[data-tool-output-for="${tool.id}"]`);
+            if (!pre) {
+                continue;
+            }
+            const text = windowedTailLines(stripTerminalEnvelope(resultOutput(tool)), TERMINAL_PAINT_LINE_LIMIT).lines.join('\n');
+            if (pre.textContent !== text) {
+                pre.textContent = text;
+            }
+            const scroller = pre.closest('.crusorai-bash-scroll');
+            if (scroller && bashFollow.get(tool.id) !== false) {
+                scroller.scrollTop = scroller.scrollHeight;
+            }
+            patched = true;
+        }
+        if (patched) {
+            lastToolOutputSig = sig;
+        }
+        return patched;
+    };
+    // Stable shape for the tool-output patch: everything the full signature
+    // covers EXCEPT tool results (their growth is the patch's whole point).
+    let lastStableSig = '';
+    const stableSignature = (model) => {
+        const strip = (t) => ({ id: t.id, name: t.name, state: t.state });
+        return JSON.stringify({
+            ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined,
+            tools: model.tools.map(strip),
+            history: model.history.map(h => ({ ...h, tools: h.tools.map(strip) })),
+        }) + '|' + model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');
+    };
     const paint = (model) => {
         if (model.sessionId !== planSession) {
             planSession = model.sessionId;
             planOpen = undefined;
             lastPaint = undefined;
+            lastStableSig = '';
+            lastToolOutputSig = '';
         }
         const signature = paintSignature(model);
+        const stableSig = stableSignature(model);
         const streaming = lastTextPart(model);
         if (lastPaint
             && lastPaint.signature === signature
@@ -2997,10 +3062,17 @@ export function mountCrusorAIRenderer(root, surface, host) {
                     scroller.scrollTop = scroller.scrollHeight;
                 }
                 lastPaint = { signature, text: streaming.text };
+                lastStableSig = stableSig;
                 return;
             }
             // No live slot even though the shape says one should exist — the
             // DOM does not match the model; take the full paint to resync.
+        }
+        if (lastPaint
+            && stableSig === lastStableSig
+            && streaming?.text === lastPaint.text
+            && patchLiveToolOutputs(model)) {
+            return;
         }
         const previousScroll = root.querySelector('.crusorai-transcript-scroll');
         const scrollTop = previousScroll?.scrollTop ?? 0;
@@ -3042,6 +3114,8 @@ export function mountCrusorAIRenderer(root, surface, host) {
             }
         }
         lastPaint = { signature, text: lastTextPart(model)?.text ?? '' };
+        lastStableSig = stableSig;
+        lastToolOutputSig = toolOutputSig(model);
     };
     return {
         update(model) {
