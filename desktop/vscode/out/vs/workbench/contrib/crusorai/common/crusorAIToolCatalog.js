@@ -18,6 +18,9 @@ export const CRUSOR_AI_TOOL_CATALOG = {
     // ask_user row above is the same tool's legacy meta. A settled clarify
     // batch (answered or replayed) must still read as a Question card.
     clarify: tool('Question', 'control', 'question', 'running'),
+    // A2UI display surface: familyBody tries the A2UI envelope first, so
+    // this entry only names the card for envelope-free results.
+    display_crusor_task: tool('Task', 'control', 'tasklist', 'running'),
     session_search: tool('Search sessions', 'session', 'history'),
     read_file: tool('Read', 'file-read', 'file'),
     list_files: tool('List files', 'file-read', 'list'),
@@ -46,6 +49,34 @@ export const CRUSOR_AI_TOOL_CATALOG = {
     verify_ui_workspace: tool('Verify UI', 'verification', 'check', 'running'),
     verify_ui_routes: tool('Verify routes', 'verification', 'check', 'running'),
     scaffold_nextjs: tool('Scaffold Next.js', 'scaffold', 'add', 'running'),
+    scaffold_flutter: tool('Scaffold Flutter', 'scaffold', 'add', 'running'),
+    scaffold_react_native: tool('Scaffold React Native', 'scaffold', 'add', 'running'),
+    scaffold_tauri: tool('Scaffold Tauri', 'scaffold', 'add', 'running'),
+    // Agent Skills + Skills Hub (src/tools/skill_tools.py, skill_hub_tools.py).
+    // OpenCode's `skill` tool renders as a loaded-item row, not a collapsible
+    // card — the 'skill' family body ports that anatomy: a loaded row for
+    // skill_view, item rows for the list/search results, honest fields for
+    // the install/manage actions.
+    skills_list: tool('Skills', 'skill', 'book', 'running'),
+    skill_view: tool('Load skill', 'skill', 'book', 'running'),
+    skill_manage: tool('Manage skill', 'skill', 'edit', 'running'),
+    hub_search: tool('Search hub', 'skill', 'search', 'running'),
+    hub_install: tool('Install skill', 'skill', 'cloud-download', 'running'),
+    hub_update: tool('Update skill', 'skill', 'sync', 'running'),
+    hub_list: tool('Hub skills', 'skill', 'list', 'running'),
+    hub_remove: tool('Remove skill', 'skill', 'trash', 'running'),
+    // Multi-platform targets (src/tools/target_tools.py): build/verify
+    // receipts and the device-interaction surface. One 'target' family —
+    // fields + the tool's own receipt text, screenshot evidence inline.
+    detect_targets: tool('Detect targets', 'target', 'device-mobile', 'running'),
+    check_target_toolchains: tool('Toolchains', 'target', 'tools', 'running'),
+    build_target: tool('Build target', 'target', 'gear', 'running'),
+    verify_target_app: tool('Verify app', 'target', 'check', 'running'),
+    device_action: tool('Device action', 'target', 'device-mobile', 'running'),
+    device_screenshot: tool('Device screenshot', 'target', 'device-camera', 'always'),
+    device_ui: tool('Device UI', 'target', 'device-mobile', 'running'),
+    device_logs: tool('Device logs', 'target', 'output', 'running'),
+    device_preview: tool('Device preview', 'target', 'preview', 'running'),
     media_search: tool('Search media', 'search', 'file-media'),
     media_download: tool('Download media', 'file-write', 'cloud-download'),
     generate_image: tool('Generate image', 'file-write', 'file-media', 'always'),

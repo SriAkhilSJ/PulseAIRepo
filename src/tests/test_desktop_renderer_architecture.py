@@ -1313,3 +1313,42 @@ def test_whole_ui_layer_boxes_are_present_and_data_driven():
     assert "diagnosticsBox" in renderer and "<diagnostics" in renderer
     assert "errorCard" in renderer and "crusorai-error-card" in css
     assert "crusorai-todos" in renderer
+
+
+def test_more_boxes_cover_skills_hub_scaffolds_and_targets():
+    """More boxes (founder 2026-10-15, OpenCode path): the canonical tools
+    that still fell through to generic cards — skills/hub, the non-web
+    scaffolds, and the target/device surface — resolve named families with
+    OpenCode-anatomy bodies (loaded-item rows for skills, receipt + inline
+    evidence for targets), and the boxes adapt to the RIGHT PANEL via
+    container queries on the render root, not viewport media queries."""
+    catalog = _text("common", "crusorAIToolCatalog.ts")
+    for name in ("skills_list", "skill_view", "skill_manage", "hub_search",
+                 "hub_install", "hub_update", "hub_list", "hub_remove"):
+        assert f"{name}: tool(" in catalog and "'skill'" in catalog, name
+    for name in ("scaffold_flutter", "scaffold_react_native", "scaffold_tauri"):
+        assert f"{name}: tool(" in catalog, name
+    for name in ("detect_targets", "check_target_toolchains", "build_target",
+                 "verify_target_app", "device_action", "device_screenshot",
+                 "device_ui", "device_logs", "device_preview"):
+        assert f"{name}: tool(" in catalog, name
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function skillBody" in renderer and "tool-loaded-item" in renderer
+    assert "function targetBody" in renderer and "crusorai-device-screenshot" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert "container-name: crusorai-agent-panel" in css
+    assert "@container crusorai-agent-panel (max-width: 420px)" in css
+    assert ".crusorai-loaded-item" in css
+
+
+def test_settled_thought_rows_collapse_and_targets_stay_honest():
+    """Field 2026-10-15 (founder screenshots): settled Thought rows painted
+    the model's monologue expanded, 'List files .' echoed a meaningless
+    target, and the think envelope's boilerplate trailer showed as prose.
+    Disclosure persists only on the user's own click; trivial targets are
+    dropped; the trailer is stripped."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "summary.addEventListener('click'" in renderer
+    assert "details.addEventListener('toggle', () => details.open ? openTools.add" not in renderer
+    assert "trivialTargets" in renderer and "'./'" in renderer
+    assert "Proceeding with the approach above" in renderer  # strip pattern

@@ -942,6 +942,92 @@ function errorCard(tool: CrusorAIToolView): HTMLElement {
 	return card;
 }
 
+// OpenCode's `skill` tool is NOT a collapsible card in their registry — it
+// renders as a `tool-loaded-item` row ("loaded skill" + name). Ported: a
+// loaded row for skill_view, one item row per listed skill for the index /
+// hub results, and honest call fields for the install/manage actions. All
+// rows read the tools' own plain-text results (skill_tools.py /
+// skill_hub_tools.py emit "- name ..." lines), never invented fields.
+function loadedItemRow(label: string, detail?: string): HTMLElement {
+	const row = element('div', 'crusorai-loaded-item');
+	row.dataset.component = 'tool-loaded-item';
+	row.append(icon('pass-filled'), element('span', 'crusorai-loaded-item-label', label));
+	if (detail) { row.append(element('span', 'crusorai-loaded-item-detail', detail)); }
+	return row;
+}
+
+function skillBody(tool: CrusorAIToolView, result: Readonly<Record<string, unknown>> | undefined, args: Readonly<Record<string, unknown>> | undefined): HTMLElement {
+	const wrap = element('div', 'crusorai-skill');
+	wrap.dataset.component = 'skill';
+	const raw = typeof tool.result === 'string' ? tool.result : boundedText(result ?? tool.result ?? '', 4000);
+	if (tool.name === 'skill_view') {
+		const name = firstString(args, ['name']) ?? /^# skill:\s*(.+)$/m.exec(raw)?.[1]?.trim() ?? 'skill';
+		const source = /\(source:\s*([^;)]+)/.exec(raw)?.[1]?.trim();
+		wrap.append(loadedItemRow(`Loaded skill · ${name}`, source));
+		const prose = raw.replace(/^# skill:.*$/m, '').replace(/^\(source:.*$/m, '').trim();
+		if (prose) { wrap.append(expandableOutput(markdownCopy(boundedText(prose, 4000)))); }
+		return wrap;
+	}
+	if (tool.name === 'skills_list' || tool.name === 'hub_list' || tool.name === 'hub_search') {
+		const items = raw.split('\n').map(line => line.trim()).filter(line => line.startsWith('- ')).slice(0, 8);
+		if (items.length) {
+			for (const item of items) {
+				const text = item.slice(2).trim();
+				const split = text.search(/\s(?:\(|\[|—|--)/);
+				wrap.append(split > 0
+					? loadedItemRow(text.slice(0, split).trim(), text.slice(split).trim())
+					: loadedItemRow(text));
+			}
+			return wrap;
+		}
+	}
+	const rows: [string, string][] = [];
+	const skillName = firstString(args, ['name', 'source', 'query']) ?? firstString(result, ['name', 'source']);
+	if (skillName) { rows.push(['Skill', skillName]); }
+	const action = firstString(args, ['action']);
+	if (action) { rows.push(['Action', action]); }
+	rows.push(['Status', stateLabel(tool.state)]);
+	wrap.append(toolFields(rows));
+	if (raw.trim()) { wrap.append(element('pre', 'crusorai-tool-pre crusorai-tool-output', boundedText(raw, 1200))); }
+	return wrap;
+}
+
+// Multi-platform target family (src/tools/target_tools.py): the receipt is
+// the tool's own text — fields say which target/device, the scrollable
+// output box carries the receipt, and a device screenshot renders its
+// evidence inline like the browser screenshot body does.
+function targetBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, result: Readonly<Record<string, unknown>> | undefined, args: Readonly<Record<string, unknown>> | undefined): HTMLElement {
+	const wrap = element('div', 'crusorai-target');
+	wrap.dataset.component = 'target';
+	const raw = typeof tool.result === 'string' ? tool.result : boundedText(result ?? tool.result ?? '', 4000);
+	const rows: [string, string][] = [];
+	const targetName = firstString(args, ['target', 'name']) ?? firstString(result, ['target']);
+	if (targetName) { rows.push(['Target', targetName]); }
+	const device = firstString(args, ['device']) ?? firstString(result, ['device']);
+	if (device) { rows.push(['Device', device]); }
+	rows.push(['Status', stateLabel(tool.state)]);
+	wrap.append(toolFields(rows));
+	if (tool.name === 'device_screenshot') {
+		const saved = /([^\s"']+\.png)/.exec(raw)?.[1];
+		if (saved && tool.state !== 'failed') {
+			const src = host.resourceSrc(saved);
+			if (src) {
+				const img = element('img', 'crusorai-device-screenshot');
+				img.src = src;
+				img.alt = `Device screenshot ${saved}`;
+				img.loading = 'lazy';
+				img.onerror = () => { img.remove(); };
+				wrap.append(img);
+			}
+			wrap.append(element('div', 'crusorai-tool-actions',
+				button('Reveal screenshot', 'crusorai-link-button', () => host.revealFile(saved), 'device-camera'),
+				copyButton(saved, host)));
+		}
+	}
+	if (raw.trim()) { wrap.append(element('pre', 'crusorai-tool-pre crusorai-tool-output', boundedText(raw, 1500))); }
+	return wrap;
+}
+
 function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
 	// A2UI Catalog v1 (plan Phase 2): a tool result carrying an
 	// {"a2ui_operations": [...]} envelope renders through the fixed-catalog
@@ -1113,6 +1199,10 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 		// body ports those rows from the WRITTEN state (the tool result's
 		// normalized list) with the call args as fallback.
 		body.append(planListBody(tool, resultRecord(tool.result), args));
+	} else if (presentation.family === 'skill') {
+		body.append(skillBody(tool, result, args));
+	} else if (presentation.family === 'target') {
+		body.append(targetBody(tool, host, result, args));
 	} else if (presentation.family === 'session') {
 		body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
 		body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 400)));
@@ -1150,7 +1240,11 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 		const prose = resultText
 			.replace(/^\s*(?:\*\*)?\s*💭?\s*(?:\*\*)?\s*thinking\s*:?\s*(?:\*\*)?\s*:?\s*/i, '')
 			.replace(/^\s*💭\s+/, '')
-			.replace(/^\s*(?:\*\*)?\s*reasoning\s*:?\s*(?:\*\*)?\s*:?\s*/i, '');
+			.replace(/^\s*(?:\*\*)?\s*reasoning\s*:?\s*(?:\*\*)?\s*:?\s*/i, '')
+			// The think tool's engine envelope ends with boilerplate
+			// ("---\n*Proceeding with the approach above.*") — the row
+			// already says Thought; the trailer is not the model's words.
+			.replace(/\n*---\s*\n\*Proceeding with the approach above\.\*\s*$/i, '');
 		if (prose.trim()) {
 			if (tool.name === 'think') {
 				// Hermes thought body: small, dim, quiet scaffold — never a
@@ -1206,7 +1300,11 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	const targetText = displayTarget(tool);
 	// Hermes quiet-card rule: the target echo must SAY something. When it
 	// just repeats the tool name ("Think think"), it is noise — drop it.
+	// A bare "." / "./" (the workspace root, e.g. list_files) says nothing
+	// either: "List files ." is noise, not a target (field 2026-10-15).
+	const trivialTargets = new Set(['', '.', './', '/', 'workspace']);
 	const targetMeaningful = !!targetText
+		&& !trivialTargets.has(targetText.trim().toLowerCase())
 		&& targetText.toLowerCase() !== tool.name.toLowerCase()
 		&& targetText.toLowerCase() !== presentation.title.toLowerCase();
 	const summary = element('summary', 'crusorai-tool-summary',
@@ -1220,7 +1318,13 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	const body = familyBody(tool, host);
 	if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) { body.append(errorCard(tool)); }
 	details.append(summary, body);
-	details.addEventListener('toggle', () => details.open ? openTools.add(tool.id) : openTools.delete(tool.id));
+	// Persist ONLY user-driven disclosure. A 'toggle' listener also fires
+	// for the programmatic `details.open = true` a running row gets on
+	// every streaming repaint — that latched every live "Thinking" row
+	// into openTools, so settled "Thought" rows stayed expanded and
+	// painted the model's inner monologue full-size (field 2026-10-15).
+	// A summary click is always the user's own hand (mouse or keyboard).
+	summary.addEventListener('click', () => details.open ? openTools.delete(tool.id) : openTools.add(tool.id));
 	return details;
 }
 

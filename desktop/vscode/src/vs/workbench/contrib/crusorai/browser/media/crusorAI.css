@@ -13,6 +13,13 @@
 	font-family: var(--crusorai-font-ui);
 	font-size: inherit;
 	overflow: hidden;
+	/* Right-panel support: the Agent lives in the AuxiliaryBar (right
+	   secondary sidebar, ~380px), where viewport @media queries never see
+	   the panel's real width. Naming the render root as an inline-size
+	   container lets the boxes below adapt to the PANEL, wide or narrow,
+	   in both the right panel and the wide Manager editor. */
+	container-name: crusorai-agent-panel;
+	container-type: inline-size;
 }
 
 .crusorai-render-root *,
@@ -373,6 +380,23 @@
 .crusorai-tool-field-row { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 8px; font-size: var(--crusorai-text-meta); }
 .crusorai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: var(--crusorai-text-micro); letter-spacing: var(--crusorai-track-caps); }
 .crusorai-tool-field-val { color: var(--vscode-foreground); font-family: var(--crusorai-font-mono); font-size: var(--crusorai-text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ---- Skill / target boxes (OpenCode tool-loaded-item anatomy) ---- */
+.crusorai-skill, .crusorai-target { display: grid; gap: 4px; min-width: 0; }
+.crusorai-loaded-item { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
+.crusorai-loaded-item > .codicon, .crusorai-loaded-item svg { flex-shrink: 0; color: var(--crusorai-verified, var(--vscode-foreground)); }
+.crusorai-loaded-item-label { color: var(--vscode-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-loaded-item-detail { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.crusorai-device-screenshot { display: block; max-width: 100%; max-height: 320px; margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+
+/* Right-panel (AuxiliaryBar) narrow rules — container queries keyed to the
+   render root, so they hold at ~380px panel width on any window size. */
+@container crusorai-agent-panel (max-width: 420px) {
+	.crusorai-tool-field-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+	.crusorai-tool-field-val { white-space: normal; overflow-wrap: anywhere; }
+	.crusorai-loaded-item-detail { display: none; }
+	.crusorai-tool-actions { flex-wrap: wrap; }
+	.crusorai-device-screenshot, .crusorai-browser-screenshot { max-height: 220px; }
+}
 .crusorai-search-results { display: grid; gap: 4px; margin-top: 6px; }
 .crusorai-search-row { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
 .crusorai-tool-checks { display: grid; gap: 6px; padding: 6px 0; }
