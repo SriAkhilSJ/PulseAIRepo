@@ -102,7 +102,7 @@ def test_renderer_gates_sessions_on_an_open_project_folder():
 def test_terminal_disclosure_has_bounded_output_and_completion_evidence():
     renderer = _text("browser", "crusorAIRenderer.ts")
     for receipt in (
-        "function boundedText", "earlier characters omitted", "terminal-command",
+        "function boundedText", "earlier characters omitted", "dataset.slot = 'bash-command'",
         "terminal-output", "exitCode", "duration", "copyButton(command, host)", "Reveal location",
     ):
         assert receipt in renderer
@@ -448,7 +448,11 @@ def test_reveal_paths_and_terminal_obey_hermes():
     summary_start = renderer.index("const summary = element('summary'")
     summary_end = renderer.index("details.append(summary")
     assert "crusorai-tool-state" not in renderer[summary_start:summary_end]
-    assert "· exit ${exit}" in renderer, "one meta receipt line"
+    # Founder 2026-10-15 supersedes the hermes receipt line: OpenCode
+    # shell rows are silent on success — only a failed run earns an
+    # "Exit code N" line (see test_terminal_matches_opencode_bash_output).
+    assert "· exit ${exit}" not in renderer
+    assert "Exit code ${exit}" in renderer
     assert "dataset.tailed" in renderer, "terminal tail jump present"
 
     css = _text("browser", "media", "crusorAI.css")
@@ -1278,7 +1282,7 @@ def test_opencode_shell_box_is_captured_and_wired_to_v2_terminal_events():
     assert "crusorai-bash-output" in renderer and "crusorai-bash-result" in renderer
     assert "copyButton(command, host)" in renderer, "copy lives inside the box, as captured"
     css = _text("browser", "media", "crusorAI.css")
-    assert ".crusorai-bash-scroll" in css and "max-height: 240px" in css
+    assert '[data-slot="bash-scroll"]' in css and "max-height: 240px" in css
     # Founder 2026-10-15 ("extract codes as it is") supersedes the old
     # interpretive rule: --v2-* now ships, but ONLY behind the token bridge
     # that maps every one to a live workbench var.
@@ -1467,11 +1471,13 @@ def test_thinking_shimmer_survives_the_verbatim_layer():
 def test_rendered_response_matches_the_reference_photos():
     """Founder reference photos 2026-10-15 (OpenCode rendered response):
     Thinking is the bare muted word, a settled tool is a muted label with
-    the caret hugging it ('Shell ⌄'), the shell box shows '$ command', the
-    dock is a 12px box and Stop is a filled square tile."""
+    the caret hugging it ('Shell ⌄'), the dock is a 12px box and Stop is
+    a filled square tile. (The shell box's command line was pinned to
+    '$ command' from the photos; the captured OpenCode source renders
+    the raw command with no '$' — source wins, founder 2026-10-15.)"""
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "crusorai-thinking-word" in renderer
-    assert "`$ ${command}`" in renderer
+    assert "`$ ${command}`" not in renderer
     assert "icon(running ? 'debug-stop' : 'arrow-up')" in renderer
     assert "Ask anything, / for commands, @ for context..." in renderer
     css = _text("browser", "media", "crusorAI.css")
@@ -1561,3 +1567,46 @@ def test_read_row_filename_is_a_clickable_file_chip():
     assert ".crusorai-tool-file-link {" in css
     assert ".crusorai-file-icon::before" in css, "theme CSS paints the icon under .show-file-icons"
     assert "crusorai-tool-file-chip" not in css
+
+
+def test_terminal_matches_opencode_bash_output():
+    """Founder screenshot 2026-10-15: 'terminal looks shit... read
+    opencode'. The captured shell render (tool-renderer.tsx execute/
+    shell + ConsoleOutput) is: header = title + command subtitle ONLY
+    while collapsed; body = ONE bash-output box (hover copy, ONE 240px
+    hidden-scrollbar scroll region, command block then muted result
+    block, result only when output exists); success says NOTHING —
+    no 'Passed · exit 0' footer. Our box previously carried the slots
+    as classes only, so the extracted CSS never painted it and the old
+    glue (a nested 4rem scroller, a '$ ' prefix, the footer) did."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    # Their DOM hooks, so the verbatim extracted block paints the box.
+    for slot in ("bash-copy", "bash-scroll", "bash-pre", "bash-command", "bash-result"):
+        assert f"dataset.slot = '{slot}'" in renderer, slot
+    assert "scroll.dataset.scrollable = ''" in renderer
+    assert "`$ ${command}`" not in renderer, "captured source shows the raw command"
+    # Command subtitle only while collapsed; result only with output.
+    assert "crusorai-shell-command" in renderer
+    assert ".crusorai-tool-row[open] .crusorai-shell-command { display: none; }" in css
+    assert "if (output || tool.state === 'running') { codeEl.append(resultSpan); }" in renderer
+    # Success is silent; failure earns one quiet exit line.
+    assert "`Exit code ${exit}`" in renderer
+    assert "showExit" in renderer
+    # One scroller only: the live <pre> is un-capped inside bash-scroll.
+    assert ".crusorai-bash-result .crusorai-terminal-output { max-height: none" in css
+
+
+def test_scrolling_hides_every_scrollbar_opencode_style():
+    """Founder 2026-10-15: 'fix scrolling feature every where where ever
+    scrolling is applicable becoz not nice — read opencode for that
+    also'. OpenCode's doctrine (message-part.css): every scrollable
+    region — tool-output, BashOutput, edit content, the transcript —
+    scrolls with NO visible scrollbar. One late rule in our stylesheet
+    retires every thin/default bar in the pane at once."""
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-render-root, .crusorai-render-root * { scrollbar-width: none; }" in css
+    assert ".crusorai-render-root *::-webkit-scrollbar { display: none; }" in css
+    doctrine = css.index("Scrolling, OpenCode doctrine")
+    assert css.index(".crusorai-bash-result .crusorai-terminal-output") < doctrine
+    assert doctrine > css.index("EXTRACTED VERBATIM"), "the doctrine block loads after the extracted block"

@@ -591,7 +591,6 @@ function terminalBody(tool, host) {
         }
     }
     exit ??= (tool.state === 'running' ? 'running' : 'unknown');
-    const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
     const body = element('div', 'crusorai-tool-body crusorai-terminal-body');
     // OpenCode bash-output box, copied from the captured reference
     // (third-party/opencode/session-ui/components/message-part.css) and wired
@@ -602,12 +601,22 @@ function terminalBody(tool, host) {
     outputBox.dataset.component = 'bash-output';
     outputBox.dataset.variant = 'shell';
     const copyWrap = element('div', 'crusorai-bash-copy');
+    copyWrap.dataset.slot = 'bash-copy';
     copyWrap.append(copyButton(command, host));
     const scroll = element('div', 'crusorai-bash-scroll');
+    scroll.dataset.slot = 'bash-scroll';
+    scroll.dataset.scrollable = '';
+    scroll.tabIndex = 0;
+    scroll.setAttribute('role', 'region');
+    scroll.setAttribute('aria-label', 'Terminal output');
     const pre = element('pre', 'crusorai-bash-pre');
+    pre.dataset.slot = 'bash-pre';
     const codeEl = element('code');
-    codeEl.append(element('span', 'crusorai-terminal-command crusorai-bash-command', `$ ${command}`));
+    const commandSpan = element('span', 'crusorai-bash-command', command);
+    commandSpan.dataset.slot = 'bash-command';
+    codeEl.append(commandSpan);
     const resultSpan = element('span', 'crusorai-bash-result');
+    resultSpan.dataset.slot = 'bash-result';
     resultSpan.append(terminalOutputContent(output, tool.state === 'running'));
     // Streaming patch target: tool_output chunks rewrite THIS pre in place
     // (see patchLiveToolOutputs) instead of repainting the transcript.
@@ -615,7 +624,11 @@ function terminalBody(tool, host) {
     if (outPre) {
         outPre.dataset.toolOutputFor = tool.id;
     }
-    codeEl.append(resultSpan);
+    // OpenCode renders the result block only when there IS output (or
+    // the run is live and output is coming) — no empty result box.
+    if (output || tool.state === 'running') {
+        codeEl.append(resultSpan);
+    }
     pre.append(codeEl);
     scroll.append(pre);
     // Tail-follow (their followShellOutput discipline): follow the newest
@@ -632,11 +645,14 @@ function terminalBody(tool, host) {
             scroll.scrollTop = scroll.scrollHeight;
         }
     });
-    body.append(outputBox, 
-    // One meta line (hermes scaffold grammar): state word + exit code
-    // + duration, plain text — the colored glyph in the header already
-    // carries the state, so no second PASSED pill here.
-    element('div', 'crusorai-terminal-result', element('span', undefined, `${stateLabel(tool.state)} · exit ${exit}`), element('span', 'crusorai-tool-duration', duration)));
+    // OpenCode shell rows say NOTHING on success (no "Passed · exit 0"
+    // footer — founder screenshot 2026-10-15: 'terminal looks shit');
+    // only a failed/timed-out run earns one quiet exit line, like their
+    // SessionShellMessage error. The header glyph already carries state.
+    const showExit = exit !== undefined && exit !== '0' && exit !== 'running' && exit !== 'unknown';
+    body.append(outputBox, showExit
+        ? element('div', 'crusorai-terminal-result', element('span', undefined, exit === 'timeout' ? 'Timed out' : `Exit code ${exit}`))
+        : undefined);
     const actions = element('div', 'crusorai-tool-actions');
     const cwd = firstString(args, ['cwd', 'path']);
     if (cwd) {
@@ -1259,6 +1275,14 @@ function toolRow(tool, host, openTools, pendingClarify) {
         }
         else {
             subtitle = element('span', 'crusorai-tool-target', targetText);
+        }
+        if (presentation.family === 'terminal' || presentation.family === 'process') {
+            // OpenCode shell trigger (tool-renderer.tsx): the command rides
+            // the header ONLY while collapsed — once the card opens, the
+            // bash-output box carries it and the header goes bare. First
+            // line only (their ShellSubmessage for execute).
+            subtitle.classList.add('crusorai-shell-command');
+            subtitle.textContent = targetText.split('\n')[0];
         }
         subtitle.dataset.slot = 'basic-tool-tool-subtitle';
     }

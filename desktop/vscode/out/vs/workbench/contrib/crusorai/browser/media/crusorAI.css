@@ -2088,17 +2088,21 @@
 .crusorai-a2ui-approval-actions { display: flex; gap: 8px; margin-top: 6px; }
 .crusorai-a2ui-image { max-width: 100%; border-radius: 6px; }
 
-/* OpenCode bash-output box (ported from third-party/opencode/session-ui/
-   components/message-part.css, MIT; --v2-* mapped to workbench vars). */
-.crusorai-bash-output { position: relative; width: 100%; border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
-.crusorai-bash-copy { position: absolute; top: 4px; right: 4px; z-index: 1; transition: opacity 0.15s ease; opacity: 0; pointer-events: none; }
-.crusorai-bash-output:hover .crusorai-bash-copy, .crusorai-bash-output:focus-within .crusorai-bash-copy { opacity: 1; pointer-events: auto; }
-.crusorai-bash-scroll { width: 100%; overflow-y: auto; overflow-x: hidden; max-height: 240px; scrollbar-width: none; }
-.crusorai-bash-scroll::-webkit-scrollbar { display: none; }
-.crusorai-bash-pre { margin: 0; padding: 0; font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
-.crusorai-bash-command { display: block; padding: 12px; color: var(--vscode-foreground); }
-.crusorai-bash-result { display: block; padding: 0; border-top: 0.5px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); color: var(--vscode-descriptionForeground); }
-.crusorai-bash-result .crusorai-terminal-output { padding: 12px; }
+/* OpenCode bash-output box: the DOM carries their data-component/
+   data-slot hooks, so the EXTRACTED VERBATIM block paints the box —
+   border, hover copy, the ONE 240px hidden-scrollbar scroll region,
+   command/result split. Glue here only un-caps the live-output <pre>
+   inside the result block: the old hermes 4rem inner window nested a
+   second scroller inside the 240px one (founder 2026-10-15: terminal
+   'looks shit', scrolling 'not nice'). */
+.crusorai-bash-result .crusorai-terminal-output { max-height: none; overflow: visible; white-space: pre-wrap; padding: 0; }
+
+/* Shell header carries the command only while the card is collapsed;
+   once open, the box carries it (OpenCode tool-renderer.tsx). */
+.crusorai-tool-row[open] .crusorai-shell-command { display: none; }
+
+/* A failed/timed-out run earns ONE quiet exit line; success is silent. */
+.crusorai-terminal-result { color: var(--vscode-errorForeground); }
 
 /* ── OpenCode main-chat layer ─────────────────────────────────────────────
    The transcript itself, ported from the captured session-ui
@@ -4010,3 +4014,12 @@
    pill is its text slot. Our legacy bubble paint on the wrapper turned
    every user turn into a giant full-width band (founder 2026-10-15). */
 .crusorai-render-root .crusorai-user-message { background: transparent; border: 0; padding: 0; border-radius: 0; max-width: 100%; }
+
+/* Scrolling, OpenCode doctrine (message-part.css, founder 2026-10-15:
+   fix scrolling everywhere it applies): EVERY scrollable region in the
+   pane — transcript, tool output, BashOutput, diffs, lists, Manager —
+   hides its scrollbar. Scrolling is wheel/trackpad; no chrome bars
+   inside small boxes, ever. This block loads last on purpose: it
+   retires every `scrollbar-width: thin` above in one stroke. */
+.crusorai-render-root, .crusorai-render-root * { scrollbar-width: none; }
+.crusorai-render-root::-webkit-scrollbar, .crusorai-render-root *::-webkit-scrollbar { display: none; }
