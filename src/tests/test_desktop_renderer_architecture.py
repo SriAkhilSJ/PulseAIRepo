@@ -1297,3 +1297,17 @@ def test_streaming_output_patches_the_box_not_the_transcript():
     assert "stableSignature" in renderer
     css = _text("browser", "media", "crusorAI.css")
     assert "crusorai-submessage-in" in css, "their ShellSubmessage entrance, ported"
+
+
+def test_whole_ui_layer_boxes_are_present_and_data_driven():
+    """Whole UI layer (founder 2026-10-15): every box family from the
+    captured OpenCode layer has a native body wired to real v2 data -
+    edit-content around diffs, the LSP diagnostics ledger parsed from the
+    tools' own <diagnostics> block, an earned-red error card on failure,
+    todos spacing - colours only from the workbench theme."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "crusorai-edit-content" in renderer and "crusorai-edit-content" in css
+    assert "diagnosticsBox" in renderer and "<diagnostics" in renderer
+    assert "errorCard" in renderer and "crusorai-error-card" in css
+    assert "crusorai-todos" in renderer

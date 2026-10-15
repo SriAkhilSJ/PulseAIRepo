@@ -492,7 +492,7 @@ function planListBody(tool, result, args) {
     details.open = !openPlanLists.has(tool.id);
     details.addEventListener('toggle', () => details.open ? openPlanLists.delete(tool.id) : openPlanLists.add(tool.id));
     details.append(element('summary', 'crusorai-plan-head', element('span', 'crusorai-plan-caret', icon('chevron-right')), element('span', 'crusorai-plan-icon', icon('checklist')), element('span', 'crusorai-plan-title', `Tasks ${done}/${rows.length}`), running ? element('span', 'crusorai-mini-spinner crusorai-plan-spinner') : undefined));
-    const wrap = element('div', 'crusorai-plan-list');
+    const wrap = element('div', 'crusorai-plan-list crusorai-todos');
     for (const step of rows) {
         const status = step.status;
         const row = element('div', `crusorai-plan-row is-${status}`);
@@ -755,6 +755,35 @@ function taskToolCard(tool, host) {
     }
     return card;
 }
+// Their diagnostics box: the LSP report the write/edit tools append to the
+// result (<diagnostics file="..."> lines) renders as its own ledger under
+// the diff — severity colour is earned per row, never decorative.
+function diagnosticsBox(tool) {
+    const raw = typeof tool.result === 'string' ? tool.result : '';
+    const match = /<diagnostics[^>]*>([\s\S]*?)<\/diagnostics>/.exec(raw);
+    if (!match) {
+        return undefined;
+    }
+    const lines = match[1].split('\n').map(line => line.trim()).filter(Boolean).slice(0, 8);
+    if (!lines.length) {
+        return undefined;
+    }
+    const box = element('div', 'crusorai-diagnostics');
+    box.dataset.component = 'diagnostics';
+    for (const line of lines) {
+        const severity = /error/i.test(line) ? 'is-failed' : /warn/i.test(line) ? 'is-approval' : 'is-pending';
+        box.append(element('div', `crusorai-diagnostics-row ${severity}`, line));
+    }
+    return box;
+}
+// Their error-card: a failed tool's own words in an earned-red box, never
+// buried in generic JSON.
+function errorCard(tool) {
+    const card = element('div', 'crusorai-error-card');
+    card.append(element('div', 'crusorai-error-card-title', 'Failed'));
+    card.append(element('div', 'crusorai-error-card-body', boundedText(tool.result ?? 'The tool failed without a message.', 500)));
+    return card;
+}
 function familyBody(tool, host) {
     // A2UI Catalog v1 (plan Phase 2): a tool result carrying an
     // {"a2ui_operations": [...]} envelope renders through the fixed-catalog
@@ -826,7 +855,14 @@ function familyBody(tool, host) {
                 rows.push(['Receipt', receipt]);
             }
             body.append(toolFields(rows));
-            body.append(diffPreview(diff));
+            const editBox = element('div', 'crusorai-edit-content');
+            editBox.dataset.component = 'edit-content';
+            editBox.append(diffPreview(diff));
+            body.append(editBox);
+            const diagnostics = diagnosticsBox(tool);
+            if (diagnostics) {
+                body.append(diagnostics);
+            }
             body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
         }
     }
@@ -1042,7 +1078,11 @@ function toolRow(tool, host, openTools, pendingClarify) {
         && targetText.toLowerCase() !== tool.name.toLowerCase()
         && targetText.toLowerCase() !== presentation.title.toLowerCase();
     const summary = element('summary', 'crusorai-tool-summary', tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : statusGlyph(tool.state), icon(presentation.icon), titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, tool.duration ? element('span', 'crusorai-tool-duration', tool.duration) : undefined, isPending ? undefined : icon('chevron-right'));
-    details.append(summary, familyBody(tool, host));
+    const body = familyBody(tool, host);
+    if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) {
+        body.append(errorCard(tool));
+    }
+    details.append(summary, body);
     details.addEventListener('toggle', () => details.open ? openTools.add(tool.id) : openTools.delete(tool.id));
     return details;
 }

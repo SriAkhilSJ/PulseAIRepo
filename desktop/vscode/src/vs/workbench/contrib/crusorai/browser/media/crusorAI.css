@@ -270,6 +270,18 @@
    running row instead of popping into existence. */
 .crusorai-tool-row.is-running .crusorai-tool-target { animation: crusorai-submessage-in 0.45s ease; }
 @keyframes crusorai-submessage-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+
+/* Whole UI layer boxes (ported from the captured message-part.css):
+   edit/write content, diagnostics ledger, error card, todos. */
+.crusorai-edit-content { border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; margin-top: 6px; }
+.crusorai-diagnostics { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px 10px; }
+.crusorai-diagnostics-row { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
+.crusorai-diagnostics-row.is-failed { color: var(--vscode-errorForeground); }
+.crusorai-diagnostics-row.is-approval { color: var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground)); }
+.crusorai-error-card { border: 0.5px solid var(--vscode-errorForeground); border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
+.crusorai-error-card-title { color: var(--vscode-errorForeground); font-weight: 600; margin-bottom: 4px; }
+.crusorai-error-card-body { white-space: pre-wrap; word-break: break-word; }
+.crusorai-plan-list.crusorai-todos { padding: 10px 0 24px 0; gap: 8px; }
 .crusorai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
 
 .crusorai-tool-state {
