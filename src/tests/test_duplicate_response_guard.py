@@ -90,3 +90,52 @@ def test_bridge_projects_retract_frames(tmp_path):
         {"type": "message.agent.retract", "payload": {"chars": 5}}
     )
     assert stored["type"] == "token_retract" and stored["chars"] == 5
+
+
+def _capture_bus(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        cg.event_bus, "emit", lambda kind, payload: seen.append((kind, payload)))
+    return seen
+
+
+def test_held_answer_paints_once_on_release(monkeypatch):
+    """The greeting case (field 2026-10-15): a short tools-bound answer is
+    held, then released whole -- it never spawns-and-vanishes."""
+    seen = _capture_bus(monkeypatch)
+    pump = cg._AgentTokenPump("t-hold", hold_text=True)
+    pump._emit_text("Hi! How can I help you today?")
+    assert seen == [], "nothing paints while the attempt's fate is undecided"
+    assert pump.painted_chars == 0
+    pump.release_held()
+    assert seen == [("message.agent.chunk",
+                     {"chunk": "Hi! How can I help you today?", "thread_id": "t-hold"})]
+    assert pump.painted_chars == len("Hi! How can I help you today?")
+
+
+def test_discarded_attempt_never_paints(monkeypatch):
+    seen = _capture_bus(monkeypatch)
+    pump = cg._AgentTokenPump("t-discard", hold_text=True)
+    pump._emit_text("Hello! How can I help you today?")
+    pump.discard_held()
+    assert seen == [], "a re-prompted attempt leaves no trace on screen"
+
+
+def test_long_answer_breaks_the_hold_and_streams(monkeypatch):
+    seen = _capture_bus(monkeypatch)
+    pump = cg._AgentTokenPump("t-live", hold_text=True)
+    pump._emit_text("x" * 200)
+    assert seen and pump.painted_chars == 200, "past the cap the answer streams live"
+
+
+def test_discard_retracts_only_what_was_painted(monkeypatch):
+    seen = _capture_bus(monkeypatch)
+    pump = cg._AgentTokenPump("t-mix", hold_text=True)
+    pump._emit_text("y" * 200)          # went live (over cap)
+    pump._emit_text("held-tail")        # live now too (post-release)
+    cg._TURN_PUMPS["t-mix"] = pump
+    cg._TURN_LAST_CALL_TEXT["t-mix"] = pump.painted_chars
+    seen.clear()
+    cg._discard_held_answer("t-mix")
+    assert seen == [("message.agent.retract",
+                     {"chars": 209, "thread_id": "t-mix"})]

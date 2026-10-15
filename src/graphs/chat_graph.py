@@ -1756,6 +1756,7 @@ def ai_node(
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
             strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
+            hold_text=tools_bound,
         )
     except Exception as exc:
         # A Stop that fired while the request was in flight wins over provider
@@ -1864,6 +1865,7 @@ def ai_node(
                         call_llm, messages, session_id, provider, model,
                         strip_tool_blocks=tools_bound,
                         reasoning_config=reasoning_config,
+                        hold_text=tools_bound,
                     )
                 except Exception as _failover_exc:
                     if _is_tool_messages_rejection(_failover_exc):
@@ -1871,7 +1873,7 @@ def ai_node(
                             f"[failover] tool rejection on failover path ({type(_failover_exc).__name__}); retrying stripped no-tools",
                             flush=True,
                         )
-                        _retract_streamed_answer(session_id)
+                        _discard_held_answer(session_id)
                         result = _invoke_with_token_pump(
                             llm, _drop_tool_pairs(messages), session_id,
                             provider, model, strip_tool_blocks=False,
@@ -1942,15 +1944,17 @@ def ai_node(
             "the actual tool call now to continue the task."
         ))
         messages_with_nudge = messages + [_nudge]
-        # The first attempt's text is already on the user's screen, but
-        # that attempt is being DISCARDED (it signalled a tool call and
-        # delivered none) -- withdraw its painted chars so the re-prompt's
-        # answer does not glue onto it (field 2026-10-15: 3 answers).
-        _retract_streamed_answer(session_id)
+        # The first attempt is being DISCARDED (it signalled a tool call
+        # and delivered none). Its held text dies silently; anything that
+        # already streamed live is retracted by exact painted char count,
+        # so the re-prompt's answer never glues onto it (field 2026-10-15:
+        # 'Hello! How' + the replacement answer).
+        _discard_held_answer(session_id)
         try:
             result = _invoke_with_token_pump(
                 call_llm, messages_with_nudge, session_id, provider, model,
                 strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
+                hold_text=tools_bound,
             )
             result = repair_text_tool_calls(result, allow=tools_bound)
             # Update state for the retry count (carried via additional_kwargs)
@@ -2114,6 +2118,9 @@ def ai_node(
     )
 
     result = _drop_repeated_read_calls(result, state)
+    # The kept attempt's held head paints now (answers under the hold cap
+    # arrive whole; longer ones already went live mid-generation).
+    _release_held_answer(session_id)
 
     return {
         "messages": [result],
@@ -2453,6 +2460,25 @@ _TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
 _TURN_LAST_CALL_TEXT: dict[str, int] = {}
 
 
+_TURN_PUMPS: dict[str, "_AgentTokenPump"] = {}
+
+
+def _release_held_answer(thread_id: str) -> None:
+    """ai_node kept the attempt: paint anything the pump still holds."""
+    pump = _TURN_PUMPS.pop(thread_id, None)
+    if pump is not None:
+        pump.release_held()
+
+
+def _discard_held_answer(thread_id: str) -> None:
+    """ai_node is regenerating: held text dies silently; anything already
+    live (over the hold cap) is retracted by exact painted char count."""
+    pump = _TURN_PUMPS.get(thread_id)
+    if pump is not None:
+        pump.discard_held()
+    _retract_streamed_answer(thread_id)
+
+
 def _retract_streamed_answer(thread_id: str) -> None:
     """Withdraw the previous attempt's painted answer text (char count).
 
@@ -2581,12 +2607,8 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
         text = pump._filter_piece(text)
         if not text.strip():
             return False
-    pump._flushed_text_len = len(text)
     try:
-        event_bus.emit("message.agent.chunk", {
-            "chunk": text,
-            "thread_id": thread_id,
-        })
+        pump._emit_text(text)
         return True
     except Exception:
         return False  # a dead bus must not kill a live turn
@@ -2644,10 +2666,21 @@ class _AgentTokenPump(BaseCallbackHandler):
 
     run_inline = True
 
-    def __init__(self, thread_id: str, strip_tool_blocks: bool = False, enable_reasoning: bool = True):
+    # A tools-bound attempt's text is held back until this many chars --
+    # past it the text is certainly the answer (pre-tool narration is
+    # never this long) and streams live. Under it, ai_node decides the
+    # attempt's fate first: kept -> released whole; discarded (re-prompt,
+    # tool call, failover) -> dropped silently. Without the hold, a
+    # discarded attempt visibly spawns and vanishes (field 2026-10-15).
+    _HELD_TEXT_CAP = 160
+
+    def __init__(self, thread_id: str, strip_tool_blocks: bool = False, enable_reasoning: bool = True, hold_text: bool = False):
         self._thread_id = thread_id
         self.enable_reasoning = enable_reasoning
         self.streamed = False
+        self._live = not hold_text
+        self._held: list[str] = []
+        self._held_chars = 0
         self._reasoning_acc = ""
         # Inline-think router (field 2026-09-17: zero Thinking cards on
         # deepseek-v4-flash): DeepSeek-style routers do NOT deliver reasoning
@@ -2907,6 +2940,12 @@ class _AgentTokenPump(BaseCallbackHandler):
 
     def _emit_text(self, piece: str) -> None:
         self.text_chars += len(piece)
+        if not self._live:
+            self._held.append(piece)
+            self._held_chars += len(piece)
+            if self._held_chars >= self._HELD_TEXT_CAP:
+                self.release_held()
+            return
         try:
             event_bus.emit("message.agent.chunk", {
                 "chunk": piece,
@@ -2915,10 +2954,37 @@ class _AgentTokenPump(BaseCallbackHandler):
         except Exception:
             pass  # a dead bus must not kill a live generation
 
+    @property
+    def painted_chars(self) -> int:
+        """Chars that actually reached the client (held text has not)."""
+        return self.text_chars - self._held_chars
+
+    def release_held(self) -> None:
+        """The attempt is the answer: paint the held head, stream the rest."""
+        self._live = True
+        if not self._held:
+            return
+        text = "".join(self._held)
+        self._held = []
+        self._held_chars = 0
+        try:
+            event_bus.emit("message.agent.chunk", {
+                "chunk": text,
+                "thread_id": self._thread_id,
+            })
+        except Exception:
+            pass
+
+    def discard_held(self) -> None:
+        """The attempt is being regenerated: its held text never paints."""
+        self._held = []
+        self._held_chars = 0
+
 
 def _invoke_with_token_pump(
     call_llm, messages, thread_id: str, provider: str = "", model: str = "",
     strip_tool_blocks: bool = False, reasoning_config: dict | None = None,
+    hold_text: bool = False,
 ):
     """Agent-node invoke with the live token pump attached (best-effort).
 
@@ -2943,7 +3009,9 @@ def _invoke_with_token_pump(
         thread_id,
         strip_tool_blocks=strip_tool_blocks,
         enable_reasoning=enable_reasoning,
+        hold_text=hold_text,
     )
+    _TURN_PUMPS[thread_id] = pump
     _model_t0 = time.monotonic()
     try:
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
@@ -2951,14 +3019,13 @@ def _invoke_with_token_pump(
         result = call_llm.invoke(messages)
     except Exception:
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
-        _TURN_LAST_CALL_TEXT[thread_id] = pump.text_chars
+        _TURN_LAST_CALL_TEXT[thread_id] = pump.painted_chars
         # Failed requests cost wall time too — account before re-raising.
         _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
             time.monotonic() - _model_t0
         )
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
-    _TURN_LAST_CALL_TEXT[thread_id] = pump.text_chars
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
@@ -2972,6 +3039,7 @@ def _invoke_with_token_pump(
     # Any held-back display text (partial-tag tail, or an unterminated block
     # that repair will NOT consume) flushes before the receipt line.
     pump.flush_tail()
+    _TURN_LAST_CALL_TEXT[thread_id] = pump.painted_chars
     try:
         route = f"{provider}/{model}" if provider else "llm"
         total = time.monotonic() - pump._t0
@@ -3008,9 +3076,7 @@ def _invoke_with_token_pump(
             _flush_unstreamed_reasoning(result, thread_id)
             flushed = _flush_unstreamed_answer(pump, result, thread_id)
             if flushed:
-                _TURN_LAST_CALL_TEXT[thread_id] = _TURN_LAST_CALL_TEXT.get(
-                    thread_id, 0
-                ) + int(getattr(pump, "_flushed_text_len", 0) or 0)
+                _TURN_LAST_CALL_TEXT[thread_id] = pump.painted_chars
                 # The flag means "this call's text already reached the client"
                 # — the stream-loop fallback (final_response emission) must
                 # not re-emit the same answer (double paint).
