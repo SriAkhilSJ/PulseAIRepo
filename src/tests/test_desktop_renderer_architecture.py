@@ -1807,3 +1807,20 @@ def test_write_settles_into_the_diff_view():
     assert "@@ -0,0 +1,${lines.length} @@" in renderer
     # Streaming writes keep the growing file view.
     assert "codeView(streamText.slice(0, 32_000), target, syntax)" in renderer
+
+
+def test_streaming_write_paints_as_signed_diff():
+    """Founder 2026-10-15 (build 03b8317c screenshot): 'i checked
+    good, but when it streamed it was colorless' — the settled diff
+    was right, but while the write streamed the card grew as a plain
+    file view and only gained colour at settle. Now the LIVE write
+    paints as the diff itself: growing content lands as green
+    signed additions (allAddedDiff behind a new-file hunk header,
+    so lines are numbered) with syntax colours from the first
+    frame; the engine's durable diff (with any removals) replaces
+    it at settle. Verified in a jsdom harness against the shipped
+    bundle: partial-60-char frame already paints + rows."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function streamingWriteDiff" in renderer and "function allAddedDiff" in renderer
+    assert "diffPreview(streamingWriteDiff(streamText.slice(0, 32_000)), target, syntax)" in renderer
+    assert "(tool.state === 'running' || tool.state === 'queued')" in renderer

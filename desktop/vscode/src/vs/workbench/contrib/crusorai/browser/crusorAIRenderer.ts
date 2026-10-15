@@ -1159,7 +1159,25 @@ function fullWriteDiff(tool: CrusorAIToolView, diff: string, streamText: string 
 	const lines = streamText.split('\n');
 	if (lines[lines.length - 1] === '') { lines.pop(); }
 	if (stats.added !== lines.length) { return diff; }
+	return allAddedDiff(lines);
+}
+
+/**
+ * A whole-file addition as a unified diff (new-file hunk header so
+ * the viewer numbers every line). Used for the settled pure-add
+ * write (counts-gated above) and for the LIVE write preview: while
+ * content streams in, what exists so far is painted as additions —
+ * green, signed, numbered — and the durable engine diff replaces
+ * it (with any removals) when the call lands.
+ */
+function allAddedDiff(lines: readonly string[]): string {
 	return `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => `+${line}`).join('\n')}`;
+}
+
+function streamingWriteDiff(text: string): string {
+	const lines = text.split('\n');
+	if (lines[lines.length - 1] === '') { lines.pop(); }
+	return allAddedDiff(lines);
 }
 
 /** OpenCode DiffChanges: the counted chip that rides the file header. */
@@ -1357,9 +1375,18 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 				editBox.dataset.component = 'edit-content';
 				editBox.append(diffPreview(settledWriteDiff, target, syntax));
 				view = editBox;
+			} else if (tool.name === 'write_file' && streamText !== undefined && (tool.state === 'running' || tool.state === 'queued')) {
+				// LIVE write (founder 2026-10-15: 'when it streamed it
+				// was colorless'): the growing content paints AS the
+				// diff — green signed additions with syntax colours —
+				// not as a plain file that only gains colour at settle.
+				const editBox = element('div', 'crusorai-edit-content');
+				editBox.dataset.component = 'edit-content';
+				editBox.append(diffPreview(streamingWriteDiff(streamText.slice(0, 32_000)), target, syntax));
+				view = editBox;
 			} else if (streamText !== undefined) {
-				// Still streaming (or no diff landed): OpenCode's write
-				// view — the file itself growing in the code view.
+				// OpenCode's write view — the file itself in the code
+				// view (approval previews and diff-less settles).
 				const writeBox = element('div', 'crusorai-write-content');
 				writeBox.dataset.component = 'write-content';
 				writeBox.append(codeView(streamText.slice(0, 32_000), target, syntax));
