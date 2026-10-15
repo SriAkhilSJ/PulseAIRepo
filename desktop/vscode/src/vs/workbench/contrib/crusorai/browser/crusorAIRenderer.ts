@@ -148,12 +148,16 @@ export interface CrusorAIRenderModel {
 	/** The parent session's label, for the child header breadcrumb. */
 	readonly parentTitle?: string;
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown; readonly warning?: string };
-	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer. */
+	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer.
+	 *  `sessionId` is the ASKING session: when it is a descendant of the viewed
+	 *  session the question docks above the composer (OpenCode's tree rule);
+	 *  when it is the viewed session itself the in-transcript form answers it. */
 	readonly clarify?: {
 		readonly requestId: string;
 		readonly title: string;
 		readonly toolId?: string;
 		readonly questions: readonly CrusorClarifyQuestion[];
+		readonly sessionId?: string;
 	};
 	/** Live hermes todo_list state ({todos, revision} — reconciles atomically). */
 	readonly todos: readonly CrusorTodoItem[];
@@ -3593,6 +3597,19 @@ function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openT
 	// narrating status row under the transcript is not one of its parts.
 	const approval = approvalDock(model, host);
 	if (approval) { nodes.push(approval); }
+	// A DESCENDANT session's pending question docks above the composer
+	// (OpenCode: the question dock renders in the composer region of
+	// whichever view's tree contains the asker). The viewed session's own
+	// question is answered by its in-transcript form instead — never both.
+	if (model.clarify?.sessionId && model.sessionId && model.clarify.sessionId !== model.sessionId) {
+		const dockTool: CrusorAIToolView = {
+			id: model.clarify.toolId ?? model.clarify.requestId,
+			name: 'clarify',
+			arguments: {},
+			state: 'running',
+		};
+		nodes.push(clarifyCard(dockTool, host, openTools, closedTools, model.clarify));
+	}
 	// Hermes: the todo panel lives between the transcript and the composer
 	// (the composer status stack) — the list rides ABOVE the input, never
 	// buried in transcript history.

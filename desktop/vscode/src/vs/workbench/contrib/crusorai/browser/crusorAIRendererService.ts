@@ -115,6 +115,9 @@ interface CrusorSurfaceSnapshot {
 		readonly title: string;
 		readonly toolId?: string;
 		readonly questions: readonly CrusorClarifyQuestion[];
+		/** The session that ASKED (OpenCode: requests live on the asking
+		 *  session; the tree rule decides which view surfaces them). */
+		readonly sessionId: string;
 	} | undefined;
 	readonly todos: readonly CrusorTodoItem[];
 	readonly todoRevision: number;
@@ -170,13 +173,52 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 *  `landed` = tool calls whose result already exists, `dropped` = calls
 	 *  the brake caught before dispatch. Written onto the receipt row. */
 	private interrupt?: { readonly landed: number; readonly dropped: number };
-	/** Pending hermes clarify batch (the ask tool): the card answers per qid. */
-	private clarify?: {
-		readonly requestId: string;
-		readonly title: string;
-		readonly toolId?: string;
-		readonly questions: readonly CrusorClarifyQuestion[];
-	};
+	/** Every pending hermes clarify batch (the ask tool), any session's,
+	 *  keyed by request id until its tool settles. buildModel surfaces one
+	 *  per render via pickTreeClarify — the OpenCode session-tree rule. */
+	private readonly clarifies = new Map<string, NonNullable<CrusorSurfaceSnapshot['clarify']>>();
+
+	/** OpenCode's session-tree rule (session-request-tree.ts): the viewed
+	 *  session's own pending question first, then the first pending
+	 *  question among its descendants (BFS order ≈ arrival order here). A
+	 *  question asked OUTSIDE the viewed tree stays parked until its own
+	 *  view (or an ancestor's) opens. */
+	private pickTreeClarify(): NonNullable<CrusorSurfaceSnapshot['clarify']> | undefined {
+		if (!this.sessionId || !this.clarifies.size) { return undefined; }
+		const entries = [...this.clarifies.values()];
+		const own = entries.find(entry => entry.sessionId === this.sessionId);
+		if (own) { return own; }
+		const descendants = this.sessionDescendants(this.sessionId);
+		return entries.find(entry => descendants.has(entry.sessionId));
+	}
+
+	private sessionDescendants(root: string): Set<string> {
+		const children = new Map<string, string[]>();
+		const link = (child?: string, parent?: string): void => {
+			if (!child || !parent || child === parent) { return; }
+			const list = children.get(parent) ?? [];
+			list.push(child);
+			children.set(parent, list);
+		};
+		for (const [child, parent] of this.parentMap) { link(child, parent); }
+		for (const sub of this.subAgents.values()) { link(sub.id, sub.parentSessionId); }
+		const seen = new Set<string>();
+		const queue = [root];
+		while (queue.length) {
+			const current = queue.shift()!;
+			for (const child of children.get(current) ?? []) {
+				if (!seen.has(child)) { seen.add(child); queue.push(child); }
+			}
+		}
+		return seen;
+	}
+
+	private clearClarifiesFor(sessionId: string | undefined): void {
+		if (!sessionId) { return; }
+		for (const [requestId, entry] of this.clarifies) {
+			if (entry.sessionId === sessionId) { this.clarifies.delete(requestId); }
+		}
+	}
 	/** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
 	private todos: readonly CrusorTodoItem[] = [];
 	private todoRevision = 0;
@@ -309,9 +351,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		replyToClarify: (requestId, answers, timedOut) => {
 			// The clarify card rides ONE batch reply (hermes #18450): answers per
 			// qid; an explicit Skip resolves the batch empty (deliberate, not a
-			// timeout). The pending card stays up in its submitting state until
-			// the clarify tool_call_end swaps in the settled Q&A.
-			this.send({ type: 'clarify_reply', session_id: this.sessionId, request_id: requestId, answers, timed_out: timedOut });
+			// timeout). The reply routes to the ASKING session (a child's
+			// question answered from the parent view must resolve the child's
+			// wait — the bridge's queue rejects replies addressed to any other
+			// session), then the card clears; the ask tool's own tool_call_end
+			// paints the settled Q&A in the asking session's transcript.
+			const entry = this.clarifies.get(requestId);
+			this.send({ type: 'clarify_reply', session_id: entry?.sessionId ?? this.sessionId, request_id: requestId, answers, timed_out: timedOut });
+			if (entry) { this.clarifies.delete(requestId); }
 			this.render();
 		},
 		openDiff: toolId => { void this.openDiff(toolId); },
@@ -569,7 +616,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			verification: this.verification,
 			telemetry: this.telemetry,
 			approval: this.approval,
-			clarify: this.clarify,
+			clarify: this.pickTreeClarify(),
 			todos: this.todos,
 			todoRevision: this.todoRevision,
 			compacting: this.compacting,
@@ -609,7 +656,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.verification = snapshot.verification;
 		this.telemetry = snapshot.telemetry;
 		this.approval = snapshot.approval;
-		this.clarify = snapshot.clarify;
+		// Pending clarifies are service-level tree state, not surface state:
+		// the `clarifies` map survives the stash and pickTreeClarify re-derives
+		// what this view shows, so a question asked while away still surfaces.
 		this.todos = snapshot.todos;
 		this.todoRevision = snapshot.todoRevision;
 		this.compacting = snapshot.compacting;
@@ -683,7 +732,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.verification = undefined;
 		this.telemetry = {};
 		this.approval = undefined;
-		this.clarify = undefined;
 		this.todos = [];
 		this.todoRevision = 0;
 		this.compacting = undefined;
@@ -767,7 +815,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			subAgentGoal: this.currentSubAgentGoal(),
 			parentTitle: this.currentParentTitle(),
 			approval: this.approval,
-			clarify: this.clarify,
+			clarify: this.pickTreeClarify(),
 			todos: this.todos,
 			todoRevision: this.todoRevision,
 			plan: this.plan,
@@ -1473,7 +1521,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.tools.clear();
 		this.subAgents.clear();
 		this.approval = undefined;
-		this.clarify = undefined;
+		this.clearClarifiesFor(this.sessionId);
 		this.plan = [];
 		this.verification = undefined;
 		this.running = true;
@@ -1701,8 +1749,31 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			void this.invokeHostCapability(frame);
 			return;
 		}
+		// Pending questions are session-TREE state (OpenCode): a child's
+		// question must surface in any open view of its ancestors, so every
+		// ask is tracked by request id BEFORE foreign routing can drop it to
+		// a list-row chip. Settle (the ask tool's own tool_call_end) and turn
+		// end retire the ask wherever it lives; buildModel re-derives what
+		// this view shows from the map on every render.
+		if (frame.type === 'clarify_request') {
+			const asking = typeof frame.session_id === 'string' && frame.session_id ? frame.session_id : (this.sessionId ?? 'default');
+			this.clarifies.set(frame.request_id, {
+				sessionId: asking,
+				requestId: frame.request_id,
+				title: frame.title ?? '',
+				toolId: frame.tool_id,
+				questions: frame.questions,
+			});
+		} else if (frame.type === 'tool_call_end') {
+			for (const [requestId, entry] of this.clarifies) {
+				if (entry.toolId && entry.toolId === frame.tool_id) { this.clarifies.delete(requestId); }
+			}
+		}
 		// A background turn's traffic routes to its list row, never the live transcript.
 		const foreignId = this.foreignSessionId(frame);
+		if ((frame.type === 'turn_done' || frame.type === 'turn_failed') && foreignId) {
+			this.clearClarifiesFor(foreignId);
+		}
 		if (foreignId) {
 			this.syncStashFrame(foreignId, frame);
 			switch (frame.type) {
@@ -1897,7 +1968,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				duration: typeof result?.duration === 'string' ? result.duration : typeof result?.duration_ms === 'number' ? `${result.duration_ms}ms` : undefined,
 			});
 			if (this.approval?.toolId === frame.tool_id) { this.approval = undefined; }
-			if (this.clarify?.toolId === frame.tool_id) { this.clarify = undefined; }
 		} else if (frame.type === 'safety_request') {
 			const existing = this.tools.get(frame.tool_id);
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
@@ -1916,13 +1986,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			try { void this.openDiff(frame.tool_id); } catch { /* best effort */ }
 		} else if (frame.type === 'clarify_request') {
 			// Hermes ask-tool card: the batch of questions rides its own frame
-			// (args alone can't drive the form — no qids to respond with).
-			this.clarify = {
-				requestId: frame.request_id,
-				title: frame.title ?? '',
-				toolId: frame.tool_id,
-				questions: frame.questions,
-			};
+			// (args alone can't drive the form — no qids to respond with). The
+			// pending entry itself was tracked tree-wide in the pre-routing
+			// hook above; here the viewed session only needs the tool's place
+			// in its own transcript lane.
 			if (frame.tool_id) { this.pushToolPart(frame.tool_id); }
 		} else if (frame.type === 'todo_updated') {
 			// Hermes todo panel: {todos, revision} reconciles atomically; keep
@@ -2009,7 +2076,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.turnEndedAt = Date.now();
 			// A turn ended with an unanswered clarify: the blocking layer has
 			// already timed the wait out — never leave a dead interactive card.
-			this.clarify = undefined;
+			this.clearClarifiesFor(this.sessionId);
 			// Transport verdict vs task verdict: `completed:false` with
 			// `cancelled:false` is an ENDED-INCOMPLETE turn (finalize said the
 			// task failed) — the run itself finished and its trailing receipt

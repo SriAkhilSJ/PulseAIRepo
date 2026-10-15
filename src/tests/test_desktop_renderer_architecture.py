@@ -2029,3 +2029,32 @@ def test_stashed_parent_states_stay_fresh():
     assert "this.syncStashFrame(foreignId, frame);" in service
     assert "private mergeSubagentRecord(" in service
     assert 'if mtype == "system":' in bridge
+
+def test_clarify_requests_are_session_tree_state():
+    """OpenCode parity (founder 2026-10-15: "did u read opencode??"):
+    the question tool works in ANY session, children included; pending
+    questions are session-TREE requests surfaced by the viewed
+    session's descendant tree, and the reply routes to the ASKING
+    session. The engine must not gate children out of asking (an
+    instant walk-away shipped once and was reverted), the service
+    tracks every ask by request id before foreign routing, buildModel
+    picks via the tree rule, the reply carries the asker's session id,
+    and the renderer docks a descendant's question above the composer
+    while the viewed session's own ask stays in its transcript."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    clarify_py = (ROOT / "src" / "tools" / "clarify_tool.py").read_text(encoding="utf-8")
+    chat_graph = (ROOT / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    # Engine: children block and ask like the parent (no walk-away gate).
+    assert "Sub-agent children have no user to ask" not in clarify_py
+    assert "timeout=0.0" not in clarify_py
+    # Service: tree state, tree pick, asking-session reply routing.
+    assert "private readonly clarifies = new Map" in service
+    assert "private pickTreeClarify()" in service
+    assert "session_id: entry?.sessionId ?? this.sessionId" in service
+    assert "clarify: this.pickTreeClarify()," in service
+    # Renderer: descendant ask docks above the composer; own ask does not.
+    assert "model.clarify.sessionId !== model.sessionId" in renderer
+    # Stop cascade: parent Stop interrupts foreground + batch children.
+    assert "subagent_lifecycle.cancel(handle)" in chat_graph
+    assert "_abort_batch_children" in chat_graph

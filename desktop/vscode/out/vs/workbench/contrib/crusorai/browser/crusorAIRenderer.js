@@ -3508,6 +3508,19 @@ function agentColumn(model, host, openTools, closedTools, activity, planOpen, se
     if (approval) {
         nodes.push(approval);
     }
+    // A DESCENDANT session's pending question docks above the composer
+    // (OpenCode: the question dock renders in the composer region of
+    // whichever view's tree contains the asker). The viewed session's own
+    // question is answered by its in-transcript form instead — never both.
+    if (model.clarify?.sessionId && model.sessionId && model.clarify.sessionId !== model.sessionId) {
+        const dockTool = {
+            id: model.clarify.toolId ?? model.clarify.requestId,
+            name: 'clarify',
+            arguments: {},
+            state: 'running',
+        };
+        nodes.push(clarifyCard(dockTool, host, openTools, closedTools, model.clarify));
+    }
     // Hermes: the todo panel lives between the transcript and the composer
     // (the composer status stack) — the list rides ABOVE the input, never
     // buried in transcript history.

@@ -681,8 +681,27 @@ def delegate_to_subagent(
                 summary="Background task started",
             )
 
-        # Foreground: wait for completion
-        result_dict = subagent_lifecycle.wait(handle, timeout=600)
+        # Foreground: wait for completion. Stop on the parent cascades
+        # into the child (OpenCode: jobs.block onInterrupt interrupts
+        # the child): register an abort on the parent's turn that
+        # cancels the child's turn — the same registry that wakes the
+        # child's own blocking clarify/approval waits.
+        _abort_child = None
+        try:
+            from src.runtime.turn_control import turn_controls as _tc
+            _abort_child = lambda: subagent_lifecycle.cancel(handle)  # noqa: E731
+            _tc.register_abort(str(caller_thread) or "main", _abort_child)
+        except Exception:
+            _abort_child = None
+        try:
+            result_dict = subagent_lifecycle.wait(handle, timeout=600)
+        finally:
+            if _abort_child is not None:
+                try:
+                    from src.runtime.turn_control import turn_controls as _tc
+                    _tc.unregister_abort(str(caller_thread) or "main", _abort_child)
+                except Exception:
+                    pass
         result_text = result_dict.get("result") or result_dict.get("error") or "No result"
         state = "completed" if result_dict.get("state") == "succeeded" else "error"
 
@@ -836,15 +855,46 @@ def delegate_to_subagent_batch(
             f"into smaller batches."
         )
 
-    agent_ids = subagent_coordinator.spawn_batch(
-        mode=mode,
-        tasks=actual_tasks,
-        parent_thread_id=str(caller_thread) or "main",
-        provider=LLM_PROVIDER,
-        model=LLM_MODEL,
-        workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
-        modes=task_modes,
-    )
+    # Stop on the parent cascades into every batch child (OpenCode:
+    # interrupt cancels the job and its children): an abort registered
+    # on the parent's turn cancels each running child's turn, which
+    # also wakes any blocking clarify/approval waits inside them.
+    _parent_thread = str(caller_thread) or "main"
+
+    def _abort_batch_children() -> None:
+        try:
+            from src.runtime.subagent_store import get_store as _gs
+            from src.runtime.turn_control import turn_controls as _tc
+
+            for _row in _gs().list_by_parent(_parent_thread):
+                if str(getattr(_row, "state", "") or "") in ("running", "pending"):
+                    _tc.cancel(str(getattr(_row, "child_thread_id", "") or ""))
+        except Exception:
+            pass
+
+    try:
+        from src.runtime.turn_control import turn_controls as _tc2
+
+        _tc2.register_abort(_parent_thread, _abort_batch_children)
+    except Exception:
+        pass
+    try:
+        agent_ids = subagent_coordinator.spawn_batch(
+            mode=mode,
+            tasks=actual_tasks,
+            parent_thread_id=_parent_thread,
+            provider=LLM_PROVIDER,
+            model=LLM_MODEL,
+            workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
+            modes=task_modes,
+        )
+    finally:
+        try:
+            from src.runtime.turn_control import turn_controls as _tc3
+
+            _tc3.unregister_abort(_parent_thread, _abort_batch_children)
+        except Exception:
+            pass
 
     try:
         from src.agents.subagent_permissions import format_task_output
