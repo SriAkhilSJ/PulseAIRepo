@@ -6,6 +6,7 @@ owns durable intent/result ordering and result projection.
 """
 from __future__ import annotations
 
+import contextvars
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -15,6 +16,68 @@ class ToolOutcome:
     content: str
     status: str
     result_seq: int | None = None
+
+
+# Live tool-output streaming (OpenCode shell-output wiring, 2026-10-15): the
+# transaction owns the tool identity, so it publishes it for the duration of
+# invoke(); a tool that produces output incrementally (terminal) emits chunks
+# through emit_tool_output() without knowing anything about the bridge. The
+# bridge projects "tool.output" bus events to the v2 `tool_output` frame.
+_current_tool = contextvars.ContextVar(
+    "crusor_current_tool", default=None,
+)
+
+
+def current_tool_emitter() -> Callable[[str], None]:
+    """A chunk emitter bound to the executing tool, safe to call from the
+    tool's own worker threads (contextvars do not cross thread spawns)."""
+    ctx = _current_tool.get()
+    if ctx is None:
+        return lambda chunk: None
+
+    def _emit(chunk: str) -> None:
+        if not chunk:
+            return
+        try:
+            from src.dashboard.event_bus import event_bus
+
+            event_bus.emit("tool.output", {
+                "thread_id": ctx["session_id"],
+                "turn_id": ctx["turn_id"],
+                "tool_id": ctx["tool_call_id"],
+                "tool_name": ctx["name"],
+                "chunk": chunk,
+            })
+        except Exception:
+            pass
+
+    return _emit
+
+
+def emit_tool_output(chunk: str) -> None:
+    """Emit one live output chunk for the tool currently executing.
+
+    No-op outside a tool transaction (direct calls, tests) and for empty
+    chunks. Ephemeral by design: chunks are never journaled — the durable
+    record stays the tool.intent/tool.result pair.
+    """
+    if not chunk:
+        return
+    ctx = _current_tool.get()
+    if ctx is None:
+        return
+    try:
+        from src.dashboard.event_bus import event_bus
+
+        event_bus.emit("tool.output", {
+            "thread_id": ctx["session_id"],
+            "turn_id": ctx["turn_id"],
+            "tool_id": ctx["tool_call_id"],
+            "tool_name": ctx["name"],
+            "chunk": chunk,
+        })
+    except Exception:
+        pass
 
 
 def execute_tool_transaction(
@@ -45,6 +108,10 @@ def execute_tool_transaction(
     tool_error: Exception | None = None
 
     status = "ok"
+    _tool_ctx_token = _current_tool.set({
+        "session_id": session_id, "turn_id": turn_id,
+        "tool_call_id": tool_call_id, "name": name,
+    })
     try:
         raw = invoke()
         content = raw if isinstance(raw, str) else str(raw)
@@ -97,4 +164,5 @@ def execute_tool_transaction(
             "result": content, "status": status,
             "journal_seq": persisted["seq"],
         })
+    _current_tool.reset(_tool_ctx_token)
     return ToolOutcome(content, status, persisted["seq"])

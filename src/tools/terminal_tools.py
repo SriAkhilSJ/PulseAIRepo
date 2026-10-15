@@ -786,9 +786,61 @@ def terminal(
         stdout = stderr = ""
         session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
         from src.runtime.turn_control import turn_controls
+        # Live output (OpenCode shell-output wiring): reader threads pump
+        # stdout/stderr line by line into the SAME buffers the envelope is
+        # assembled from, emitting each line on the tool.output bus event so
+        # the pane sees output while the command runs. The final result is
+        # unchanged — streaming is a preview of the durable record, never a
+        # second source of truth. Emission is capped (the pane keeps a tail
+        # anyway); collection for the envelope is not.
+        from src.runtime.tool_middleware import current_tool_emitter
+        _emit_chunk = current_tool_emitter()
+        _streamed = {"chars": 0}
+        _stdout_parts: list[str] = []
+        _stderr_parts: list[str] = []
+
+        def _pump(stream, parts: list[str]) -> None:
+            try:
+                for line in iter(stream.readline, ""):
+                    parts.append(line)
+                    if _streamed["chars"] <= 65_536:
+                        _streamed["chars"] += len(line)
+                        _emit_chunk(line)
+            except Exception:
+                pass
+
+        _pumps = [
+            threading.Thread(target=_pump, args=(process.stdout, _stdout_parts), daemon=True),
+            threading.Thread(target=_pump, args=(process.stderr, _stderr_parts), daemon=True),
+        ]
+        for _pump_thread in _pumps:
+            _pump_thread.start()
+
+        def _kill_tree() -> None:
+            try:
+                if _IS_WINDOWS:
+                    from src.context.git_context import _taskkill_tree
+                    if not _taskkill_tree(process.pid):
+                        process.kill()
+                else:
+                    import signal
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except Exception:
+                        process.kill()
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
         while True:
             try:
-                stdout, stderr = process.communicate(timeout=0.2)
+                process.wait(timeout=0.2)
+                for _pump_thread in _pumps:
+                    _pump_thread.join(timeout=5)
+                stdout = "".join(_stdout_parts)
+                stderr = "".join(_stderr_parts)
                 break
             except subprocess.TimeoutExpired:
                 if turn_controls.cancelled(session_id):
@@ -813,13 +865,13 @@ def terminal(
                             process.kill()
                         except Exception:
                             pass
-                    try:
-                        # Bounded and never fatal. Orphaned grandchildren can keep
-                        # the pipes open for their own lifetime, and a truthful
-                        # "cancelled" beats whatever partial output we drop.
-                        stdout, stderr = process.communicate(timeout=_CANCEL_DRAIN_TIMEOUT_S)
-                    except Exception:
-                        stdout, stderr = "", ""
+                    # Bounded and never fatal. Orphaned grandchildren can keep
+                    # the pipes open for their own lifetime, and a truthful
+                    # "cancelled" beats whatever partial output we drop. The
+                    # reader threads own the pipes now, so the drain is a
+                    # bounded join, never a second communicate().
+                    for _pump_thread in _pumps:
+                        _pump_thread.join(timeout=_CANCEL_DRAIN_TIMEOUT_S)
                     return (
                         "⛔ Terminal command cancelled by the user before completion. "
                         f"Command: {command}"
@@ -845,10 +897,10 @@ def terminal(
                                 process.kill()
                     except Exception:
                         process.kill()
-                    try:
-                        process.communicate(timeout=10)
-                    except Exception:
-                        pass  # pipes may be held by orphaned grandchildren; never hang here
+                    for _pump_thread in _pumps:
+                        _pump_thread.join(timeout=10)
+                    # pipes may be held by orphaned grandchildren; the daemon
+                    # pumps never hang the return.
                     raise subprocess.TimeoutExpired(command, timeout)
 
         output = ""

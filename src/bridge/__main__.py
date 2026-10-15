@@ -434,6 +434,7 @@ class BridgeServer:
             "reasoning.update": "reasoning",
             "tool.call": "tool_call_start",
             "tool.result": "tool_call_end",
+            "tool.output": "tool_output",
             "tool.approval.request": "safety_request",
             "tool.clarify.request": "clarify_request",
             "todo.updated": "todo_updated",
@@ -489,6 +490,13 @@ class BridgeServer:
                 **base, "tool_id": tool_id, "name": name,
                 "status": str(payload.get("status") or "completed"),
                 "result": payload.get("result", payload.get("content")),
+            }
+        if target == "tool_output":
+            # Live chunk (ephemeral preview; the durable record is the
+            # tool_call_end result that follows).
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "text": str(payload.get("chunk") or ""),
             }
         if target == "safety_request":
             return {

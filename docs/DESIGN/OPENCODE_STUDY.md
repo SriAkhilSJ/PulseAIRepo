@@ -82,5 +82,5 @@ From `tool-renderer.tsx` (`shell` + `execute` registrations) and
 ## 6. Status
 
 - Clone: `/home/user/opencode-study` (outside the repo; never committed).
-- Terminal-card blueprint (`wireframes/terminal-card.html`) still awaits
-  founder yes/no; the answer to Q1 below may revise it before lock.
+- Terminal-card blueprint was superseded by the founder's OpenCode-capture
+  direction (2026-10-15); the old wireframe files were removed.

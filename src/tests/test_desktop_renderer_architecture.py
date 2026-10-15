@@ -1266,10 +1266,21 @@ def test_opencode_shell_box_is_captured_and_wired_to_v2_terminal_events():
     assert (capture / "LICENSE").is_file()
     assert (capture / "session-ui" / "components" / "message-part.css").is_file()
     assert (capture / "session-ui" / "tools" / "shell-output.ts").is_file()
-    assert "GAP" in (capture / "README.md").read_text(encoding="utf-8")
+    assert "tool_output" in (capture / "README.md").read_text(encoding="utf-8")
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "crusorai-bash-output" in renderer and "crusorai-bash-result" in renderer
     assert "copyButton(command, host)" in renderer, "copy lives inside the box, as captured"
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-bash-scroll" in css and "max-height: 240px" in css
     assert "var(--v2-" not in css, "their tokens never ship - workbench vars only"
+
+
+def test_tool_output_frame_accumulates_into_the_running_terminal_card():
+    """Live shell output (tool_output frame) appends to the running tool's
+    result with a 64KB tail cap; tool_call_end still replaces the preview
+    with the durable result."""
+    service = _text("browser", "crusorAIRendererService.ts")
+    assert "frame.type === 'tool_output'" in service
+    assert "slice(-65_536)" in service
+    protocol = _text("common", "crusorAIProtocol.ts")
+    assert "type: 'tool_output'" in protocol

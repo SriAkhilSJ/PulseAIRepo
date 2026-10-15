@@ -1376,6 +1376,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'plan_updated':
                 case 'tool_call_start':
                 case 'tool_call_end':
+                case 'tool_output':
                 case 'safety_request':
                 case 'clarify_request':
                 case 'todo_updated':
@@ -1543,6 +1544,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
             this.pushToolPart(frame.tool_id);
+        }
+        else if (frame.type === 'tool_output') {
+            // Live shell output (OpenCode cursor-tail discipline): append to
+            // the running tool's result, keep only the last 64 KB. The
+            // tool_call_end frame that follows replaces this preview with
+            // the durable full result.
+            const existing = this.tools.get(frame.tool_id);
+            if (existing && frame.text) {
+                const prior = typeof existing.result === 'string' ? existing.result : '';
+                this.tools.set(frame.tool_id, { ...existing, result: (prior + frame.text).slice(-65_536) });
+            }
         }
         else if (frame.type === 'tool_call_end') {
             const existing = this.tools.get(frame.tool_id);

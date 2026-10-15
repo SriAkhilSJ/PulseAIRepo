@@ -35,7 +35,7 @@ Everything in the box is an event our backend already emits, EXCEPT one gap
 | Collapse state survives re-render | `openTools` set (exists) |
 | Task card → open sub-agent | `host.navigateToSession` (exists) |
 | Composer: send / stop / mode / Think level | `prompt`, `cancel`, `steer`, `prompt{mode, reasoning_effort}` (exist) |
-| **Live output lines spawning while the command runs** | ⚠️ **GAP — the one new wire.** v2 delivers the terminal result whole at `tool_call_end`; nothing streams mid-run. Wiring this box event for real needs one small engine addition: stream shell output chunks during the run (their cursor-paging is the model). Until then the box shows output at completion — never fake-spawned. |
+| **Live output lines spawning while the command runs** | ✅ **WIRED 2026-10-15.** New v2 frame `tool_output`: the terminal tool pumps lines via reader threads, `execute_tool_transaction` binds the tool identity (`emit_tool_output`), the bridge projects `tool.output` bus events, and the pane appends chunks to the running card (64 KB tail). `tool_call_end` still delivers the durable full result. |
 
 ## Rules for anyone wiring this
 
