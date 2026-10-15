@@ -497,6 +497,55 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * method because folder switches, session switches and New Session must clear exactly the
 	 * same surface -- two copies drifted once already (history survived navigation).
 	 */
+	/** One sub-agent frame -> one record, on whichever surface owns it (live or stashed). */
+	private mergeSubagentRecord(map: Map<string, CrusorAISubAgentView>, frame: CrusorServerEvent, fallbackParentId: string | undefined): { subagentId: string; childId: string; parentId: string | undefined } {
+		const subagentId = (frame as any).subagent_id as string;
+		const existing = map.get(subagentId) ?? { id: subagentId, state: 'pending' as const };
+		const childId = ((frame as any).child_thread_id ?? subagentId) as string;
+		const parentId = ((frame as any).parent_session_id ?? (frame as any).parentSessionId ?? fallbackParentId) as string | undefined;
+		map.set(subagentId, {
+			...existing,
+			id: subagentId,
+			state: ((frame as any).state ?? existing.state) as CrusorAISubAgentView['state'],
+			goal: (frame as any).goal ?? existing.goal,
+			description: (frame as any).description ?? (existing as any).description,
+			mode: (frame as any).mode ?? existing.mode,
+			progress: (frame as any).progress ?? existing.progress,
+			result: (frame as any).result ?? existing.result,
+			duration: (frame as any).duration ?? existing.duration,
+			parentSessionId: parentId ?? existing.parentSessionId,
+			childThreadId: childId ?? (existing as any).childThreadId,
+			background: (frame as any).background ?? (existing as any).background,
+			toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
+			agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
+		});
+		return { subagentId, childId, parentId };
+	}
+
+	/**
+	 * While the user watches a child, the stashed parent keeps settling:
+	 * apply its tool/sub-agent verdicts to the snapshot so returning
+	 * never shows finished work still spinning (field 2026-10-15: the
+	 * research child was done; the parent's row stayed RUNNING).
+	 */
+	private syncStashFrame(foreignId: string, frame: CrusorServerEvent): void {
+		if (!this.liveStash || foreignId !== this.liveStash.sessionId) { return; }
+		if (frame.type === 'subagent_updated') {
+			this.mergeSubagentRecord(this.liveStash.snapshot.subAgents, frame, foreignId);
+		} else if (frame.type === 'tool_call_end') {
+			const stashTool = this.liveStash.snapshot.tools.get(frame.tool_id);
+			if (stashTool) {
+				const result = valueRecord(frame.result);
+				this.liveStash.snapshot.tools.set(frame.tool_id, {
+					...stashTool,
+					result: frame.result,
+					state: toolState(frame.status),
+					duration: typeof result?.duration === 'string' ? result.duration : typeof result?.duration_ms === 'number' ? `${result.duration_ms}ms` : stashTool.duration,
+				});
+			}
+		}
+	}
+
 	private captureSurface(sessionId: string): CrusorSurfaceSnapshot {
 		return {
 			sessionId,
@@ -1655,6 +1704,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		// A background turn's traffic routes to its list row, never the live transcript.
 		const foreignId = this.foreignSessionId(frame);
 		if (foreignId) {
+			this.syncStashFrame(foreignId, frame);
 			switch (frame.type) {
 				case 'turn_started': case 'token': case 'token_retract': case 'reasoning': case 'plan_updated':
 				case 'tool_call_start': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
@@ -1887,14 +1937,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.todos = items;
 			this.todoRevision = frame.revision;
 		} else if (frame.type === 'subagent_updated') {
-			const subagent_id = frame.subagent_id;
-			const existing = this.subAgents.get(subagent_id) ?? { id: subagent_id, state: 'pending' as const };
-			const state = (frame as any).state ?? existing.state;
-			const duration = (frame as any).duration;
-			const result = (frame as any).result;
-			const childId = (frame as any).child_thread_id ?? subagent_id;
-			const parentId = (frame as any).parent_session_id ?? (frame as any).parentSessionId ?? this.sessionId;
-			const desc = (frame as any).description ?? existing.description;
+			const { subagentId, childId, parentId } = this.mergeSubagentRecord(this.subAgents, frame, this.sessionId);
 			// Never self-parent: an unknown-id status reply echoes the queried id as both
 			// child and parent, which would misdetect a normal session as a child.
 			if (childId && parentId && childId !== parentId) {
@@ -1904,25 +1947,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			if (this.sessionId && this.parentMap.has(this.sessionId)) {
 				this.childParentId = this.parentMap.get(this.sessionId);
 			}
-			this.subAgents.set(subagent_id, {
-				...existing,
-				id: subagent_id,
-				state: state as CrusorAISubAgentView['state'],
-				goal: (frame as any).goal ?? existing.goal,
-				description: desc ?? (existing as any).description,
-				mode: (frame as any).mode ?? existing.mode,
-				progress: (frame as any).progress ?? existing.progress,
-				result: result ?? existing.result,
-				duration: duration ?? existing.duration,
-				parentSessionId: parentId ?? existing.parentSessionId,
-				childThreadId: childId ?? (existing as any).childThreadId,
-				background: (frame as any).background ?? (existing as any).background,
-				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
-				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
-			});
 			// The open session IS this child: its steps just moved —
 			// refresh the transcript snapshot and re-decide liveness.
-			if (subagent_id === this.sessionId || childId === this.sessionId) {
+			if (subagentId === this.sessionId || childId === this.sessionId) {
 				this.requestChildSnapshot();
 				this.syncChildLivePoll();
 			}

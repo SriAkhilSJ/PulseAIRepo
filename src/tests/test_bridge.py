@@ -559,3 +559,19 @@ def test_autotitler_pushes_the_rename_ack_shape_and_titles_children():
     # Child rows carry the explicit delegation goal as a unique fixed title.
     assert "title=ensure_unique_title(_dstore, _ws, shorten_title(_goal)" in main
     assert "parent_session_id=sid," in main
+
+
+def test_transcript_projection_never_paints_system_scaffolding():
+    """Field 2026-10-15: the engine's internal progress-reflection
+    SystemMessage ('You just received a tool result. Take a moment
+    to evaluate it:...') projected as assistant text in hydrated
+    transcripts. System messages are model-facing only."""
+    messages, _ = _projected([
+        _msg("system", "persona"),
+        _msg("human", "research bubble sort"),
+        _msg("system", "You just received a tool result. Take a moment to evaluate it:"),
+        _msg("ai", "Bubble sort is O(n^2)."),
+        _msg("system", "Environment-level failure detected: pivot"),
+    ])
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert all("tool result" not in m["content"] for m in messages)

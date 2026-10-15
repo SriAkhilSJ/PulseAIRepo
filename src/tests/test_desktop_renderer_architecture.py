@@ -1987,3 +1987,20 @@ def test_child_session_is_a_normal_session_with_bottom_nav():
     assert "nodes.push(childNav)" not in renderer
     assert ".crusorai-child-nav {" in css and ".crusorai-child-nav-parent" in css
     assert "if (model.subAgents.length && !model.isChild)" in renderer
+
+def test_stashed_parent_states_stay_fresh():
+    """Field 2026-10-15: the child finished ('task done') but the
+    parent view stuck on RUNNING — verdict frames that arrived while
+    the user watched the child were routed to the session-list row
+    only, so the restored snapshot kept pre-completion states.
+    syncStashFrame now settles tool + sub-agent verdicts INSIDE the
+    stash (same mergeSubagentRecord rules as the live surface), and
+    the bridge transcript projection never paints system scaffolding
+    (the 'You just received a tool result...' nudge) as chat text."""
+    service = _text("browser", "crusorAIRendererService.ts")
+    from pathlib import Path
+    bridge = (Path(__file__).resolve().parents[2] / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "private syncStashFrame(foreignId: string, frame: CrusorServerEvent)" in service
+    assert "this.syncStashFrame(foreignId, frame);" in service
+    assert "private mergeSubagentRecord(" in service
+    assert 'if mtype == "system":' in bridge

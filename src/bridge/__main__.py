@@ -212,6 +212,13 @@ class BridgeServer:
         projected: list[dict] = []
         for index, msg in enumerate(raw):
             mtype = str(getattr(msg, "type", "") or "").lower()
+            if mtype == "system":
+                # Engine scaffolding (persona, progress reflection,
+                # pivot guidance, steers' system parts) is model-facing
+                # only. Projecting it as assistant text painted the
+                # internal "You just received a tool result..." nudge
+                # into the visible transcript (field 2026-10-15).
+                continue
             if mtype == "human":
                 role = "user"
             elif mtype == "tool":
