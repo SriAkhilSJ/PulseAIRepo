@@ -1397,4 +1397,6 @@ def test_wait_and_streaming_states_visibly_breathe():
     css = _text("browser", "media", "crusorAI.css")
     assert 'session-turn-content"] > :last-child::after' in css
     assert "animation: crusorai-spin 850ms linear infinite" in css
-    assert "width: 8px; height: 8px" not in css  # the old invisible square
+    import re as _re
+    dot = _re.search(r"\.crusorai-activity-dot \{([^}]*)\}", css)
+    assert dot and "crusorai-spin" in dot.group(1) and "12px" in dot.group(1), "the Asking row spins, not fades"
