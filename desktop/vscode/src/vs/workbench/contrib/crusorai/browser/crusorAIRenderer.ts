@@ -2204,7 +2204,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	const lane = element('div', 'crusorai-transcript-lane');
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
 	for (const turn of model.history) {
-		if (turn.userMessage && !model.isChild) lane.append(userMessage(turn.userMessage));
+		if (turn.userMessage) lane.append(userMessage(turn.userMessage));
 		if (turn.assistantText || turn.parts.length || turn.tools.length) {
 			lane.append(assistantTurn({
 				reasoningParts: turn.reasoningParts,
@@ -2266,7 +2266,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 		}
 	}
 	// Current turn (breathing when running)
-	if (model.userMessage && !model.isChild) {
+	if (model.userMessage) {
 		lane.append(userMessage(model.userMessage));
 	}
 	// No assistant text means there is nothing to narrate. The line used to fall back to a sentence
@@ -2395,35 +2395,6 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	if (model.notice) {
 		lane.append(element('div', 'crusorai-notice-row', icon('lightbulb'),
 			element('span', undefined, model.notice)));
-	}
-	// Child session chrome: ONE quiet line — back link, the delegated
-	// task as a muted label, and the live state while the child works.
-	// (The old paint stacked an unstyled H1 breadcrumb, a warning-box
-	// banner and the machine-written prompt as a user bubble; the
-	// founder called it, correctly, weird.)
-	if (model.isChild) {
-		const delegatedTask = model.userMessage || model.subAgentGoal || '';
-		const parentTitle = model.parentTitle || 'Parent session';
-		const header = element('div', 'crusorai-child-header');
-		const parentBtn = element('button', 'crusorai-child-header-parent',
-			icon('arrow-left'), element('span', undefined, parentTitle)) as HTMLButtonElement;
-		parentBtn.title = `Back to ${parentTitle}`;
-		if (model.parentSessionId && host.navigateToSession) {
-			const pId = model.parentSessionId;
-			parentBtn.addEventListener('click', () => host.navigateToSession!(pId));
-		} else {
-			parentBtn.disabled = true;
-		}
-		header.append(parentBtn,
-			element('span', 'crusorai-child-header-sep', '/'),
-			element('span', 'crusorai-child-header-child', delegatedTask ? delegatedTask.slice(0, 60) : 'Sub-agent'));
-		const headerChild = header.querySelector('.crusorai-child-header-child');
-		if (headerChild && delegatedTask) { headerChild.setAttribute('title', delegatedTask); }
-		const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
-		if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
-			header.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
-		}
-		lane.prepend(header);
 	}
 	scroll.append(lane);
 	return scroll;
@@ -3374,7 +3345,7 @@ function thinkPicker(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTML
 function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager: boolean): HTMLElement {
 	const input = element('textarea', 'crusorai-composer-input') as HTMLTextAreaElement;
 	input.rows = manager ? 2 : 3;
-	input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled. Use Back to Parent.' : manager ? 'Steer this agent or add context...' : 'Ask anything, / for commands, @ for context...';
+	input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled.' : manager ? 'Steer this agent or add context...' : 'Ask anything, / for commands, @ for context...';
 	input.value = model.draft;
 	input.addEventListener('input', () => host.setDraft(input.value));
 	const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;
@@ -3492,6 +3463,40 @@ interface CrusorAIActivitySurface {
 	thoughtSeconds(model: CrusorAIRenderModel): number | undefined;
 }
 
+/**
+ * Child-session navigation, docked at the BOTTOM of the pane (founder
+ * 2026-10-15: 'make the navigation to the bottom not the top'): back
+ * to the parent, the delegated task as a quiet label, and the live
+ * state while the child works. The child transcript itself paints
+ * exactly like a parent session — this row is the only chrome.
+ */
+function childNavBar(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement | undefined {
+	if (!model.isChild) { return undefined; }
+	const delegatedTask = model.userMessage || model.subAgentGoal || '';
+	const parentTitle = model.parentTitle || 'Parent session';
+	const bar = element('div', 'crusorai-child-nav');
+	bar.dataset.component = 'child-nav';
+	const parentBtn = element('button', 'crusorai-child-nav-parent',
+		icon('arrow-left'), element('span', undefined, parentTitle)) as HTMLButtonElement;
+	parentBtn.title = `Back to ${parentTitle}`;
+	if (model.parentSessionId && host.navigateToSession) {
+		const pId = model.parentSessionId;
+		parentBtn.addEventListener('click', () => host.navigateToSession!(pId));
+	} else {
+		parentBtn.disabled = true;
+	}
+	bar.append(parentBtn,
+		element('span', 'crusorai-child-nav-sep', '/'),
+		element('span', 'crusorai-child-nav-child', delegatedTask ? delegatedTask.slice(0, 60) : 'Sub-agent'));
+	const label = bar.querySelector('.crusorai-child-nav-child');
+	if (label && delegatedTask) { label.setAttribute('title', delegatedTask); }
+	const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
+	if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
+		bar.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
+	}
+	return bar;
+}
+
 function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, activity: CrusorAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): HTMLElement[] {
 	const nodes: HTMLElement[] = [];
 	const plan = planStrip(model, planOpen, setPlanOpen);
@@ -3515,6 +3520,8 @@ function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openT
 	// No breathing tail under the transcript (founder 2026-10-15: delete
 	// the breathing UI completely) — OpenCode streams the turn itself; a
 	// narrating status row under the transcript is not one of its parts.
+	const childNav = childNavBar(model, host);
+	if (childNav) { nodes.push(childNav); }
 	const approval = approvalDock(model, host);
 	if (approval) { nodes.push(approval); }
 	// Hermes: the todo panel lives between the transcript and the composer

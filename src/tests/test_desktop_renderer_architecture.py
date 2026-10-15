@@ -1967,20 +1967,22 @@ def test_batch_children_are_announced_by_the_engine():
     assert ".crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0;" in css
 
 
-def test_child_session_view_is_quiet():
-    """Founder 2026-10-15 (build 20f0dcc2): the child view 'doesn't
-    look nice' — an unstyled H1 breadcrumb with a light pill, a
-    warning-yellow banner box, and the machine-written delegation
-    prompt painted as a big user bubble ('make it fully not
-    noticeable'). Now: one quiet header line (back link / muted
-    task label / Running state), no banner, no user bubbles in a
-    child view (its only user turns are machine prompts), and the
-    parent's Sub-Agents section never paints inside a child."""
+def test_child_session_is_a_normal_session_with_bottom_nav():
+    """Founder 2026-10-15 (build 1ec1fe9d): 'navigation is nice but
+    revert those back to normal — user bubble at the start, same UI
+    response as parent gets — but make the navigation to the bottom
+    not the top.' So: child sessions paint exactly like parent
+    sessions (user bubble first, same response UI); the ONLY child
+    chrome is the nav bar docked between the transcript and the
+    composer (childNavBar in agentColumn), carrying the back link,
+    the task label, and the live Running state. The Sub-Agents list
+    section still never paints inside a child — it lists the
+    PARENT's children, which is that surface's own rule."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "crusorai-child-banner" not in renderer and "crusorai-child-banner" not in css
-    assert "userMessage(delegatedTask" not in renderer
-    assert "if (turn.userMessage && !model.isChild)" in renderer
-    assert "if (model.userMessage && !model.isChild)" in renderer
+    assert "crusorai-child-header" not in renderer and "crusorai-child-banner" not in renderer
+    assert "if (turn.userMessage && !model.isChild)" not in renderer
+    assert "function childNavBar(model: CrusorAIRenderModel, host: CrusorAIRenderHost)" in renderer
+    assert "if (childNav) { nodes.push(childNav); }" in renderer
+    assert ".crusorai-child-nav {" in css and ".crusorai-child-nav-parent" in css
     assert "if (model.subAgents.length && !model.isChild)" in renderer
-    assert ".crusorai-child-header {" in css and ".crusorai-child-header-parent" in css
