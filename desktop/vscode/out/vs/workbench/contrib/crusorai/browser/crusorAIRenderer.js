@@ -994,6 +994,32 @@ function editDiffStats(tool) {
     }
     return diffStats(editDiffText(tool));
 }
+/**
+ * The diff a settled Write paints. The engine receipt previews only
+ * 12 diff lines; for a pure-addition write whose added count equals
+ * the written content's line count (a new file), the complete diff
+ * is rebuilt from the content itself — the receipt's own counts
+ * prove every line is an addition, so nothing is invented. Anything
+ * else (overwrites with removals, mismatched counts) keeps the
+ * engine's real preview diff.
+ */
+function fullWriteDiff(tool, diff, streamText) {
+    if (streamText === undefined) {
+        return diff;
+    }
+    const stats = editDiffStats(tool);
+    if (!stats || stats.removed !== 0 || stats.added === 0) {
+        return diff;
+    }
+    const lines = streamText.split('\n');
+    if (lines[lines.length - 1] === '') {
+        lines.pop();
+    }
+    if (stats.added !== lines.length) {
+        return diff;
+    }
+    return `@@ -0,0 +1,${lines.length} @@\n${lines.map(line => `+${line}`).join('\n')}`;
+}
 /** OpenCode DiffChanges: the counted chip that rides the file header. */
 function diffChangesChip(stats) {
     const chip = element('span', 'crusorai-diff-count', element('span', 'is-added', `+${stats.added}`), element('span', 'is-removed', `−${stats.removed}`));
@@ -1163,13 +1189,21 @@ function familyBody(tool, host) {
             // itself in edit-content — or, for a write with no diff, the
             // written content in write-content — plus earned diagnostics.
             const diff = editDiffText(tool);
-            // The pipeline (OpenCode): edits settle into the green/red
-            // guttered DIFF; a write shows the FILE (code view) while it
-            // streams in and after — never an all-green wall (founder's
-            // reference renders, 2026-10-15).
+            // The pipeline: while a write STREAMS, the card shows the
+            // FILE growing (OpenCode's write view); once it SETTLES,
+            // founder 2026-10-15 ('also add diff view +,- -->green,red
+            // color', after the colours screenshot) wants the card in
+            // the DIFF view. The engine receipt only previews 12 diff
+            // lines, so for a pure-addition write (removed=0 and the
+            // added count equals the written line count — a new file)
+            // the full diff is rebuilt from the written content; the
+            // counts gate means nothing is ever synthesised loosely.
             const streamText = typeof args?.content === 'string' && args.content
                 ? args.content
                 : (typeof args?.new_text === 'string' && args.new_text ? args.new_text : undefined);
+            const settledWriteDiff = tool.name === 'write_file' && tool.state === 'passed' && diff
+                ? fullWriteDiff(tool, diff, streamText)
+                : undefined;
             const syntax = host.syntaxColors?.(syntaxLanguageOf(target));
             let view;
             if (tool.name !== 'write_file' && diff) {
@@ -1178,9 +1212,15 @@ function familyBody(tool, host) {
                 editBox.append(diffPreview(diff, target, syntax));
                 view = editBox;
             }
+            else if (settledWriteDiff) {
+                const editBox = element('div', 'crusorai-edit-content');
+                editBox.dataset.component = 'edit-content';
+                editBox.append(diffPreview(settledWriteDiff, target, syntax));
+                view = editBox;
+            }
             else if (streamText !== undefined) {
-                // OpenCode's write view is the file itself (never a green
-                // wall): the code view, streaming while the call lands.
+                // Still streaming (or no diff landed): OpenCode's write
+                // view — the file itself growing in the code view.
                 const writeBox = element('div', 'crusorai-write-content');
                 writeBox.dataset.component = 'write-content';
                 writeBox.append(codeView(streamText.slice(0, 32_000), target, syntax));

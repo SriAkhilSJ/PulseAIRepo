@@ -1788,3 +1788,22 @@ def test_syntax_colours_come_from_the_editor_theme():
     assert "@IThemeService private readonly themeService" in service
     assert "onDidColorThemeChange(() => this.syntaxColorCache.clear())" in service
     assert "var(--crusorai-tok-string, var(--vscode-symbolIcon-stringForeground))" in css
+
+
+def test_write_settles_into_the_diff_view():
+    """Founder 2026-10-15 (build 8a1a1f3b screenshot): 'not showing' —
+    the +/- signs landed in the Edit diff, but the Write card still
+    showed the plain file view. The ask ('also add diff view +,-')
+    was about THIS card: while a write streams it grows as the file
+    (approved), and once it settles the card flips into the diff
+    view. The engine receipt previews only 12 diff lines, so a
+    pure-addition write whose receipt counts equal the written line
+    count (a new file) rebuilds the FULL diff from the content —
+    gated on the counts, never synthesised loosely."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "tool.name === 'write_file' && tool.state === 'passed' && diff" in renderer
+    assert "settledWriteDiff" in renderer and "fullWriteDiff(tool, diff, streamText)" in renderer
+    assert "stats.removed !== 0" in renderer and "stats.added !== lines.length" in renderer
+    assert "@@ -0,0 +1,${lines.length} @@" in renderer
+    # Streaming writes keep the growing file view.
+    assert "codeView(streamText.slice(0, 32_000), target, syntax)" in renderer
