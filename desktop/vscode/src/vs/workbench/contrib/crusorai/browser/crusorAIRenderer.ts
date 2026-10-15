@@ -2288,7 +2288,11 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 			subAgents: model.subAgents,
 		}, host, openTools, closedTools));
 	}
-	if (model.subAgents.length && !model.isChild) {
+	// The Sub-Agents section belongs to the turn that delegated. Records
+	// hydrated from a resume (or left by an earlier turn) must not trail at
+	// the END of a later turn's transcript ("why this is at last??",
+	// 2026-10-15): paint only when THIS turn carries delegate cards.
+	if (model.subAgents.length && !model.isChild && model.tools.some(tool => tool.name.startsWith('delegate_'))) {
 		const subAgents = element('section', 'crusorai-subagent-list');
 		subAgents.dataset.component = 'subagent-list';
 		subAgents.append(element('div', 'crusorai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'crusorai-section-count', String(model.subAgents.length))));

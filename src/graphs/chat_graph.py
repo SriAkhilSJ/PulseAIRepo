@@ -631,14 +631,14 @@ def delegate_to_subagent(
                     parent_caps = tuple(pc)
         except Exception:
             parent_caps = ()
-        # Allowed caps based on mode (research/code/test/review) — subset of parent if parent has caps
-        mode_caps_map = {
-            "research": ("web_search", "web_fetch", "read_file", "search_files"),
-            "code": ("read_file", "write_file", "edit_file", "list_files", "search_files", "search_code"),
-            "test": ("read_file", "run_terminal", "list_files", "search_files"),
-            "review": ("read_file", "list_files", "search_files", "search_code"),
-        }
-        requested_caps = mode_caps_map.get(internal_mode, ())
+        # Allowed caps based on mode — COARSE capability vocabulary
+        # (runtime_profile.KNOWN_CAPABILITIES), the only vocabulary the
+        # toolset waist and the strict binder understand. This map
+        # previously named TOOLS (web_search, read_file, ...) and the
+        # KNOWN_CAPABILITIES filter below silently reduced every child's
+        # requested scope to (), so children ran strict-empty.
+        from src.agents.subagent_permissions import default_capabilities_for_mode
+        requested_caps = default_capabilities_for_mode(internal_mode)
         # Filter to known
         requested_caps = tuple(c for c in requested_caps if c in KNOWN_CAPABILITIES)
         # Derive via permission module (subset enforcement)
@@ -1136,6 +1136,26 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         )
     autonomous = _is_autonomous_workspace(config)
     resolved_names = list(names)
+
+    # Strict scope waist (sub-agent children): when the run carries an
+    # explicit capability scope, bind ONLY what the capability waist grants
+    # (tools.toolsets.resolve_runtime_tool_names over the strict profile).
+    # This is the per-call schema bill: children previously re-sent all
+    # ~68 registered schemas on every round while their scope collapsed
+    # to () upstream and nothing here ever applied it (2026-10-15 cost
+    # investigation). The parent bind is untouched (strict is child-only).
+    try:
+        _cfg = config.get("configurable", {}) if isinstance(config, dict) else {}
+        if _cfg.get("scope_capabilities_strict"):
+            from src.agents.runtime_profile import resolve_runtime_profile
+            from src.tools.toolsets import resolve_runtime_tool_names
+            _waist_profile = resolve_runtime_profile("", config)
+            _waist = set(resolve_runtime_tool_names(_waist_profile, config))
+            _scoped = [n for n in resolved_names if n in _waist]
+            if _scoped:
+                resolved_names = _scoped
+    except Exception:
+        pass  # scoping must never break binding; worst case = today's surface
 
     # Tool cap: some models (notably DeepSeek) return empty tool_calls when
     # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.

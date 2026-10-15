@@ -17,6 +17,30 @@ from __future__ import annotations
 
 from typing import Any
 
+# Canonical per-mode capability scopes for sub-agent children. These speak
+# the COARSE capability vocabulary (runtime_profile.KNOWN_CAPABILITIES) --
+# the only vocabulary the toolset waist (tools.toolsets.resolve_runtime_
+# tool_names) and the strict binder understand. Mode->tool-name maps are
+# forbidden here: filtering tool names through KNOWN_CAPABILITIES silently
+# collapses every child's scope to () (found 2026-10-15: children then ran
+# strict-empty and paid for / received the full parent schema surface).
+MODE_CAPABILITIES: dict[str, tuple[str, ...]] = {
+    "research": ("research", "workspace_read"),
+    "code": ("workspace_read", "workspace_write", "execution", "verification"),
+    "test": ("workspace_read", "execution", "verification"),
+    "review": ("workspace_read",),
+}
+_DEFAULT_MODE_CAPABILITIES = (
+    "workspace_read", "workspace_write", "execution", "verification",
+)
+
+
+def default_capabilities_for_mode(mode: str) -> tuple[str, ...]:
+    """Coarse capabilities a sub-agent mode runs with when nothing stricter
+    was derived from the parent."""
+    return MODE_CAPABILITIES.get((mode or "").strip().lower(), _DEFAULT_MODE_CAPABILITIES)
+
+
 def derive_subagent_session_permission(
     parent_permission: list[dict[str, Any]] | None,
     subagent_permission: list[dict[str, Any]] | None,

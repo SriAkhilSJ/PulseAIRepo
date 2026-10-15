@@ -74,6 +74,12 @@ class SubAgentCoordinator:
         by one full result string per spawn for the process's whole life).
         """
         from src.graphs.chat_graph import invoke_agent
+        from src.agents.subagent_permissions import default_capabilities_for_mode
+        if allowed_capabilities is None:
+            # No explicit scope: the mode's canonical scope. Children bind a
+            # strict-waisted tool surface (see _resolve_bound_tools), so an
+            # unscoped child would collapse to the core-only waist.
+            allowed_capabilities = default_capabilities_for_mode(mode)
         # One id per child, everywhere (OpenCode: the child SESSION id
         # is the conversation id is the navigation target). A caller
         # that already minted the child's identity — the lifecycle —

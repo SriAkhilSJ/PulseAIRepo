@@ -20,7 +20,7 @@ from src.agents.sub_agent import SubAgentCoordinator
 def _fake_invoke_factory(behavior):
     """behavior(thread_id, message) -> result string (or raises)."""
     def fake(message, thread_id="default", provider=None, model=None,
-             workspace=".", execution_mode="agent"):
+             workspace=".", execution_mode="agent", **_kw):
         return behavior(thread_id, message)
     return fake
 

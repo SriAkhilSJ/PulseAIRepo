@@ -1986,7 +1986,10 @@ def test_child_session_is_a_normal_session_with_bottom_nav():
     assert "if (childNav) { lane.append(childNav); }" in renderer
     assert "nodes.push(childNav)" not in renderer
     assert ".crusorai-child-nav {" in css and ".crusorai-child-nav-parent" in css
-    assert "if (model.subAgents.length && !model.isChild)" in renderer
+    # The Sub-Agents section belongs to the turn that delegated: records
+    # hydrated from a resume must not trail at the END of a later turn's
+    # transcript ("why this is at last??", 2026-10-15).
+    assert "if (model.subAgents.length && !model.isChild && model.tools.some(tool => tool.name.startsWith('delegate_')))" in renderer
 
 def test_stashed_parent_states_stay_fresh():
     """Field 2026-10-15: the child finished ('task done') but the

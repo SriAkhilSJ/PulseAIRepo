@@ -1393,12 +1393,13 @@
 	border: 1px solid var(--vscode-panel-border, transparent);
 	font-size: var(--crusorai-text-micro);
 	text-transform: uppercase;
+	white-space: nowrap;
 }
 .crusorai-subagent-state.is-running { color: var(--crusorai-running); }
 .crusorai-subagent-state.is-completed { color: var(--crusorai-verified); }
 .crusorai-subagent-state.is-failed { color: var(--crusorai-failed); }
 .crusorai-subagent-state.is-cancelled { color: var(--crusorai-approval); }
-.crusorai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); }
+.crusorai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); white-space: nowrap; }
 .crusorai-subagent-result {
 	grid-column: 1 / -1;
 	margin-top: 4px;

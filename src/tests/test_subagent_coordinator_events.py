@@ -24,7 +24,7 @@ from src.dashboard.event_bus import event_bus
 
 def _fake_invoke_factory(behavior):
     def fake(message, thread_id="default", provider=None, model=None,
-             workspace=".", execution_mode="agent"):
+             workspace=".", execution_mode="agent", **_kw):
         return behavior(thread_id, message)
     return fake
 

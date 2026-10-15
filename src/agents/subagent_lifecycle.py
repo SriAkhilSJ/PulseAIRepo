@@ -109,6 +109,13 @@ class SubagentLifecycleService:
         except Exception:
             # Permission derivation is best-effort, never blocks launch
             pass
+        if not allowed_capabilities:
+            # No scope asked for: the mode's canonical scope (children bind
+            # a strict-waisted tool surface; an empty scope would collapse
+            # them to the core-only waist). Derived BEFORE the broadening
+            # check so an explicit parent scope still constrains it.
+            from src.agents.subagent_permissions import default_capabilities_for_mode
+            allowed_capabilities = default_capabilities_for_mode(mode)
         unknown = set(allowed_capabilities) - KNOWN_CAPABILITIES
         if unknown:
             raise ValueError(f"unknown capabilities: {sorted(unknown)}")
