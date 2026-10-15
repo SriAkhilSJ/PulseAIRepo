@@ -293,7 +293,7 @@
 /* Syntax token colours for the file viewers — the workbench theme's
    own symbolIcon token palette (strings, keywords, numbers, types),
    comments muted. No invented hex; it follows the active theme. */
-.crusorai-web-snippet { color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.45; white-space: normal; max-width: 100%; margin-top: -4px; }
+.crusorai-web-snippet { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.45; white-space: normal; max-width: 100%; margin-top: -4px; }
 
 .crusorai-tok-comment { color: var(--crusorai-tok-comment, var(--vscode-descriptionForeground)); font-style: italic; }
 .crusorai-tok-string { color: var(--crusorai-tok-string, var(--vscode-symbolIcon-stringForeground)); }
