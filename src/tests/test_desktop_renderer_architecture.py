@@ -1385,3 +1385,16 @@ def test_empty_session_is_the_opencode_mark_and_dock():
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-agent-shell.is-empty .crusorai-composer { margin-bottom: auto; }" in css
     assert "crusorai-starter" not in css
+
+
+def test_wait_and_streaming_states_visibly_breathe():
+    """Breathing (founder 2026-10-15: 'rendering/breathing not fixed'):
+    the Asking/wait rows and the live Thinking row carry a real rotating
+    spinner (the tool-row grammar), and the streaming text slot carries a
+    breathing tail cursor — not an 8px square fading in the dark."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "live ? element('span', 'crusorai-mini-spinner') : icon('brain')" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert 'session-turn-content"] > :last-child::after' in css
+    assert "animation: crusorai-spin 850ms linear infinite" in css
+    assert "width: 8px; height: 8px" not in css  # the old invisible square

@@ -1571,7 +1571,7 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 	details.open = live || openTools.has(key);
 	const summary = element('summary', 'crusorai-disclosure-row',
 		element('span', 'crusorai-disclosure-stack',
-			icon('brain'),
+			live ? element('span', 'crusorai-mini-spinner') : icon('brain'),
 			element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought'),
 		),
 		seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined,

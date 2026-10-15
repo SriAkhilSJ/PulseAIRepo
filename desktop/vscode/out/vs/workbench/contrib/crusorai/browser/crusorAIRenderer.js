@@ -1461,7 +1461,7 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
     // always-open + 'toggle' latch painted every settled thought at full
     // size forever (field 2026-10-15) — persist only the user's click.
     details.open = live || openTools.has(key);
-    const summary = element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be'));
+    const summary = element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', live ? element('span', 'crusorai-mini-spinner') : icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be'));
     summary.addEventListener('click', () => details.open ? openTools.delete(key) : openTools.add(key));
     // Split accumulated reasoning into separate blocks (one per LLM call)
     const body = element('div', 'crusorai-thought-body');
