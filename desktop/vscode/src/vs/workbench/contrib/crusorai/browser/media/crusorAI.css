@@ -2087,8 +2087,8 @@
 .crusorai-subagent-action { margin-left: auto; opacity: 0; transition: opacity 150ms ease; display: inline-flex; }
 .crusorai-subagent-row:hover .crusorai-subagent-action { opacity: 1; }
 
-/* ---- Child session navigation: docked above the composer ---- */
-.crusorai-child-nav { display: flex; align-items: center; gap: var(--crusorai-space-1); font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); padding: var(--crusorai-space-1) var(--crusorai-space-2); border-top: 1px solid var(--vscode-widget-border); min-width: 0; }
+/* ---- Child session navigation: last line of the transcript ---- */
+.crusorai-child-nav { display: flex; align-items: center; gap: var(--crusorai-space-1); font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); padding-top: var(--crusorai-space-2); min-width: 0; }
 .crusorai-child-nav-parent { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); background: none; border: none; padding: 0; font: inherit; flex: none; color: var(--vscode-textLink-foreground); cursor: pointer; }
 .crusorai-child-nav-parent:hover { text-decoration: underline; }
 .crusorai-child-nav-parent:disabled { color: var(--vscode-descriptionForeground); cursor: default; text-decoration: none; }

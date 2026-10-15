@@ -2396,6 +2396,9 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 		lane.append(element('div', 'crusorai-notice-row', icon('lightbulb'),
 			element('span', undefined, model.notice)));
 	}
+	// Navigation rides at the very END of the transcript.
+	const childNav = childNavBar(model, host);
+	if (childNav) { lane.append(childNav); }
 	scroll.append(lane);
 	return scroll;
 }
@@ -3464,11 +3467,12 @@ interface CrusorAIActivitySurface {
 }
 
 /**
- * Child-session navigation, docked at the BOTTOM of the pane (founder
- * 2026-10-15: 'make the navigation to the bottom not the top'): back
- * to the parent, the delegated task as a quiet label, and the live
- * state while the child works. The child transcript itself paints
- * exactly like a parent session — this row is the only chrome.
+ * Child-session navigation: the LAST element at the END of the
+ * transcript (founder 2026-10-15: 'the navigation i saw at first
+ * <header> should be at the last <end>'). Back to the parent, the
+ * delegated task as a quiet label, and the live state while the
+ * child works. The child transcript itself paints exactly like a
+ * parent session — this row is the only chrome.
  */
 function childNavBar(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement | undefined {
 	if (!model.isChild) { return undefined; }
@@ -3520,8 +3524,6 @@ function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openT
 	// No breathing tail under the transcript (founder 2026-10-15: delete
 	// the breathing UI completely) — OpenCode streams the turn itself; a
 	// narrating status row under the transcript is not one of its parts.
-	const childNav = childNavBar(model, host);
-	if (childNav) { nodes.push(childNav); }
 	const approval = approvalDock(model, host);
 	if (approval) { nodes.push(approval); }
 	// Hermes: the todo panel lives between the transcript and the composer

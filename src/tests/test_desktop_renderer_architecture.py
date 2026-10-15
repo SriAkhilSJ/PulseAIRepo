@@ -1983,6 +1983,7 @@ def test_child_session_is_a_normal_session_with_bottom_nav():
     assert "crusorai-child-header" not in renderer and "crusorai-child-banner" not in renderer
     assert "if (turn.userMessage && !model.isChild)" not in renderer
     assert "function childNavBar(model: CrusorAIRenderModel, host: CrusorAIRenderHost)" in renderer
-    assert "if (childNav) { nodes.push(childNav); }" in renderer
+    assert "if (childNav) { lane.append(childNav); }" in renderer
+    assert "nodes.push(childNav)" not in renderer
     assert ".crusorai-child-nav {" in css and ".crusorai-child-nav-parent" in css
     assert "if (model.subAgents.length && !model.isChild)" in renderer
