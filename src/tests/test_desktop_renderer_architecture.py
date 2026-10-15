@@ -1512,3 +1512,25 @@ def test_tool_cards_follow_opencode_basictool():
                  "['Query', target], ['Scope'", "['URL', target], ['Status'",
                  "Sessions', '2'"):
         assert gone not in renderer, gone
+
+
+def test_read_and_search_rows_are_single_line_info_rows():
+    """Read + Glob/Grep rows (founder 2026-10-15: 'Read tool card doesn't
+    need a drop down menu, just show #L1-50 info — even Glob, Grep'):
+    read_file and the search family (search_files/search_code) render ONE
+    line — trigger + earned info chip (line range actually read, match
+    count actually found) — never a <details> card, never a caret."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code']);" in renderer
+    assert "function toolInlineInfo" in renderer
+    assert "`#L${start}-${limit !== undefined ? start + limit - 1 : start}`" in renderer
+    assert "`#L1-${lines}`" in renderer, "whole-file reads report the real line count"
+    assert "match${matches.length === 1 ? '' : 'es'}" in renderer
+    assert "'No matches'" in renderer
+    # the inline branch returns a plain row before any body is built
+    inline_at = renderer.index("if (isInline) {")
+    body_at = renderer.index("const body = familyBody(tool, host);")
+    assert inline_at < body_at, "inline rows must return before familyBody runs"
+    assert "crusorai-tool-inline" in renderer and ".crusorai-tool-inline {" in css
+    assert "isPending || isInline ? undefined : icon('chevron-down')" in renderer, "no caret on a line that cannot open"

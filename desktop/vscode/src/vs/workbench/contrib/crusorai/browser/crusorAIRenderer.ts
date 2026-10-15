@@ -1018,10 +1018,13 @@ function toolOutputBox(text: string, asMarkdown = false): HTMLElement {
 function toolArgsChips(tool: CrusorAIToolView): HTMLElement[] {
 	const args = record(tool.arguments);
 	if (!args) { return []; }
-	const skip = new Set(['description', 'query', 'url', 'path', 'pattern', 'name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
+	const isSearch = crusorAIToolPresentation(tool.name).family === 'search';
+	const skip = new Set(['description', 'query', 'url', 'path', 'name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
 	const chips: HTMLElement[] = [];
 	for (const [key, value] of Object.entries(args)) {
-		if (skip.has(key)) { continue; }
+		// OpenCode glob/grep: the pattern IS the info on the line (their
+		// args carry pattern=/include=); elsewhere it stays a label key.
+		if (skip.has(key) || (key === 'pattern' && !isSearch)) { continue; }
 		if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
 			const chip = element('span', 'crusorai-tool-arg', `${key}=${value}`);
 			chip.dataset.slot = 'basic-tool-tool-arg';
@@ -1030,6 +1033,59 @@ function toolArgsChips(tool: CrusorAIToolView): HTMLElement[] {
 		}
 	}
 	return chips;
+}
+
+/**
+ * Single-line info tools (founder 2026-10-15: "Read tool card doesn't need
+ * a drop down menu, just show #L1-50 info — even Glob, Grep"): read_file
+ * is OpenCode's Read (one trigger line, body only ever existed for
+ * images), and our search_files/search_code are its Glob/Grep. These rows
+ * never expand; the line itself carries the earned info — the line range
+ * read, the match count found — computed from what the tool actually
+ * delivered, never invented.
+ */
+const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code']);
+
+function toolInlineInfo(tool: CrusorAIToolView): string | undefined {
+	const result = resultRecord(tool.result);
+	if (tool.name === 'read_file') {
+		const args = record(tool.arguments);
+		const offset = typeof args?.offset === 'number' ? args.offset : undefined;
+		const limit = typeof args?.limit === 'number' ? args.limit : undefined;
+		if (offset !== undefined || limit !== undefined) {
+			const start = offset ?? 1;
+			return `#L${start}-${limit !== undefined ? start + limit - 1 : start}`;
+		}
+	}
+	if (tool.state === 'running' || tool.state === 'queued') { return undefined; }
+	if (tool.name === 'read_file') {
+		const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? firstString(result, ['content', 'output', 'text']);
+		if (!text || text.startsWith('Error:') || text.startsWith('⛔')) { return undefined; }
+		const normalized = text.replace(/\r\n/g, '\n').replace(/\n$/, '');
+		const lines = normalized === '' ? 0 : normalized.split('\n').length;
+		return lines > 0 ? `#L1-${lines}` : undefined;
+	}
+	// Glob/Grep: the pattern rides the args chips; here the count.
+	const matches = result?.matches ?? result?.results;
+	if (Array.isArray(matches)) { return `${matches.length} match${matches.length === 1 ? '' : 'es'}`; }
+	const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? firstString(result, ['content', 'output', 'text']);
+	if (!text) { return undefined; }
+	if (/^No results found/.test(text)) { return 'No matches'; }
+	if (/^(Error:|Path does not exist|⛔)/.test(text)) { return undefined; }
+	const count = text.split('\n').filter(line => line.trim() && !line.startsWith('...')).length;
+	return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : undefined;
+}
+
+/** First error line of an inline row's result, when the tool failed in-band. */
+function toolInlineError(tool: CrusorAIToolView): string | undefined {
+	const result = resultRecord(tool.result);
+	const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? firstString(result, ['content', 'output', 'text', 'error']);
+	if (!text) { return tool.state === 'failed' ? 'Failed' : undefined; }
+	const firstLine = text.split('\n')[0]?.trim() ?? '';
+	if (tool.state === 'failed' || /^(Error:|Path does not exist|⛔)/.test(firstLine)) {
+		return firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine || 'Failed';
+	}
+	return undefined;
 }
 
 function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
@@ -1239,7 +1295,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 	return body;
 }
 
-function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLDetailsElement {
+function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
 	// Hermes (message-parts ChainToolFallback): a clarify call renders its own
 	// widget card — the interactive question while it blocks, the settled Q&A
 	// after — never a generic collapsible tool row.
@@ -1250,6 +1306,9 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	}
 	const presentation = crusorAIToolPresentation(tool.name);
 	const isPending = tool.state === 'running' || tool.state === 'queued';
+	// Read + Glob/Grep rows are single-line (no dropdown, no caret): the
+	// trigger built below is the whole card, info chip included.
+	const isInline = INLINE_INFO_TOOLS.has(tool.name);
 	const details = element('details', `crusorai-tool-row is-${tool.state}`);
 	details.dataset.component = 'tool-trigger';
 	details.dataset.conversationScaffold = '';
@@ -1295,7 +1354,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
 	const toolInfo = element('span', undefined, titleStructured);
 	toolInfo.dataset.slot = 'basic-tool-tool-info';
-	const arrow = element('span', undefined, isPending ? undefined : icon('chevron-down'));
+	const arrow = element('span', undefined, isPending || isInline ? undefined : icon('chevron-down'));
 	arrow.dataset.slot = 'collapsible-arrow';
 	const triggerContent = element('span', undefined,
 		isPending ? element('span', 'crusorai-mini-spinner') : undefined,
@@ -1313,6 +1372,23 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		const meta = element('span', 'crusorai-tool-duration', tool.duration);
 		meta.dataset.slot = 'basic-tool-tool-arg';
 		trigger.append(meta);
+	}
+	if (isInline) {
+		const row = element('div', `crusorai-tool-row crusorai-tool-inline is-${tool.state}`);
+		row.dataset.component = 'tool-trigger';
+		row.dataset.conversationScaffold = '';
+		row.dataset.toolId = tool.id;
+		row.dataset.toolName = tool.name;
+		row.append(trigger);
+		const info = toolInlineInfo(tool);
+		if (info) {
+			const chip = element('span', 'crusorai-tool-arg', info);
+			chip.dataset.slot = 'basic-tool-tool-arg';
+			row.append(chip);
+		}
+		const errorLine = toolInlineError(tool);
+		if (errorLine) { row.append(element('span', 'crusorai-tool-inline-error', errorLine)); }
+		return row;
 	}
 	const body = familyBody(tool, host);
 	body.dataset.slot = 'collapsible-content';

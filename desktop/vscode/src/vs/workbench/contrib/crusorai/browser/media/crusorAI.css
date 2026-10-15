@@ -312,6 +312,12 @@
 .crusorai-clarify-choice.is-selected .crusorai-question-mark[data-type="checkbox"]::after { content: "✓"; font-size: var(--crusorai-text-micro); line-height: 1; color: var(--vscode-foreground); }
 .crusorai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
 
+/* Read + Glob/Grep single-line rows (founder 2026-10-15): no dropdown —
+   the line carries the info (#L1-50, N matches) as an arg chip. */
+.crusorai-tool-inline { display: flex; align-items: center; gap: 6px; padding: 1px 0; cursor: default; }
+.crusorai-tool-inline.is-failed { color: var(--crusorai-failed); }
+.crusorai-tool-inline-error { min-width: 0; overflow: hidden; color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
+
 .crusorai-tool-state {
 	padding: 1px 4px;
 	border: 1px solid var(--vscode-panel-border, transparent);
