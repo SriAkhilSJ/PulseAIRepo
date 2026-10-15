@@ -2087,20 +2087,14 @@
 .crusorai-subagent-action { margin-left: auto; opacity: 0; transition: opacity 150ms ease; display: inline-flex; }
 .crusorai-subagent-row:hover .crusorai-subagent-action { opacity: 1; }
 
-/* ---- Child banner lock ---- */
-.crusorai-child-banner {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 12px;
-	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
-	border-radius: 6px;
-	background: color-mix(in srgb, var(--vscode-editorWarning-background, #cca70033) 40%, var(--vscode-sideBar-background));
-	color: var(--vscode-descriptionForeground);
-	font-size: var(--crusorai-text-meta);
-}
-.crusorai-child-banner .codicon { color: var(--vscode-editorWarning-foreground, #cca700); }
-.crusorai-child-live { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); margin-left: auto; color: var(--vscode-foreground); }
+/* ---- Child session header: one quiet line, no boxes ---- */
+.crusorai-child-header { display: flex; align-items: center; gap: var(--crusorai-space-1); font-size: var(--crusorai-text-2); color: var(--vscode-descriptionForeground); padding-bottom: var(--crusorai-space-2); min-width: 0; }
+.crusorai-child-header-parent { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); background: none; border: none; padding: 0; font: inherit; flex: none; color: var(--vscode-textLink-foreground); cursor: pointer; }
+.crusorai-child-header-parent:hover { text-decoration: underline; }
+.crusorai-child-header-parent:disabled { color: var(--vscode-descriptionForeground); cursor: default; text-decoration: none; }
+.crusorai-child-header-sep { flex: none; opacity: .6; }
+.crusorai-child-header-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-child-live { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); margin-left: auto; flex: none; color: var(--vscode-foreground); }
 
 /* Sub-agent task prompt visible � user could not see task (was only short 'Research') */
 .crusorai-task-tool-task {

@@ -1965,3 +1965,22 @@ def test_batch_children_are_announced_by_the_engine():
     assert "emit_events: bool = True" in sub_agent
     assert "emit_events=False" in lifecycle
     assert ".crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0;" in css
+
+
+def test_child_session_view_is_quiet():
+    """Founder 2026-10-15 (build 20f0dcc2): the child view 'doesn't
+    look nice' — an unstyled H1 breadcrumb with a light pill, a
+    warning-yellow banner box, and the machine-written delegation
+    prompt painted as a big user bubble ('make it fully not
+    noticeable'). Now: one quiet header line (back link / muted
+    task label / Running state), no banner, no user bubbles in a
+    child view (its only user turns are machine prompts), and the
+    parent's Sub-Agents section never paints inside a child."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "crusorai-child-banner" not in renderer and "crusorai-child-banner" not in css
+    assert "userMessage(delegatedTask" not in renderer
+    assert "if (turn.userMessage && !model.isChild)" in renderer
+    assert "if (model.userMessage && !model.isChild)" in renderer
+    assert "if (model.subAgents.length && !model.isChild)" in renderer
+    assert ".crusorai-child-header {" in css and ".crusorai-child-header-parent" in css

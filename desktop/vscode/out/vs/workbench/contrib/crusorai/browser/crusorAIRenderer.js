@@ -2110,7 +2110,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     const lane = element('div', 'crusorai-transcript-lane');
     // History: previous turns (user → agent) preserved wireframe style, no breathing
     for (const turn of model.history) {
-        if (turn.userMessage)
+        if (turn.userMessage && !model.isChild)
             lane.append(userMessage(turn.userMessage));
         if (turn.assistantText || turn.parts.length || turn.tools.length) {
             lane.append(assistantTurn({
@@ -2172,7 +2172,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
         }
     }
     // Current turn (breathing when running)
-    if (model.userMessage) {
+    if (model.userMessage && !model.isChild) {
         lane.append(userMessage(model.userMessage));
     }
     // No assistant text means there is nothing to narrate. The line used to fall back to a sentence
@@ -2194,7 +2194,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             subAgents: model.subAgents,
         }, host, openTools, closedTools));
     }
-    if (model.subAgents.length) {
+    if (model.subAgents.length && !model.isChild) {
         const subAgents = element('section', 'crusorai-subagent-list');
         subAgents.dataset.component = 'subagent-list';
         subAgents.append(element('div', 'crusorai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'crusorai-section-count', String(model.subAgents.length))));
@@ -2304,38 +2304,34 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     if (model.notice) {
         lane.append(element('div', 'crusorai-notice-row', icon('lightbulb'), element('span', undefined, model.notice)));
     }
-    // OpenCode parity: child header parent / child + agent-designed prompt as user message
+    // Child session chrome: ONE quiet line — back link, the delegated
+    // task as a muted label, and the live state while the child works.
+    // (The old paint stacked an unstyled H1 breadcrumb, a warning-box
+    // banner and the machine-written prompt as a user bubble; the
+    // founder called it, correctly, weird.)
     if (model.isChild) {
         const delegatedTask = model.userMessage || model.subAgentGoal || '';
         const parentTitle = model.parentTitle || 'Parent session';
-        const childTitle = delegatedTask.slice(0, 60) || 'Sub-agent';
-        // Header like opencode: Spawn agents to analyze folders / Analyze playground folder
         const header = element('div', 'crusorai-child-header');
-        const parentBtn = element('button', 'crusorai-child-header-parent', parentTitle);
+        const parentBtn = element('button', 'crusorai-child-header-parent', icon('arrow-left'), element('span', undefined, parentTitle));
+        parentBtn.title = `Back to ${parentTitle}`;
         if (model.parentSessionId && host.navigateToSession) {
             const pId = model.parentSessionId;
             parentBtn.addEventListener('click', () => host.navigateToSession(pId));
         }
-        header.append(parentBtn, element('span', undefined, ' / '), element('h1', 'crusorai-child-header-child', childTitle));
-        lane.prepend(header);
-        if (delegatedTask) {
-            lane.append(userMessage(delegatedTask.slice(0, 800)));
+        else {
+            parentBtn.disabled = true;
         }
-        const banner = element('div', 'crusorai-child-banner');
-        banner.dataset.component = 'child-banner';
-        banner.append(icon('info'), element('span', undefined, 'Sub-agent session — prompt disabled'));
-        // Live truth while the child works: its own record rides the model,
-        // so the banner shows Running instead of pretending the page is a
-        // static replay (the transcript refreshes as its steps land).
+        header.append(parentBtn, element('span', 'crusorai-child-header-sep', '/'), element('span', 'crusorai-child-header-child', delegatedTask ? delegatedTask.slice(0, 60) : 'Sub-agent'));
+        const headerChild = header.querySelector('.crusorai-child-header-child');
+        if (headerChild && delegatedTask) {
+            headerChild.setAttribute('title', delegatedTask);
+        }
         const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
         if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
-            banner.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
+            header.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
         }
-        if (model.parentSessionId && host.navigateToSession) {
-            const parentId = model.parentSessionId;
-            banner.append(button('Back to Parent', 'crusorai-link-button', () => host.navigateToSession(parentId), 'arrow-left'));
-        }
-        lane.append(banner);
+        lane.prepend(header);
     }
     scroll.append(lane);
     return scroll;
