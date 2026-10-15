@@ -2100,3 +2100,31 @@ def test_engine_registry_resume_model_and_spawn_policy():
     assert "session_id: RESUME a previous sub-agent session" in chat_graph
     assert "Available agents: {_listing}" in chat_graph
     assert "_DELEGATE_BASE_DESCRIPTIONS" in chat_graph
+
+def test_approval_dock_is_opencode_dockprompt_in_founder_theme():
+    """The approval UI is OpenCode's DockPrompt (kind=permission) wearing
+    the founder's theme — verified against the captured
+    session-permission-dock.tsx / message-part.css: raised shell
+    (permission-body) with warning icon + 'Permission required', hint
+    and plain-code pattern rows on the 20px icon column, and a base
+    tray (permission-footer) underneath carrying Deny | Allow always |
+    Allow once. The amber approval colour lives ONLY on the icon: the
+    earlier tinted card (amber top border + 9% amber wash + warning
+    box) matched neither OpenCode nor 'black stays black'."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "body.dataset.slot = 'permission-body'" in renderer
+    assert "permissionFooter.dataset.slot = 'permission-footer'" in renderer
+    assert "footerActions.dataset.slot = 'permission-footer-actions'" in renderer
+    assert "icon('warning')" in renderer
+    assert ".crusorai-approval-body {" in css
+    assert "background: var(--vscode-editorWidget-background)" in css
+    assert ".crusorai-permission-footer {" in css
+    assert "margin-top: -16px" in css  # tray slides under the shell
+    assert ".crusorai-permission-icon { color: var(--crusorai-approval);" in css
+    # The tint era is gone: no amber border/wash, no warning box, no
+    # boxed pattern code, no leftover Hermes approval-bar CSS.
+    assert "border-top: 1px solid var(--crusorai-approval)" not in css
+    assert "var(--crusorai-approval) 9%" not in css
+    assert "crusorai-approval-warning" not in renderer and "crusorai-approval-warning" not in css
+    assert "crusorai-approval-bar" not in css and "crusorai-approval-pill" not in css

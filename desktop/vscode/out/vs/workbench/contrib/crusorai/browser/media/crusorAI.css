@@ -325,19 +325,30 @@
 .crusorai-error-card-body { white-space: pre-wrap; word-break: break-word; }
 .crusorai-plan-list.crusorai-todos { padding: 10px 0 24px 0; gap: 8px; }
 
-/* OpenCode permission dock (captured session-permission-dock, DockPrompt
-   kind=permission): header, hint, patterns, right-aligned footer —
-   Deny ghost | Allow always neutral | Allow once primary. */
-.crusorai-permission-header { display: flex; gap: 10px; align-items: flex-start; }
-.crusorai-permission-icon { color: var(--crusorai-approval); display: inline-flex; margin-top: 2px; }
-.crusorai-permission-subtitle { color: var(--vscode-descriptionForeground); display: block; font-size: var(--crusorai-text-meta); }
-.crusorai-permission-patterns { display: flex; flex-direction: column; gap: 4px; }
-.crusorai-permission-patterns code { font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-meta); word-break: break-all; background: var(--vscode-textCodeBlock-background, transparent); border-radius: 6px; padding: 8px 10px; }
-.crusorai-permission-footer { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 2px; }
+/* OpenCode permission dock (session-permission-dock.tsx + DockPrompt
+   kind=permission + message-part.css), founder theme: a raised shell
+   (warning icon, "Permission required", hint + pattern rows aligned to
+   the 20px icon column) over a base tray that slides underneath it —
+   Deny ghost | Allow always neutral | Allow once primary. Surfaces and
+   text come from the editor tokens; amber lives ONLY on the icon. */
+.crusorai-approval-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 16px; padding: 12px 12px 10px; background: var(--vscode-editorWidget-background); border-radius: var(--crusorai-radius-turn); box-shadow: 0 0 0 1px var(--vscode-panel-border), 0 2px 8px rgba(0, 0, 0, .15); }
+.crusorai-permission-header { display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: center; }
+.crusorai-permission-icon { color: var(--crusorai-approval); display: inline-flex; align-items: center; justify-content: center; }
+.crusorai-permission-title { font-size: var(--crusorai-text-title); font-weight: 500; color: var(--vscode-foreground); min-width: 0; }
+.crusorai-permission-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; }
+.crusorai-permission-row { display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; min-width: 0; }
+.crusorai-permission-spacer { display: block; }
+.crusorai-permission-hint { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-title); line-height: 1.45; overflow-wrap: anywhere; min-width: 0; }
+.crusorai-permission-patterns { display: flex; flex-direction: column; gap: 6px; padding: 1px 0 2px; min-width: 0; }
+.crusorai-permission-patterns code { font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-title); line-height: 1.45; word-break: break-all; color: var(--vscode-foreground); }
+.crusorai-permission-footer { position: relative; z-index: 0; display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 24px 8px 8px; margin-top: -16px; background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-panel-border); border-radius: var(--crusorai-radius-turn); }
+.crusorai-permission-actions { display: flex; gap: 8px; align-items: center; }
 .crusorai-permission-deny { background: transparent; border: 1px solid transparent; color: var(--vscode-descriptionForeground); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; }
 .crusorai-permission-deny:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
 .crusorai-permission-always { background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); border: 1px solid var(--vscode-panel-border, transparent); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; }
+.crusorai-permission-always:hover { background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 88%, var(--vscode-foreground)); }
 .crusorai-permission-once { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid transparent; border-radius: 6px; padding: 5px 14px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
+.crusorai-permission-once:hover { background: color-mix(in srgb, var(--vscode-button-background) 88%, var(--vscode-foreground)); }
 
 /* OpenCode question-option mark: radio dot / checkbox beside each choice. */
 .crusorai-question-mark { flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
@@ -680,75 +691,24 @@
 .crusorai-approval-dock {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 0;
 	flex-shrink: 0;
 	min-width: 0;
-	padding: 8px 10px;
-	border-top: 1px solid var(--crusorai-approval);
-	border-radius: 6px;
-	background: color-mix(in srgb, var(--crusorai-approval) 9%, var(--vscode-sideBar-background));
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
-.crusorai-approval-header-row {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 8px;
-	width: 100%;
-}
-.crusorai-approval-copy { display: flex; align-items: flex-start; gap: 7px; min-width: 0; flex: 1 1 180px; }
-.crusorai-approval-copy > .codicon { margin-top: 2px; color: var(--crusorai-approval); }
-.crusorai-approval-copy div { display: grid; min-width: 0; }
-.crusorai-approval-copy span { overflow: hidden; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
-.crusorai-approval-actions { display: flex; flex-wrap: wrap; gap: 5px; flex-shrink: 0; }
-
-.crusorai-approval-warning {
-	display: flex;
-	align-items: flex-start;
-	gap: 6px;
-	width: 100%;
-	word-break: break-word;
-	padding: 6px 8px;
-	border-radius: 4px;
-	border: 1px solid color-mix(in srgb, var(--crusorai-approval) 30%, transparent);
-	background: color-mix(in srgb, var(--crusorai-approval) 12%, transparent);
-	color: var(--vscode-foreground);
-	font-size: var(--crusorai-text-meta);
-	line-height: 1.4;
-}
-.crusorai-approval-warning > .codicon {
-	color: var(--crusorai-approval);
-	flex-shrink: 0;
-	margin-top: 1px;
-}
-.crusorai-approval-risk-badge {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	padding: 2px 7px;
-	border-radius: 4px;
-	border: 1px solid color-mix(in srgb, var(--vscode-testing-iconFailed) 40%, transparent);
-	background: color-mix(in srgb, var(--vscode-testing-iconFailed) 12%, transparent);
-	color: var(--vscode-testing-iconFailed);
-	font-size: var(--crusorai-text-micro);
-	font-weight: 500;
-}
+/* The change under review sits flat inside the shell (the shell is the
+   surface; a second framed box inside it was Crusor chrome OpenCode
+   does not have). */
 .crusorai-approval-diff-preview {
 	width: 100%;
-	margin-top: 4px;
-	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.2));
-	border-radius: 6px;
+	margin-top: 6px;
 	overflow: hidden;
-	background: var(--vscode-editor-background);
 }
 .crusorai-approval-diff-header {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 4px 8px;
-	border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,.15));
-	background: color-mix(in srgb, var(--vscode-sideBar-background) 80%, transparent);
+	padding: 2px 0 6px;
+	border-bottom: 1px solid var(--vscode-panel-border);
 	font-size: var(--crusorai-text-meta);
 }
 .crusorai-approval-action-badge {
@@ -769,59 +729,6 @@
 	flex: 1 1 auto;
 }
 
-/* ── Hermes ApprovalBar: split pill [Run ⌘⏎ | ▾], Reject ghost, menu ── */
-.crusorai-approval-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
-.crusorai-approval-pill {
-	position: relative;
-	display: inline-flex;
-	align-items: stretch;
-	min-height: 26px;
-	overflow: visible;
-	border: 1px solid color-mix(in srgb, var(--vscode-focusBorder) 45%, transparent);
-	border-radius: 6px;
-	background: color-mix(in srgb, var(--vscode-button-background) 12%, transparent);
-	color: var(--vscode-focusBorder);
-}
-.crusorai-approval-run {
-	display: inline-flex; align-items: center; gap: 4px;
-	padding: 2px 8px; border: none; border-radius: 5px 0 0 5px;
-	background: transparent; color: inherit; font-size: var(--crusorai-text-body-lg); font-weight: 500;
-	cursor: pointer;
-}
-.crusorai-approval-run:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
-.crusorai-approval-divider { width: 1px; align-self: stretch; background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent); }
-.crusorai-approval-more {
-	display: inline-flex; align-items: center; justify-content: center;
-	width: 22px; padding: 0; border: none; border-radius: 0 5px 5px 0;
-	background: transparent; color: inherit; cursor: pointer;
-}
-.crusorai-approval-more:hover { background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent); }
-.crusorai-approval-menu {
-	display: none;
-	position: absolute; top: calc(100% + 4px); left: 0; z-index: 40;
-	min-width: 176px; padding: 4px;
-	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, rgba(128,128,128,.35)));
-	border-radius: 6px;
-	background: var(--vscode-menu-background, var(--vscode-sideBar-background));
-	box-shadow: 0 4px 14px rgba(0,0,0,.35);
-}
-.crusorai-approval-menu.is-open { display: grid; gap: 1px; }
-.crusorai-approval-menu-item {
-	display: flex; align-items: center; gap: 7px;
-	min-height: 26px; padding: 3px 8px; border: none; border-radius: 4px;
-	background: transparent; color: var(--vscode-menu-foreground, var(--vscode-foreground));
-	font-size: var(--crusorai-text-body-lg); text-align: left; cursor: pointer;
-}
-.crusorai-approval-menu-item:hover { background: var(--vscode-menu-selectionBackground, rgba(128,128,128,.2)); }
-.crusorai-approval-menu-item.is-destructive { color: var(--vscode-errorForeground); }
-.crusorai-approval-menu-item .codicon { font-size: var(--crusorai-text-title); }
-.crusorai-approval-reject {
-	display: inline-flex; align-items: center; gap: 4px;
-	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
-	background: transparent; color: var(--vscode-descriptionForeground);
-	font-size: var(--crusorai-text-body-lg); cursor: pointer;
-}
-.crusorai-approval-reject:hover { color: var(--vscode-foreground); }
 .crusorai-approval-review {
 	display: inline-flex; align-items: center; gap: 4px;
 	min-height: 26px; padding: 2px 8px; border: none; border-radius: 6px;
@@ -830,24 +737,6 @@
 }
 .crusorai-approval-review:hover { color: var(--vscode-foreground); }
 .crusorai-approval-kbd { font-size: var(--crusorai-text-micro); opacity: .6; }
-.crusorai-approval-command-toggle {
-	display: inline-flex; align-items: center; gap: 4px;
-	height: 24px; padding: 0 8px; border: none; border-radius: 6px;
-	background: transparent; color: var(--vscode-descriptionForeground);
-	font-size: var(--crusorai-text-body-lg); cursor: pointer;
-}
-.crusorai-approval-command-toggle:hover { color: var(--vscode-foreground); }
-.crusorai-approval-command {
-	display: none;
-	width: 100%; max-height: 160px; overflow-x: auto; overflow-y: auto; scrollbar-width: thin;
-	margin: 6px 0 0; padding: 6px 10px;
-	border: 1px solid var(--vscode-widget-border, rgba(128,128,128,.3));
-	border-radius: 6px;
-	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-meta); line-height: 1.45;
-	white-space: pre; word-break: normal;
-	background: var(--vscode-editor-background);
-}
-.crusorai-approval-command.is-open { display: block; }
 .crusorai-dialog-overlay {
 	display: none;
 	position: fixed; inset: 0; z-index: 100;

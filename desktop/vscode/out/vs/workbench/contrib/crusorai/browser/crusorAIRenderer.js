@@ -2410,22 +2410,10 @@ function approvalDock(model, host) {
         }
         inlineDiffCard = element('div', 'crusorai-approval-diff-preview', header, diffPreview(diffString));
     }
-    let warningBox;
-    if (approval.warning) {
-        warningBox = element('div', 'crusorai-approval-warning', icon('shield'), element('span', undefined, approval.warning));
-    }
-    let shellRiskBadge;
-    if (isShell) {
-        const riskText = typeof diffRecord?.risk === 'string' ? diffRecord.risk : undefined;
-        if (riskText) {
-            shellRiskBadge = element('div', 'crusorai-approval-risk-badge', icon('shield'), element('span', undefined, riskText));
-        }
-    }
+    const riskText = isShell && typeof diffRecord?.risk === 'string' ? diffRecord.risk : undefined;
     const runButton = button('Allow once', 'crusorai-permission-once', () => host.replyToSafety(approval.toolId, true), 'check');
     runButton.dataset.approveOnce = '';
     hinted(runButton, 'Allow this call only.');
-    const runHint = element('span', 'crusorai-approval-kbd', isMac() ? '⌘⏎' : 'Ctrl⏎');
-    runButton.append(runHint);
     // OpenCode permission dock footer (captured session-permission-dock):
     // Deny (ghost) | Allow always (neutral, behind our confirm dialog — the
     // grant is session-scoped in our backend) | Allow once (primary).
@@ -2433,9 +2421,13 @@ function approvalDock(model, host) {
     hinted(alwaysButton, 'Stop asking for this tool this session.');
     const reject = hinted(button('Deny', 'crusorai-permission-deny', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
     reject.dataset.deny = '';
-    const rejectHint = element('span', 'crusorai-approval-kbd', 'Esc');
-    reject.append(rejectHint);
-    const permissionFooter = element('div', 'crusorai-permission-footer', reject, alwaysButton, runButton);
+    const footerActions = element('div', 'crusorai-permission-actions', reject, alwaysButton, runButton);
+    footerActions.dataset.slot = 'permission-footer-actions';
+    // The tray's left slot (OpenCode keeps it empty; ours carries the
+    // editor-diff review for approvals that have a change to inspect).
+    const reviewButton = approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined;
+    const permissionFooter = element('div', 'crusorai-permission-footer', reviewButton ?? element('div'), footerActions);
+    permissionFooter.dataset.slot = 'permission-footer';
     // "Always allow" persists for the session, so it goes through a confirm
     // step rather than firing straight from the menu (hermes' dialog rule).
     const overlay = element('div', 'crusorai-dialog-overlay');
@@ -2455,33 +2447,50 @@ function approvalDock(model, host) {
     overlay.append(dialog);
     overlay.addEventListener('click', event => { if (event.target === overlay)
         overlay.classList.remove('is-open'); });
-    // OpenCode permission dock assembly (DockPrompt kind=permission):
-    // header (icon + "Permission required" + what tool) -> hint rows ->
-    // resource patterns / content (their code rows; ours: the real command
-    // or the diff) -> footer actions.
+    // OpenCode permission dock assembly (DockPrompt kind=permission,
+    // session-permission-dock.tsx + message-part.css): a raised SHELL
+    // (warning icon + "Permission required"; content rows aligned to the
+    // 20px icon column — the tool hint, then the resource patterns as
+    // plain code rows) over a base TRAY that slides underneath it and
+    // carries the actions: [left slot] Deny | Allow always | Allow once.
+    // Colours are the founder's theme: surfaces from the editor tokens,
+    // white reading text, amber ONLY on the warning icon (approval is
+    // the one earned amber), the theme's own buttons. No tinted card.
     dock.dataset.kind = 'permission';
-    const headerRow = element('div', 'crusorai-permission-header', element('span', 'crusorai-permission-icon', icon('shield')), element('div', undefined, element('strong', undefined, 'Permission required'), element('span', 'crusorai-permission-subtitle', `${crusorAIToolPresentation(approval.name).title} · ${displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })}`)), approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined);
-    dock.append(headerRow);
-    if (warningBox) {
-        dock.append(warningBox);
-    }
-    if (shellRiskBadge) {
-        dock.append(shellRiskBadge);
+    const body = element('div', 'crusorai-approval-body');
+    body.dataset.slot = 'permission-body';
+    const permissionIcon = element('span', 'crusorai-permission-icon', icon('warning'));
+    permissionIcon.dataset.slot = 'permission-icon';
+    const permissionTitle = element('div', 'crusorai-permission-title', 'Permission required');
+    permissionTitle.dataset.slot = 'permission-header-title';
+    const headerRow = element('div', 'crusorai-permission-header', permissionIcon, permissionTitle);
+    headerRow.dataset.slot = 'permission-row';
+    headerRow.dataset.variant = 'header';
+    body.append(headerRow);
+    const content = element('div', 'crusorai-permission-content');
+    content.dataset.slot = 'permission-content';
+    const hintRow = element('div', 'crusorai-permission-row', element('span', 'crusorai-permission-spacer'), element('div', 'crusorai-permission-hint', approval.warning ?? `${crusorAIToolPresentation(approval.name).title} · ${displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })}`));
+    hintRow.dataset.slot = 'permission-row';
+    content.append(hintRow);
+    if (riskText) {
+        const riskRow = element('div', 'crusorai-permission-row', element('span', 'crusorai-permission-spacer'), element('div', 'crusorai-permission-hint', riskText));
+        riskRow.dataset.slot = 'permission-row';
+        content.append(riskRow);
     }
     if (inlineDiffCard) {
-        dock.append(inlineDiffCard);
+        content.append(inlineDiffCard);
     }
     else if (commandText) {
-        const patterns = element('div', 'crusorai-permission-patterns');
-        patterns.append(element('code', undefined, commandText));
-        dock.append(patterns);
+        const patternsRow = element('div', 'crusorai-permission-row', element('span', 'crusorai-permission-spacer'), element('div', 'crusorai-permission-patterns', element('code', undefined, commandText)));
+        patternsRow.dataset.slot = 'permission-row';
+        patternsRow.querySelector('.crusorai-permission-patterns')?.setAttribute('data-slot', 'permission-patterns');
+        content.append(patternsRow);
     }
+    body.append(content);
+    dock.append(body);
     dock.append(permissionFooter);
     dock.append(overlay);
     return dock;
-}
-function isMac() {
-    return typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform);
 }
 function approvalCommandText(name, diff) {
     const row = (diff && typeof diff === 'object') ? diff : {};
