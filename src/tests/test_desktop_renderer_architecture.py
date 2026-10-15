@@ -1850,3 +1850,16 @@ def test_web_cards_match_opencode():
     assert "@IOpenerService private readonly openerService" in service
     assert "this.openerService.open(url, { openExternal: true })" in service
     assert ".crusorai-web-snippet {" in css
+
+
+def test_web_fetch_earns_no_match_count_chip():
+    """Founder screenshot 2026-10-15 (build e7729709): 'Fetch page
+    https://example.com 7 matches' — the inline web_fetch row fell
+    through to the grep/glob line-count fallback in toolInlineInfo
+    and labelled the fetched page's line count as matches. Web rows
+    return before that fallthrough (extract keeps its real 'N
+    pages'); search tools keep earning their count. Harness-verified
+    against the shipped bundle."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "if (tool.name === 'web_extract' || tool.name === 'web_fetch') {" in renderer
+    assert "Web rows earn no match count" in renderer

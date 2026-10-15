@@ -952,11 +952,17 @@ function toolInlineInfo(tool) {
         const lines = normalized === '' ? 0 : normalized.split('\n').length;
         return lines > 0 ? `#L1-${lines}` : undefined;
     }
-    if (tool.name === 'web_extract') {
-        const urls = record(tool.arguments)?.urls;
-        if (Array.isArray(urls) && urls.length > 1) {
-            return `${urls.length} pages`;
+    if (tool.name === 'web_extract' || tool.name === 'web_fetch') {
+        // Web rows earn no match count (founder screenshot 2026-10-15:
+        // 'Fetch page ... 7 matches' — the fetched page's line count
+        // is not matches). Only the extract page count is real info.
+        if (tool.name === 'web_extract') {
+            const urls = record(tool.arguments)?.urls;
+            if (Array.isArray(urls) && urls.length > 1) {
+                return `${urls.length} pages`;
+            }
         }
+        return undefined;
     }
     // Glob/Grep: the pattern rides the args chips; here the count.
     const matches = result?.matches ?? result?.results;
