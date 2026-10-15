@@ -163,6 +163,12 @@ class SubAgentCoordinator:
                             shorten_title(task) or "Sub-agent task"),
                         parent_session_id=(parent_thread_id
                                            if parent_thread_id != "main" else None),
+                        # Delegation is NOT lineage continuation: the
+                        # child roots its own lineage, or resolve_tip
+                        # would climb from the child back up to the
+                        # (more recently active) parent and opening the
+                        # child would paint the parent's transcript.
+                        lineage_root_id=agent_id,
                     )
             except Exception:
                 pass

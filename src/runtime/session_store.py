@@ -189,6 +189,7 @@ class CrusorSessionStore:
         title: str | None = None,
         model: str | None = None,
         parent_session_id: str | None = None,
+        lineage_root_id: str | None = None,
     ) -> dict[str, Any]:
         """Upsert a session row without overwriting what an earlier writer set.
 
@@ -220,7 +221,7 @@ class CrusorSessionStore:
                 if parent_session_id and not existing["parent_session_id"]:
                     updates.append("parent_session_id = ?")
                     params.append(parent_session_id)
-                    root = self._lineage_root_for_parent(parent_session_id, sid)
+                    root = lineage_root_id or self._lineage_root_for_parent(parent_session_id, sid)
                     updates.append("lineage_root_id = ?")
                     params.append(root)
                 if updates:
@@ -233,7 +234,7 @@ class CrusorSessionStore:
                     "SELECT * FROM crusor_sessions WHERE id = ?", (sid,)
                 ).fetchone()
                 return _row_to_dict(row)
-            lineage_root = self._lineage_root_for_parent(parent_session_id, sid)
+            lineage_root = lineage_root_id or self._lineage_root_for_parent(parent_session_id, sid)
             self._conn.execute(
                 """
                 INSERT INTO crusor_sessions

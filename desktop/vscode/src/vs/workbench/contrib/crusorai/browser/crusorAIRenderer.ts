@@ -115,7 +115,7 @@ export interface CrusorAIRenderModel {
 	readonly llmReasoningLive?: boolean;
 	/** Bounded anatomy of the live request: role + head per message. */
 	readonly llmHeads?: readonly { readonly role: string; readonly head: string }[];
-	/** Calm info notice (deferred child navigation) — never the error lane. */
+	/** Calm info notice lane — never the error lane. */
 	readonly notice?: string;
 	/** Hermes session-states.ts port: busy but silent for the 5-min watchdog
 	 * window. A presentation hint (hollow dot, honest row text) — never an
@@ -2416,6 +2416,13 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 		const banner = element('div', 'crusorai-child-banner');
 		banner.dataset.component = 'child-banner';
 		banner.append(icon('info'), element('span', undefined, 'Sub-agent session — prompt disabled'));
+		// Live truth while the child works: its own record rides the model,
+		// so the banner shows Running instead of pretending the page is a
+		// static replay (the transcript refreshes as its steps land).
+		const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
+		if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
+			banner.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
+		}
 		if (model.parentSessionId && host.navigateToSession) {
 			const parentId = model.parentSessionId;
 			banner.append(button('Back to Parent', 'crusorai-link-button', () => host.navigateToSession!(parentId), 'arrow-left'));

@@ -145,3 +145,27 @@ def test_delete_removes_row(tmp_path):
         assert store.delete_session("s") is False
     finally:
         store.close()
+
+
+def test_delegation_child_does_not_resolve_to_parent(tmp_path):
+    """resolve_tip follows lineage roots (compression descendants).
+    A delegated child roots its OWN lineage: opening it must return
+    the child even while the parent is the most recently active row
+    in the family. Without the override, the child (whose lineage
+    root names the parent) resolves UP to the parent's transcript."""
+    import time as _time
+
+    store = CrusorSessionStore(tmp_path / "sessions.db")
+    store.create_session("parent-1", "/ws", title="Parent")
+    store.create_session("sub-code-abc", "/ws", title="Child task",
+                         parent_session_id="parent-1",
+                         lineage_root_id="sub-code-abc")
+    # Parent stays hot (it is mid-turn while the child runs).
+    store.touch_activity("parent-1", preview="working")
+    assert store.resolve_tip("sub-code-abc") == "sub-code-abc"
+    # A fork child (lineage continuation, no override) still resolves
+    # to the family's latest descendant as before.
+    store.create_session("fork-1", "/ws", parent_session_id="parent-1")
+    _time.sleep(0.01)
+    store.touch_activity("fork-1", preview="continued")
+    assert store.resolve_tip("parent-1") == "fork-1"

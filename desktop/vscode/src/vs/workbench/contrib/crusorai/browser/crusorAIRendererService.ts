@@ -86,6 +86,49 @@ function stringField(source: unknown, keys: readonly string[]): string | undefin
 	return undefined;
 }
 
+
+/** The full live surface of one session, stashed while the user watches a child mid-run. */
+interface CrusorSurfaceSnapshot {
+	readonly sessionId: string;
+	readonly running: boolean;
+	readonly cancelRequested: boolean;
+	readonly interrupt: { readonly landed: number; readonly dropped: number } | undefined;
+	readonly turnOutcome: CrusorAIRenderModel['turnOutcome'];
+	readonly turnStartedAt: number | undefined;
+	readonly turnEndedAt: number | undefined;
+	readonly userMessage: string | undefined;
+	readonly assistantText: string;
+	readonly parts: CrusorAITurnPart[];
+	readonly reasoningParts: { text: string; completedAt?: number }[];
+	readonly reasoningPending: boolean;
+	readonly tools: Map<string, CrusorAIToolView>;
+	readonly subAgents: Map<string, CrusorAISubAgentView>;
+	readonly parentMap: Map<string, string>;
+	readonly childParentId: string | undefined;
+	readonly history: CrusorAIRenderModel['history'];
+	readonly plan: readonly CrusorAIPlanStepView[];
+	readonly verification: string | undefined;
+	readonly telemetry: CrusorAIRenderModel['telemetry'];
+	readonly approval: CrusorAIRenderModel['approval'];
+	readonly clarify: {
+		readonly requestId: string;
+		readonly title: string;
+		readonly toolId?: string;
+		readonly questions: readonly CrusorClarifyQuestion[];
+	} | undefined;
+	readonly todos: readonly CrusorTodoItem[];
+	readonly todoRevision: number;
+	readonly compacting: boolean | undefined;
+	readonly contextStatus: CrusorAIRenderModel['contextStatus'];
+	readonly voiceHeard: CrusorAIRenderModel['voiceHeard'];
+	readonly llmStatus: { readonly model: string; readonly attempt: number } | undefined;
+	readonly llmHeads: readonly { readonly role: string; readonly head: string }[] | undefined;
+	readonly degraded: string | undefined;
+	readonly error: string | undefined;
+	readonly hadProviderAttempt: boolean;
+	readonly pendingPrompt: string | undefined;
+}
+
 export class CrusorAIRendererService extends Disposable implements ICrusorAIRendererService {
 	declare readonly _serviceBrand: undefined;
 	private readonly mounts = new Set<CrusorAIRenderMount>();
@@ -101,10 +144,21 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private lastSubmittedPrompt: string | undefined;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
-	/** Child session the user clicked mid-run: opens when the turn settles. */
-	private pendingChildNavigation: string | undefined;
-	/** Calm info notice for the pane (NOT the red error lane). */
-	private navigationNotice: string | undefined;
+	/**
+	 * Parent surface stashed while the user watches a child session mid-run
+	 * (OpenCode: the child is just a session route; the parent keeps
+	 * running). Restored verbatim on return so the parent's stream resumes
+	 * mid-sentence; invalidated when the parent's turn settles, because its
+	 * checkpoint then holds the truth and hydration replaces the snapshot.
+	 */
+	private liveStash: { readonly sessionId: string; readonly snapshot: CrusorSurfaceSnapshot } | undefined;
+	/** After a stash restore, heal the away-window gap once from the settled checkpoint. */
+	private healAfterRestore = false;
+	private healRequested = false;
+	/** Checkpoint-refresh timer while a live child session is open. */
+	private childSnapshotTimer: ReturnType<typeof setInterval> | undefined;
+	/** A refresh (unlike the opening hydration) must never blank the paint with an empty in-flight read. */
+	private childRefreshInFlight = false;
 	private draft = '';
 	private mode: CrusorExecutionMode = 'agent';
 	/** Think level ('none' = thinking disabled by default). */
@@ -443,6 +497,120 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * method because folder switches, session switches and New Session must clear exactly the
 	 * same surface -- two copies drifted once already (history survived navigation).
 	 */
+	private captureSurface(sessionId: string): CrusorSurfaceSnapshot {
+		return {
+			sessionId,
+			running: this.running,
+			cancelRequested: this.cancelRequested,
+			interrupt: this.interrupt,
+			turnOutcome: this.turnOutcome,
+			turnStartedAt: this.turnStartedAt,
+			turnEndedAt: this.turnEndedAt,
+			userMessage: this.userMessage,
+			assistantText: this.assistantText,
+			parts: [...this.parts],
+			reasoningParts: [...this.reasoningParts],
+			reasoningPending: this.reasoningPending,
+			tools: new Map(this.tools),
+			subAgents: new Map(this.subAgents),
+			parentMap: new Map(this.parentMap),
+			childParentId: this.childParentId,
+			history: [...this.history],
+			plan: this.plan,
+			verification: this.verification,
+			telemetry: this.telemetry,
+			approval: this.approval,
+			clarify: this.clarify,
+			todos: this.todos,
+			todoRevision: this.todoRevision,
+			compacting: this.compacting,
+			contextStatus: this.contextStatus,
+			voiceHeard: this.voiceHeard,
+			llmStatus: this.llmStatus,
+			llmHeads: this.llmHeads,
+			degraded: this.degraded,
+			error: this.error,
+			hadProviderAttempt: this.hadProviderAttempt,
+			pendingPrompt: this.pendingPrompt,
+		};
+	}
+
+	private restoreSurface(snapshot: CrusorSurfaceSnapshot): void {
+		this.sessionId = snapshot.sessionId;
+		this.running = snapshot.running;
+		this.cancelRequested = snapshot.cancelRequested;
+		this.interrupt = snapshot.interrupt;
+		this.turnOutcome = snapshot.turnOutcome;
+		this.turnStartedAt = snapshot.turnStartedAt;
+		this.turnEndedAt = snapshot.turnEndedAt;
+		this.userMessage = snapshot.userMessage;
+		this.assistantText = snapshot.assistantText;
+		this.parts = [...snapshot.parts];
+		this.reasoningParts = [...snapshot.reasoningParts];
+		this.reasoningPending = snapshot.reasoningPending;
+		this.tools.clear();
+		for (const [id, tool] of snapshot.tools) { this.tools.set(id, tool); }
+		this.subAgents.clear();
+		for (const [id, record] of snapshot.subAgents) { this.subAgents.set(id, record); }
+		this.parentMap.clear();
+		for (const [child, parent] of snapshot.parentMap) { this.parentMap.set(child, parent); }
+		this.childParentId = snapshot.childParentId;
+		this.history = [...snapshot.history];
+		this.plan = snapshot.plan;
+		this.verification = snapshot.verification;
+		this.telemetry = snapshot.telemetry;
+		this.approval = snapshot.approval;
+		this.clarify = snapshot.clarify;
+		this.todos = snapshot.todos;
+		this.todoRevision = snapshot.todoRevision;
+		this.compacting = snapshot.compacting;
+		this.contextStatus = snapshot.contextStatus;
+		this.voiceHeard = snapshot.voiceHeard;
+		this.llmStatus = snapshot.llmStatus;
+		this.llmHeads = snapshot.llmHeads;
+		this.degraded = snapshot.degraded;
+		this.error = snapshot.error;
+		this.hadProviderAttempt = snapshot.hadProviderAttempt;
+		this.pendingPrompt = snapshot.pendingPrompt;
+		this.pendingHydration = undefined;
+	}
+
+	/** Refresh the open child's transcript from its checkpoint (its steps land there as it works). */
+	private requestChildSnapshot(): void {
+		const workspace = this.workspacePath;
+		if (!workspace || !this.sessionId) { return; }
+		this.childRefreshInFlight = true;
+		this.send({ type: 'session_messages', session_id: this.sessionId, workspace, limit: 120, order: 'latest' });
+	}
+
+	private stopChildLivePoll(): void {
+		if (this.childSnapshotTimer) {
+			clearInterval(this.childSnapshotTimer);
+			this.childSnapshotTimer = undefined;
+		}
+	}
+
+	/**
+	 * While a child session is open and its record has not settled, keep its
+	 * transcript checkpoint-fresh on a timer. There is no child event stream
+	 * yet (the child's frames ride the parent's turn), so snapshots poll at
+	 * a modest cadence and stop the moment the record settles or the user
+	 * leaves the child.
+	 */
+	private syncChildLivePoll(): void {
+		const viewingChild = !!this.sessionId && !!(this.childParentId || this.parentMap.has(this.sessionId));
+		const record = viewingChild
+			? [...this.subAgents.values()].find(entry => (entry.childThreadId ?? entry.id) === this.sessionId)
+			: undefined;
+		const childLive = viewingChild && (!record || record.state === 'running' || record.state === 'pending');
+		if (childLive && !this.childSnapshotTimer) {
+			this.childSnapshotTimer = setInterval(() => this.requestChildSnapshot(), 3000);
+			this.requestChildSnapshot();
+		} else if (!childLive) {
+			this.stopChildLivePoll();
+		}
+	}
+
 	private resetSessionState(): void {
 		this.sessionId = undefined;
 		this.running = false;
@@ -454,8 +622,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.assistantText = '';
 		this.pendingPrompt = undefined;
 		this.pendingHydration = undefined;
-		this.pendingChildNavigation = undefined;
-		this.navigationNotice = undefined;
 		this.tools.clear();
 		this.parts = [];
 		this.reasoningParts = [];
@@ -480,6 +646,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.stalled = undefined;
 		this.error = undefined;
 		this.hadProviderAttempt = false;
+		this.healAfterRestore = false;
+		this.healRequested = false;
 		this.clearStallWatchdog();
 	}
 
@@ -529,7 +697,6 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// `context.status` event. Absent stays honest: no signal, no row.
 			compacting: this.compacting,
 			contextStatus: this.contextStatus,
-			notice: this.navigationNotice,
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
 			llmHeads: this.llmHeads,
@@ -584,22 +751,36 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 */
 	private navigateToSession(targetSessionId: string): void {
 		if (!targetSessionId || targetSessionId === this.sessionId) { return; }
-		// Switching away mid-turn would strand the live run's frames on a surface that no
-		// longer owns them. For a CHILD of the running turn (founder
-		// 2026-10-15: 'not opening child sessions' — the click earned a
-		// red error banner), remember the intent and open it the moment
-		// the turn settles; an unrelated mid-run switch still refuses.
+		this.stopChildLivePoll();
+		// Stepping INTO a child of the running turn (founder 2026-10-15:
+		// 'i am inside the same parent session' — a deferral notice is NOT
+		// an open session): stash the parent's live surface and open the
+		// child NOW; the parent keeps running and its frames keep noting
+		// its list row. An unrelated mid-run switch still refuses.
 		if (this.running) {
 			const isChildOfCurrent = targetSessionId.startsWith('sub-')
 				|| this.parentMap.has(targetSessionId)
 				|| [...this.subAgents.values()].some(record => record.childThreadId === targetSessionId || record.id === targetSessionId);
 			if (isChildOfCurrent && this.sessionId) {
-				this.pendingChildNavigation = targetSessionId;
-				this.navigationNotice = 'That sub-agent session opens when the current run finishes.';
+				this.liveStash = { sessionId: this.sessionId, snapshot: this.captureSurface(this.sessionId) };
+				// Fall through to the normal open below; resetSessionState
+				// never touches liveStash.
+			} else {
+				this.error = 'Stop the current run before switching sessions.';
 				this.render();
 				return;
 			}
-			this.error = 'Stop the current run before switching sessions.';
+		} else if (this.liveStash && this.liveStash.sessionId === targetSessionId) {
+			// BACK to the still-running parent: restore its surface exactly
+			// where it left off; the stream resumes appending live. Tokens
+			// from the away window are healed from the checkpoint at settle.
+			const stash = this.liveStash;
+			this.liveStash = undefined;
+			this.restoreSurface(stash.snapshot);
+			this.sessionId = targetSessionId;
+			this.healAfterRestore = true;
+			this.sessionStore.markRead(targetSessionId, true);
+			this.setRememberedSession(targetSessionId);
 			this.render();
 			return;
 		}
@@ -652,6 +833,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			}
 		}
 		this.requestSessionList();
+		this.syncChildLivePoll();
 		this.render();
 	}
 
@@ -800,6 +982,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		const label = previous?.label ?? 'Crusor session';
 		const workspaceLabel = previous?.workspaceLabel ?? this.workspaceLabel;
 		if (frame.type === 'turn_done' || frame.type === 'turn_failed') {
+			// The stashed parent settled while the user was inside its
+			// child: the snapshot is stale now — drop it so returning
+			// hydrates the finished transcript. And if the CHILD is what
+			// is open, its final steps just landed: snapshot it now.
+			if (this.liveStash?.sessionId === foreignId) { this.liveStash = undefined; }
+			if (this.sessionId && this.parentMap.get(this.sessionId) === foreignId) { this.requestChildSnapshot(); }
 			const failed = frame.type === 'turn_failed';
 			const cancelled = !failed && (frame as { cancelled?: boolean }).cancelled === true;
 			this.sessionStore.note({
@@ -1732,6 +1920,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				toolCalls: (frame as any).tool_calls ?? (frame as any).toolCalls ?? (existing as any).toolCalls,
 				agentName: (frame as any).agent_name ?? (frame as any).agentName ?? existing.mode,
 			});
+			// The open session IS this child: its steps just moved —
+			// refresh the transcript snapshot and re-decide liveness.
+			if (subagent_id === this.sessionId || childId === this.sessionId) {
+				this.requestChildSnapshot();
+				this.syncChildLivePoll();
+			}
 		} else if ((frame as any).type === 'skills_hub_result') {
 			this._emitSkillsHubResult(frame as any);
 
@@ -1869,8 +2063,26 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// session's history under the active transcript.
 			const forId = frame.requested_session_id ?? frame.session_id;
 			if (forId !== this.pendingHydration && forId !== this.sessionId) { return; }
+			if (this.childRefreshInFlight) {
+				this.childRefreshInFlight = false;
+				// An in-flight checkpoint read can come back empty mid-run;
+				// a REFRESH keeps the painted transcript in that case.
+				if (!frame.messages.length && this.history.length) { return; }
+			}
 			this.pendingHydration = undefined;
 			this.hydrateTranscript(frame.messages);
+			if (this.healAfterRestore && forId === this.sessionId) {
+				// The settled turn now lives in history; clear the live-turn
+				// fields so it cannot paint twice (once per lane).
+				this.healAfterRestore = false;
+				this.healRequested = false;
+				this.userMessage = undefined;
+				this.assistantText = '';
+				this.parts = [];
+				this.reasoningParts = [];
+				this.reasoningPending = false;
+				this.tools.clear();
+			}
 			return;
 		} else if (frame.type === 'session_deleted') {
 			const deletedId = frame.session_id;
@@ -1883,15 +2095,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} else if (frame.type === 'error') {
 			this.error = frame.message;
 		}
-		// A child session clicked mid-run opens now that the turn has
-		// settled (turn_done/turn_failed both land here with running
-		// false). navigateToSession renders; skip the stale paint.
-		if (!this.running && this.pendingChildNavigation) {
-			const target = this.pendingChildNavigation;
-			this.pendingChildNavigation = undefined;
-			this.navigationNotice = undefined;
-			this.navigateToSession(target);
-			return;
+		// Back-from-child heal: the restored parent turn has settled;
+		// rebuild it once from its checkpoint so tokens streamed while
+		// the user watched the child are not silently missing.
+		if (!this.running && this.healAfterRestore && !this.healRequested && this.sessionId) {
+			const workspace = this.workspacePath;
+			if (workspace) {
+				this.healRequested = true;
+				this.send({ type: 'session_messages', session_id: this.sessionId, workspace, limit: 120, order: 'latest' });
+			}
 		}
 		this.render();
 	}

@@ -1598,6 +1598,10 @@ class BridgeServer:
                                 handle.subagent_id, _ws,
                                 title=ensure_unique_title(_dstore, _ws, shorten_title(_goal) or "Sub-agent task"),
                                 parent_session_id=sid,
+                                # Delegation roots its own lineage (see
+                                # coordinator spawn): resolve_tip must
+                                # never climb from child back to parent.
+                                lineage_root_id=handle.subagent_id,
                             )
                     except Exception as _title_exc:
                         print(f"[bridge] child title failed for {handle.subagent_id}: {_title_exc!r}",

@@ -1887,29 +1887,44 @@ def test_subagent_card_is_honest_about_navigation():
     assert "crusorai-task-tool-error" in renderer and ".crusorai-task-tool-error {" in css
 
 
-def test_child_session_click_mid_run_defers_instead_of_erroring():
-    """Founder 2026-10-15 (build e7782b4b): 'not opening child
-    sessions' — clicking a RUNNING sub-agent row fired
-    navigateToSession into the running guard, which painted the
-    red 'Stop the current run before switching sessions' banner.
-    Live-switching mid-turn still refuses (the session reset would
-    strand the turn's frames), but a CHILD of the running turn now
-    records pendingChildNavigation plus a calm notice (never the
-    error lane), and the frame epilogue auto-opens it when the
-    turn settles (running false after turn_done/turn_failed).
-    Delegate headers also stop repeating the card's mode/type as
-    generic k=v chips."""
-    renderer = _text("browser", "crusorAIRenderer.ts")
+def test_child_session_click_mid_run_opens_live():
+    """Founder 2026-10-15, second verdict (build 9b1d9dbd): 'i am
+    inside the same parent session' — the deferral notice was still
+    not an open session. Mid-run child clicks now OPEN the child:
+    navigateToSession stashes the parent's whole live surface
+    (liveStash/captureSurface), resets into the child, and the
+    child's transcript checkpoint-refreshes (requestChildSnapshot +
+    syncChildLivePoll + subagent_updated hook) while the parent's
+    frames note its list row. Returning to the still-running parent
+    restores the snapshot verbatim and heals the away-window tokens
+    from the settled checkpoint (healAfterRestore). Unrelated
+    mid-run switches still refuse."""
     service = _text("browser", "crusorAIRendererService.ts")
-    css = _text("browser", "media", "crusorAI.css")
-    assert "pendingChildNavigation" in service
-    assert "That sub-agent session opens when the current run finishes." in service
-    assert "if (!this.running && this.pendingChildNavigation) {" in service
-    assert "notice: this.navigationNotice," in service
-    assert "readonly notice?: string;" in renderer
-    assert "crusorai-notice-row" in renderer and ".crusorai-notice-row {" in css
-    assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "pendingChildNavigation" not in service
+    assert "this.liveStash = { sessionId: this.sessionId, snapshot: this.captureSurface(this.sessionId) }" in service
+    assert "private restoreSurface(snapshot: CrusorSurfaceSnapshot)" in service
+    assert "private requestChildSnapshot()" in service
+    assert "private syncChildLivePoll()" in service
+    assert "healAfterRestore" in service
+    assert "Stop the current run before switching sessions." in service
+    assert "crusorai-child-live" in renderer
 
+
+def test_delegation_children_root_their_own_lineage():
+    """Opening a child must never resolve to its parent: delegation
+    children carry lineage_root_id=self, or resolve_tip (greatest
+    last_active in the lineage) climbs from the child up to the
+    still-active parent and session_messages paints the WRONG
+    transcript. Forks keep lineage semantics (no override)."""
+    from pathlib import Path
+    _root = Path(__file__).resolve().parents[2]
+    store_py = (_root / "src" / "runtime" / "session_store.py").read_text(encoding="utf-8")
+    sub_agent = (_root / "src" / "agents" / "sub_agent.py").read_text(encoding="utf-8")
+    bridge = (_root / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "lineage_root_id: str | None = None" in store_py
+    assert "lineage_root_id=agent_id" in sub_agent
+    assert "lineage_root_id=handle.subagent_id" in bridge
 
 def test_batch_card_rows_open_their_child_sessions():
     """Founder 2026-10-15 (build f2362c89): 'WHERE SHOULD I CLICK??' —
