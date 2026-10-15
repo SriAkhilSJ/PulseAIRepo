@@ -4026,3 +4026,22 @@
 .crusorai-render-root .crusorai-tool-row[open] > .crusorai-tool-summary [data-slot="collapsible-arrow"] { transform: rotate(90deg); opacity: 1; }
 .crusorai-render-root .crusorai-activity-row { border-left-color: transparent; }
 .crusorai-render-root .crusorai-text-part { width: 100%; }
+
+/* — Breathing grammar (one system everywhere the agent is alive) ————————
+   The extracted title rule outranks .crusorai-shimmer's transparent text,
+   which silently killed the sweep on live labels; restore it here, after
+   the verbatim block. Plus the composer frame breathing while a turn
+   runs: no glow card, no orb — a frame that inhales, nothing more. */
+.crusorai-render-root .crusorai-tool-summary .crusorai-shimmer,
+.crusorai-render-root .crusorai-disclosure-row .crusorai-shimmer,
+.crusorai-render-root .crusorai-activity-row .crusorai-shimmer { color: transparent; }
+.crusorai-render-root .crusorai-composer.is-running .crusorai-composer-box {
+	animation: crusorai-composer-breathe 2.2s ease-in-out infinite;
+}
+@keyframes crusorai-composer-breathe {
+	0%, 100% { border-color: var(--vscode-panel-border, transparent); }
+	50% { border-color: color-mix(in srgb, var(--vscode-focusBorder) 60%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.crusorai-render-root .crusorai-composer.is-running .crusorai-composer-box { animation: none; }
+}

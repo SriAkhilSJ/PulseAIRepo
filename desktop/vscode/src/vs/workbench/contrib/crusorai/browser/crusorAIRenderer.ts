@@ -1910,7 +1910,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 		}
 		const row = element('div', `crusorai-context-status-row is-info crusorai-activity-row${stalled ? ' is-stalled' : ''}`);
 		row.append(element('span', 'crusorai-activity-dot'));
-		row.append(element('span', undefined, hint));
+		row.append(element('span', stalled ? undefined : 'crusorai-shimmer', hint));
 		row.append(elapsedSpan(model.turnStartedAt));
 		lane.append(row);
 		// The anatomy inspector: the LIVE request, role+head per message —
@@ -2869,7 +2869,11 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	if (model.noWorkspace) {
 		hint.append(button('Open Folder', 'crusorai-link-button', host.openFolder, 'folder'));
 	}
-	return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
+	const footer = element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
+	// Breathing while the agent works: the composer frame pulses gently so
+	// a running turn reads alive even with the transcript scrolled away.
+	if (model.running) { footer.classList.add('is-running'); }
+	return footer;
 }
 
 

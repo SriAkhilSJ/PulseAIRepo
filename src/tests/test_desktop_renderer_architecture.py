@@ -1426,3 +1426,19 @@ def test_opencode_session_ui_css_is_extracted_verbatim_and_driven():
     assert "dataset.slot = 'basic-tool-tool-trigger-content'" in renderer
     assert "dataset.slot = 'collapsible-content'" in renderer
     assert "dataset.component = 'markdown'" in renderer
+
+
+def test_breathing_grammar_survives_the_verbatim_layer():
+    """Breathing UI (founder 2026-10-15): the extracted OpenCode title rule
+    outranks .crusorai-shimmer and silently killed the live-label sweep —
+    the glue after the verbatim block restores it, and the composer frame
+    breathes (border pulse, no glow card) while a turn runs."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "footer.classList.add('is-running')" in renderer
+    assert "stalled ? undefined : 'crusorai-shimmer'" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-composer.is-running .crusorai-composer-box" in css
+    assert "@keyframes crusorai-composer-breathe" in css
+    marker = css.index("EXTRACTED VERBATIM")
+    shimmer_fix = css.index(".crusorai-activity-row .crusorai-shimmer")
+    assert shimmer_fix > marker, "the shimmer restore must load after the verbatim block"
