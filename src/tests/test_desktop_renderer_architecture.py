@@ -1589,7 +1589,11 @@ def test_terminal_matches_opencode_bash_output():
     # Command subtitle only while collapsed; result only with output.
     assert "crusorai-shell-command" in renderer
     assert ".crusorai-tool-row[open] .crusorai-shell-command { display: none; }" in css
-    assert "if (output || tool.state === 'running') { codeEl.append(resultSpan); }" in renderer
+    assert "if (hasOutput) { codeEl.append(resultSpan); }" in renderer
+    assert "trimmedOutput !== '{}'" in renderer, "an untouched result stringifies to {} — not output"
+    # Never hand undefined to a native append(): it prints the word.
+    assert "body.append(outputBox);" in renderer
+    assert "if (showExit) {" in renderer
     # Success is silent; failure earns one quiet exit line.
     assert "`Exit code ${exit}`" in renderer
     assert "showExit" in renderer

@@ -804,9 +804,13 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	// (see patchLiveToolOutputs) instead of repainting the transcript.
 	const outPre = resultSpan.querySelector('pre');
 	if (outPre) { outPre.dataset.toolOutputFor = tool.id; }
-	// OpenCode renders the result block only when there IS output (or
-	// the run is live and output is coming) — no empty result box.
-	if (output || tool.state === 'running') { codeEl.append(resultSpan); }
+	// OpenCode renders the result block only when there IS output —
+	// founder 2026-10-15: 'don't show that down box until terminal get
+	// single letter of the terminal response'. An untouched tool's
+	// result stringifies to "{}" — that is not output either.
+	const trimmedOutput = output.trim();
+	const hasOutput = trimmedOutput.length > 0 && trimmedOutput !== '{}' && trimmedOutput !== 'null';
+	if (hasOutput) { codeEl.append(resultSpan); }
 	pre.append(codeEl);
 	scroll.append(pre);
 	// Tail-follow (their followShellOutput discipline): follow the newest
@@ -826,12 +830,10 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	// only a failed/timed-out run earns one quiet exit line, like their
 	// SessionShellMessage error. The header glyph already carries state.
 	const showExit = exit !== undefined && exit !== '0' && exit !== 'running' && exit !== 'unknown';
-	body.append(
-		outputBox,
-		showExit
-			? element('div', 'crusorai-terminal-result', element('span', undefined, exit === 'timeout' ? 'Timed out' : `Exit code ${exit}`))
-			: undefined,
-	);
+	body.append(outputBox);
+	if (showExit) {
+		body.append(element('div', 'crusorai-terminal-result', element('span', undefined, exit === 'timeout' ? 'Timed out' : `Exit code ${exit}`)));
+	}
 	const actions = element('div', 'crusorai-tool-actions');
 	const cwd = firstString(args, ['cwd', 'path']);
 	if (cwd) { actions.append(button('Reveal location', 'crusorai-link-button', () => host.revealFile(cwd), 'go-to-file')); }
