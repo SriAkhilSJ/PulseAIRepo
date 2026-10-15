@@ -185,11 +185,13 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	assert "crusorai-clarify-form" in css and ".crusorai-key-badge" in css
 	assert "todoStack(" in renderer and ".crusorai-todo-row" in css
 	assert "crusorai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
-	# The approval dropdown is hermes': split pill [Run | ▾] with a menu that
-	# carries session/always/reject, plus the Esc reject and confirm dialog.
-	for piece in ("crusorai-approval-pill", "crusorai-approval-menu", "Always allow…", "Allow for session", "crusorai-dialog-overlay"):
+	# The approval dock is OpenCode's permission dock (founder 2026-10-15,
+	# captured session-permission-dock): header "Permission required", the
+	# resource patterns as code rows, footer Deny | Allow always | Allow once,
+	# with Always behind the confirm dialog.
+	for piece in ("crusorai-permission-footer", "crusorai-permission-once", "Permission required", "Allow once", "crusorai-dialog-overlay"):
 		assert piece in renderer, piece
-	assert ".crusorai-approval-menu.is-open" in css
+	assert "crusorai-permission-patterns" in renderer and "crusorai-permission-footer" in css
 
 
 def test_engine_tools_todo_and_clarify_are_core():
@@ -253,12 +255,12 @@ def test_approval_dock_offers_every_scope_the_protocol_carries():
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "host.replyToSafety(approval.toolId, true, true)" in renderer
-    # Hermes ApprovalBar (2026-09-06 port): the grants live in the chevron
-    # menu — Run (allow once) is the pill's primary segment, session/always
-    # are menu items, Reject is both a menu entry and the standalone Esc ghost.
-    assert "'Allow for session'" in renderer
-    assert "'Always allow…'" in renderer
-    assert "'Reject'" in renderer
+    # OpenCode permission dock: Deny | Allow always | Allow once in the
+    # footer; Allow always goes through the confirm dialog (our backend
+    # grant is session-scoped), and Allow once is the footer primary.
+    assert "'Allow always'" in renderer
+    assert "'Allow once'" in renderer
+    assert "'Deny'" in renderer
     assert "dataset.approveOnce" in renderer and "dataset.deny" in renderer
     # Every decision carries an icon and a hint: a bare word on a button is how
     # "Allow" and "Allow always" get clicked by mistake.

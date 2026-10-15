@@ -1747,12 +1747,13 @@ function approvalDock(model, host) {
     const dock = element('section', 'crusorai-approval-dock');
     dock.dataset.component = 'approval-dock';
     dock.dataset.toolId = approval.toolId;
-    // Hermes ApprovalBar (apps/desktop/.../tool/approval.tsx), ported shape for
-    // shape: a compact split pill [Run ⌘⏎ | ▾] under the pending tool row, a
-    // separate Reject ghost with its Esc hint, a Command disclosure revealing
-    // the full call, and "Always allow" behind a confirm dialog. The ▾ menu —
-    // Allow for session / Always allow… / Reject — is the piece the old flat
-    // button row was missing.
+    // OpenCode permission dock (captured session-permission-dock.tsx,
+    // founder direction 2026-10-15): a DockPrompt-shaped card — shield
+    // header "Permission required", the tool description, the resource
+    // patterns as code rows (ours: the real command, or the diff preview),
+    // and the footer Deny | Allow always | Allow once. Allow always passes
+    // through a confirm dialog; the keyboard contract (⌘/Ctrl+Enter once,
+    // Esc deny) is unchanged.
     const commandText = approvalCommandText(approval.name, approval.diff);
     const diffRecord = (approval.diff && typeof approval.diff === 'object') ? approval.diff : undefined;
     const diffString = typeof approval.diff === 'string' ? approval.diff : (typeof diffRecord?.diff === 'string' ? diffRecord.diff : undefined);
@@ -1789,56 +1790,21 @@ function approvalDock(model, host) {
             shellRiskBadge = element('div', 'crusorai-approval-risk-badge', icon('shield'), element('span', undefined, riskText));
         }
     }
-    const runButton = button('Run', 'crusorai-approval-run', () => host.replyToSafety(approval.toolId, true), 'check');
+    const runButton = button('Allow once', 'crusorai-permission-once', () => host.replyToSafety(approval.toolId, true), 'check');
     runButton.dataset.approveOnce = '';
     hinted(runButton, 'Allow this call only.');
     const runHint = element('span', 'crusorai-approval-kbd', isMac() ? '⌘⏎' : 'Ctrl⏎');
     runButton.append(runHint);
-    const menu = element('div', 'crusorai-approval-menu');
-    menu.append(button('Allow for session', 'crusorai-approval-menu-item', () => {
-        // The client protocol has carried `always_allow` since the start and the
-        // bridge honours it, but no control ever sent it before the hermes bar:
-        // every ordinary write re-prompted for the rest of the session.
-        menu.classList.remove('is-open');
-        host.replyToSafety(approval.toolId, true, true);
-    }, 'pass-filled'), button('Always allow…', 'crusorai-approval-menu-item', () => {
-        menu.classList.remove('is-open');
-        overlay.classList.add('is-open');
-    }, 'shield'), button('Reject', 'crusorai-approval-menu-item is-destructive', () => {
-        menu.classList.remove('is-open');
-        host.replyToSafety(approval.toolId, false);
-    }, 'close'));
-    const menuTrigger = element('button', 'crusorai-approval-more');
-    menuTrigger.type = 'button';
-    menuTrigger.setAttribute('aria-label', 'More options');
-    menuTrigger.setAttribute('aria-expanded', 'false');
-    menuTrigger.append(icon('chevron-down'));
-    menuTrigger.addEventListener('click', event => {
-        event.stopPropagation();
-        const open = menu.classList.toggle('is-open');
-        menuTrigger.setAttribute('aria-expanded', String(open));
-    });
-    document.addEventListener('click', () => menu.classList.remove('is-open'), { once: true });
-    const pill = element('div', 'crusorai-approval-pill', runButton);
-    if (true) {
-        const divider = element('span', 'crusorai-approval-divider');
-        divider.setAttribute('aria-hidden', 'true');
-        pill.append(divider, menuTrigger);
-    }
-    pill.append(menu);
-    const reject = hinted(button('Reject', 'crusorai-approval-reject', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
+    // OpenCode permission dock footer (captured session-permission-dock):
+    // Deny (ghost) | Allow always (neutral, behind our confirm dialog — the
+    // grant is session-scoped in our backend) | Allow once (primary).
+    const alwaysButton = button('Allow always', 'crusorai-permission-always', () => overlay.classList.add('is-open'), 'shield');
+    hinted(alwaysButton, 'Stop asking for this tool this session.');
+    const reject = hinted(button('Deny', 'crusorai-permission-deny', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
     reject.dataset.deny = '';
     const rejectHint = element('span', 'crusorai-approval-kbd', 'Esc');
     reject.append(rejectHint);
-    const commandToggle = element('button', 'crusorai-approval-command-toggle');
-    commandToggle.type = 'button';
-    commandToggle.append(element('span', undefined, 'Command'), icon('chevron-down'));
-    const commandPre = element('pre', 'crusorai-approval-command', commandText);
-    commandToggle.setAttribute('aria-expanded', 'false');
-    commandToggle.addEventListener('click', () => {
-        const open = commandPre.classList.toggle('is-open');
-        commandToggle.setAttribute('aria-expanded', String(open));
-    });
+    const permissionFooter = element('div', 'crusorai-permission-footer', reject, alwaysButton, runButton);
     // "Always allow" persists for the session, so it goes through a confirm
     // step rather than firing straight from the menu (hermes' dialog rule).
     const overlay = element('div', 'crusorai-dialog-overlay');
@@ -1858,7 +1824,12 @@ function approvalDock(model, host) {
     overlay.append(dialog);
     overlay.addEventListener('click', event => { if (event.target === overlay)
         overlay.classList.remove('is-open'); });
-    const headerRow = element('div', 'crusorai-approval-header-row', element('div', 'crusorai-approval-copy', icon('shield'), element('div', undefined, element('strong', undefined, `${crusorAIToolPresentation(approval.name).title} needs approval`), element('span', undefined, displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })))), element('div', 'crusorai-approval-bar', pill, reject, approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined, commandText && !diffString ? commandToggle : undefined));
+    // OpenCode permission dock assembly (DockPrompt kind=permission):
+    // header (icon + "Permission required" + what tool) -> hint rows ->
+    // resource patterns / content (their code rows; ours: the real command
+    // or the diff) -> footer actions.
+    dock.dataset.kind = 'permission';
+    const headerRow = element('div', 'crusorai-permission-header', element('span', 'crusorai-permission-icon', icon('shield')), element('div', undefined, element('strong', undefined, 'Permission required'), element('span', 'crusorai-permission-subtitle', `${crusorAIToolPresentation(approval.name).title} · ${displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })}`)), approval.diff ? button('Review change', 'crusorai-approval-review', () => host.openDiff(approval.toolId), 'diff') : undefined);
     dock.append(headerRow);
     if (warningBox) {
         dock.append(warningBox);
@@ -1869,9 +1840,12 @@ function approvalDock(model, host) {
     if (inlineDiffCard) {
         dock.append(inlineDiffCard);
     }
-    if (commandText && !diffString) {
-        dock.append(commandPre);
+    else if (commandText) {
+        const patterns = element('div', 'crusorai-permission-patterns');
+        patterns.append(element('code', undefined, commandText));
+        dock.append(patterns);
     }
+    dock.append(permissionFooter);
     dock.append(overlay);
     return dock;
 }
@@ -1960,7 +1934,12 @@ function clarifyChoiceRow(qid, index, choice, multi, draft, requestId, onDirty) 
     row.dataset.qid = qid;
     row.dataset.choice = bare;
     row.setAttribute('aria-pressed', String(picked));
-    row.append(keyBadge(letterFor(index), picked));
+    // OpenCode question-option mark (captured session-question-dock):
+    // radio dot for single-select, checkbox for multi-select.
+    const mark = element('span', 'crusorai-question-mark');
+    mark.dataset.type = multi ? 'checkbox' : 'radio';
+    mark.setAttribute('aria-hidden', 'true');
+    row.append(mark, keyBadge(letterFor(index), picked));
     const label = element('span', 'crusorai-clarify-choice-label');
     label.append(document.createTextNode(bare));
     if (recommended) {

@@ -282,6 +282,27 @@
 .crusorai-error-card-title { color: var(--vscode-errorForeground); font-weight: 600; margin-bottom: 4px; }
 .crusorai-error-card-body { white-space: pre-wrap; word-break: break-word; }
 .crusorai-plan-list.crusorai-todos { padding: 10px 0 24px 0; gap: 8px; }
+
+/* OpenCode permission dock (captured session-permission-dock, DockPrompt
+   kind=permission): header, hint, patterns, right-aligned footer —
+   Deny ghost | Allow always neutral | Allow once primary. */
+.crusorai-permission-header { display: flex; gap: 10px; align-items: flex-start; }
+.crusorai-permission-icon { color: var(--crusorai-approval); display: inline-flex; margin-top: 2px; }
+.crusorai-permission-subtitle { color: var(--vscode-descriptionForeground); display: block; font-size: var(--crusorai-text-meta); }
+.crusorai-permission-patterns { display: flex; flex-direction: column; gap: 4px; }
+.crusorai-permission-patterns code { font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-meta); word-break: break-all; background: var(--vscode-textCodeBlock-background, transparent); border-radius: 6px; padding: 8px 10px; }
+.crusorai-permission-footer { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 2px; }
+.crusorai-permission-deny { background: transparent; border: 1px solid transparent; color: var(--vscode-descriptionForeground); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; }
+.crusorai-permission-deny:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
+.crusorai-permission-always { background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, var(--vscode-foreground)); border: 1px solid var(--vscode-panel-border, transparent); border-radius: 6px; padding: 5px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; }
+.crusorai-permission-once { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid transparent; border-radius: 6px; padding: 5px 14px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
+
+/* OpenCode question-option mark: radio dot / checkbox beside each choice. */
+.crusorai-question-mark { flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+.crusorai-question-mark[data-type="checkbox"] { border-radius: 4px; }
+.crusorai-clarify-choice.is-selected .crusorai-question-mark { border-color: var(--vscode-foreground); }
+.crusorai-clarify-choice.is-selected .crusorai-question-mark[data-type="radio"]::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--vscode-foreground); }
+.crusorai-clarify-choice.is-selected .crusorai-question-mark[data-type="checkbox"]::after { content: "✓"; font-size: var(--crusorai-text-micro); line-height: 1; color: var(--vscode-foreground); }
 .crusorai-tool-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); }
 
 .crusorai-tool-state {
