@@ -594,7 +594,7 @@ function terminalBody(tool, host) {
     const scroll = element('div', 'crusorai-bash-scroll');
     const pre = element('pre', 'crusorai-bash-pre');
     const codeEl = element('code');
-    codeEl.append(element('span', 'crusorai-terminal-command crusorai-bash-command', command));
+    codeEl.append(element('span', 'crusorai-terminal-command crusorai-bash-command', `$ ${command}`));
     const resultSpan = element('span', 'crusorai-bash-result');
     resultSpan.append(terminalOutputContent(output, tool.state === 'running'));
     // Streaming patch target: tool_output chunks rewrite THIS pre in place
@@ -1194,10 +1194,11 @@ function toolRow(tool, host, openTools, pendingClarify) {
     // collapsible arrow. Our classes ride along; their verbatim CSS keys
     // off these data hooks.
     titleSpan.dataset.slot = 'basic-tool-tool-title';
-    const indicator = element('span', undefined, tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : statusGlyph(tool.state));
-    indicator.dataset.slot = 'basic-tool-tool-indicator';
-    const toolIcon = icon(presentation.icon);
-    toolIcon.dataset.slot = 'icon-svg';
+    // Their rendered response (founder reference photos 2026-10-15): the
+    // settled tool row is a bare muted label — "Shell ⌄" — no icon column,
+    // no status glyph, the caret hugging the label. While a tool runs,
+    // the spinner takes the label's left, exactly where their indicator
+    // sits. State still earns colour in the body, not the label.
     const titleMain = element('span', undefined, titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined);
     titleMain.dataset.slot = 'basic-tool-tool-info-main';
     if (targetMeaningful) {
@@ -1207,13 +1208,13 @@ function toolRow(tool, host, openTools, pendingClarify) {
     titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
     const toolInfo = element('span', undefined, titleStructured);
     toolInfo.dataset.slot = 'basic-tool-tool-info';
-    const triggerContent = element('span', undefined, indicator, toolIcon, toolInfo);
+    const arrow = element('span', undefined, isPending ? undefined : icon('chevron-down'));
+    arrow.dataset.slot = 'collapsible-arrow';
+    const triggerContent = element('span', undefined, isPending ? element('span', 'crusorai-mini-spinner') : undefined, toolInfo, arrow);
     triggerContent.dataset.slot = 'basic-tool-tool-trigger-content';
     const trigger = element('span', 'crusorai-tool-trigger', triggerContent);
     trigger.dataset.component = 'tool-trigger';
-    const arrow = element('span', undefined, isPending ? undefined : icon('chevron-right'));
-    arrow.dataset.slot = 'collapsible-arrow';
-    const summary = element('summary', 'crusorai-tool-summary', trigger, arrow);
+    const summary = element('summary', 'crusorai-tool-summary', trigger);
     summary.dataset.slot = 'collapsible-trigger';
     details.dataset.component = 'collapsible';
     details.classList.add('tool-collapsible');
@@ -1495,7 +1496,11 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
     // always-open + 'toggle' latch painted every settled thought at full
     // size forever (field 2026-10-15) — persist only the user's click.
     details.open = live || openTools.has(key);
-    const summary = element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', live ? element('span', 'crusorai-mini-spinner') : icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be'));
+    // OpenCode's rendered response (founder reference 2026-10-15): the
+    // reasoning row is the bare muted word "Thinking" — no icon, no caret
+    // at the edge, no timer. The word itself is the disclosure; while
+    // live it sweeps. Settled it rests as one quiet line.
+    const summary = element('summary', 'crusorai-disclosure-row', element('strong', live ? 'crusorai-shimmer crusorai-thinking-word' : 'crusorai-thinking-word', live ? 'Thinking' : 'Thought'));
     summary.addEventListener('click', () => details.open ? openTools.delete(key) : openTools.add(key));
     // Split accumulated reasoning into separate blocks (one per LLM call)
     const body = element('div', 'crusorai-thought-body');
@@ -2664,7 +2669,7 @@ function thinkPicker(model, host) {
 function composer(model, host, manager) {
     const input = element('textarea', 'crusorai-composer-input');
     input.rows = manager ? 2 : 3;
-    input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled. Use Back to Parent.' : manager ? 'Steer this agent or add context...' : 'Plan, @ for context, / for commands';
+    input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled. Use Back to Parent.' : manager ? 'Steer this agent or add context...' : 'Ask anything, / for commands, @ for context...';
     input.value = model.draft;
     input.addEventListener('input', () => host.setDraft(input.value));
     const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;
@@ -2693,7 +2698,7 @@ function composer(model, host, manager) {
     const send = element('button', running ? 'crusorai-send-button crusorai-send-stop' : 'crusorai-send-button');
     send.type = 'button';
     send.setAttribute('aria-label', running ? 'Stop' : 'Send');
-    send.append(icon(running ? 'debug-pause' : 'arrow-up'));
+    send.append(icon(running ? 'debug-stop' : 'arrow-up'));
     send.addEventListener('click', running ? host.cancel : submit);
     if (running && model.cancelRequested) {
         send.disabled = true;

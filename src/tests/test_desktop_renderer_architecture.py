@@ -1400,7 +1400,7 @@ def test_wait_and_streaming_states_visibly_breathe():
     spinner (the tool-row grammar), and the streaming text slot carries a
     breathing tail cursor — not an 8px square fading in the dark."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "live ? element('span', 'crusorai-mini-spinner') : icon('brain')" in renderer
+    assert "crusorai-thinking-word" in renderer, "the live Thinking word sweeps (reference photos: bare muted word)"
     css = _text("browser", "media", "crusorAI.css")
     assert 'session-turn-content"] > :last-child::after' in css
     assert "animation: crusorai-spin 850ms linear infinite" in css
@@ -1442,3 +1442,18 @@ def test_breathing_grammar_survives_the_verbatim_layer():
     marker = css.index("EXTRACTED VERBATIM")
     shimmer_fix = css.index(".crusorai-activity-row .crusorai-shimmer")
     assert shimmer_fix > marker, "the shimmer restore must load after the verbatim block"
+
+
+def test_rendered_response_matches_the_reference_photos():
+    """Founder reference photos 2026-10-15 (OpenCode rendered response):
+    Thinking is the bare muted word, a settled tool is a muted label with
+    the caret hugging it ('Shell ⌄'), the shell box shows '$ command', the
+    dock is a 12px box and Stop is a filled square tile."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "crusorai-thinking-word" in renderer
+    assert "`$ ${command}`" in renderer
+    assert "icon(running ? 'debug-stop' : 'arrow-up')" in renderer
+    assert "Ask anything, / for commands, @ for context..." in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-render-root .crusorai-composer-box { border-radius: 12px; }" in css
+    assert ".crusorai-send-button.crusorai-send-stop" in css
