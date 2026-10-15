@@ -1741,7 +1741,7 @@ def test_tool_cards_stream_from_tool_call_args():
     assert "edit_file: tool('Edit', 'file-write', 'edit', 'running')" in catalog
     # Settled calls show the diff (green/red) for write too; while
     # streaming, content/new_text grows in the code view.
-    assert "tool.name !== 'write_file' && diff" in renderer and "codeView(streamText.slice(0, 32_000), target)" in renderer
+    assert "tool.name !== 'write_file' && diff" in renderer and "codeView(streamText.slice(0, 32_000), target, syntax)" in renderer
 
 
 def test_file_viewers_carry_syntax_token_colours():
