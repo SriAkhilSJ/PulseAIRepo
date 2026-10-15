@@ -1866,25 +1866,30 @@ def test_web_fetch_earns_no_match_count_chip():
 
 
 def test_subagent_card_is_honest_about_navigation():
-    """Sub-agent family pass (founder 2026-10-15, after the web cards
-    verified). The task card kept OpenCode's task-tool-card anatomy
-    but had field-grade defects: console.log/warn debug in the
-    render + click paths, an invented hex agent palette
-    (agentColor), ALWAYS-clickable chrome that navigated by TOOL
-    id when no child session existed yet, batch rows that matched
-    goals against a host API that does not exist, and a duplicated
-    prompt block. Now: clickable only with a real child id (clicks
-    verified in the jsdom harness to hit navigateToSession with
-    'sub-123'), batch rows display-only, agent tone from the theme
-    link colour, and a failed delegation earns its own error line.
+    """Sub-agent family pass. Founder 2026-10-15 (second verdict):
+    "the sub agent UI in the main agent is not nice — see the
+    opencode and copy the codes." So the card is now OpenCode's
+    subagent renderer copied, not adapted: toolRow returns the task
+    card directly (no generic collapsible shell, no raw-name
+    header), the DOM carries their task-tool-card / -surface /
+    -title / -action hooks, the extracted basic-tool.css task-tool
+    rules paint it, the streaming phase is their Delegating pill,
+    and there is no trailing Sub-Agents section anywhere — the
+    cards in the turn are the sub-agent UI. Clickable still only
+    with a real child id (result metadata, else description-prefix
+    record match — their taskSession rule); a failed delegation
+    earns its own error line; no invented agent palette.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "taskToolCard render" not in renderer and "getSubAgents" not in renderer
     assert "agentColor" not in renderer
-    assert "--task-agent-color: var(--vscode-textLink-foreground);" in css
-    assert "if (childId) {" in renderer and "host.navigateToSession?.(String(childId))" in renderer
+    assert "if (presentation.family === 'subagent') {\n\t\treturn taskToolCard(tool, host, subAgents);\n\t}" in renderer
+    assert '.crusorai-render-root [data-component="task-tool-card"]' in css
+    assert "task-tool-delegating" in renderer and "Delegating…" in renderer
+    assert "if (childId) {" in renderer and "host.navigateToSession?.(String(target))" in renderer
     assert "crusorai-task-tool-error" in renderer and ".crusorai-task-tool-error {" in css
+    assert "crusorai-subagent-list" not in renderer
 
 
 def test_child_session_click_mid_run_opens_live():
@@ -1975,9 +1980,9 @@ def test_child_session_is_a_normal_session_with_bottom_nav():
     sessions (user bubble first, same response UI); the ONLY child
     chrome is the nav bar docked between the transcript and the
     composer (childNavBar in agentColumn), carrying the back link,
-    the task label, and the live Running state. The Sub-Agents list
-    section still never paints inside a child — it lists the
-    PARENT's children, which is that surface's own rule."""
+    the task label, and the live Running state. Delegation inside
+    any session paints as OpenCode task cards in the turn flow;
+    there is no Sub-Agents list section on either surface."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "crusorai-child-header" not in renderer and "crusorai-child-banner" not in renderer
@@ -1986,10 +1991,9 @@ def test_child_session_is_a_normal_session_with_bottom_nav():
     assert "if (childNav) { lane.append(childNav); }" in renderer
     assert "nodes.push(childNav)" not in renderer
     assert ".crusorai-child-nav {" in css and ".crusorai-child-nav-parent" in css
-    # The Sub-Agents section belongs to the turn that delegated: records
-    # hydrated from a resume must not trail at the END of a later turn's
-    # transcript ("why this is at last??", 2026-10-15).
-    assert "if (model.subAgents.length && !model.isChild && model.tools.some(tool => tool.name.startsWith('delegate_')))" in renderer
+    # No Sub-Agents section trails any turn ("why this is at
+    # last??", 2026-10-15): delegate task cards are the UI.
+    assert "subagent-list" not in renderer
 
 def test_stashed_parent_states_stay_fresh():
     """Field 2026-10-15: the child finished ('task done') but the

@@ -540,14 +540,20 @@
 /* Batch delegation rows: each task its own separated line; a row
    matched to a real child session is an open target (arrow affordance,
    pointer, hover), unmatched rows stay plain text. */
-.crusorai-task-tool-batch { display: flex; flex-direction: column; min-width: 0; }
-.crusorai-task-tool-batch-row { display: flex; align-items: baseline; gap: var(--crusorai-space-2); padding: var(--crusorai-space-1) var(--crusorai-space-2); border-radius: var(--crusorai-radius-code); min-width: 0; }
-.crusorai-task-tool-batch-row + .crusorai-task-tool-batch-row { border-top: 1px solid var(--vscode-widget-border); }
+/* Batch delegations: one surface row per child, same language as
+   their single task card (layer-02 row, spinner-or-icon, agent title,
+   task text, chevron on hover). */
+.crusorai-task-tool-batch { display: flex; flex-direction: column; gap: var(--crusorai-space-1); min-width: 0; }
+.crusorai-task-tool-batch-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 12px; border-radius: 8px; background: var(--v2-background-bg-layer-02); }
 .crusorai-task-tool-batch-row.is-clickable { cursor: pointer; }
-.crusorai-task-tool-batch-row.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-task-tool-batch-index { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
-.crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crusorai-task-tool-batch-action { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.crusorai-task-tool-batch-row.is-clickable:hover { background: var(--v2-background-bg-layer-03); }
+.crusorai-task-tool-batch-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.crusorai-task-tool-batch-row .crusorai-task-tool-icon { display: inline-flex; flex: none; }
+.crusorai-task-tool-batch-row .crusorai-mini-spinner { width: 12px; height: 12px; }
+.crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--crusorai-text-body); color: var(--v2-text-text-base); }
+.crusorai-task-tool-batch-action { display: inline-flex; align-items: center; justify-content: center; width: 0; overflow: hidden; flex-shrink: 0; opacity: 0; transform: translateX(-4px); transition: width 150ms ease, opacity 150ms ease, transform 150ms ease; color: var(--v2-icon-icon-muted); }
+.crusorai-task-tool-batch-row:hover .crusorai-task-tool-batch-action, .crusorai-task-tool-batch-row:focus-visible .crusorai-task-tool-batch-action { width: 16px; opacity: 1; transform: none; }
+@media (hover: none) { .crusorai-task-tool-batch-action { width: 16px; opacity: 1; transform: none; } }
 
 .crusorai-notice-row {
 	display: flex;
@@ -2055,28 +2061,19 @@
 	background: var(--crusorai-verified);
 	vertical-align: middle;
 }
-/* ---- OpenCode parity: task-tool-card (subagent) ---- */
-.crusorai-task-tool-card {
-	display: flex;
-	gap: 8px;
-	padding: 8px 12px;
-	border-radius: 6px;
-	border: 0.5px solid var(--vscode-widget-border, rgba(128,128,128,.25));
-	background: var(--vscode-editor-background);
-	--task-agent-color: var(--vscode-textLink-foreground);
-	transition: background 120ms ease;
-}
-.crusorai-task-tool-error { color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); padding: 4px 10px 8px 34px; white-space: normal; }
+/* ---- OpenCode task tool: glue only. The card itself is painted by
+   the EXTRACTED basic-tool.css task-tool rules below (their v2 surface
+   row); these rules carry only what extraction cannot: our element
+   kinds (codicon spans, the CSS mini-spinner), the delegating pill
+   (theirs is utility classes), and the earned-red error line. ---- */
+.crusorai-task-tool-card { width: 100%; min-width: 0; }
 .crusorai-task-tool-card.is-clickable { cursor: pointer; }
-.crusorai-task-tool-card.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
-.crusorai-task-tool-card:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-.crusorai-task-tool-surface { flex: 1; display: flex; gap: 8px; align-items: center; min-width: 0; overflow: hidden; }
-.crusorai-task-tool-icon, .crusorai-task-tool-spinner { display: inline-flex; flex: none; color: var(--task-agent-color); }
-.crusorai-task-tool-title { font-weight: 500; text-transform: capitalize; color: var(--task-agent-color); white-space: nowrap; }
-.crusorai-task-tool-subtitle { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--crusorai-text-meta); }
-.crusorai-task-tool-action { margin-left: auto; opacity: 0; transition: opacity 150ms ease; display: inline-flex; flex: none; }
-.crusorai-task-tool-card:hover .crusorai-task-tool-action { opacity: 1; }
+.crusorai-task-tool-card:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; border-radius: 8px; }
+.crusorai-task-tool-icon { color: var(--v2-icon-icon-muted); }
 .crusorai-task-tool-card .crusorai-mini-spinner { width: 12px; height: 12px; }
+.crusorai-task-tool-delegating { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: 8px; border-radius: 8px; background: var(--v2-background-bg-layer-02); padding: 10px; font-size: var(--crusorai-text-body); font-weight: 530; line-height: 1.4; color: var(--v2-text-text-base); }
+.crusorai-task-tool-delegating > .codicon { color: var(--v2-icon-icon-muted); flex: none; }
+.crusorai-task-tool-error { color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); padding: 4px 10px 8px 34px; white-space: normal; }
 
 /* ---- Subagent list clickable rows ---- */
 .crusorai-subagent-row.is-clickable { cursor: pointer; }
@@ -2097,22 +2094,8 @@
 .crusorai-child-nav-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-child-live { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); margin-left: auto; flex: none; color: var(--vscode-foreground); }
 
-/* Sub-agent task prompt visible � user could not see task (was only short 'Research') */
-.crusorai-task-tool-task {
-	padding: 6px 10px 8px;
-	font-size: var(--crusorai-text-meta);
-	color: var(--vscode-descriptionForeground);
-	white-space: pre-wrap;
-	word-break: break-word;
-	line-height: 1.4;
-}
-
-
 /* UI Polish � flat, hover, not hard-coded */
 .crusorai-agent-shell { border-radius: 8px; overflow: hidden; }
-.crusorai-task-tool-card { border-radius: 8px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-editorWidget-background); transition: border-color 120ms, box-shadow 120ms, background 120ms; }
-.crusorai-task-tool-card.is-clickable:hover { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px rgba(0,0,0,0.15); background: var(--vscode-list-hoverBackground); }
-.crusorai-task-tool-card.is-clickable:active { transform: scale(0.99); }
 
 /* The composer + menu and the hub dialog no longer keep styles here.
    The + menu reuses the shipped .crusorai-mode-picker / .crusorai-mode-menu
@@ -4043,9 +4026,197 @@
   }
 }
 
+/* — verbatim: basic-tool.css (task tool) — */
+.crusorai-render-root [data-component="task-tool-card"] {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border-weak-base, rgba(255, 255, 255, 0.08));
+  background: color-mix(in srgb, var(--background-base) 92%, transparent);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+
+  [data-component="task-tool-surface"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  [data-slot="basic-tool-tool-info-structured"] {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  [data-slot="basic-tool-tool-info-main"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  [data-component="task-tool-spinner"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    [data-component="spinner"] {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  [data-component="task-tool-action"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    overflow: hidden;
+    flex-shrink: 0;
+    color: var(--v2-text-text-faint);
+    margin-inline-start: 0;
+    opacity: 0;
+    transform: translateX(-4px);
+    transition:
+      width 0.15s ease,
+      margin-inline-start 0.15s ease,
+      opacity 0.15s ease,
+      color 0.15s ease,
+      transform 0.15s ease;
+
+    :dir(rtl) & {
+      transform: translateX(4px);
+    }
+
+    @media (hover: none) {
+      width: 16px;
+      margin-inline-start: 2px;
+      opacity: 1;
+      transform: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+  }
+
+  [data-component="task-tool-title"] {
+    flex-shrink: 0;
+    font-family: var(--font-family-sans);
+    font-size: 13px;
+    font-style: normal;
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-compact);
+    letter-spacing: var(--letter-spacing-normal);
+    text-transform: capitalize;
+    color: var(--task-agent-color-fallback, var(--text-strong));
+  }
+
+  [data-slot="basic-tool-tool-subtitle"] {
+    color: var(--v2-text-text-base);
+  }
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--border-weak-base, rgba(255, 255, 255, 0.08));
+    background: color-mix(in srgb, var(--background-stronger) 88%, transparent);
+
+    [data-component="task-tool-action"] {
+      width: 16px;
+      margin-inline-start: 2px;
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+.crusorai-render-root [data-component="task-tool-card"] {
+  gap: 8px;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+
+  [data-component="task-tool-surface"] {
+    padding: 8px 12px;
+    gap: 0;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+  }
+
+  [data-component="task-tool-spinner"],
+  [data-component="task-tool-icon"] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    [data-slot="icon-svg"] {
+      color: var(--task-agent-color, var(--v2-icon-icon-base));
+    }
+  }
+
+  [data-component="task-tool-title"] {
+    height: 20px;
+    font-family: var(--v2-font-family-sans, "Inter", sans-serif);
+    font-style: normal;
+    font-weight: 530;
+    font-size: 13px;
+    line-height: 20px;
+    letter-spacing: -0.04px;
+    color: var(--v2-text-text-base);
+    flex: none;
+    flex-grow: 0;
+  }
+
+  [data-slot="basic-tool-tool-subtitle"] {
+    font-family: var(--v2-font-family-sans, "Inter", sans-serif);
+    font-style: normal;
+    font-weight: 440;
+    font-size: 13px;
+    line-height: 20px;
+    letter-spacing: -0.04px;
+    color: var(--v2-text-text-base);
+    font-variation-settings: "slnt" 0;
+    flex: none;
+    flex-grow: 0;
+  }
+
+  [data-component="session-progress-indicator-v2"] {
+    color: var(--task-agent-color, light-dark(var(--v2-text-text-base), #ffffff));
+  }
+
+  &:hover,
+  &:focus-visible {
+    border-color: transparent;
+    background: transparent;
+
+    [data-component="task-tool-surface"] {
+      background: var(--v2-background-bg-layer-02);
+    }
+  }
+}
+
 /* — Glue between the extracted session-ui CSS (above) and our native
    <details> disclosure machinery: same anatomy, our element kinds. */
 .crusorai-render-root .crusorai-tool-summary { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Task card: their generic info rules ride under the BasicTool root;
+   our card is a root of its own, so the row layout and the subtitle
+   truncation grammar are restated here (their v2 flex:none lets long
+   descriptions push the chevron out of the row). */
+.crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-info-structured"] { display: flex; align-items: center; }
+.crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-info-main"] { display: flex; }
+.crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-subtitle"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-render-root .crusorai-tool-trigger { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 .crusorai-render-root [data-slot="collapsible-arrow"] { display: inline-flex; flex-shrink: 0; opacity: 0.7; transform: rotate(-90deg); transition: transform 150ms ease, opacity 150ms ease; }
 .crusorai-render-root .crusorai-tool-row[open] > .crusorai-tool-summary [data-slot="collapsible-arrow"] { transform: none; opacity: 1; }

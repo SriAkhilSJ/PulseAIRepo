@@ -70,3 +70,61 @@ def test_parent_bind_unchanged_without_strict_scope(tmp_path):
     # The parent still gets the broad surface (waist-by-task is a
     # separate, later lever); strict scoping is child-only.
     assert len(names) > 40, len(names)
+
+
+def test_real_delegate_chain_scopes_the_child_bind(tmp_path):
+    """End-to-end without a provider (founder: "verify once becoz i
+    have less credits to test"). The REAL delegate tool runs through
+    the REAL lifecycle + coordinator; only invoke_agent — the seam
+    that would spend credits — is faked, capturing the scope it was
+    handed. That captured scope is then fed through the exact config
+    shape invoke_agent builds into the real binder."""
+    from unittest.mock import patch
+
+    from langchain_core.messages import AIMessage
+
+    captured: dict = {}
+
+    def fake_invoke_agent(**kwargs):
+        captured.update(kwargs)
+        return "child findings"
+
+    state = {"messages": [AIMessage(
+        content="",
+        tool_calls=[{
+            "name": "delegate_to_subagent",
+            "args": {"mode": "research", "task": "audit the parser docs"},
+            "id": "call_scope_1",
+        }],
+    )]}
+    config = {"configurable": {"thread_id": "main", "workspace": str(tmp_path)}}
+
+    from src.graphs import chat_graph as cg
+    # ToolNode-only harness (the hygiene suite's seam): the delegate
+    # tool executes for real; no ai node ever builds a provider.
+    from langgraph.graph import END, START, MessagesState, StateGraph
+    from langgraph.prebuilt import ToolNode
+    graph_builder = StateGraph(MessagesState)
+    graph_builder.add_node("tools", ToolNode([cg.delegate_to_subagent]))
+    graph_builder.add_edge(START, "tools")
+    graph_builder.add_edge("tools", END)
+    app = graph_builder.compile()
+    with patch.object(cg, "invoke_agent", fake_invoke_agent):
+        out = app.invoke(state, config=config)
+
+    # The whole chain delivered the research scope, not ().
+    assert captured.get("scope_capabilities") == ("research", "workspace_read"), captured
+
+    # invoke_agent's own config shape -> the real binder waist.
+    child_config = {"configurable": {
+        "thread_id": captured.get("thread_id", "child"),
+        "workspace": str(tmp_path),
+        "scope_capabilities": list(captured["scope_capabilities"]),
+        "scope_capabilities_strict": True,
+    }}
+    names = [t.name for t in chat_graph._resolve_bound_tools(_state(), child_config)]
+    assert "web_search" in names and "read_file" in names
+    assert "write_file" not in names and "terminal" not in names
+    assert len(names) <= 30, names
+    # And the delegate itself reported back to the parent normally.
+    assert "child findings" in str(out["messages"][-1].content)

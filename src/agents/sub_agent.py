@@ -226,9 +226,10 @@ class SubAgentCoordinator:
                 # old default ran them in the engine's cwd (".").
                 "workspace": workspace if workspace else ".",
             }
-            # Preserve the legacy call shape for ordinary delegation and test
-            # doubles. Managed lifecycle launches pass an explicit tuple and
-            # therefore activate strict child capability binding.
+            # allowed_capabilities was defaulted to the mode's canonical
+            # scope above when the caller passed none, so every child now
+            # activates strict scoped binding in invoke_agent (the tool
+            # waist is the per-call schema bill — see _resolve_bound_tools).
             if allowed_capabilities is not None:
                 invoke_kwargs["scope_capabilities"] = allowed_capabilities
             result = invoke_agent(**invoke_kwargs)

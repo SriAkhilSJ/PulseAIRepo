@@ -670,63 +670,102 @@ function terminalBody(tool, host) {
 }
 // OpenCode parity: agent color hash for task cards
 function taskToolCard(tool, host, subAgents = []) {
+    // OpenCode's subagent renderer (session-ui tool-renderer.tsx, copied
+    // 2026-10-15 at the founder's word: "see the opencode and copy the
+    // codes"): the delegation is ONE row — spinner-or-icon, agent name,
+    // description, chevron — and the row IS the navigation (BasicTool
+    // hideDetails + triggerAsLink). No expandable body, no result dump,
+    // no trailing Sub-Agents list: the child session is the content.
+    // Their DOM hooks are emitted verbatim; the extracted basic-tool.css
+    // task-tool rules in crusorAI.css paint them.
     const args = record(tool.arguments) ?? {};
     const resultRec = resultRecord(tool.result);
-    // Extract from args: description, prompt, subagent_type, mode, background
+    const batchTasks = args.tasks;
+    const isBatch = Array.isArray(batchTasks) && batchTasks.length > 0;
     const description = firstString(args, ['description', 'goal', 'prompt', 'task'])
-        ?? (Array.isArray(args.tasks) && args.tasks.length ? `${args.tasks.length} delegated tasks` : 'Sub-agent task');
+        ?? (isBatch ? `${batchTasks.length} delegated tasks` : undefined);
     const agentName = firstString(args, ['subagent_type', 'agent_name', 'mode']) ?? 'general';
     const isBackground = Boolean(args.background ?? resultRec?.background ?? false);
+    const running = tool.state === 'running' || tool.state === 'queued';
+    const card = element('div', 'crusorai-task-tool-card');
+    card.dataset.component = 'task-tool-card';
+    // Delegating phase (their task-tool-delegating): the call's own
+    // arguments are still streaming, no child is named yet — a quiet
+    // shimmer pill, never a half-filled card with invented text.
+    if (running && !isBatch && !description) {
+        const pill = element('div', 'crusorai-task-tool-delegating', icon('robot'), element('span', 'crusorai-shimmer', 'Delegating…'));
+        pill.dataset.component = 'task-tool-delegating';
+        card.append(pill);
+        return card;
+    }
+    // Their child resolution (taskSession): result metadata names the
+    // child first; replays carry neither id nor result, so match the
+    // turn's sub-agent records by description prefix, as they do.
+    const key24 = (value) => (value ?? '').slice(0, 24);
+    const matchRecord = (text) => {
+        const probe = key24(text);
+        if (!probe) {
+            return undefined;
+        }
+        return subAgents.find(sub => (key24(sub.goal) !== '' && probe.includes(key24(sub.goal)))
+            || (key24(sub.description) !== '' && probe.includes(key24(sub.description)))
+            || (key24(sub.goal) !== '' && key24(sub.goal).includes(probe)));
+    };
+    const matchedRecord = isBatch ? undefined : (matchRecord(firstString(args, ['prompt', 'task'])) ?? matchRecord(description));
+    const childTarget = (sub) => sub.childThreadId ?? sub.id;
     // sessionId metadata may be in result or tool metadata fields (bridge now emits child_thread_id)
     const childId = firstString(resultRec ?? {}, ['sessionId', 'session_id', 'child_thread_id', 'subagent_id'])
         ?? firstString(args, ['sessionId', 'child_thread_id'])
-        ?? resultRec?.child_thread_id
-        ?? resultRec?.sessionId;
-    const toolCalls = resultRec?.toolCalls ?? resultRec?.tool_calls ?? args.toolCalls;
-    const state = tool.state;
-    const running = state === 'running' || state === 'queued';
-    const card = element('div', 'crusorai-task-tool-card');
-    card.dataset.component = 'task-tool-card';
-    // Clickable ONLY with a real child session id: the old always-
-    // clickable card fell back to navigating by TOOL id, which is
-    // not a session. No child yet -> a plain status card.
-    if (childId) {
-        card.dataset.sessionId = String(childId);
-        card.classList.add('is-clickable');
-        card.tabIndex = 0;
-        card.setAttribute('role', 'button');
-        card.setAttribute('aria-label', `Open sub-agent ${description}`);
-        const navigate = () => { host.navigateToSession?.(String(childId)); };
-        card.addEventListener('click', navigate);
-        card.addEventListener('keydown', (e) => {
+        ?? (matchedRecord ? childTarget(matchedRecord) : undefined);
+    const agentTitle = (raw) => raw.charAt(0).toUpperCase() + raw.slice(1);
+    const wireNav = (el, target, label) => {
+        el.dataset.sessionId = target;
+        el.classList.add('is-clickable');
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.setAttribute('aria-label', `Open sub-agent ${label}`);
+        const navigate = () => { host.navigateToSession?.(String(target)); };
+        el.addEventListener('click', navigate);
+        el.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 navigate();
             }
         });
-    }
-    const surface = element('div', 'crusorai-task-tool-surface');
-    const iconWrap = element('span', running ? 'crusorai-task-tool-spinner' : 'crusorai-task-tool-icon');
-    iconWrap.append(running ? element('span', 'crusorai-mini-spinner') : icon('robot'));
-    surface.append(iconWrap);
-    surface.append(element('span', 'crusorai-task-tool-title', agentName.charAt(0).toUpperCase() + agentName.slice(1)));
-    const subtitleText = description + (isBackground ? ' (background)' : '') + (toolCalls ? ` · ${toolCalls} calls` : '');
-    surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
-    card.append(surface);
-    // Batch: one row per delegated task. Each row opens ITS child
-    // session when the turn's sub-agent records identify it (goal/
-    // description prefix, else spawn order); unmatched rows stay
-    // honest display text. Founder 2026-10-15: 'WHERE SHOULD I
-    // CLICK??' — the batch card must BE the navigation.
-    const batchTasks = args.tasks;
-    if (Array.isArray(batchTasks) && batchTasks.length > 0) {
+    };
+    // Spinner while the child works, the agent icon once settled —
+    // their <Show when={running}> swap (SessionProgressIndicator vs
+    // subagent Icon). The state is the shape, never a status word.
+    const stateIcon = (isRunning) => {
+        const wrap = element('span', isRunning ? 'crusorai-task-tool-spinner' : 'crusorai-task-tool-icon');
+        wrap.dataset.component = isRunning ? 'task-tool-spinner' : 'task-tool-icon';
+        wrap.append(isRunning ? element('span', 'crusorai-mini-spinner') : icon('robot'));
+        return wrap;
+    };
+    const failedLine = () => {
+        if (tool.state !== 'failed') {
+            return undefined;
+        }
+        // Earned red only: the delegation's own failure words. (The
+        // toolRow error card never appends to this body.)
+        const errorText = (typeof tool.result === 'string' ? tool.result : undefined)
+            ?? firstString(resultRec ?? {}, ['error', 'message']);
+        return errorText?.trim()
+            ? element('div', 'crusorai-task-tool-error', errorText.trim().split('\n')[0].slice(0, 300))
+            : undefined;
+    };
+    if (isBatch) {
+        // Batch: one row per delegated task, each row the same surface
+        // language as their single card. Each row opens ITS child
+        // session when the turn's sub-agent records identify it (goal/
+        // description prefix, else spawn order); unmatched rows stay
+        // honest display text. Founder 2026-10-15: 'WHERE SHOULD I
+        // CLICK??' — the batch card must BE the navigation.
         const claimed = new Set();
-        const childTarget = (sub) => sub.childThreadId ?? sub.id;
         const matchChild = (taskText) => {
-            const key = (value) => (value ?? '').slice(0, 24);
             const byText = subAgents.find(sub => !claimed.has(sub.id)
-                && ((key(sub.goal) !== '' && taskText.includes(key(sub.goal)))
-                    || (key(sub.description) !== '' && taskText.includes(key(sub.description)))));
+                && ((key24(sub.goal) !== '' && taskText.includes(key24(sub.goal)))
+                    || (key24(sub.description) !== '' && taskText.includes(key24(sub.description)))));
             const picked = byText ?? subAgents.find(sub => !claimed.has(sub.id));
             if (picked) {
                 claimed.add(picked.id);
@@ -738,54 +777,58 @@ function taskToolCard(tool, host, subAgents = []) {
             const t = String(batchTasks[i] ?? '');
             const child = subAgents.length ? matchChild(t) : undefined;
             const label = t.split('\n')[0].slice(0, 90);
-            const rowChildren = [
-                element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`),
-                element('span', 'crusorai-task-tool-batch-text', label),
-            ];
-            if (child) {
-                rowChildren.push(element('span', 'crusorai-task-tool-batch-action', icon('arrow-up-right')));
-            }
-            const row = element('div', 'crusorai-task-tool-batch-row', ...rowChildren);
+            const childRunning = child ? (child.state === 'running' || child.state === 'pending') : running;
+            const rowTitle = element('span', 'crusorai-task-tool-title', agentTitle(child?.agentName ?? child?.mode ?? agentName));
+            rowTitle.dataset.component = 'task-tool-title';
+            const row = element('div', 'crusorai-task-tool-batch-row', stateIcon(childRunning), rowTitle, element('span', 'crusorai-task-tool-batch-text', label));
             row.title = t;
             if (child) {
-                const target = childTarget(child);
-                row.classList.add('is-clickable');
-                row.tabIndex = 0;
-                row.setAttribute('role', 'button');
-                row.addEventListener('click', (event) => {
-                    event.stopPropagation();
-                    host.navigateToSession?.(String(target));
-                });
-                row.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        host.navigateToSession?.(String(target));
-                    }
-                });
+                row.append(element('span', `crusorai-subagent-state is-${child.state}`, child.state));
+                row.append(element('span', 'crusorai-task-tool-batch-action', icon('chevron-right')));
+                wireNav(row, childTarget(child), label);
+                row.addEventListener('click', (event) => { event.stopPropagation(); });
             }
             batchList.append(row);
         }
         card.append(batchList);
-    }
-    else {
-        // The delegated prompt, when it says more than the subtitle.
-        const fullTask = firstString(args, ['prompt', 'task']) ?? '';
-        if (fullTask && fullTask !== description) {
-            card.append(element('div', 'crusorai-task-tool-task', fullTask.slice(0, 500)));
+        const error = failedLine();
+        if (error) {
+            card.append(error);
         }
+        return card;
     }
-    if (state === 'failed') {
-        // Earned red only: the delegation's own failure words. (The
-        // toolRow error card never appends to this body.)
-        const errorText = (typeof tool.result === 'string' ? tool.result : undefined)
-            ?? firstString(resultRec ?? {}, ['error', 'message']);
-        if (errorText?.trim()) {
-            card.append(element('div', 'crusorai-task-tool-error', errorText.trim().split('\n')[0].slice(0, 300)));
-        }
+    const surface = element('div', 'crusorai-task-tool-surface');
+    surface.dataset.component = 'task-tool-surface';
+    const cardTitle = element('span', 'crusorai-task-tool-title', agentTitle(agentName));
+    cardTitle.dataset.component = 'task-tool-title';
+    const infoMain = element('div', undefined, stateIcon(running), cardTitle);
+    infoMain.dataset.slot = 'basic-tool-tool-info-main';
+    // Their subtitle: the description (or the child id), with the
+    // background marker — never a meta table of calls and clocks.
+    const subtitleText = (description ?? childId ?? '') + (isBackground ? ' (background)' : '');
+    if (subtitleText) {
+        const subtitle = element('span', 'crusorai-task-tool-subtitle', subtitleText);
+        subtitle.dataset.slot = 'basic-tool-tool-subtitle';
+        infoMain.append(subtitle);
     }
+    const info = element('div', undefined, infoMain);
+    info.dataset.slot = 'basic-tool-tool-info-structured';
     if (childId) {
-        const action = element('div', 'crusorai-task-tool-action', icon('arrow-up-right'));
-        card.append(action);
+        const action = element('div', 'crusorai-task-tool-action', icon('chevron-right'));
+        action.dataset.component = 'task-tool-action';
+        info.append(action);
+    }
+    surface.append(info);
+    card.append(surface);
+    // Clickable ONLY with a real child session id: the old always-
+    // clickable card fell back to navigating by TOOL id, which is
+    // not a session. No child yet -> a plain status row.
+    if (childId) {
+        wireNav(card, String(childId), description ?? agentName);
+    }
+    const error = failedLine();
+    if (error) {
+        card.append(error);
     }
     return card;
 }
@@ -1550,6 +1593,14 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
         return clarifyCard(tool, host, openTools, pendingClarify);
     }
     const presentation = crusorAIToolPresentation(tool.name);
+    // OpenCode: the subagent tool never wears the generic collapsible
+    // shell — the task card is the whole row (hideDetails, the row is
+    // the link). The shell's raw-name header over the card, plus a
+    // trailing Sub-Agents list repeating the same children, was the
+    // "not nice" triple-decker the founder flagged 2026-10-15.
+    if (presentation.family === 'subagent') {
+        return taskToolCard(tool, host, subAgents);
+    }
     const isPending = tool.state === 'running' || tool.state === 'queued';
     // Read + Glob/Grep rows are single-line (no dropdown, no caret): the
     // trigger built below is the whole card, info chip included.
@@ -2123,17 +2174,11 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
                 subAgents: turn.subAgents,
             }, host, openTools, closedTools));
         }
-        if (turn.subAgents.length) {
-            const subAgents = element('section', 'crusorai-subagent-list');
-            subAgents.append(element('div', 'crusorai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'crusorai-section-count', String(turn.subAgents.length))));
-            for (const subAgent of turn.subAgents) {
-                const row = element('div', `crusorai-subagent-row is-${subAgent.state}`, element('span', undefined, ''), element('span', 'crusorai-subagent-goal', subAgent.goal ?? 'Sub-agent task'), element('span', `crusorai-subagent-state is-${subAgent.state}`, subAgent.state));
-                if (subAgent.duration)
-                    row.append(element('span', 'crusorai-subagent-duration', subAgent.duration));
-                subAgents.append(row);
-            }
-            lane.append(subAgents);
-        }
+        // No trailing Sub-Agents section (OpenCode has none): the turn's
+        // delegate cards above ARE the sub-agent UI — the section only
+        // repeated them at the transcript's end ("why this is at
+        // last??", founder 2026-10-15). Records still thread into the
+        // cards via assistantTurn's spec.subAgents for child matching.
         // Hermes pattern: no green confetti for success -- the answer IS the
         // completion receipt. Only real deviations (cancelled, failed) get a row.
         if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
@@ -2194,47 +2239,11 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             subAgents: model.subAgents,
         }, host, openTools, closedTools));
     }
-    // The Sub-Agents section belongs to the turn that delegated. Records
-    // hydrated from a resume (or left by an earlier turn) must not trail at
-    // the END of a later turn's transcript ("why this is at last??",
-    // 2026-10-15): paint only when THIS turn carries delegate cards.
-    if (model.subAgents.length && !model.isChild && model.tools.some(tool => tool.name.startsWith('delegate_'))) {
-        const subAgents = element('section', 'crusorai-subagent-list');
-        subAgents.dataset.component = 'subagent-list';
-        subAgents.append(element('div', 'crusorai-section-heading', element('span', undefined, 'Sub-Agents'), element('span', 'crusorai-section-count', String(model.subAgents.length))));
-        for (const subAgent of model.subAgents) {
-            const state = subAgent.state;
-            const desc = subAgent.description ?? subAgent.goal ?? 'Sub-agent task';
-            const childId = subAgent.childThreadId ?? subAgent.id;
-            const isRunning = state === 'running' || state === 'pending';
-            const row = element('div', `crusorai-subagent-row is-${state}${childId ? ' is-clickable' : ''}`);
-            if (childId) {
-                row.dataset.sessionId = childId;
-                row.tabIndex = 0;
-                row.setAttribute('role', 'button');
-                row.addEventListener('click', () => { if (host.navigateToSession)
-                    host.navigateToSession(childId); });
-                row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (host.navigateToSession)
-                        host.navigateToSession(childId);
-                } });
-            }
-            const iconEl = isRunning ? element('span', 'crusorai-mini-spinner') : icon(state === 'completed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'cancelled' ? 'circle-slash' : 'circle-outline');
-            const goalEl = element('span', 'crusorai-subagent-goal', desc);
-            row.append(iconEl, goalEl, element('span', `crusorai-subagent-state is-${state}`, state));
-            if (subAgent.background)
-                row.append(element('span', 'crusorai-subagent-badge', 'bg'));
-            if (subAgent.toolCalls)
-                row.append(element('span', 'crusorai-subagent-calls', `${subAgent.toolCalls} calls`));
-            if (subAgent.duration)
-                row.append(element('span', 'crusorai-subagent-duration', subAgent.duration));
-            if (childId)
-                row.append(element('span', 'crusorai-subagent-action', icon('arrow-up-right')));
-            subAgents.append(row);
-        }
-        lane.append(subAgents);
-    }
+    // No Sub-Agents section anywhere (OpenCode parity, founder
+    // 2026-10-15): the delegate task cards inside the turn are the
+    // sub-agent UI. The old section repeated every child a second
+    // time at the transcript's end — and, hydrated from a resume,
+    // trailed turns that never delegated at all.
     if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
         const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
         const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
