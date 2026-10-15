@@ -50,6 +50,7 @@ class _Record:
     tool_calls: int = 0
     background: bool = False
     child_thread_id: str = ""
+    workspace: str = ""
 
 
 class SubagentLifecycleService:
@@ -84,6 +85,7 @@ class SubagentLifecycleService:
         background: bool = False,
         parent_permission: list[dict] | None = None,
         subagent_permission: list[dict] | None = None,
+        workspace: str | None = None,
     ) -> SubagentHandle:
         if mode not in {"research", "code", "test", "review"}:
             raise ValueError("invalid subagent mode")
@@ -122,6 +124,7 @@ class SubagentLifecycleService:
             tool_call_id=tool_call_id,
             background=background,
             child_thread_id=sid,
+            workspace=workspace or "",
         )
         with self._lock:
             self._records[sid] = record
@@ -269,9 +272,15 @@ class SubagentLifecycleService:
                 allowed_capabilities=record.allowed_capabilities,
                 description=record.description,
                 background=record.background,
+                tool_call_id=record.tool_call_id,
                 # The lifecycle emits this child's subagent.updated
                 # stream itself; the coordinator must not double-speak.
                 emit_events=False,
+                # One id per child, everywhere: the child RUNS on the
+                # lifecycle's session id, so the checkpoint the reader
+                # opens is the conversation the child actually had.
+                agent_id=record.handle.subagent_id,
+                workspace=record.workspace or None,
             )
             result = subagent_coordinator.get_result(agent_id)
             with self._lock:

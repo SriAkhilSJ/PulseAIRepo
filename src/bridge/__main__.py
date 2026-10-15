@@ -1583,6 +1583,7 @@ class BridgeServer:
                         agent_name=str(frame.get("subagent_type") or frame.get("mode") or "research"),
                         tool_call_id=str(frame.get("tool_call_id") or "") or None,
                         background=bool(frame.get("background", False)),
+                        workspace=str(self._sessions.get(sid, {}).get("workspace") or "") or None,
                     )
                     self._subagents[handle.subagent_id] = handle
                     # The delegation goal is explicit (not a capture): the child row

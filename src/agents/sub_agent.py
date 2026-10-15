@@ -62,6 +62,8 @@ class SubAgentCoordinator:
         background: bool = False,
         tool_call_id: str | None = None,
         emit_events: bool = True,
+        agent_id: str | None = None,
+        workspace: str | None = None,
     ) -> str:
         """
         Spawn a sub-agent with a focused task.
@@ -72,7 +74,15 @@ class SubAgentCoordinator:
         by one full result string per spawn for the process's whole life).
         """
         from src.graphs.chat_graph import invoke_agent
-        agent_id = f"sub-{mode}-{uuid.uuid4().hex[:6]}"
+        # One id per child, everywhere (OpenCode: the child SESSION id
+        # is the conversation id is the navigation target). A caller
+        # that already minted the child's identity — the lifecycle —
+        # passes it in so the graph thread, the store rows, the bus
+        # events and the desktop's navigation all name the SAME child.
+        # Previously the lifecycle child ran on a private coordinator
+        # id while every surface pointed at the lifecycle id, so
+        # opening the child read an empty checkpoint.
+        agent_id = agent_id or f"sub-{mode}-{uuid.uuid4().hex[:6]}"
 
         # Visibility contract (OpenCode parity): a spawned child is
         # announced BEFORE it runs and again when it settles, on the
@@ -135,6 +145,27 @@ class SubAgentCoordinator:
                 ))
         except Exception:
             pass
+        # The child is a first-class session row (OpenCode: children
+        # live in the same session table, linked by parentID) so the
+        # session list, resume and titling see it like any session.
+        # Only when the caller knows the parent's workspace — a row
+        # minted workspace-less would sort into no folder at all.
+        if workspace is not None:
+            try:
+                from src.runtime.session_store import get_session_store
+                from src.runtime.session_titling import ensure_unique_title, shorten_title
+                _sessions = get_session_store()
+                if _sessions.get_session(agent_id) is None:
+                    _sessions.create_session(
+                        agent_id, workspace,
+                        title=ensure_unique_title(
+                            _sessions, workspace,
+                            shorten_title(task) or "Sub-agent task"),
+                        parent_session_id=(parent_thread_id
+                                           if parent_thread_id != "main" else None),
+                    )
+            except Exception:
+                pass
         _emit("running")
 
         # Build a focused prompt based on mode
@@ -178,6 +209,10 @@ class SubAgentCoordinator:
                 "thread_id": agent_id,
                 "provider": provider,
                 "model": model,
+                # Children work where the parent works (OpenCode: the
+                # child session shares the parent's location) — the
+                # old default ran them in the engine's cwd (".").
+                "workspace": workspace if workspace else ".",
             }
             # Preserve the legacy call shape for ordinary delegation and test
             # doubles. Managed lifecycle launches pass an explicit tuple and
@@ -254,6 +289,7 @@ class SubAgentCoordinator:
         provider: str = LLM_PROVIDER,
         model: str = LLM_MODEL,
         max_workers: int = 4,
+        workspace: str | None = None,
     ) -> list[str]:
         """D33 (steal #9, §45): run several sub-agents CONCURRENTLY.
 
@@ -276,7 +312,8 @@ class SubAgentCoordinator:
             return []
         if len(tasks) == 1:
             return [self.spawn(mode, tasks[0], parent_thread_id,
-                               provider=provider, model=model)]
+                               provider=provider, model=model,
+                               workspace=workspace)]
 
         import contextvars
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -289,7 +326,8 @@ class SubAgentCoordinator:
                               parent_thread_id=parent_thread_id,
                               provider=provider, model=model,
                               description=task[:50],
-                              background=False)
+                              background=False,
+                              workspace=workspace)
 
         with ThreadPoolExecutor(max_workers=workers,
                                 thread_name_prefix="crusorai-sub") as pool:

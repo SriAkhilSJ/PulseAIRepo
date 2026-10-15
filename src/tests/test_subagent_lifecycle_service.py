@@ -42,3 +42,31 @@ def test_handle_capability_prevents_forgery():
     handle = service.launch(parent_session_id="p", goal="review", mode="review")
     forged = replace(handle, capability_token="0" * 64)
     assert service.status(forged)["state"] == "unknown"
+
+
+def test_child_runs_on_the_lifecycle_session_id(monkeypatch):
+    """The pipeline break behind empty child views: _run used to let
+    the coordinator mint a private id, so the child conversed on one
+    thread while events, store rows and desktop navigation all named
+    the lifecycle id. The child now runs ON the lifecycle id."""
+    seen = {}
+
+    class FakeCoordinator:
+        def spawn(self, **kwargs):
+            seen.update(kwargs)
+            return kwargs["agent_id"]
+
+        def get_result(self, _agent_id):
+            return "done"
+
+    monkeypatch.setattr("src.agents.sub_agent.subagent_coordinator", FakeCoordinator())
+    service = SubagentLifecycleService(max_workers=1)
+    handle = service.launch(
+        parent_session_id="p", goal="review auth", mode="review",
+        workspace="/ws/x",
+    )
+    result = service.wait(handle, timeout=2)
+    assert result["state"] == "succeeded"
+    assert seen["agent_id"] == handle.subagent_id
+    assert seen["emit_events"] is False
+    assert seen["workspace"] == "/ws/x"

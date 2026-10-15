@@ -93,3 +93,77 @@ def test_crashed_child_announces_failed(monkeypatch, captured):
     events = _subagent_events(captured)
     assert [e["state"] for e in events] == ["running", "failed"]
     assert "provider down" in (events[1]["error"] or "")
+
+
+def test_spawn_runs_on_the_callers_thread_id(monkeypatch, captured):
+    """Pipeline identity (OpenCode: one session id everywhere): when
+    the lifecycle mints the child's session id, the child must RUN on
+    that id — its checkpoint is what the desktop reads on open."""
+    seen = {}
+
+    def behavior(tid, msg):
+        seen["thread_id"] = tid
+        return "done"
+
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+                        _fake_invoke_factory(behavior))
+    coord = SubAgentCoordinator()
+    agent_id = coord.spawn("code", "Write the benchmark", "parent-thread",
+                           agent_id="sub-code-fixed01")
+    assert agent_id == "sub-code-fixed01"
+    assert seen["thread_id"] == "sub-code-fixed01"
+    events = _subagent_events(captured)
+    assert {e["subagent_id"] for e in events} == {"sub-code-fixed01"}
+
+
+def test_spawn_creates_durable_session_row_with_workspace(monkeypatch, captured):
+    """Children are first-class session rows (OpenCode parentID):
+    with a workspace known, spawn upserts the durable row the
+    session list / resume resolve through."""
+    created = []
+
+    class FakeSessionStore:
+        def get_session(self, sid):
+            return None
+
+        def create_session(self, sid, workspace, **kwargs):
+            created.append((sid, workspace, kwargs))
+            return {"id": sid}
+
+    monkeypatch.setattr("src.runtime.session_store.get_session_store",
+                        lambda: FakeSessionStore())
+    monkeypatch.setattr("src.runtime.session_titling.shorten_title",
+                        lambda text: "Research bubble sort")
+    monkeypatch.setattr("src.runtime.session_titling.ensure_unique_title",
+                        lambda store, workspace, title: title)
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+                        _fake_invoke_factory(lambda tid, msg: "done"))
+    coord = SubAgentCoordinator()
+    agent_id = coord.spawn("research", "Research bubble sort complexity",
+                           "parent-thread", workspace="/ws/testCRUSOR")
+    assert len(created) == 1
+    sid, workspace, kwargs = created[0]
+    assert sid == agent_id
+    assert workspace == "/ws/testCRUSOR"
+    assert kwargs["parent_session_id"] == "parent-thread"
+    assert kwargs["title"] == "Research bubble sort"
+
+
+def test_no_durable_row_without_workspace(monkeypatch, captured):
+    created = []
+
+    class FakeSessionStore:
+        def get_session(self, sid):
+            return None
+
+        def create_session(self, sid, workspace, **kwargs):
+            created.append(sid)
+            return {"id": sid}
+
+    monkeypatch.setattr("src.runtime.session_store.get_session_store",
+                        lambda: FakeSessionStore())
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent",
+                        _fake_invoke_factory(lambda tid, msg: "done"))
+    coord = SubAgentCoordinator()
+    coord.spawn("research", "Research something", "parent-thread")
+    assert created == []

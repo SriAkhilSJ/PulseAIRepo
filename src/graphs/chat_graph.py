@@ -667,6 +667,7 @@ def delegate_to_subagent(
             background=background,
             parent_permission=parent_perm,
             subagent_permission=subagent_perm,
+            workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
         )
         child_id = handle.subagent_id
 
@@ -716,6 +717,7 @@ def delegate_to_subagent(
         description=actual_description,
         background=background,
         tool_call_id=tool_call_id,
+        workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
     )
 
     result = subagent_coordinator.get_result(agent_id)
@@ -814,6 +816,7 @@ def delegate_to_subagent_batch(
         parent_thread_id=str(caller_thread) or "main",
         provider=LLM_PROVIDER,
         model=LLM_MODEL,
+        workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
     )
 
     try:
