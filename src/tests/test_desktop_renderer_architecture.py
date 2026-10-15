@@ -285,7 +285,7 @@ def test_file_write_rows_report_counted_values_not_placeholders():
     assert "'+12 −4'" not in renderer
     assert "['Receipt', 'syntax valid']" not in renderer
     assert "export function diffStats" in renderer
-    assert "stats ? `+${stats.added} −${stats.removed}`" in renderer
+    assert "`+${stats.added} −${stats.removed}`" in renderer
     # Diff lines are per-line nodes so green/red can exist at all -- the old
     # single <pre> could only be tinted as one block -- and the clamp is bounded for
     # paint while saying what it hid.
@@ -469,7 +469,7 @@ def test_browser_cards_render_hermes_visible_testing_evidence():
         "tool.name === 'browser_screenshot'",
         "tool.name === 'browser_navigate'",
         "tool.name === 'browser_console'",
-        "firstString(result, ['element_count'])",
+        "firstString(result, ['snapshot'])",
         "firstString(result, ['recording'])",
         "Screenshot saved:",
     ):
@@ -1149,7 +1149,8 @@ def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
     state, nothing else."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "Python 3.14" not in renderer
-    assert "scaffoldFields" in renderer
+    assert "toolOutputBox(boundedText(detail, 4000))" in renderer
+    assert "scaffoldFields" not in renderer
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():
@@ -1411,7 +1412,7 @@ def test_streamed_rendering_replaces_the_breathing_ui():
     assert "response.append(textPart(part.text," in renderer, (
         "answer text streams token-by-token into the same node")
     # tools render like OpenCode's: icon + label + live body, no shimmer title
-    assert "const titleSpan = element('strong', undefined, rowTitle);" in renderer
+    assert "const titleSpan = element('strong', isPending" in renderer
     assert "renderToolIcon(" in renderer or "renderToolIcon(name)" in renderer
     # the breathing apparatus is gone everywhere
     for gone in ("What the model sees —", "items are applied before your next prompt", "How many messages the model applies after edits",
@@ -1491,3 +1492,23 @@ def test_streamed_wait_is_the_shimmering_word_and_bubbles_are_pills():
     assert "assistantWaitParts" not in renderer
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-render-root .crusorai-user-message { background: transparent;" in css
+
+
+def test_tool_cards_follow_opencode_basictool():
+    """Tool cards (founder 2026-10-15: 'tool cards seeing opencode', all
+    cards): header = title + subtitle + args chips (title shimmers while
+    pending, like their TextShimmer), body = the tool's own output in the
+    scrollable tool-output region. CrusorAI's invented meta tables
+    (PATH/LINES/ENCODING, Query/Scope/Matches, URL/Status...) are gone."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function toolOutputBox" in renderer
+    assert "box.dataset.component = 'tool-output'" in renderer
+    assert "box.dataset.scrollable = ''" in renderer
+    assert "function toolArgsChips" in renderer, "OpenCode GenericTool.args chips"
+    assert "...toolArgsChips(tool)" in renderer
+    assert "isPending ? 'crusorai-shimmer' : undefined" in renderer, (
+        "pending tool title shimmers (their TextShimmer active=pending)")
+    for gone in ("toolFields(", "['Path', target], ['Lines'", "'Encoding', 'UTF-8'",
+                 "['Query', target], ['Scope'", "['URL', target], ['Status'",
+                 "Sessions', '2'"):
+        assert gone not in renderer, gone

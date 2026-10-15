@@ -429,6 +429,7 @@ class BridgeServer:
         payload = dict(event.get("payload") or {})
         mapping = {
             "message.agent.chunk": "token",
+            "message.agent.retract": "token_retract",
             "llm.request": "llm.request",
             "llm.response": "llm.response",
             "reasoning.update": "reasoning",
@@ -480,6 +481,10 @@ class BridgeServer:
             }
         if target == "token":
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
+        if target == "token_retract":
+            # A discarded generation (dropped-toolcall re-prompt) withdraws
+            # its painted chars; the replacement attempt paints fresh.
+            return {**base, "chars": max(0, int(payload.get("chars") or 0))}
         if target == "tool_call_start":
             return {
                 **base, "tool_id": tool_id, "name": name,
@@ -533,10 +538,11 @@ class BridgeServer:
             "tool.intent": "tool_call_start",
             "tool.result": "tool_call_end",
             "message.agent.chunk": "token",
+            "message.agent.retract": "token_retract",
         }.get(kind)
         if target is None:
             return event if kind in {
-                "turn_started", "token", "reasoning", "plan_updated",
+                "turn_started", "token", "token_retract", "reasoning", "plan_updated",
                 "tool_call_start", "tool_call_end", "safety_request",
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
@@ -565,6 +571,8 @@ class BridgeServer:
             }
         if target == "token":
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
+        if target == "token_retract":
+            return {**base, "chars": max(0, int(payload.get("chars") or 0))}
         name = str(payload.get("name") or payload.get("tool_name") or "")
         if target == "tool_call_start":
             return {**base, "name": name, "arguments": payload.get("arguments", payload.get("args"))}

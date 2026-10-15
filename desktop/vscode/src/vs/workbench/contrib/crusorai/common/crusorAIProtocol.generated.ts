@@ -78,6 +78,7 @@ export const CRUSOR_AI_SERVER_EVENTS = [
 	'telemetry',
 	'todo_updated',
 	'token',
+	'token_retract',
 	'tool_call_end',
 	'tool_call_start',
 	'tool_output',

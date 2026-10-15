@@ -197,6 +197,88 @@ def _finish_reason_is_tool_calls(result: Any) -> bool:
     return fr2 in ("tool_calls", "function_call")
 
 
+# Duplicate-response guard (field 2026-10-15): a weak router model called
+# list_files three times in ONE turn -- each loop streamed another full
+# answer variant into the transcript. The progress node's nudge (3rd
+# identical read) is advisory; this is the hard stop at the only chokepoint
+# every call passes: ai_node's return. Read-only calls are dropped when the
+# identical name+args already executed this turn and nothing mutating ran
+# after that execution (a write in between legitimately changes the read).
+_READ_ONLY_CALLS = {
+    "list_files", "read_file", "search_files", "search_code",
+    "glob_files", "find_files", "list_directory", "web_fetch", "web_extract",
+}
+_MUTATING_CALLS = {
+    "write_file", "edit_file", "copy_file", "delete_file", "move_file",
+    "run_terminal", "start_terminal", "terminal", "execute_code",
+    "apply_patch", "generate_image", "media_download",
+    "scaffold_nextjs", "scaffold_flutter", "scaffold_react_native",
+    "scaffold_tauri",
+}
+
+
+def _tool_call_key(tc: dict) -> str:
+    import json as _json
+    try:
+        args = _json.dumps(tc.get("args") or {}, sort_keys=True, default=str)
+    except Exception:
+        args = str(tc.get("args") or {})
+    return f"{tc.get('name', '')}:{args}"
+
+
+def _drop_repeated_read_calls(result: Any, state: dict) -> Any:
+    """Strip read-only tool calls that already ran identically this turn."""
+    calls = list(getattr(result, "tool_calls", None) or [])
+    if not calls:
+        return result
+    messages = list(state.get("messages") or [])
+    start = 0
+    for i, m in enumerate(messages):
+        if getattr(m, "type", "") == "human":
+            start = i + 1
+    answered_ids = {
+        str(getattr(m, "tool_call_id", "") or "")
+        for m in messages
+        if getattr(m, "type", "") == "tool"
+    }
+    executed: list[tuple[str, str]] = []  # (key, name) in execution order
+    for m in messages[start:]:
+        for tc in (getattr(m, "tool_calls", None) or []):
+            if str(tc.get("id") or "") in answered_ids:
+                executed.append((_tool_call_key(tc), str(tc.get("name", ""))))
+    if not executed:
+        return result
+    last_seen: dict[str, int] = {}
+    for idx, (key, _name) in enumerate(executed):
+        last_seen[key] = idx
+
+    def _is_repeat(tc: dict) -> bool:
+        if str(tc.get("name", "")) not in _READ_ONLY_CALLS:
+            return False
+        key = _tool_call_key(tc)
+        idx = last_seen.get(key)
+        if idx is None:
+            return False
+        return not any(
+            name in _MUTATING_CALLS for _k, name in executed[idx + 1:]
+        )
+
+    kept = [tc for tc in calls if not _is_repeat(tc)]
+    if len(kept) == len(calls):
+        return result
+    dropped = [str(tc.get("name", "")) for tc in calls if _is_repeat(tc)]
+    print(
+        f"[ai_node] duplicate-read guard: dropped {len(dropped)} repeated "
+        f"call(s) {dropped} -- identical result already in this turn",
+        flush=True,
+    )
+    try:
+        return result.model_copy(update={"tool_calls": kept})
+    except Exception:
+        result.tool_calls = kept
+        return result
+
+
 def _summary_text_from(result: Any) -> str:
     """Answer text of a summary response, <think> blocks stripped
     (hermes :2132-2133)."""
@@ -1789,6 +1871,7 @@ def ai_node(
                             f"[failover] tool rejection on failover path ({type(_failover_exc).__name__}); retrying stripped no-tools",
                             flush=True,
                         )
+                        _retract_streamed_answer(session_id)
                         result = _invoke_with_token_pump(
                             llm, _drop_tool_pairs(messages), session_id,
                             provider, model, strip_tool_blocks=False,
@@ -1859,6 +1942,11 @@ def ai_node(
             "the actual tool call now to continue the task."
         ))
         messages_with_nudge = messages + [_nudge]
+        # The first attempt's text is already on the user's screen, but
+        # that attempt is being DISCARDED (it signalled a tool call and
+        # delivered none) -- withdraw its painted chars so the re-prompt's
+        # answer does not glue onto it (field 2026-10-15: 3 answers).
+        _retract_streamed_answer(session_id)
         try:
             result = _invoke_with_token_pump(
                 call_llm, messages_with_nudge, session_id, provider, model,
@@ -2024,6 +2112,8 @@ def ai_node(
             "_dropped_toolcall_retries", 0
         )
     )
+
+    result = _drop_repeated_read_calls(result, state)
 
     return {
         "messages": [result],
@@ -2352,6 +2442,34 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 # the historical single end-chunk -- nothing is lost either way.
 # ---------------------------------------------------------------------------
 _TURN_LAST_CALL_STREAMED: dict[str, bool] = {}
+# Answer chars each invoke DELIVERED to the client (streamed deltas + the
+# buffered flush). When ai_node discards an attempt and re-generates (the
+# dropped-toolcall re-prompt, the tool-rejection failover), those chars are
+# already painted -- the retract event below is how the replacement attempt
+# avoids gluing a second full answer onto the first (field 2026-10-15:
+# velona/GLM returns finish_reason=tool_calls with empty tool_calls on
+# nearly every reply, so the re-prompt fired constantly and users got 2-3
+# concatenated answers).
+_TURN_LAST_CALL_TEXT: dict[str, int] = {}
+
+
+def _retract_streamed_answer(thread_id: str) -> None:
+    """Withdraw the previous attempt's painted answer text (char count).
+
+    The client truncates exactly that many chars from the tail of the
+    live text, so the re-generated attempt paints into a clean tail.
+    Best-effort: a dead bus must not kill the re-generation.
+    """
+    chars = _TURN_LAST_CALL_TEXT.pop(thread_id, 0)
+    if chars <= 0:
+        return
+    try:
+        event_bus.emit("message.agent.retract", {
+            "chars": chars,
+            "thread_id": thread_id,
+        })
+    except Exception:
+        pass
 # Cumulative model-request wall time per thread (hermes turn_usage
  # discipline: the turn receipt must ACCOUNT, not just total — field run
  # 2026-09-09: wall=360.0s while logged model+tool time summed to ~92s and
@@ -2463,6 +2581,7 @@ def _flush_unstreamed_answer(pump: "_AgentTokenPump", result: Any, thread_id: st
         text = pump._filter_piece(text)
         if not text.strip():
             return False
+    pump._flushed_text_len = len(text)
     try:
         event_bus.emit("message.agent.chunk", {
             "chunk": text,
@@ -2832,12 +2951,14 @@ def _invoke_with_token_pump(
         result = call_llm.invoke(messages)
     except Exception:
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+        _TURN_LAST_CALL_TEXT[thread_id] = pump.text_chars
         # Failed requests cost wall time too — account before re-raising.
         _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
             time.monotonic() - _model_t0
         )
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
+    _TURN_LAST_CALL_TEXT[thread_id] = pump.text_chars
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
@@ -2887,6 +3008,9 @@ def _invoke_with_token_pump(
             _flush_unstreamed_reasoning(result, thread_id)
             flushed = _flush_unstreamed_answer(pump, result, thread_id)
             if flushed:
+                _TURN_LAST_CALL_TEXT[thread_id] = _TURN_LAST_CALL_TEXT.get(
+                    thread_id, 0
+                ) + int(getattr(pump, "_flushed_text_len", 0) or 0)
                 # The flag means "this call's text already reached the client"
                 # — the stream-loop fallback (final_response emission) must
                 # not re-emit the same answer (double paint).

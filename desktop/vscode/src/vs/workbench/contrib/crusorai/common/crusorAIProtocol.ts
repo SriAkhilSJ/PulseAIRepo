@@ -138,6 +138,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'session_deleted'; readonly deleted: boolean } & CrusorIdentity)
 	| ({ readonly type: 'turn_started' } & CrusorIdentity)
 	| ({ readonly type: 'token'; readonly text: string } & CrusorIdentity)
+	| ({ readonly type: 'token_retract'; readonly chars: number } & CrusorIdentity)
 	| ({ readonly type: 'reasoning'; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'plan_updated'; readonly steps: readonly unknown[] } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_start'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)

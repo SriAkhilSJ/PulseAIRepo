@@ -635,14 +635,6 @@ function terminalBody(tool, host) {
     }
     return body;
 }
-function toolFields(rows) {
-    const wrap = element('div', 'crusorai-tool-fields');
-    for (const [k, v] of rows) {
-        const row = element('div', 'crusorai-tool-field-row', element('span', 'crusorai-tool-field-key', k), element('code', 'crusorai-tool-field-val', v));
-        wrap.append(row);
-    }
-    return wrap;
-}
 // OpenCode parity: agent color hash for task cards
 function agentColor(name) {
     const palette = ['#0b6bcb', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
@@ -820,19 +812,8 @@ function skillBody(tool, result, args) {
             return wrap;
         }
     }
-    const rows = [];
-    const skillName = firstString(args, ['name', 'source', 'query']) ?? firstString(result, ['name', 'source']);
-    if (skillName) {
-        rows.push(['Skill', skillName]);
-    }
-    const action = firstString(args, ['action']);
-    if (action) {
-        rows.push(['Action', action]);
-    }
-    rows.push(['Status', stateLabel(tool.state)]);
-    wrap.append(toolFields(rows));
     if (raw.trim()) {
-        wrap.append(element('pre', 'crusorai-tool-pre crusorai-tool-output', boundedText(raw, 1200)));
+        wrap.append(toolOutputBox(boundedText(raw, 4000)));
     }
     return wrap;
 }
@@ -844,17 +825,6 @@ function targetBody(tool, host, result, args) {
     const wrap = element('div', 'crusorai-target');
     wrap.dataset.component = 'target';
     const raw = typeof tool.result === 'string' ? tool.result : boundedText(result ?? tool.result ?? '', 4000);
-    const rows = [];
-    const targetName = firstString(args, ['target', 'name']) ?? firstString(result, ['target']);
-    if (targetName) {
-        rows.push(['Target', targetName]);
-    }
-    const device = firstString(args, ['device']) ?? firstString(result, ['device']);
-    if (device) {
-        rows.push(['Device', device]);
-    }
-    rows.push(['Status', stateLabel(tool.state)]);
-    wrap.append(toolFields(rows));
     if (tool.name === 'device_screenshot') {
         const saved = /([^\s"']+\.png)/.exec(raw)?.[1];
         if (saved && tool.state !== 'failed') {
@@ -871,9 +841,45 @@ function targetBody(tool, host, result, args) {
         }
     }
     if (raw.trim()) {
-        wrap.append(element('pre', 'crusorai-tool-pre crusorai-tool-output', boundedText(raw, 1500)));
+        wrap.append(toolOutputBox(boundedText(raw, 4000)));
     }
     return wrap;
+}
+/**
+ * OpenCode tool-output surface (tool-renderer.tsx list/glob/grep): the
+ * tool's own output in a scrollable region -- no meta table, no invented
+ * fields. Plain output keeps its line breaks (their CSS sets
+ * white-space: pre on tool-output); extracted web text renders as markdown.
+ */
+function toolOutputBox(text, asMarkdown = false) {
+    const box = element('div', 'crusorai-tool-output-box');
+    box.dataset.component = 'tool-output';
+    box.dataset.scrollable = '';
+    box.append(asMarkdown ? markdownCopy(text) : element('pre', undefined, text));
+    return box;
+}
+/** OpenCode GenericTool.args: up to 3 scalar args as `key=value` chips. */
+function toolArgsChips(tool) {
+    const args = record(tool.arguments);
+    if (!args) {
+        return [];
+    }
+    const skip = new Set(['description', 'query', 'url', 'path', 'pattern', 'name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
+    const chips = [];
+    for (const [key, value] of Object.entries(args)) {
+        if (skip.has(key)) {
+            continue;
+        }
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            const chip = element('span', 'crusorai-tool-arg', `${key}=${value}`);
+            chip.dataset.slot = 'basic-tool-tool-arg';
+            chips.push(chip);
+            if (chips.length >= 3) {
+                break;
+            }
+        }
+    }
+    return chips;
 }
 function familyBody(tool, host) {
     // A2UI Catalog v1 (plan Phase 2): a tool result carrying an
@@ -897,11 +903,16 @@ function familyBody(tool, host) {
     body.dataset.rendererFamily = presentation.family;
     const target = displayTarget(tool);
     if (presentation.family === 'file-read') {
-        const lines = firstString(result, ['lines', 'line_count']) ?? firstString(result, ['content'])?.split('\n').length?.toString() ?? '—';
-        body.append(toolFields([['Path', target], ['Lines', lines], ['Encoding', 'UTF-8']]));
-        const content = firstString(result, ['content']) ?? boundedText(tool.result, 800);
-        body.append(element('pre', 'crusorai-tool-pre crusorai-code-preview', content.slice(0, 800)));
-        body.append(element('div', 'crusorai-tool-actions', button('Open file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file'), copyButton(target, host)));
+        // OpenCode list/read: the trigger (title + path subtitle) is the
+        // header; the body is only the tool's output in their scrollable
+        // tool-output region. The old PATH/LINES/ENCODING table was ours,
+        // not theirs -- and for list_files it invented 'Lines —'.
+        const output = (typeof tool.result === 'string' ? tool.result : undefined)
+            ?? firstString(result, ['content', 'output', 'text'])
+            ?? boundedText(tool.result, 8000);
+        if (output.trim()) {
+            body.append(toolOutputBox(output.slice(0, 8000)));
+        }
     }
     else if (presentation.family === 'file-write') {
         if (tool.name === 'generate_image' || tool.name === 'media_download') {
@@ -910,14 +921,7 @@ function familyBody(tool, host) {
             const savedPath = savedMatch?.[1] ?? firstString(args, ['filename']) ?? target;
             const promptText = firstString(args, ['prompt']) ?? firstString(args, ['query']);
             const sizeMatch = /\(([^)]+)\)/.exec(rawResult);
-            const rows = [['File', savedPath]];
-            if (promptText) {
-                rows.push(['Prompt', promptText]);
-            }
-            if (sizeMatch?.[1]) {
-                rows.push(['Details', sizeMatch[1]]);
-            }
-            body.append(toolFields(rows));
+            void sizeMatch;
             if (savedPath && tool.state !== 'failed') {
                 const src = host.resourceSrc(savedPath);
                 if (src) {
@@ -938,15 +942,14 @@ function familyBody(tool, host) {
             const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
             const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
             const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
-            const rows = [['File', target], ['Change', stats ? `+${stats.added} −${stats.removed}` : (firstString(result, ['change']) ?? '—')]];
-            // 'syntax valid' was a second always-true row; only surface a receipt the
-            // tool actually reported.
-            const receipt = firstString(result, ['receipt', 'syntax']);
-            if (receipt) {
-                rows.push(['Receipt', receipt]);
-            }
-            body.append(toolFields(rows));
+            // OpenCode edit/write: the body is the diff (with counted
+            // +a -r as an arg chip) and earned diagnostics only.
             const editBox = element('div', 'crusorai-edit-content');
+            if (stats) {
+                const chip = element('span', 'crusorai-tool-arg', `+${stats.added} −${stats.removed}`);
+                chip.dataset.slot = 'basic-tool-tool-arg';
+                editBox.append(chip);
+            }
             editBox.dataset.component = 'edit-content';
             editBox.append(diffPreview(diff));
             body.append(editBox);
@@ -954,31 +957,24 @@ function familyBody(tool, host) {
             if (diagnostics) {
                 body.append(diagnostics);
             }
-            body.append(element('div', 'crusorai-tool-actions', button('Open native diff', 'crusorai-link-button', () => host.openDiff(tool.id), 'diff'), button('Reveal file', 'crusorai-link-button', () => host.revealFile(target), 'go-to-file')));
         }
     }
     else if (presentation.family === 'search') {
-        body.append(toolFields([['Query', target], ['Scope', 'workspace'], ['Matches', firstString(result, ['matches', 'count']) ?? '—']]));
+        // OpenCode glob/grep: matches ride the scrollable tool-output region.
         const matches = result?.matches ?? result?.results;
         if (Array.isArray(matches) && matches.length) {
-            const list = element('div', 'crusorai-search-results');
-            for (const m of matches.slice(0, 5))
-                list.append(element('div', 'crusorai-search-row', element('code', undefined, typeof m === 'string' ? m : boundedText(m, 80)), element('span', undefined, '')));
-            body.append(list);
+            body.append(toolOutputBox(matches.map(m => typeof m === 'string' ? m : boundedText(m, 300)).join('\n')));
         }
         else {
-            body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 500)));
+            body.append(toolOutputBox(boundedText(result ?? tool.result, 4000)));
         }
-        body.append(element('div', 'crusorai-tool-actions', button('Open Search', 'crusorai-link-button', () => host.revealFile(target), 'search')));
     }
     else if (presentation.family === 'verification') {
         body.append(element('div', 'crusorai-tool-checks', element('div', undefined, icon('pass-filled'), element('span', undefined, 'Typecheck'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')), element('div', undefined, tool.state === 'running' ? element('span', 'crusorai-mini-spinner') : icon('circle-outline'), element('span', undefined, 'Browser callback'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')), element('div', undefined, icon('circle-outline'), element('span', undefined, 'Destination assertion'), element('strong', undefined, 'queued'))));
         body.append(element('div', 'crusorai-tool-actions', button('Open evidence', 'crusorai-link-button', () => void 0, 'beaker')));
     }
     else if (presentation.family === 'web') {
-        body.append(toolFields([['URL', target], ['Status', firstString(result, ['status']) ?? '200 OK'], ['Received', firstString(result, ['size']) ?? '—']]));
-        body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 500)));
-        body.append(element('div', 'crusorai-tool-actions', button('Open source', 'crusorai-link-button', () => host.revealFile(target), 'link'), copyButton(target, host)));
+        body.append(toolOutputBox(boundedText(result ?? tool.result, 6000), true));
     }
     else if (presentation.family === 'browser') {
         // Hermes backend receipts (browser_tools.py): honest per-tool fields.
@@ -990,10 +986,6 @@ function familyBody(tool, host) {
         if (tool.name === 'browser_screenshot') {
             const raw = typeof tool.result === 'string' ? tool.result : '';
             const saved = /Screenshot saved:\s*([^\s(]+)/.exec(raw)?.[1];
-            body.append(toolFields([
-                ['Saved', saved ?? '—'],
-                ['Quality', /visual quality passed/i.test(raw) ? 'passed' : tool.state === 'running' ? 'running' : tool.state === 'failed' ? 'failed' : '—'],
-            ]));
             if (saved) {
                 const src = host.resourceSrc(saved);
                 if (src) {
@@ -1009,14 +1001,9 @@ function familyBody(tool, host) {
         }
         else if (tool.name === 'browser_navigate') {
             const recording = firstString(result, ['recording']);
-            body.append(toolFields([
-                ['URL', firstString(args, ['url']) ?? target],
-                ['Title', firstString(result, ['title']) ?? '—'],
-                ['Elements', firstString(result, ['element_count']) ?? '—'],
-            ]));
             const snapshot = firstString(result, ['snapshot']);
             if (snapshot) {
-                body.append(element('pre', 'crusorai-tool-pre', boundedText(snapshot, 600)));
+                body.append(toolOutputBox(boundedText(snapshot, 4000)));
             }
             if (recording) {
                 // The visible-testing artifact (hermes record start/stop): one
@@ -1028,29 +1015,19 @@ function familyBody(tool, host) {
             }
         }
         else if (tool.name === 'browser_click' || tool.name === 'browser_type' || tool.name === 'browser_press') {
-            body.append(toolFields([
-                ['Element', firstString(args, ['ref']) ?? firstString(args, ['key']) ?? '—'],
-                ['Text', firstString(args, ['text']) ?? '—'],
-                ['Done', firstString(result, ['clicked', 'typed', 'pressed']) ?? (tool.state === 'passed' ? 'yes' : tool.state === 'failed' ? 'no' : '…')],
-            ]));
+            const done = firstString(result, ['clicked', 'typed', 'pressed']) ?? boundedText(tool.result, 500);
+            if (done) {
+                body.append(toolOutputBox(done));
+            }
         }
         else if (tool.name === 'browser_console') {
-            body.append(toolFields([
-                ['Expression', firstString(args, ['expression']) ?? '—'],
-                ['Messages', firstString(result, ['total_messages']) ?? '—'],
-                ['JS errors', firstString(result, ['total_errors']) ?? '—'],
-            ]));
-            const evaluated = firstString(result, ['result']);
+            const evaluated = firstString(result, ['result']) ?? boundedText(tool.result, 2000);
             if (evaluated) {
-                body.append(element('pre', 'crusorai-tool-pre', boundedText(evaluated, 400)));
+                body.append(toolOutputBox(boundedText(evaluated, 2000)));
             }
         }
         else {
-            body.append(toolFields([
-                ['URL', firstString(args, ['url']) ?? target],
-                ['Detail', firstString(result, ['count', 'scrolled', 'url', 'success']) ?? '—'],
-            ]));
-            body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 400)));
+            body.append(toolOutputBox(boundedText(result ?? tool.result, 2000)));
         }
     }
     else if (presentation.family === 'plan') {
@@ -1069,8 +1046,7 @@ function familyBody(tool, host) {
         body.append(targetBody(tool, host, result, args));
     }
     else if (presentation.family === 'session') {
-        body.append(toolFields([['Query', target], ['Sessions', '2'], ['Model calls', '0']]));
-        body.append(element('pre', 'crusorai-tool-pre', boundedText(result ?? tool.arguments, 400)));
+        body.append(toolOutputBox(boundedText(result ?? tool.result, 4000)));
     }
     else if (presentation.family === 'subagent' || tool.name.startsWith('delegate_to_subagent')) {
         // OpenCode parity: task-tool-card clickable navigation
@@ -1080,20 +1056,9 @@ function familyBody(tool, host) {
         // Field 2026-09-10: this body hardcoded a fake RUNTIME value —
         // invented text on a JS scaffolding call. The card shows the call's
         // OWN fields and the honest state, nothing else.
-        const scaffoldFields = [];
-        const targetPath = firstString(args, ['path', 'project_path', 'projectPath', 'directory', 'dir']);
-        if (targetPath) {
-            scaffoldFields.push(['Location', targetPath]);
-        }
-        const template = firstString(args, ['template', 'framework', 'stack']);
-        if (template) {
-            scaffoldFields.push(['Template', template]);
-        }
-        scaffoldFields.push(['Status', stateLabel(tool.state)]);
-        body.append(toolFields(scaffoldFields));
-        const detail = result ?? boundedText(tool.arguments, 400);
+        const detail = result ?? boundedText(tool.result, 4000);
         if (detail) {
-            body.append(element('pre', 'crusorai-tool-pre crusorai-terminal-output', boundedText(detail, 600).slice(0, 700)));
+            body.append(toolOutputBox(boundedText(detail, 4000)));
         }
     }
     else {
@@ -1142,11 +1107,6 @@ function familyBody(tool, host) {
             body.append(labeledPayload('Details', { arguments: tool.arguments, result: tool.result }));
         }
     }
-    const fileTarget = firstString(tool.arguments, ['path', 'file_path', 'resource']);
-    if (fileTarget && presentation.family !== 'file-read' && presentation.family !== 'file-write') {
-        if (!body.querySelector('.crusorai-tool-actions'))
-            body.append(element('div', 'crusorai-tool-actions', button('Open file', 'crusorai-link-button', () => host.revealFile(fileTarget), 'go-to-file')));
-    }
     return body;
 }
 function toolRow(tool, host, openTools, pendingClarify) {
@@ -1171,7 +1131,7 @@ function toolRow(tool, host, openTools, pendingClarify) {
     // settled one says "Thought" — the tool catalog title stays canonical for
     // other surfaces; the transcript row speaks hermes.
     const rowTitle = tool.name === 'think' ? (isPending ? 'Thinking' : 'Thought') : presentation.title;
-    const titleSpan = element('strong', undefined, rowTitle);
+    const titleSpan = element('strong', isPending ? 'crusorai-shimmer' : undefined, rowTitle);
     const targetText = displayTarget(tool);
     // Hermes quiet-card rule: the target echo must SAY something. When it
     // just repeats the tool name ("Think think"), it is noise — drop it.
@@ -1193,7 +1153,7 @@ function toolRow(tool, host, openTools, pendingClarify) {
     // no status glyph, the caret hugging the label. While a tool runs,
     // the spinner takes the label's left, exactly where their indicator
     // sits. State still earns colour in the body, not the label.
-    const titleMain = element('span', undefined, titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined);
+    const titleMain = element('span', undefined, titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, ...toolArgsChips(tool));
     titleMain.dataset.slot = 'basic-tool-tool-info-main';
     if (targetMeaningful) {
         titleMain.lastElementChild.dataset.slot = 'basic-tool-tool-subtitle';
@@ -2484,7 +2444,7 @@ function diffPreview(diff) {
         wrap.append(row);
     }
     if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
-        wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s) — 'Open native diff' shows all of it`));
+        wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));
     }
     return wrap;
 }

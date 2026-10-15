@@ -1225,6 +1225,30 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 	}
 
+	/**
+	 * token_retract: the engine discarded a generation whose text already
+	 * streamed (dropped-toolcall re-prompt / failover) and is re-generating.
+	 * Withdraw exactly the painted chars from the tail so the replacement
+	 * answer does not glue onto the discarded one (field 2026-10-15: users
+	 * got 2-3 concatenated answers from velona/GLM's empty tool_calls).
+	 */
+	private retractText(chars: number): void {
+		let remaining = Math.min(Math.max(0, chars), this.assistantText.length);
+		if (remaining <= 0) { return; }
+		this.assistantText = this.assistantText.slice(0, this.assistantText.length - remaining);
+		while (remaining > 0) {
+			const last = this.parts[this.parts.length - 1];
+			if (!last || last.kind !== 'text') { break; }
+			if (last.text.length <= remaining) {
+				remaining -= last.text.length;
+				this.parts.pop();
+			} else {
+				this.parts[this.parts.length - 1] = { kind: 'text', text: last.text.slice(0, last.text.length - remaining) };
+				remaining = 0;
+			}
+		}
+	}
+
 	private pushToolPart(toolId: string): void {
 		if (!toolId || this.parts.some(p => p.kind === 'tool' && p.toolId === toolId)) { return; }
 		this.parts.push({ kind: 'tool', toolId });
@@ -1400,7 +1424,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		const foreignId = this.foreignSessionId(frame);
 		if (foreignId) {
 			switch (frame.type) {
-				case 'turn_started': case 'token': case 'reasoning': case 'plan_updated':
+				case 'turn_started': case 'token': case 'token_retract': case 'reasoning': case 'plan_updated':
 				case 'tool_call_start': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
 				case 'todo_updated': case 'verification_updated': case 'telemetry': case 'turn_done':
 				case 'turn_failed': case 'voice_text': case 'llm.request': case 'llm.response':
@@ -1507,6 +1531,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} else if (frame.type === 'token') {
 			this.assistantText += frame.text;
 			this.appendTextPart(frame.text);
+		} else if (frame.type === 'token_retract') {
+			this.retractText(frame.chars);
 			// Reasoning is preserved so the thinking block stays visible in
 			// the transcript after the turn completes.
 		} else if (frame.type === 'reasoning') {

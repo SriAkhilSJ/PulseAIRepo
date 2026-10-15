@@ -1197,6 +1197,34 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.parts.push({ kind: 'text', text: chunk });
         }
     }
+    /**
+     * token_retract: the engine discarded a generation whose text already
+     * streamed (dropped-toolcall re-prompt / failover) and is re-generating.
+     * Withdraw exactly the painted chars from the tail so the replacement
+     * answer does not glue onto the discarded one (field 2026-10-15: users
+     * got 2-3 concatenated answers from velona/GLM's empty tool_calls).
+     */
+    retractText(chars) {
+        let remaining = Math.min(Math.max(0, chars), this.assistantText.length);
+        if (remaining <= 0) {
+            return;
+        }
+        this.assistantText = this.assistantText.slice(0, this.assistantText.length - remaining);
+        while (remaining > 0) {
+            const last = this.parts[this.parts.length - 1];
+            if (!last || last.kind !== 'text') {
+                break;
+            }
+            if (last.text.length <= remaining) {
+                remaining -= last.text.length;
+                this.parts.pop();
+            }
+            else {
+                this.parts[this.parts.length - 1] = { kind: 'text', text: last.text.slice(0, last.text.length - remaining) };
+                remaining = 0;
+            }
+        }
+    }
     pushToolPart(toolId) {
         if (!toolId || this.parts.some(p => p.kind === 'tool' && p.toolId === toolId)) {
             return;
@@ -1372,6 +1400,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             switch (frame.type) {
                 case 'turn_started':
                 case 'token':
+                case 'token_retract':
                 case 'reasoning':
                 case 'plan_updated':
                 case 'tool_call_start':
@@ -1510,6 +1539,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         else if (frame.type === 'token') {
             this.assistantText += frame.text;
             this.appendTextPart(frame.text);
+        }
+        else if (frame.type === 'token_retract') {
+            this.retractText(frame.chars);
             // Reasoning is preserved so the thinking block stays visible in
             // the transcript after the turn completes.
         }
