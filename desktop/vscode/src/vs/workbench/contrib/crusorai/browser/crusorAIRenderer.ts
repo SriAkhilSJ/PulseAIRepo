@@ -2852,11 +2852,15 @@ function diffPreview(diff: string, path = '', colors?: CrusorAISyntaxColors): HT
 	for (const line of shown) {
 		// OpenCode's diff viewer (their reference render): ONE gutter —
 		// removed rows carry their OLD number, added/context their NEW
-		// number, the number itself coloured by kind; no +/- sign column,
-		// the row tint + number carry the meaning.
+		// number, the number itself coloured by kind. Founder
+		// 2026-10-15: 'also add diff view +,- -->green,red color' — an
+		// explicit sign column rides beside the gutter: '+' green on
+		// additions, '-' red on removals, blank on context.
 		const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
+		const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : '';
 		wrap.append(element('span', `crusorai-diff-row is-${line.kind}`,
 			element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''),
+			element('span', 'crusorai-diff-sign', sign),
 			element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
 	}
 	if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
@@ -2871,8 +2875,10 @@ const CODE_VIEW_LINE_LIMIT = 200;
 // Syntax colour for the file viewers (OpenCode's file component colours
 // tokens; the founder's reference renders prove it is half the look).
 // A small stateful per-line tokenizer — comments, strings, numbers,
-// keywords, Capitalized types — painted with the workbench theme's own
-// symbolIcon token colours, so it follows the theme and invents no hex.
+// keywords, Capitalized types — painted with the active editor
+// theme's real token colours, resolved by the host service through
+// IColorTheme.getTokenStyleMetadata (symbolIcon vars default to
+// plain foreground — proven white on the founder's laptop).
 // Deliberately an approximation of the editor's TextMate colours; the
 // real editor (one click on the filename) has the exact ones.
 // ---------------------------------------------------------------------------

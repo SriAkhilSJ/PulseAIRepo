@@ -1835,10 +1835,12 @@
 }
 
 /* ── hermes diff-lines.tsx wireframe (ported 2026-09-09) ──
-   File-headers/@@ noise and the +/- gutter are dropped; changes read by tint
-   + a 2px left gutter accent, rows flush to the card edges (the box bleeds
-   out of the card padding like hermes' -mx-1.5 -mb-1.5), internal scroll
-   like a code block, overscroll handed back to the page. */
+   File-headers/@@ noise dropped; changes read by tint + a 2px left
+   gutter accent, rows flush to the card edges (the box bleeds out of
+   the card padding like hermes' -mx-1.5 -mb-1.5), internal scroll
+   like a code block, overscroll handed back to the page. Founder
+   2026-10-15 added back an explicit +/- sign column (+ green,
+   - red) beside the line-number gutter. */
 .crusorai-diff-body {
 	--crusorai-diff-add-background: color-mix(in srgb, var(--vscode-diffEditor-insertedTextBackground, #3fb95055) 45%, transparent);
 	--crusorai-diff-remove-background: color-mix(in srgb, var(--vscode-diffEditor-removedTextBackground, #f8514955) 45%, transparent);
@@ -1864,6 +1866,9 @@
 	padding: 0 12px 0 0;
 }
 .crusorai-diff-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.crusorai-diff-sign { flex: none; width: 10px; text-align: center; user-select: none; font-weight: 600; }
+.crusorai-diff-row.is-add .crusorai-diff-sign { color: var(--crusorai-diff-add-foreground); }
+.crusorai-diff-row.is-remove .crusorai-diff-sign { color: var(--crusorai-diff-remove-foreground); }
 .crusorai-diff-text { white-space: pre; }
 .crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--vscode-editor-foreground); }
 .crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: var(--vscode-editor-foreground); }

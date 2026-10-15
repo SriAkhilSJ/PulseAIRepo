@@ -1698,10 +1698,11 @@ def test_file_accordion_matches_the_opencode_reference_render():
     Their render: outer Edit title + file + counts; inside, the file's
     OWN accordion box (real icon, directory/filename, DiffChanges,
     chevron) whose content is a diff viewer with ONE line-number
-    gutter (removed = old number in red, added = new in green, no
-    sign column) in a capped frame with a floating scroll-down
-    button. Structure must match exactly; token-level syntax
-    highlighting is their app file component, not faked here."""
+    gutter (removed = old number in red, added = new in green) in a
+    capped frame with a floating scroll-down button. Founder
+    2026-10-15 ('also add diff view +,- -->green,red color') added
+    an explicit sign column beside the gutter. Structure must match
+    exactly; token colours come from the editor theme via the host."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "function fileAccordion" in renderer
@@ -1710,7 +1711,10 @@ def test_file_accordion_matches_the_opencode_reference_render():
     assert "body.append(fileAccordion(tool, host, view));" in renderer
     # One gutter, old number for removals, new for the rest.
     assert "const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);" in renderer
-    assert "crusorai-diff-sign" not in renderer
+    assert "element('span', 'crusorai-diff-sign', sign)" in renderer
+    assert "line.kind === 'add' ? '+' : line.kind === 'remove' ? '-'" in renderer
+    assert ".crusorai-diff-row.is-add .crusorai-diff-sign { color: var(--crusorai-diff-add-foreground); }" in css
+    assert ".crusorai-diff-row.is-remove .crusorai-diff-sign { color: var(--crusorai-diff-remove-foreground); }" in css
     # Capped frame + floating jump button, shown only when below-fold.
     assert "function fileScrollFrame" in renderer
     assert ".crusorai-file-scroll { max-height: 300px" in css

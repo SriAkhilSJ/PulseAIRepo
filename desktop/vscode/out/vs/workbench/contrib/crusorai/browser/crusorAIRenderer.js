@@ -2769,10 +2769,13 @@ function diffPreview(diff, path = '', colors) {
     for (const line of shown) {
         // OpenCode's diff viewer (their reference render): ONE gutter —
         // removed rows carry their OLD number, added/context their NEW
-        // number, the number itself coloured by kind; no +/- sign column,
-        // the row tint + number carry the meaning.
+        // number, the number itself coloured by kind. Founder
+        // 2026-10-15: 'also add diff view +,- -->green,red color' — an
+        // explicit sign column rides beside the gutter: '+' green on
+        // additions, '-' red on removals, blank on context.
         const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
-        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''), element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
+        const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : '';
+        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''), element('span', 'crusorai-diff-sign', sign), element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
     }
     if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
         wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));
