@@ -1815,10 +1815,11 @@
 	--crusorai-diff-add-foreground: var(--vscode-diffEditor-insertedTextForeground, #3fb950);
 	--crusorai-diff-remove-foreground: var(--vscode-diffEditor-removedTextForeground, #f85149);
 	display: block;
-	max-height: 12rem;
+	/* No nested scroller (founder 2026-10-15, scroll freely): the diff
+	   flows with the page like OpenCode's edit-content (overflow-y:
+	   visible); DIFF_PREVIEW_LINE_LIMIT bounds the line count. */
 	margin: 4px 0 0 0;
-	overflow: auto;
-	overscroll-behavior-x: contain;
+	overflow: visible;
 	font-family: var(--crusorai-font-mono);
 	font-size: var(--crusorai-conv-code-size);
 	line-height: 1.5;

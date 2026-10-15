@@ -129,7 +129,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # transcript branches, every consecutive tool run through the shared rule.
     assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
     assert "function assistantTurn(" in renderer
-    assert renderer.count("response.append(toolSection(run, host, openTools, live, false, spec.clarify))") == 1, "consecutive tool runs fold through the shared grouping rule"
+    assert renderer.count("response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify))") == 1, "consecutive tool runs fold through the shared grouping rule"
     assert "textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only (inside the OpenCode text-part)"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
@@ -682,7 +682,9 @@ def test_hermes_diff_grammar_ported():
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-diff-row.is-add" in css
     assert "border-left: 2px solid transparent" in css
-    assert "max-height: 12rem" in css  # hermes DIFF_BOX max-h-[12rem]
+    # Founder 2026-10-15 (scroll freely) supersedes the hermes 12rem cap:
+    # the diff flows with the page, no nested scroller inside the card.
+    assert ".crusorai-diff-body" in css and "overflow: visible" in css
 
 
 def test_changed_files_rollup_ported():
@@ -1376,7 +1378,7 @@ def test_main_chat_transcript_follows_opencode_message_anatomy():
     assert "function userMessage" in renderer
     assert "user-message-text" in renderer
     assert "dataset.component = 'reasoning-part'" in renderer
-    assert "details.open = live || openTools.has(key)" in renderer
+    assert "details.open = !closedTools.has(key) && (live || openTools.has(key))" in renderer
     assert "summary.addEventListener('click'" in renderer
     css = _text("browser", "media", "crusorAI.css")
     assert "OpenCode main-chat layer" in css
@@ -1639,3 +1641,32 @@ def test_edit_write_cards_and_verification_follow_opencode():
     assert "crusorai-tool-checks" not in renderer
     assert "Destination assertion" not in renderer
     assert "Open evidence" not in renderer
+
+
+def test_user_close_sticks_and_scrolling_is_free():
+    """Founder screenshots 2026-10-15 (build fa62d3bc), three defects:
+    (1) 'why i can't close the dropdown menu — if did, reopens': the
+    open state was `openTools.has(id) || shouldDefaultOpen`, so during
+    a running turn every streaming repaint forced 'always'/'running'
+    rows back open; the user's click was never recorded as a close.
+    A mount-level closedTools memory now outranks every default in
+    tool rows, run groups, and thought blocks. (2) 'write file is not
+    like opencode, worst look': a write's all-'+' receipt diff painted
+    as a solid green wall; OpenCode's write render shows the written
+    content as a text view, never a diff. (3) 'i can't scroll freely':
+    both follow-the-stream paths forced scrollTop to the floor while
+    `model.running`, yanking the user out of up-scroll reading on every
+    repaint; follow now engages only from near the bottom, and the
+    diff body no longer nests its own scroller inside the card."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "const closedTools = new Set<string>();" in renderer
+    assert "details.open = !closedTools.has(tool.id) && (openTools.has(tool.id) || shouldDefaultOpen)" in renderer
+    assert "details.open = !closedTools.has(key) && (runLive || openTools.has(key))" in renderer
+    assert "closedTools.add(tool.id)" in renderer and "closedTools.delete(tool.id)" in renderer
+    # Write = content text view; edits keep the diff.
+    assert "tool.name !== 'write_file' && diff" in renderer
+    # Free scrolling: no repaint may pin to the floor mid-run.
+    assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running" not in renderer
+    assert "previousScroll.clientHeight < 120 || model.running" not in renderer
+    assert "max-height: 12rem" not in css, "the diff body's nested scroller is gone"

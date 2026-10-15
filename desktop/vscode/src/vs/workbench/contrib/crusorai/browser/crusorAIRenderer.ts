@@ -1219,7 +1219,12 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 			// itself in edit-content — or, for a write with no diff, the
 			// written content in write-content — plus earned diagnostics.
 			const diff = editDiffText(tool);
-			if (diff) {
+			// OpenCode's write render NEVER shows a diff (tool-renderer.tsx
+			// write: the file component in text mode) — a write's receipt
+			// diff is all '+' lines, which painted as a solid green wall
+			// (founder 2026-10-15: 'write file is not like opencode, worst
+			// look'). Writes show the written content; edits show the diff.
+			if (tool.name !== 'write_file' && diff) {
 				const editBox = element('div', 'crusorai-edit-content');
 				editBox.dataset.component = 'edit-content';
 				editBox.append(diffPreview(diff));
@@ -1371,7 +1376,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 	return body;
 }
 
-function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
+function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
 	// Hermes (message-parts ChainToolFallback): a clarify call renders its own
 	// widget card — the interactive question while it blocks, the settled Q&A
 	// after — never a generic collapsible tool row.
@@ -1391,7 +1396,12 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	details.dataset.toolId = tool.id;
 	details.dataset.toolName = tool.name;
 	const shouldDefaultOpen = presentation.defaultOpen === 'always' || (presentation.defaultOpen === 'running' && (tool.state === 'running' || tool.state === 'approval'));
-	details.open = openTools.has(tool.id) || shouldDefaultOpen;
+	// The user's own hand outranks every default (founder 2026-10-15:
+	// 'why i can't close the dropdown — if did, reopens'): an explicitly
+	// closed row stays closed across streaming repaints even when its
+	// family defaults open ('always'/'running'); defaults only govern
+	// rows the user never touched.
+	details.open = !closedTools.has(tool.id) && (openTools.has(tool.id) || shouldDefaultOpen);
 
 	// Hermes wording (ThinkingDisclosure): a live block says "Thinking", a
 	// settled one says "Thought" — the tool catalog title stays canonical for
@@ -1505,7 +1515,10 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	// into openTools, so settled "Thought" rows stayed expanded and
 	// painted the model's inner monologue full-size (field 2026-10-15).
 	// A summary click is always the user's own hand (mouse or keyboard).
-	summary.addEventListener('click', () => details.open ? openTools.delete(tool.id) : openTools.add(tool.id));
+	summary.addEventListener('click', () => {
+		if (details.open) { openTools.delete(tool.id); closedTools.add(tool.id); }
+		else { openTools.add(tool.id); closedTools.delete(tool.id); }
+	});
 	return details;
 }
 
@@ -1519,7 +1532,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
+function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
 	const section = element('section', 'crusorai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -1535,12 +1548,12 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 	// screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
 	// card said the same thing twice). Only 2+ calls earn a run summary.
 	if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
-		section.append(toolRow(groups[0].tools[0], host, openTools, pendingClarify));
+		section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify));
 		return section;
 	}
 	for (const group of groups) {
 		if (group.kind === 'card') {
-			section.append(toolRow(group.tool, host, openTools, pendingClarify));
+			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify));
 			continue;
 		}
 		const runTools = group.tools;
@@ -1550,9 +1563,10 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 		details.dataset.component = 'tool-run';
 		details.dataset.conversationScaffold = '';
 		details.dataset.runKey = key;
-		details.open = runLive || openTools.has(key);
+		details.open = !closedTools.has(key) && (runLive || openTools.has(key));
 		details.addEventListener('toggle', () => {
-			if (details.open) { openTools.add(key); } else { openTools.delete(key); }
+			if (details.open) { openTools.add(key); closedTools.delete(key); }
+			else { openTools.delete(key); closedTools.add(key); }
 		});
 		const summary = element('summary', 'crusorai-tool-run-summary',
 			runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'),
@@ -1561,7 +1575,7 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 		);
 		details.append(summary);
 		const body = element('div', 'crusorai-tool-run-body');
-		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, pendingClarify)); }
+		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, closedTools, pendingClarify)); }
 		details.append(body);
 		section.append(details);
 	}
@@ -1736,7 +1750,7 @@ function createActivityState(tick: () => void) {
  * sits to the RIGHT of the label and only the label is the hit target, which is why this is a
  * button-shaped summary over a content-width pill rather than a full-width bar.
  */
-function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean, seconds?: number, partKey?: string): HTMLElement {
+function thinkingBlock(reasoning: string, openTools: Set<string>, closedTools: Set<string>, live: boolean, seconds?: number, partKey?: string): HTMLElement {
 	reasoning = separateGluedReasoningBlocks(reasoning);
 	const key = partKey || 'thought';
 	const details = element('details', 'crusorai-thought-row') as HTMLDetailsElement;
@@ -1747,7 +1761,7 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 	// one rests as a single quiet row the user opens by choice. The old
 	// always-open + 'toggle' latch painted every settled thought at full
 	// size forever (field 2026-10-15) — persist only the user's click.
-	details.open = live || openTools.has(key);
+	details.open = !closedTools.has(key) && (live || openTools.has(key));
 	// OpenCode's rendered response (founder reference 2026-10-15): the
 	// reasoning row is the bare muted word "Thinking" — no icon, no caret
 	// at the edge, no timer. The word itself is the disclosure; while
@@ -1755,7 +1769,10 @@ function thinkingBlock(reasoning: string, openTools: Set<string>, live: boolean,
 	const summary = element('summary', 'crusorai-disclosure-row',
 		element('strong', live ? 'crusorai-shimmer crusorai-thinking-word' : 'crusorai-thinking-word', live ? 'Thinking' : 'Thought'),
 	);
-	summary.addEventListener('click', () => details.open ? openTools.delete(key) : openTools.add(key));
+	summary.addEventListener('click', () => {
+		if (details.open) { openTools.delete(key); closedTools.add(key); }
+		else { openTools.add(key); closedTools.delete(key); }
+	});
 	// Split accumulated reasoning into separate blocks (one per LLM call)
 	const body = element('div', 'crusorai-thought-body');
 	body.dataset.component = 'markdown';
@@ -1800,7 +1817,7 @@ function assistantTurn(
 		turnKey?: string;
 	},
 	host: CrusorAIRenderHost,
-	openTools: Set<string>,
+	openTools: Set<string>, closedTools: Set<string>,
 ): HTMLElement {
 	const live = spec.live;
 	const response = element('section', 'crusorai-assistant-message');
@@ -1828,7 +1845,7 @@ function assistantTurn(
 	let run: CrusorAIToolView[] = [];
 	const flushRun = () => {
 		if (!run.length) { return; }
-		response.append(toolSection(run, host, openTools, live, false, spec.clarify));
+		response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify));
 		run = [];
 	};
 	parts.forEach((part, index) => {
@@ -1840,7 +1857,7 @@ function assistantTurn(
 				// A reasoning block is "live" (spinner + growing text) only when it is the
 				// last part in the timeline and the turn is still running.
 				const isLastPart = index === parts.length - 1;
-				response.append(thinkingBlock(rp.text, openTools, live && isLastPart, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:${part.reasoningIndex}`));
+				response.append(thinkingBlock(rp.text, openTools, closedTools, live && isLastPart, spec.thoughtSeconds, `${spec.turnKey || 'turn'}:${part.reasoningIndex}`));
 			}
 			return;
 		}
@@ -1857,7 +1874,7 @@ function assistantTurn(
 	// A tool with no part (a replay that lost its start frame) must still show.
 	const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
 	const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
-	if (orphans.length) { response.append(toolSection(orphans, host, openTools, live, false, spec.clarify)); }
+	if (orphans.length) { response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify)); }
 	if (spec.assistantText && lastTextIndex < 0) {
 		response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
 	}
@@ -1879,7 +1896,7 @@ function userMessage(text: string): HTMLElement {
 	return wrap;
 }
 
-function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, liveThoughtSeconds?: number): HTMLElement {
+function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, liveThoughtSeconds?: number): HTMLElement {
 	const scroll = element('div', 'crusorai-transcript-scroll');
 	const lane = element('div', 'crusorai-transcript-lane');
 	// History: previous turns (user → agent) preserved wireframe style, no breathing
@@ -1893,7 +1910,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				tools: turn.tools,
 				live: false,
 				turnKey: `history:${model.sessionId || 's'}`,
-			}, host, openTools));
+			}, host, openTools, closedTools));
 		}
 		if (turn.subAgents.length) {
 			const subAgents = element('section', 'crusorai-subagent-list');
@@ -1964,7 +1981,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 			cancelRequested: model.cancelRequested,
 			clarify: model.clarify,
 			turnKey: `current:${model.sessionId || 's'}`,
-		}, host, openTools));
+		}, host, openTools, closedTools));
 	}
 	if (model.subAgents.length) {
 		const subAgents = element('section', 'crusorai-subagent-list');
@@ -2383,7 +2400,7 @@ function clarifyChoiceRow(
 }
 
 function clarifyCard(
-	tool: CrusorAIToolView, host: CrusorAIRenderHost, _openTools: Set<string>,
+	tool: CrusorAIToolView, host: CrusorAIRenderHost, _openTools: Set<string>, closedTools: Set<string>,
 	pending: NonNullable<CrusorAIRenderModel['clarify']>,
 ): HTMLElement {
 	ensureGlobalCardKeys();
@@ -2995,7 +3012,7 @@ interface CrusorAIActivitySurface {
 	thoughtSeconds(model: CrusorAIRenderModel): number | undefined;
 }
 
-function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, activity: CrusorAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): HTMLElement[] {
+function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, activity: CrusorAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void): HTMLElement[] {
 	const nodes: HTMLElement[] = [];
 	const plan = planStrip(model, planOpen, setPlanOpen);
 	if (plan) { nodes.push(plan); }
@@ -3014,7 +3031,7 @@ function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openT
 	// webview follows (`hermes-ui/components/empty-state.tsx`). Exactly one of the two is
 	// mounted, so a first-run view never shows an empty lane under a grid of starters.
 	const empty = emptyState(model, host);
-	nodes.push(empty ?? transcript(model, host, openTools, activity.thoughtSeconds(model)));
+	nodes.push(empty ?? transcript(model, host, openTools, closedTools, activity.thoughtSeconds(model)));
 	// No breathing tail under the transcript (founder 2026-10-15: delete
 	// the breathing UI completely) — OpenCode streams the turn itself; a
 	// narrating status row under the transcript is not one of its parts.
@@ -3028,7 +3045,7 @@ function agentColumn(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openT
 	return nodes;
 }
 
-function renderAgent(root: HTMLElement, model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void, activity: CrusorAIActivitySurface): void {
+function renderAgent(root: HTMLElement, model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void, activity: CrusorAIActivitySurface): void {
 	const shell = element('div', 'crusorai-agent-shell');
 	const header = element('div', 'crusorai-agent-header',
 		element('span', 'crusorai-agent-header-title', 'Crusor Agent'),
@@ -3048,7 +3065,7 @@ function renderAgent(root: HTMLElement, model: CrusorAIRenderModel, host: Crusor
 	// the engine-starting row still paints above the hero so a dead
 	// engine never reads as a send button that does nothing.
 	if (isEmptySession(model)) { shell.classList.add('is-empty'); }
-	shell.append(...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen));
+	shell.append(...agentColumn(model, host, openTools, closedTools, activity, planOpen, setPlanOpen));
 	shell.append(composer(model, host, false));
 	root.append(shell);
 }
@@ -3257,7 +3274,7 @@ function skillsPanel(ui: CrusorAIManagerUi, host: CrusorAIRenderHost): HTMLEleme
 	return pane;
 }
 
-function renderManager(root: HTMLElement, model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, activity: CrusorAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void, ui: CrusorAIManagerUi): void {
+function renderManager(root: HTMLElement, model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, activity: CrusorAIActivitySurface, planOpen: boolean | undefined, setPlanOpen: (open: boolean) => void, ui: CrusorAIManagerUi): void {
 	const shell = element('div', 'crusorai-manager-shell');
 	const sidebar = element('aside', 'crusorai-manager-sidebar',
 		element('header', 'crusorai-manager-pane-head', element('div', undefined, element('span', 'crusorai-eyebrow', 'CONTROL PLANE'), element('h2', undefined, 'Workspaces')), button('', 'crusorai-icon-button', () => host.newSession?.(), 'add')),
@@ -3280,7 +3297,7 @@ function renderManager(root: HTMLElement, model: CrusorAIRenderModel, host: Crus
 		tabs,
 		...(ui.tab === 'skills'
 			? [skillsPanel(ui, host)]
-			: [...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)]),
+			: [...agentColumn(model, host, openTools, closedTools, activity, planOpen, setPlanOpen)]),
 		composer(model, host, true),
 	);
 	shell.append(sidebar, main, inspector(model));
@@ -3294,6 +3311,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 	// guarded, so mounting the pane once is enough for the app's lifetime.
 	ensureGlobalCardKeys();
 	const openTools = new Set<string>();
+	const closedTools = new Set<string>();
 	let planOpen: boolean | undefined;
 	let planSession: string | undefined;
 	let disposed = false;
@@ -3496,7 +3514,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 			if (slot) {
 				slot.replaceChildren(markdownCopy(streaming.text, 'session-turn-content'));
 				const scroller = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
-				if (scroller && (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running)) {
+				if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120) {
 					scroller.scrollTop = scroller.scrollHeight;
 				}
 				lastPaint = { signature, text: streaming.text };
@@ -3516,7 +3534,11 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		}
 		const previousScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
 		const scrollTop = previousScroll?.scrollTop ?? 0;
-		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 120 || model.running;
+		// Follow only from the bottom (founder 2026-10-15: 'i can't scroll
+		// freely'): while the user reads up-scroll, repaints preserve their
+		// place; the old `|| model.running` clause pinned every repaint to
+		// the floor for the whole run.
+		const wasNearBottom = !previousScroll || previousScroll.scrollHeight - previousScroll.scrollTop - previousScroll.clientHeight < 120;
 		const activeElement = document.activeElement;
 		const activeComposer = root.contains(activeElement) && activeElement instanceof HTMLTextAreaElement ? activeElement : undefined;
 		// Don't steal focus from ask tool (clarify card) — vibrations/streaming re-renders were
@@ -3526,8 +3548,8 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 		const selectionEnd = activeComposer?.selectionEnd;
 		root.replaceChildren();
 		root.dataset.surface = surface;
-		if (surface === 'agent') { renderAgent(root, model, host, openTools, planOpen, open => { planOpen = open; }, activity); }
-		else { renderManager(root, model, host, openTools, activity, planOpen, open => { planOpen = open; }, managerUi); }
+		if (surface === 'agent') { renderAgent(root, model, host, openTools, closedTools, planOpen, open => { planOpen = open; }, activity); }
+		else { renderManager(root, model, host, openTools, closedTools, activity, planOpen, open => { planOpen = open; }, managerUi); }
 		const nextScroll = root.querySelector<HTMLElement>('.crusorai-transcript-scroll');
 		if (nextScroll) { nextScroll.scrollTop = wasNearBottom ? nextScroll.scrollHeight : scrollTop; }
 		if (activeComposer && !isClarifyInput && activeComposer.classList.contains('crusorai-composer-input')) {
