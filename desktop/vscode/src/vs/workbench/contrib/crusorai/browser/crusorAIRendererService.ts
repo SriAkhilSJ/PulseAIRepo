@@ -65,6 +65,21 @@ function planText(step: unknown): string {
 
 const PLAN_STATUSES: readonly string[] = ['pending', 'in_progress', 'completed', 'failed'];
 
+/**
+ * Content equality for hydrated history. Both lists come from the same
+ * builder, so key order is stable and a JSON compare is exact; any doubt
+ * fails open to "changed" (a repaint, never a stale transcript).
+ */
+function sameHistoryTurns(a: readonly unknown[], b: readonly unknown[]): boolean {
+	if (a === b) { return true; }
+	if (a.length !== b.length) { return false; }
+	try {
+		return JSON.stringify(a) === JSON.stringify(b);
+	} catch {
+		return false;
+	}
+}
+
 function planStepView(step: unknown): CrusorAIPlanStepView {
 	const raw = (typeof step === 'object' && step !== null)
 		? (step as Record<string, unknown>).status
@@ -1250,7 +1265,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			}
 		}
 		rollTurn();
-		this.history = turns.slice(-20).map(turn => ({
+		const nextHistory = turns.slice(-20).map(turn => ({
 			userMessage: turn.userMessage,
 			assistantText: turn.assistantText,
 			parts: turn.parts,
@@ -1260,6 +1275,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			turnOutcome: 'completed' as const,
 			plan: [],
 		}));
+		// A watched child is re-snapshotted every 3s. Byte-identical
+		// hydration must keep the SAME turn objects: fresh ones defeat
+		// the renderer's stream envelope and the lane is torn down and
+		// rebuilt under the user's wheel every poll — the transcript
+		// reads as unscrollable (field 2026-10-15).
+		if (!sameHistoryTurns(nextHistory, this.history)) {
+			this.history = nextHistory;
+		}
 		this.render();
 	}
 

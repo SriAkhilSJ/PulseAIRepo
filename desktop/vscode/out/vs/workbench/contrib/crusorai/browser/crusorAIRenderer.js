@@ -1947,10 +1947,15 @@ function createActivityState(tick) {
                     revealTimer = setTimeout(() => { revealed = true; tick(); }, DRAFTING_REVEAL_MS);
                 }
             }
-            if (model.running && ticker === undefined) {
+            // Paused on a question/approval is not working: stop the 1s
+            // repaint ticker too. It otherwise rebuilds the transcript
+            // every second while the user is trying to read, scroll, or
+            // answer — the child view felt frozen solid (field 2026-10-15).
+            const awaitingInput = model.approval !== undefined || model.clarify !== undefined;
+            if (model.running && !awaitingInput && ticker === undefined) {
                 ticker = setInterval(tick, 1000);
             }
-            if (!model.running && ticker !== undefined) {
+            if ((!model.running || awaitingInput) && ticker !== undefined) {
                 clearInterval(ticker);
                 ticker = undefined;
             }
@@ -1972,7 +1977,7 @@ function createActivityState(tick) {
             const slot = activityRowMode({
                 parts,
                 working: model.running,
-                awaitingInput: model.approval !== undefined,
+                awaitingInput: model.approval !== undefined || model.clarify !== undefined,
                 toolNarrating: toolNarratesWait(parts),
                 hint,
                 quietSince,
@@ -2167,6 +2172,24 @@ function userMessage(text) {
     wrap.dataset.component = 'user-message';
     return wrap;
 }
+/**
+ * The viewed session's OWN pending question belongs to the history turn
+ * that asked it. A checkpoint-hydrated turn (the only way a mid-run
+ * child session paints) otherwise renders the ask read-only forever —
+ * the child stays blocked with no Continue in reach (field 2026-10-15).
+ * A descendant's ask never lands here: it docks above the composer.
+ */
+function historyTurnClarify(model, turn) {
+    const pending = model.clarify;
+    if (!pending || pending.sessionId !== model.sessionId) {
+        return undefined;
+    }
+    if (pending.toolId) {
+        return turn.tools.some(tool => tool.id === pending.toolId) ? pending : undefined;
+    }
+    // No tool id on the frame: the ask is the turn's unsettled clarify call.
+    return turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined) ? pending : undefined;
+}
 function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
@@ -2183,6 +2206,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
                 live: false,
                 turnKey: `history:${model.sessionId || 's'}`,
                 subAgents: turn.subAgents,
+                clarify: historyTurnClarify(model, turn),
             }, host, openTools, closedTools));
         }
         // No trailing Sub-Agents section (OpenCode has none): the turn's
@@ -2623,6 +2647,12 @@ function clarifyChoiceRow(qid, index, choice, multi, draft, requestId, onDirty) 
 }
 function clarifyCard(tool, host, _openTools, closedTools, pending) {
     ensureGlobalCardKeys();
+    // The pending frame drives exactly ONE tool's form. Without this
+    // check a pending ask would light up every unsettled clarify-shaped
+    // call in the turn; a mismatch paints the read-only card instead.
+    if (pending && pending.toolId && tool.id !== pending.toolId) {
+        pending = undefined;
+    }
     // Settled: the tool result carries the batch JSON — Q/A card, hermes
     // ClarifyToolSettled. A skipped card keeps its choices clickable; a pick
     // drafts a quoted follow-up into the composer (Enter sends, a running turn
@@ -4016,8 +4046,13 @@ export function mountCrusorAIRenderer(root, surface, host) {
         }
         if (lastPaint
             && stableSig === lastStableSig
-            && streaming?.text === lastPaint.text
-            && patchLiveToolOutputs(model)) {
+            && (streaming?.text ?? '') === lastPaint.text) {
+            // Nothing structural changed. Patch any live tool output in
+            // place and stop: falling through to a full repaint here
+            // tore the transcript down on every no-change update —
+            // snapshot polls of a watched child, overlay ticks — and
+            // the lane read as unscrollable (field 2026-10-15).
+            patchLiveToolOutputs(model);
             return;
         }
         const previousScroll = root.querySelector('.crusorai-transcript-scroll');

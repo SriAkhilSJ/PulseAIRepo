@@ -194,6 +194,28 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	assert "crusorai-permission-patterns" in renderer and "crusorai-permission-footer" in css
 
 
+def test_child_clarify_answerable_and_lane_holds_still():
+	"""Field 2026-10-15: a child blocked on its own question painted the
+	read-only waiting card — history turns never received the pending
+	clarify, and a child paints entirely from checkpoint hydration — and
+	the watched-child lane rebuilt on every 3s snapshot poll, which read
+	as "can't scroll at all in sub agent". The pins: history turns thread
+	the viewed session's OWN pending ask to the asking tool (a
+	descendant's ask docks instead, never forms in history); the card
+	forms only for its own tool id; a turn paused on a question is not
+	"working" (no spinner row, no 1s repaint ticker); byte-identical
+	hydrations keep history identity; a no-change paint patches tool
+	outputs in place and returns."""
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "clarify: historyTurnClarify(model, turn)" in renderer
+	assert "pending.sessionId !== model.sessionId" in renderer
+	assert "pending.toolId && tool.id !== pending.toolId" in renderer
+	assert "model.approval !== undefined || model.clarify !== undefined" in renderer
+	assert "sameHistoryTurns(nextHistory, this.history)" in service
+	assert "(streaming?.text ?? '') === lastPaint.text" in renderer
+
+
 def test_engine_tools_todo_and_clarify_are_core():
 	"""hermes registers both tools with check_fn -> True (never posture-gated);
 	Crusor keeps the same universality in the core toolset."""

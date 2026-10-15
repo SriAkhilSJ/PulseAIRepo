@@ -65,6 +65,25 @@ function planText(step) {
     return 'Plan step';
 }
 const PLAN_STATUSES = ['pending', 'in_progress', 'completed', 'failed'];
+/**
+ * Content equality for hydrated history. Both lists come from the same
+ * builder, so key order is stable and a JSON compare is exact; any doubt
+ * fails open to "changed" (a repaint, never a stale transcript).
+ */
+function sameHistoryTurns(a, b) {
+    if (a === b) {
+        return true;
+    }
+    if (a.length !== b.length) {
+        return false;
+    }
+    try {
+        return JSON.stringify(a) === JSON.stringify(b);
+    }
+    catch {
+        return false;
+    }
+}
 function planStepView(step) {
     const raw = (typeof step === 'object' && step !== null)
         ? step.status
@@ -1205,7 +1224,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
         rollTurn();
-        this.history = turns.slice(-20).map(turn => ({
+        const nextHistory = turns.slice(-20).map(turn => ({
             userMessage: turn.userMessage,
             assistantText: turn.assistantText,
             parts: turn.parts,
@@ -1215,6 +1234,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             turnOutcome: 'completed',
             plan: [],
         }));
+        // A watched child is re-snapshotted every 3s. Byte-identical
+        // hydration must keep the SAME turn objects: fresh ones defeat
+        // the renderer's stream envelope and the lane is torn down and
+        // rebuilt under the user's wheel every poll — the transcript
+        // reads as unscrollable (field 2026-10-15).
+        if (!sameHistoryTurns(nextHistory, this.history)) {
+            this.history = nextHistory;
+        }
         this.render();
     }
     render() {
