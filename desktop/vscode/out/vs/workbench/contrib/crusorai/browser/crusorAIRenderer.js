@@ -1813,7 +1813,8 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
             hint = 'Waiting on the model\u2026';
         }
         const row = element('div', `crusorai-context-status-row is-info crusorai-activity-row${stalled ? ' is-stalled' : ''}`);
-        row.append(element('span', 'crusorai-activity-dot'));
+        // OpenCode breathing (founder reference 2026-10-15): the wait is a
+        // shimmering WORD, not a ring spinner — the hint itself sweeps.
         row.append(element('span', stalled ? undefined : 'crusorai-shimmer', hint));
         row.append(elapsedSpan(model.turnStartedAt));
         lane.append(row);
@@ -2803,7 +2804,11 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     // mounted, so a first-run view never shows an empty lane under a grid of starters.
     const empty = emptyState(model, host);
     nodes.push(empty ?? transcript(model, host, openTools, activity.thoughtSeconds(model)));
-    const working = activity.row(model);
+    // One breathing voice: while the transcript's Asking row narrates the
+    // model wait, the tail scaffold row stays silent — two indicators for
+    // one wait read as clutter (founder screenshot 2026-10-15: a naked
+    // ring + 0s under the Asking row). Compacting/cancel keep the tail.
+    const working = (model.llmStatus && !model.compacting && !model.cancelRequested) ? undefined : activity.row(model);
     if (working) {
         nodes.push(working);
     }

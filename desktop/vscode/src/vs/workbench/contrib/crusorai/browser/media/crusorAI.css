@@ -4061,3 +4061,8 @@
 	background: color-mix(in srgb, var(--vscode-foreground) 16%, var(--vscode-editor-background));
 	color: var(--vscode-foreground);
 }
+
+/* The extracted user-message is a full-width right-aligned COLUMN; the
+   pill is its text slot. Our legacy bubble paint on the wrapper turned
+   every user turn into a giant full-width band (founder 2026-10-15). */
+.crusorai-render-root .crusorai-user-message { background: transparent; border: 0; padding: 0; border-radius: 0; max-width: 100%; }

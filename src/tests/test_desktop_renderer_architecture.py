@@ -1457,3 +1457,14 @@ def test_rendered_response_matches_the_reference_photos():
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-render-root .crusorai-composer-box { border-radius: 12px; }" in css
     assert ".crusorai-send-button.crusorai-send-stop" in css
+
+
+def test_breathing_is_one_shimmering_word_and_bubbles_are_pills():
+    """OpenCode breathing + bubble regression (founder 2026-10-15): the
+    wait is a shimmering word (no ring spinner, no duplicate tail row),
+    and the user bubble is the text-slot pill — the full-width column
+    must never paint as a band again."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "model.llmStatus && !model.compacting && !model.cancelRequested" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-render-root .crusorai-user-message { background: transparent;" in css
