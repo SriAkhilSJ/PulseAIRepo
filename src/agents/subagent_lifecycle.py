@@ -269,6 +269,9 @@ class SubagentLifecycleService:
                 allowed_capabilities=record.allowed_capabilities,
                 description=record.description,
                 background=record.background,
+                # The lifecycle emits this child's subagent.updated
+                # stream itself; the coordinator must not double-speak.
+                emit_events=False,
             )
             result = subagent_coordinator.get_result(agent_id)
             with self._lock:

@@ -1928,3 +1928,25 @@ def test_batch_card_rows_open_their_child_sessions():
     assert "const matchChild" in renderer and "crusorai-task-tool-batch-action" in renderer
     assert ".crusorai-task-tool-batch-row.is-clickable" in css
     assert "crusorai-task-tool-batch-text" in css
+
+
+def test_batch_children_are_announced_by_the_engine():
+    """Founder 2026-10-15 (build fd5dc052): the batch card rows STILL
+    did nothing ('no use') — renderer nav was fine, but the batch
+    spawn path (SubAgentCoordinator) never emitted subagent.updated
+    and registered children only after they finished, so the panel
+    never had records to match rows against. spawn() now announces
+    running -> settled on the shared bus event; the lifecycle passes
+    emit_events=False so its children never double-speak. The batch
+    row text also clips (min-width: 0) instead of overflowing the
+    card."""
+    from pathlib import Path
+    _root = Path(__file__).resolve().parents[2]
+    sub_agent = (_root / "src" / "agents" / "sub_agent.py").read_text(encoding="utf-8")
+    lifecycle = (_root / "src" / "agents" / "subagent_lifecycle.py").read_text(encoding="utf-8")
+    css = _text("browser", "media", "crusorAI.css")
+    assert 'event_bus.emit("subagent.updated"' in sub_agent
+    assert '_emit("running")' in sub_agent
+    assert "emit_events: bool = True" in sub_agent
+    assert "emit_events=False" in lifecycle
+    assert ".crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0;" in css

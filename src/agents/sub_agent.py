@@ -61,6 +61,7 @@ class SubAgentCoordinator:
         description: str = "",
         background: bool = False,
         tool_call_id: str | None = None,
+        emit_events: bool = True,
     ) -> str:
         """
         Spawn a sub-agent with a focused task.
@@ -72,6 +73,69 @@ class SubAgentCoordinator:
         """
         from src.graphs.chat_graph import invoke_agent
         agent_id = f"sub-{mode}-{uuid.uuid4().hex[:6]}"
+
+        # Visibility contract (OpenCode parity): a spawned child is
+        # announced BEFORE it runs and again when it settles, on the
+        # same subagent.updated bus event the lifecycle emits, so the
+        # desktop learns the child session exists while it works —
+        # delegate_to_subagent_batch previously registered children
+        # only AFTER they finished and never emitted, leaving the
+        # batch card with nothing to navigate to. The lifecycle owns
+        # its own event stream for the same child and passes
+        # emit_events=False so one child never speaks twice.
+        def _emit(state: str, result_text: str | None = None,
+                  error_text: str | None = None) -> None:
+            if not emit_events:
+                return
+            try:
+                from src.dashboard.event_bus import event_bus
+                event_bus.emit("subagent.updated", {
+                    "thread_id": parent_thread_id,
+                    "subagent_id": agent_id,
+                    "child_thread_id": agent_id,
+                    "parent_session_id": parent_thread_id,
+                    "state": state,
+                    "goal": task[:200],
+                    "description": (description or task[:50])[:200],
+                    "mode": mode,
+                    "agent_name": mode,
+                    "tool_call_id": tool_call_id,
+                    "tool_calls": 0,
+                    "background": background,
+                    "result": (result_text or "")[:2000] if result_text else None,
+                    "error": (error_text or "")[:500] if error_text else None,
+                })
+            except Exception:
+                pass
+
+        # Register in the store at START (state running) so resume and
+        # list_by_parent see the child while it works; the completion
+        # block below updates the same row. Only create if absent (the
+        # lifecycle pre-creates its own row under its handle id).
+        try:
+            from src.runtime.subagent_store import get_store, SubagentSessionRow
+            import time as _t0
+            _store0 = get_store()
+            if not _store0.get(agent_id):
+                _store0.create(SubagentSessionRow(
+                    subagent_id=agent_id,
+                    parent_session_id=parent_thread_id,
+                    child_thread_id=agent_id,
+                    mode=mode,
+                    goal=task,
+                    description=(description or task[:50])[:200],
+                    agent_name=mode,
+                    state="running",
+                    created_at=_t0.time(),
+                    updated_at=_t0.time(),
+                    tool_call_id=tool_call_id,
+                    tool_calls=0,
+                    background=background,
+                    result="",
+                ))
+        except Exception:
+            pass
+        _emit("running")
 
         # Build a focused prompt based on mode
         prompts = {
@@ -102,6 +166,7 @@ class SubAgentCoordinator:
 
         focused_task = prompts.get(mode, task)
 
+        _crashed = False
         # Run the sub-agent synchronously. Crash boundary: a child failure
         # (provider errors after retries, nested bugs) must degrade to a
         # sentence the parent can reason about — NEVER an exception climbing
@@ -121,12 +186,14 @@ class SubAgentCoordinator:
                 invoke_kwargs["scope_capabilities"] = allowed_capabilities
             result = invoke_agent(**invoke_kwargs)
         except Exception as exc:
+            _crashed = True
             result = (
                 f"⛔ Sub-agent crashed: {exc!r}\n"
                 "The main conversation is unaffected. Possible causes: provider "
                 "outage/rate-limit, or a bug in the delegated step. You can retry "
                 "with a narrower task or complete it directly here."
             )
+        final_state = "failed" if _crashed else "succeeded"
 
         with self._lock:
             self._active_agents[agent_id] = {
@@ -146,13 +213,16 @@ class SubAgentCoordinator:
             while len(self._active_agents) > _MAX_COMPLETED_AGENTS:
                 self._active_agents.pop(next(iter(self._active_agents)))
 
-        # Persist to store as well (OpenCode parity)
+        # Persist to store as well (OpenCode parity): update the row
+        # opened at spawn start (create only as a fallback if the start
+        # registration failed), then announce the settled state.
         try:
             from src.runtime.subagent_store import get_store, SubagentSessionRow
             import time
             store = get_store()
-            # Only create if not already created by lifecycle (lifecycle creates first)
-            if not store.get(agent_id):
+            if store.get(agent_id):
+                store.update(agent_id, result=result[:32000], state=final_state, updated_at=time.time())
+            else:
                 store.create(SubagentSessionRow(
                     subagent_id=agent_id,
                     parent_session_id=parent_thread_id,
@@ -161,7 +231,7 @@ class SubAgentCoordinator:
                     goal=task,
                     description=(description or task[:50])[:200],
                     agent_name=mode,
-                    state="succeeded",
+                    state=final_state,
                     created_at=time.time(),
                     updated_at=time.time(),
                     tool_call_id=tool_call_id,
@@ -169,10 +239,10 @@ class SubAgentCoordinator:
                     background=background,
                     result=result[:32000],
                 ))
-            else:
-                store.update(agent_id, result=result[:32000], state="succeeded", updated_at=time.time())
         except Exception:
             pass
+        _emit(final_state, result_text=result,
+              error_text=result if _crashed else None)
 
         return agent_id
 

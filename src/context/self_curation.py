@@ -134,6 +134,15 @@ def _parse_preferences(raw: str) -> list[str]:
 def _review_snapshot(thread_id: str, messages: list) -> int:
     """Run ONE memory review against the snapshot and write findings.
     Returns how many preferences were written. Never raises."""
+    # Memory disabled means there is nowhere to write findings — check
+    # BEFORE paying for the aux review call (field log 2026-10-15: the
+    # review ran, found preferences, then discovered memory was off).
+    try:
+        from src.graphs.chat_graph import memory_manager
+        if memory_manager is None:
+            return 0
+    except Exception:
+        pass
     from src.llm.factory import get_auxiliary_llm
 
     digest = _digest(messages)

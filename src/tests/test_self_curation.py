@@ -131,3 +131,18 @@ def test_digest_and_parse_never_raise_on_garbage():
     assert sc._digest("nope") == ""
     assert sc._parse_preferences(None) == []
     assert sc._parse_preferences({"x": 1}) == []
+
+def test_review_skips_aux_call_when_memory_disabled(monkeypatch):
+    """Field log 2026-10-15: the aux review ran and found preferences,
+    THEN discovered memory was off and skipped the write — a paid LLM
+    call for nothing. With memory_manager None the review must return
+    before ever building the aux LLM."""
+    import src.graphs.chat_graph as cg
+    import src.llm.factory as factory
+
+    calls = []
+    monkeypatch.setattr(cg, "memory_manager", None, raising=False)
+    monkeypatch.setattr(factory, "get_auxiliary_llm",
+                        lambda *a, **k: calls.append(1))
+    assert sc._review_snapshot("t1", _conv()) == 0
+    assert calls == []
