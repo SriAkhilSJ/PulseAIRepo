@@ -1513,7 +1513,7 @@ def test_tool_cards_follow_opencode_basictool():
     assert "box.dataset.component = 'tool-output'" in renderer
     assert "box.dataset.scrollable = ''" in renderer
     assert "function toolArgsChips" in renderer, "OpenCode GenericTool.args chips"
-    assert "...toolArgsChips(tool)" in renderer
+    assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer
     assert "isPending ? 'crusorai-shimmer' : undefined" in renderer, (
         "pending tool title shimmers (their TextShimmer active=pending)")
     for gone in ("toolFields(", "['Path', target], ['Lines'", "'Encoding', 'UTF-8'",
