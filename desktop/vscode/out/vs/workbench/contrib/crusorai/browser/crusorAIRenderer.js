@@ -926,7 +926,9 @@ function toolArgsChips(tool) {
  * read, the match count found — computed from what the tool actually
  * delivered, never invented.
  */
-const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code']);
+const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code', 'web_fetch', 'web_extract']);
+/** OpenCode webfetch: the URL is a LINK in the header, no body. */
+const WEB_LINK_TOOLS = new Set(['web_fetch', 'web_extract']);
 function toolInlineInfo(tool) {
     const result = resultRecord(tool.result);
     if (tool.name === 'read_file') {
@@ -949,6 +951,12 @@ function toolInlineInfo(tool) {
         const normalized = text.replace(/\r\n/g, '\n').replace(/\n$/, '');
         const lines = normalized === '' ? 0 : normalized.split('\n').length;
         return lines > 0 ? `#L1-${lines}` : undefined;
+    }
+    if (tool.name === 'web_extract') {
+        const urls = record(tool.arguments)?.urls;
+        if (Array.isArray(urls) && urls.length > 1) {
+            return `${urls.length} pages`;
+        }
     }
     // Glob/Grep: the pattern rides the args chips; here the count.
     const matches = result?.matches ?? result?.results;
@@ -1145,6 +1153,79 @@ function fileAccordion(tool, host, content) {
     group.dataset.scope = 'apply-patch';
     return group;
 }
+/**
+ * Our web_search receipt is a numbered text list ("1. Title / URL: /
+ * Snippet:"); OpenCode's websearch body (ExaOutput) is a LINK LIST.
+ * Parse the real receipt into links — titles and snippets are the
+ * engine's own words, nothing invented; unparseable output (errors,
+ * "no results") stays an honest text box.
+ */
+function parseWebSearchResults(text) {
+    const out = [];
+    const pattern = /^\d+\.\s+([^\n]+)\n\s*URL:\s*(\S+)(?:\n\s*Snippet:\s*([^\n]+))?/gm;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+        out.push({ title: match[1].trim(), url: match[2].trim(), snippet: match[3]?.trim() || undefined });
+    }
+    return out;
+}
+function webLink(host, url, label, slot) {
+    const text = element('span', undefined, label);
+    text.dataset.slot = 'webfetch-link-text';
+    const arrowIcon = icon('arrow-up-right');
+    arrowIcon.classList.add('webfetch-link-icon');
+    const link = element('a', 'webfetch-link', text, arrowIcon);
+    link.dataset.slot = slot;
+    link.href = url;
+    link.title = url;
+    link.addEventListener('click', (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        host.openExternal?.(url);
+    });
+    return link;
+}
+function webSearchBody(tool, host) {
+    const text = (typeof tool.result === 'string' ? tool.result : undefined)
+        ?? firstString(resultRecord(tool.result), ['output', 'text', 'content']) ?? '';
+    const results = parseWebSearchResults(text);
+    if (!results.length) {
+        return text.trim() ? toolOutputBox(text.slice(0, 6000)) : undefined;
+    }
+    const links = element('div', undefined);
+    links.dataset.slot = 'exa-tool-links';
+    const VISIBLE = 10;
+    results.forEach((result, index) => {
+        const label = result.title && result.title !== 'Untitled' ? result.title : result.url;
+        const link = webLink(host, result.url, label, 'exa-tool-link');
+        if (index >= VISIBLE) {
+            link.style.display = 'none';
+        }
+        links.append(link);
+        if (result.snippet) {
+            const snippet = element('div', 'crusorai-web-snippet', result.snippet);
+            if (index >= VISIBLE) {
+                snippet.style.display = 'none';
+            }
+            links.append(snippet);
+        }
+    });
+    if (results.length > VISIBLE) {
+        const more = element('button', undefined, `${results.length - VISIBLE} more`);
+        more.dataset.slot = 'exa-tool-more';
+        more.addEventListener('click', (event) => {
+            event.stopPropagation();
+            for (const child of [...links.children]) {
+                child.style.display = '';
+            }
+            more.remove();
+        });
+        links.append(more);
+    }
+    const out = element('div', undefined, links);
+    out.dataset.component = 'exa-tool-output';
+    return out;
+}
 function familyBody(tool, host) {
     // A2UI Catalog v1 (plan Phase 2): a tool result carrying an
     // {"a2ui_operations": [...]} envelope renders through the fixed-catalog
@@ -1297,7 +1378,13 @@ function familyBody(tool, host) {
         }
     }
     else if (presentation.family === 'web') {
-        body.append(toolOutputBox(boundedText(result ?? tool.result, 6000), true));
+        // web_search only (fetch/extract are single-line rows): the
+        // result list as OpenCode's exa link list; nothing while the
+        // search is still running.
+        const webBody = webSearchBody(tool, host);
+        if (webBody) {
+            body.append(webBody);
+        }
     }
     else if (presentation.family === 'browser') {
         // Hermes backend receipts (browser_tools.py): honest per-tool fields.
@@ -1463,7 +1550,15 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify) {
     // other surfaces; the transcript row speaks hermes.
     const rowTitle = tool.name === 'think' ? (isPending ? 'Thinking' : 'Thought') : presentation.title;
     const titleSpan = element('strong', isPending ? 'crusorai-shimmer' : undefined, rowTitle);
-    const targetText = displayTarget(tool);
+    let targetText = displayTarget(tool);
+    if (tool.name === 'web_extract' && targetText === tool.name) {
+        // Multi-URL extracts carry `urls`, not `url`: the first page is
+        // the header target, the count rides the inline chip.
+        const urls = record(tool.arguments)?.urls;
+        if (Array.isArray(urls) && typeof urls[0] === 'string' && urls[0]) {
+            targetText = urls[0];
+        }
+    }
     // Hermes quiet-card rule: the target echo must SAY something. When it
     // just repeats the tool name ("Think think"), it is noise — drop it.
     // A bare "." / "./" (the workspace root, e.g. list_files) says nothing
@@ -1498,6 +1593,22 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify) {
             subtitle.addEventListener('click', (event) => {
                 event.stopPropagation();
                 host.revealFile(targetText);
+            });
+        }
+        else if (WEB_LINK_TOOLS.has(tool.name) && /^https?:\/\//i.test(targetText)) {
+            // OpenCode webfetch-link: accent link + external arrow,
+            // opens in the user's browser; never a file reveal.
+            const linkText = element('span', undefined, targetText);
+            linkText.dataset.slot = 'webfetch-link-text';
+            const arrowIcon = icon('arrow-up-right');
+            arrowIcon.classList.add('webfetch-link-icon');
+            subtitle = element('a', 'webfetch-link', linkText, arrowIcon);
+            subtitle.href = targetText;
+            subtitle.title = targetText;
+            subtitle.addEventListener('click', (event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                host.openExternal?.(targetText);
             });
         }
         else {

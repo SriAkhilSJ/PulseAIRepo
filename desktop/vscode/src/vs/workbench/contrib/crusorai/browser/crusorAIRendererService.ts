@@ -12,6 +12,7 @@ import { IModelService } from '../../../../editor/common/services/model.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { FileKind } from '../../../../platform/files/common/files.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -257,6 +258,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		},
 		openDiff: toolId => { void this.openDiff(toolId); },
 		revealFile: resource => { void this.revealFile(resource); },
+		openExternal: url => {
+			try { void this.openerService.open(url, { openExternal: true }); } catch (error) { /* link clicks never break the pane */ }
+		},
 		resourceSrc: resource => this.resourceBrowserSrc(resource),
 		syntaxColors: language => this.syntaxColors(language),
 		fileIconClasses: resource => {
@@ -340,6 +344,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		@IModelService private readonly modelService: IModelService,
 		@ILanguageService private readonly languageService: ILanguageService,
 		@IThemeService private readonly themeService: IThemeService,
+		@IOpenerService private readonly openerService: IOpenerService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {

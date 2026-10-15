@@ -20,6 +20,7 @@ import { IModelService } from '../../../../editor/common/services/model.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { FileKind } from '../../../../platform/files/common/files.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -86,7 +87,7 @@ function stringField(source, keys) {
     return undefined;
 }
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
-    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService, themeService) {
+    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService, themeService, openerService) {
         super();
         this.engineService = engineService;
         this.workbenchService = workbenchService;
@@ -100,6 +101,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.modelService = modelService;
         this.languageService = languageService;
         this.themeService = themeService;
+        this.openerService = openerService;
         this.mounts = new Set();
         this.tools = new Map();
         this.seenEventIds = new Set();
@@ -186,6 +188,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             openDiff: toolId => { void this.openDiff(toolId); },
             revealFile: resource => { void this.revealFile(resource); },
+            openExternal: url => {
+                try {
+                    void this.openerService.open(url, { openExternal: true });
+                }
+                catch (error) { /* link clicks never break the pane */ }
+            },
             resourceSrc: resource => this.resourceBrowserSrc(resource),
             syntaxColors: language => this.syntaxColors(language),
             fileIconClasses: resource => {
@@ -2095,6 +2103,7 @@ CrusorAIRendererService = __decorate([
     __param(8, INotificationService),
     __param(9, IModelService),
     __param(10, ILanguageService),
-    __param(11, IThemeService)
+    __param(11, IThemeService),
+    __param(12, IOpenerService)
 ], CrusorAIRendererService);
 export { CrusorAIRendererService };

@@ -1530,7 +1530,7 @@ def test_read_and_search_rows_are_single_line_info_rows():
     count actually found) — never a <details> card, never a caret."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code']);" in renderer
+    assert "const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code', 'web_fetch', 'web_extract']);" in renderer
     assert "function toolInlineInfo" in renderer
     assert "`#L${start}-${limit !== undefined ? start + limit - 1 : start}`" in renderer
     assert "`#L1-${lines}`" in renderer, "whole-file reads report the real line count"
@@ -1824,3 +1824,29 @@ def test_streaming_write_paints_as_signed_diff():
     assert "function streamingWriteDiff" in renderer and "function allAddedDiff" in renderer
     assert "diffPreview(streamingWriteDiff(streamText.slice(0, 32_000)), target, syntax)" in renderer
     assert "(tool.state === 'running' || tool.state === 'queued')" in renderer
+
+
+def test_web_cards_match_opencode():
+    """Next family after Write/Edit (founder 2026-10-15: 'next tool
+    cards plz'). OpenCode webfetch = hideDetails: title + the URL as
+    an accent LINK in the header (webfetch-link), no body — ours are
+    now single-line rows on the same inline contract as Read, and
+    the URL opens in the user's browser via IOpenerService, never
+    as an editor resource. websearch = query subtitle + ExaOutput
+    link list: our engine's numbered receipt (title/URL/snippet)
+    parses into exa-tool-links with real titles + snippets, first
+    10 + a 'N more' reveal; errors/no-results stay honest text.
+    Nothing paints while the search runs (no '{}' placeholder)."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "const WEB_LINK_TOOLS = new Set(['web_fetch', 'web_extract']);" in renderer
+    assert "openExternal?(url: string): void;" in renderer
+    assert "host.openExternal?.(targetText)" in renderer
+    assert "function parseWebSearchResults" in renderer
+    assert "out.dataset.component = 'exa-tool-output'" in renderer
+    assert "links.dataset.slot = 'exa-tool-links'" in renderer
+    assert "webSearchBody(tool, host)" in renderer
+    assert "@IOpenerService private readonly openerService" in service
+    assert "this.openerService.open(url, { openExternal: true })" in service
+    assert ".crusorai-web-snippet {" in css
