@@ -1636,7 +1636,7 @@ def test_edit_write_cards_and_verification_follow_opencode():
     assert "headerDiffStats ? diffChangesChip(headerDiffStats) : undefined" in renderer
     assert "function editDiffText" in renderer and "function editDiffStats" in renderer
     assert "writeBox.dataset.component = 'write-content'" in renderer
-    assert ".crusorai-write-content pre" in css
+    assert ".crusorai-code-view {" in css
     # The invented verification checklist is gone, button included.
     assert "crusorai-tool-checks" not in renderer
     assert "Destination assertion" not in renderer
@@ -1670,3 +1670,23 @@ def test_user_close_sticks_and_scrolling_is_free():
     assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running" not in renderer
     assert "previousScroll.clientHeight < 120 || model.running" not in renderer
     assert "max-height: 12rem" not in css, "the diff body's nested scroller is gone"
+
+
+def test_edit_and_write_bodies_are_real_viewers():
+    """Founder screenshot 2026-10-15 (build 336dd18b): the Write body
+    rendered as muted prose in the void — 'not like this, check
+    opencode and fix both Edit and Write'. OpenCode's pipeline: write
+    = a line-numbered code view of the written file (write-content >
+    code; mono, editor foreground); edit = their diff viewer —
+    old/new line-number gutters, sign, tinted added/removed rows with
+    the code text in editor foreground. Ours now builds both
+    natively over parseDiff's real oldNo/newNo."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "function codeView" in renderer
+    assert "view.dataset.component = 'code'" in renderer
+    assert "wrap.dataset.component = 'diff'" in renderer
+    assert "crusorai-diff-gutter" in renderer and "crusorai-diff-sign" in renderer
+    assert ".crusorai-code-view {" in css and ".crusorai-code-gutter" in css
+    assert ".crusorai-diff-row.is-add .crusorai-diff-sign" in css
+    assert "crusorai-write-content pre" not in css, "the prose <pre> is retired"

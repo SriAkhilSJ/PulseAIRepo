@@ -1232,7 +1232,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 			} else if (typeof args?.content === 'string' && args.content) {
 				const writeBox = element('div', 'crusorai-write-content');
 				writeBox.dataset.component = 'write-content';
-				writeBox.append(element('pre', undefined, boundedText(args.content, 8000)));
+				writeBox.append(codeView(args.content.slice(0, 32_000)));
 				body.append(writeBox);
 			} else {
 				const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? boundedText(tool.result, 4000);
@@ -2737,18 +2737,48 @@ const DIFF_PREVIEW_LINE_LIMIT = 40;
 // rows flush to the card edges, the box scrolls like a code block.
 function diffPreview(diff: string): HTMLElement {
 	const wrap = element('div', 'crusorai-diff-body');
+	wrap.dataset.component = 'diff';
 	const parsed = parseDiff(diff || '');
 	const shown = parsed.slice(0, DIFF_PREVIEW_LINE_LIMIT);
 	for (const line of shown) {
-		const row = element('span', `crusorai-diff-row is-${line.kind}`, line.text.length ? line.text : ' ');
-		if (line.newNo !== undefined) { row.dataset.newNo = String(line.newNo); }
-		if (line.oldNo !== undefined) { row.dataset.oldNo = String(line.oldNo); }
-		wrap.append(row);
+		// OpenCode's diff viewer (edit-content > diff): old/new line-number
+		// gutters, the sign, then the line — added/removed rows carry the
+		// tint, the code text keeps the editor foreground.
+		const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : '';
+		wrap.append(element('span', `crusorai-diff-row is-${line.kind}`,
+			element('span', 'crusorai-diff-gutter', line.oldNo !== undefined ? String(line.oldNo) : ''),
+			element('span', 'crusorai-diff-gutter', line.newNo !== undefined ? String(line.newNo) : ''),
+			element('span', 'crusorai-diff-sign', sign),
+			element('span', 'crusorai-diff-text', line.text.length ? line.text : ' ')));
 	}
 	if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
 		wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));
 	}
 	return wrap;
+}
+
+const CODE_VIEW_LINE_LIMIT = 200;
+
+/**
+ * OpenCode's write view (write-content > code): the written file as a
+ * line-numbered code view — mono, editor foreground, no diff colour.
+ * Lines are capped for paint; the file link in the header opens the
+ * full file in the real editor.
+ */
+function codeView(text: string): HTMLElement {
+	const view = element('div', 'crusorai-code-view');
+	view.dataset.component = 'code';
+	const lines = text.split('\n');
+	const shown = lines.slice(0, CODE_VIEW_LINE_LIMIT);
+	shown.forEach((line, index) => {
+		view.append(element('span', 'crusorai-code-row',
+			element('span', 'crusorai-code-gutter', String(index + 1)),
+			element('span', 'crusorai-code-text', line.length ? line : ' ')));
+	});
+	if (lines.length > shown.length) {
+		view.append(element('div', 'crusorai-diff-row is-truncated', `… ${lines.length - shown.length} more line(s) — open the file for the rest`));
+	}
+	return view;
 }
 
 // hermes terminal-output.tsx + lib/ansi.ts: bounded tail (paint, not

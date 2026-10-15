@@ -281,9 +281,14 @@
 /* Whole UI layer boxes (ported from the captured message-part.css):
    edit/write content, diagnostics ledger, error card, todos. */
 .crusorai-edit-content { border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; margin-top: 6px; }
-/* OpenCode write-content: a write with no diff shows the written text. */
+/* OpenCode write-content: a write shows the written file as a
+   line-numbered code view (mono, editor foreground — never muted
+   prose, never diff green). */
 .crusorai-write-content { margin-top: 6px; }
-.crusorai-write-content pre { margin: 0; padding: 8px 12px; overflow-x: auto; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-conv-code-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.crusorai-code-view { border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; padding: 8px 0; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-conv-code-size); line-height: 1.5; color: var(--vscode-editor-foreground); tab-size: 4; }
+.crusorai-code-row { display: flex; align-items: baseline; gap: 12px; padding: 0 12px 0 0; white-space: pre; }
+.crusorai-code-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.crusorai-code-text { white-space: pre; }
 .crusorai-diagnostics { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px 10px; }
 .crusorai-diagnostics-row { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
 .crusorai-diagnostics-row.is-failed { color: var(--vscode-errorForeground); }
@@ -1826,14 +1831,20 @@
 	color: var(--vscode-descriptionForeground);
 }
 .crusorai-diff-row {
-	display: block;
-	min-width: max-content;
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
 	white-space: pre;
 	border-left: 2px solid transparent;
-	padding: 0 10px;
+	padding: 0 12px 0 0;
 }
-.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--crusorai-diff-add-foreground); }
-.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: var(--crusorai-diff-remove-foreground); }
+.crusorai-diff-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.crusorai-diff-sign { flex: none; width: 1ch; text-align: center; user-select: none; }
+.crusorai-diff-text { white-space: pre; }
+.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--vscode-editor-foreground); }
+.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: var(--vscode-editor-foreground); }
+.crusorai-diff-row.is-add .crusorai-diff-sign { color: var(--crusorai-diff-add-foreground); }
+.crusorai-diff-row.is-remove .crusorai-diff-sign { color: var(--crusorai-diff-remove-foreground); }
 .crusorai-diff-row.is-context { color: var(--vscode-editor-foreground); }
 .crusorai-diff-row.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
 
