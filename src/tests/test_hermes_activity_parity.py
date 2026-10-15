@@ -244,7 +244,8 @@ def test_both_surfaces_mount_the_same_column_and_teardown_the_timers():
     assert "function createActivityState" in renderer and "function agentColumn" in renderer
     assert renderer.count("...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)") == 2, \
         "both the pane and the Manager chat box must come from one column"
-    assert "activity.row(model)" in renderer
+    assert "activity.row(model)" not in renderer, \
+        "the breathing status row under the transcript was deleted 2026-10-15 (OpenCode streams the turn)"
     assert "activity.sync(model)" in renderer and "activity.dispose()" in renderer, \
         "a ticking row that outlives its mount keeps repainting a dead surface"
     assert "transcript(model, host, openTools)," not in renderer, \
@@ -252,7 +253,7 @@ def test_both_surfaces_mount_the_same_column_and_teardown_the_timers():
     for glyph in ("icon('brain')", "renderToolIcon(name)"):
         assert glyph in renderer
     css = (BROWSER / "media" / "crusorAI.css").read_text(encoding="utf-8")
-    for rule in (".crusorai-scaffold-crusor", "@keyframes crusorai-breathe", "@keyframes crusorai-sweep",
+    for rule in ("@keyframes crusorai-sweep",
                  ".crusorai-disclosure-caret", ".crusorai-thought-body"):
         assert rule in css, f"{rule} is not in the stylesheet -- the row would mount unstyled"
 

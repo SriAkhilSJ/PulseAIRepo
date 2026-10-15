@@ -11,7 +11,7 @@ import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEn
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
-import { activityOrigin, activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName, elapsedFor, measuredDuration, DRAFTING_REVEAL_MS, elapsedSeconds, formatElapsed, statusHintLabel, toolNarratesWait, TURN_QUIET_S, UNNAMED_WAIT_LABEL, } from './crusorAIActivity.js';
+import { activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName, elapsedFor, measuredDuration, DRAFTING_REVEAL_MS, statusHintLabel, toolNarratesWait, TURN_QUIET_S, UNNAMED_WAIT_LABEL, } from './crusorAIActivity.js';
 function element(tag, className, ...children) {
     const node = document.createElement(tag);
     if (className) {
@@ -699,12 +699,6 @@ function taskToolCard(tool, host) {
     surface.append(element('span', 'crusorai-task-tool-title', agentName.charAt(0).toUpperCase() + agentName.slice(1)));
     const subtitleText = description + (isBackground ? ' (background)' : '') + (toolCalls ? ` · ${toolCalls} calls` : '');
     surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
-    // Breathing when sub-agent is running — main shows live process
-    if (running) {
-        const breath = element('span', 'crusorai-scaffold-crusor');
-        breath.style.marginLeft = '6px';
-        surface.append(breath);
-    }
     card.append(surface);
     // For batch: show each task as clickable row that navigates to its sub-agent session
     const batchTasks = args.tasks;
@@ -1177,7 +1171,7 @@ function toolRow(tool, host, openTools, pendingClarify) {
     // settled one says "Thought" — the tool catalog title stays canonical for
     // other surfaces; the transcript row speaks hermes.
     const rowTitle = tool.name === 'think' ? (isPending ? 'Thinking' : 'Thought') : presentation.title;
-    const titleSpan = element('strong', isPending ? 'crusorai-shimmer' : undefined, rowTitle);
+    const titleSpan = element('strong', undefined, rowTitle);
     const targetText = displayTarget(tool);
     // Hermes quiet-card rule: the target echo must SAY something. When it
     // just repeats the tool name ("Think think"), it is noise — drop it.
@@ -1440,17 +1434,17 @@ function createActivityState(tick) {
             if (!slot) {
                 return undefined;
             }
-            const seconds = elapsedSeconds(Date.now(), activityOrigin({ compacting: model.compacting, turnStartedAt: model.turnStartedAt, quietSince }));
             const row = element('div', 'crusorai-scaffold-status');
             row.dataset.conversationScaffold = '';
             row.dataset.slot = slot;
             row.setAttribute('aria-label', hint || UNNAMED_WAIT_LABEL);
             row.setAttribute('aria-live', 'polite');
             row.setAttribute('role', 'status');
-            const breathe = element('span', 'crusorai-scaffold-crusor');
-            breathe.setAttribute('aria-hidden', 'true');
-            const meta = element('span', 'crusorai-scaffold-meta', element('span', undefined, formatElapsed(seconds)));
-            row.append(breathe, ...(hint ? [element('span', 'crusorai-shimmer crusorai-scaffold-hint', hint)] : []), meta);
+            // No breathing cursor, no elapsed seconds (founder 2026-10-15:
+            // delete the breathing UI completely) — the row is words only.
+            if (hint) {
+                row.append(element('span', 'crusorai-scaffold-hint', hint));
+            }
             return row;
         },
         /**
@@ -1532,7 +1526,7 @@ function textPart(text, slot) {
 }
 function assistantTurn(spec, host, openTools) {
     const live = spec.live;
-    const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
+    const response = element('section', 'crusorai-assistant-message');
     response.dataset.component = spec.current ? 'session-turn' : 'assistant-message';
     response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
     // Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
@@ -1777,63 +1771,20 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     if (model.degraded) {
         lane.append(element('div', 'crusorai-context-status-row is-warning', icon('warning'), element('span', undefined, model.degraded)));
     }
-    // Hermes port (assistant-ui/thread/status.tsx ResponseLoadingIndicator):
-    // while the turn runs, the TAIL carries one activity row -- crusor dot +
-    // wait hint + LIVE elapsed seconds. Turn ended -> the row is gone;
-    // history turns never grow one (tail-only rule). The hint names REAL
-    // state, never a guess: a live tool card means the tool is the thing
-    // working (owner run: the row claimed "Waiting on the model" for 4min
-    // while dir /s /b was the one grinding); only a truly idle gap between
-    // tool and model may fall through to the generic text.
+    // OpenCode streamed response (founder direction 2026-10-15, replacing
+    // the whole breathing/wait apparatus): NO Asking row, NO model name,
+    // NO elapsed timers, NO anatomy line in the chat. The turn renders as
+    // its parts arrive; before the first part lands, the only mark is the
+    // bare shimmering word "Thinking". Once reasoning, tools, or text
+    // stream, they carry the wait themselves.
     if (model.running && !model.llmReasoningLive) {
-        // `llmReasoningLive`: the Thinking card is the live activity — the row
-        // would narrate the same wait twice (field 2026-09-17: while the model
-        // thinks, the tail showed both a Thinking card and an Asking… row).
         const liveTool = [...model.tools].reverse().find(tool => tool.state === 'running' || tool.state === 'queued');
-        let hint;
-        let stalled = model.stalled === true;
-        if (liveTool) {
-            const target = compactTarget(displayTarget(liveTool)) ?? liveTool.name;
-            hint = liveTool.state === 'queued'
-                ? `Queued: ${liveTool.name}\u2026`
-                : `Running ${target}\u2026`;
+        const lastPart = model.parts[model.parts.length - 1];
+        if (!liveTool && lastPart?.kind !== 'text' && !model.assistantText) {
+            lane.append(element('div', 'crusorai-thinking-wait', element('strong', 'crusorai-shimmer crusorai-thinking-word', 'Thinking')));
         }
-        else if (model.llmStatus) {
-            const attempt = model.llmStatus.attempt > 1 ? ` \u2014 attempt ${model.llmStatus.attempt}` : '';
-            hint = `Asking ${model.llmStatus.model || 'model'}${attempt}\u2026`;
-        }
-        else if (model.stalled) {
-            // Hermes wording discipline: silence is not completion and not an
-            // error — state the fact and keep the Stop option, without
-            // screaming failure or pretending progress.
-            hint = 'No activity for 5:00 \u2014 the turn is still running, but nothing has arrived.';
-            stalled = true;
-        }
-        else {
-            hint = 'Waiting on the model\u2026';
-        }
-        const row = element('div', `crusorai-context-status-row is-info crusorai-activity-row${stalled ? ' is-stalled' : ''}`);
-        // OpenCode breathing (founder reference 2026-10-15): the wait is a
-        // shimmering WORD, not a ring spinner — the hint itself sweeps.
-        row.append(element('span', stalled ? undefined : 'crusorai-shimmer', hint));
-        row.append(elapsedSpan(model.turnStartedAt));
-        lane.append(row);
-        // The anatomy inspector: the LIVE request, role+head per message —
-        // "why 8 messages for hi?" becomes one click in the product, not a
-        // chat question. Data rides the llm.request frame (factory caps the
-        // heads); display slices are presentation guards only.
-        const heads = model.llmHeads ?? [];
-        if (heads.length) {
-            const anatomy = element('details', 'crusorai-llm-anatomy');
-            anatomy.append(element('summary', 'crusorai-llm-anatomy-summary', element('span', undefined, `What the model sees \u2014 ${heads.length} message${heads.length === 1 ? '' : 's'}`)));
-            const list = element('div', 'crusorai-llm-anatomy-list');
-            for (const head of heads.slice(0, 32)) {
-                const roleLabel = head.role === 'human' ? 'user'
-                    : head.role === 'ai' ? 'assistant' : head.role;
-                list.append(element('div', 'crusorai-llm-anatomy-row', element('span', `crusorai-llm-anatomy-role is-${roleLabel}`, roleLabel), element('code', 'crusorai-llm-anatomy-head', (head.head || '').replace(/\s+/g, ' ').slice(0, 140))));
-            }
-            anatomy.append(list);
-            lane.append(anatomy);
+        if (model.stalled) {
+            lane.append(element('div', 'crusorai-context-status-row is-warning', element('span', undefined, 'No activity for a while — the turn is still running, but nothing has arrived.')));
         }
     }
     if (model.contextStatus) {
@@ -2773,13 +2724,7 @@ function composer(model, host, manager) {
     if (model.noWorkspace) {
         hint.append(button('Open Folder', 'crusorai-link-button', host.openFolder, 'folder'));
     }
-    const footer = element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
-    // Breathing while the agent works: the composer frame pulses gently so
-    // a running turn reads alive even with the transcript scrolled away.
-    if (model.running) {
-        footer.classList.add('is-running');
-    }
-    return footer;
+    return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
 }
 function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     const nodes = [];
@@ -2793,7 +2738,6 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     // uses; the chip lives in the Manager, this names the state HERE.
     if (model.engineState !== 'ready' && !model.engineFault) {
         const row = element('div', 'crusorai-context-status-row is-info');
-        row.append(element('span', 'crusorai-activity-dot'));
         row.append(element('span', undefined, model.engineState === 'starting'
             ? 'Crusor engine is starting — prompts send the moment it is ready.'
             : `Crusor engine: ${model.engineState}.`));
@@ -2804,14 +2748,9 @@ function agentColumn(model, host, openTools, activity, planOpen, setPlanOpen) {
     // mounted, so a first-run view never shows an empty lane under a grid of starters.
     const empty = emptyState(model, host);
     nodes.push(empty ?? transcript(model, host, openTools, activity.thoughtSeconds(model)));
-    // One breathing voice: while the transcript's Asking row narrates the
-    // model wait, the tail scaffold row stays silent — two indicators for
-    // one wait read as clutter (founder screenshot 2026-10-15: a naked
-    // ring + 0s under the Asking row). Compacting/cancel keep the tail.
-    const working = (model.llmStatus && !model.compacting && !model.cancelRequested) ? undefined : activity.row(model);
-    if (working) {
-        nodes.push(working);
-    }
+    // No breathing tail under the transcript (founder 2026-10-15: delete
+    // the breathing UI completely) — OpenCode streams the turn itself; a
+    // narrating status row under the transcript is not one of its parts.
     const approval = approvalDock(model, host);
     if (approval) {
         nodes.push(approval);

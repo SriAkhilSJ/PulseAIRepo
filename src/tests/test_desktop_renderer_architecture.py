@@ -1394,19 +1394,37 @@ def test_empty_session_is_the_opencode_mark_and_dock():
     assert "crusorai-starter" not in css
 
 
-def test_wait_and_streaming_states_visibly_breathe():
-    """Breathing (founder 2026-10-15: 'rendering/breathing not fixed'):
-    the Asking/wait rows and the live Thinking row carry a real rotating
-    spinner (the tool-row grammar), and the streaming text slot carries a
-    breathing tail cursor — not an 8px square fading in the dark."""
+def test_streamed_rendering_replaces_the_breathing_ui():
+    """OpenCode streamed rendering (founder 2026-10-15: 'delete this
+    breathing ui completely and implement what opencode's completely'):
+    before the first streamed part the turn shows only the bare shimmering
+    Thinking word; reasoning/tool/text parts stream in as they arrive
+    (no tail cursor, no spinner rows, no wait timers), tools animate in
+    themselves, and CrusorAI's breathing extras — composer border pulse,
+    breathing edge, the 'Asking <model>' row, anatomy/'What the model
+    sees' and elapsed timers — are deleted, not hidden."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "crusorai-thinking-word" in renderer, "the live Thinking word sweeps (reference photos: bare muted word)"
     css = _text("browser", "media", "crusorAI.css")
-    assert 'session-turn-content"] > :last-child::after' in css
-    assert "animation: crusorai-spin 850ms linear infinite" in css
-    import re as _re
-    dot = _re.search(r"\.crusorai-activity-dot \{([^}]*)\}", css)
-    assert dot and "crusorai-spin" in dot.group(1) and "12px" in dot.group(1), "the Asking row spins, not fades"
+    # streamed wait: the shimmering word, then the parts carry themselves
+    assert "model.parts[model.parts.length - 1]" in renderer
+    assert "if (!liveTool && lastPart?.kind !== 'text' && !model.assistantText) {" in renderer
+    assert "response.append(textPart(part.text," in renderer, (
+        "answer text streams token-by-token into the same node")
+    # tools render like OpenCode's: icon + label + live body, no shimmer title
+    assert "const titleSpan = element('strong', undefined, rowTitle);" in renderer
+    assert "renderToolIcon(" in renderer or "renderToolIcon(name)" in renderer
+    # the breathing apparatus is gone everywhere
+    for gone in ("What the model sees —", "items are applied before your next prompt", "How many messages the model applies after edits",
+                 "formatWaitClock", "crusorai-breathing-edge", "crusorai-scaffold-crusor",
+                 "crusorai-activity-dot", "crusorai-thinking-timer"):
+        assert gone not in renderer, gone
+    assert "footer.classList.add('is-running')" not in renderer, "no composer breathing state"
+    for gone_css in ("crusorai-composer-breathe", "crusorai-breathing-edge", "crusorai-activity-dot",
+                     'session-turn-content"] > :last-child::after'):
+        assert gone_css not in css, gone_css
+    import re as _re2
+    assert not _re2.search(r"['`]Asking ", renderer), "the Asking row string is gone (comments may mention it)"
+    assert "assistantWaitParts" not in renderer
 
 
 def test_opencode_session_ui_css_is_extracted_verbatim_and_driven():
@@ -1428,19 +1446,20 @@ def test_opencode_session_ui_css_is_extracted_verbatim_and_driven():
     assert "dataset.component = 'markdown'" in renderer
 
 
-def test_breathing_grammar_survives_the_verbatim_layer():
-    """Breathing UI (founder 2026-10-15): the extracted OpenCode title rule
+def test_thinking_shimmer_survives_the_verbatim_layer():
+    """The bare Thinking word must actually sweep (founder 2026-10-15,
+    third breathing correction): the extracted OpenCode title rule
     outranks .crusorai-shimmer and silently killed the live-label sweep —
-    the glue after the verbatim block restores it, and the composer frame
-    breathes (border pulse, no glow card) while a turn runs."""
+    the glue after the verbatim block restores it on the thinking word
+    itself (OpenCode's highlight through the word). The composer frame
+    does NOT breathe — that was CrusorAI's, not OpenCode's."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "footer.classList.add('is-running')" in renderer
-    assert "stalled ? undefined : 'crusorai-shimmer'" in renderer
+    assert "footer.classList.add('is-running')" not in renderer
     css = _text("browser", "media", "crusorAI.css")
-    assert ".crusorai-composer.is-running .crusorai-composer-box" in css
-    assert "@keyframes crusorai-composer-breathe" in css
+    assert ".crusorai-composer.is-running .crusorai-composer-box" not in css
+    assert "@keyframes crusorai-composer-breathe" not in css
     marker = css.index("EXTRACTED VERBATIM")
-    shimmer_fix = css.index(".crusorai-activity-row .crusorai-shimmer")
+    shimmer_fix = css.index(".crusorai-shimmer.crusorai-thinking-word")
     assert shimmer_fix > marker, "the shimmer restore must load after the verbatim block"
 
 
@@ -1459,12 +1478,16 @@ def test_rendered_response_matches_the_reference_photos():
     assert ".crusorai-send-button.crusorai-send-stop" in css
 
 
-def test_breathing_is_one_shimmering_word_and_bubbles_are_pills():
-    """OpenCode breathing + bubble regression (founder 2026-10-15): the
-    wait is a shimmering word (no ring spinner, no duplicate tail row),
-    and the user bubble is the text-slot pill — the full-width column
-    must never paint as a band again."""
+def test_streamed_wait_is_the_shimmering_word_and_bubbles_are_pills():
+    """OpenCode streamed wait + bubble regression (founder 2026-10-15):
+    before streamed parts arrive the wait is the bare shimmering Thinking
+    word (no spinner row, no 'Asking <model>', no timer), and the user
+    bubble is the text-slot pill — the full-width column must never
+    paint as a band again."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "model.llmStatus && !model.compacting && !model.cancelRequested" in renderer
+    assert "element('strong', 'crusorai-shimmer crusorai-thinking-word', 'Thinking')" in renderer
+    import re as _re2
+    assert not _re2.search(r"['`]Asking ", renderer), "the Asking row string is gone (comments may mention it)"
+    assert "assistantWaitParts" not in renderer
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-render-root .crusorai-user-message { background: transparent;" in css
