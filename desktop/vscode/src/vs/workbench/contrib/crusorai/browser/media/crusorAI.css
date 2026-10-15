@@ -1856,8 +1856,8 @@
 }
 .crusorai-diff-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
 .crusorai-diff-text { white-space: pre; }
-.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--vscode-editor-foreground); }
-.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: color-mix(in srgb, var(--crusorai-diff-remove-foreground) 45%, var(--vscode-editor-foreground)); }
+.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: color-mix(in srgb, var(--crusorai-diff-add-foreground) 70%, var(--vscode-editor-foreground)); }
+.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: color-mix(in srgb, var(--crusorai-diff-remove-foreground) 70%, var(--vscode-editor-foreground)); }
 .crusorai-diff-row.is-add .crusorai-diff-gutter { color: var(--crusorai-diff-add-foreground); }
 .crusorai-diff-row.is-remove .crusorai-diff-gutter { color: var(--crusorai-diff-remove-foreground); }
 .crusorai-diff-row.is-context { color: var(--vscode-editor-foreground); }
