@@ -1188,8 +1188,42 @@ function toolRow(tool, host, openTools, pendingClarify) {
         && !trivialTargets.has(targetText.trim().toLowerCase())
         && targetText.toLowerCase() !== tool.name.toLowerCase()
         && targetText.toLowerCase() !== presentation.title.toLowerCase();
-    const summary = element('summary', 'crusorai-tool-summary', tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : statusGlyph(tool.state), icon(presentation.icon), titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined, tool.duration ? element('span', 'crusorai-tool-duration', tool.duration) : undefined, isPending ? undefined : icon('chevron-right'));
+    // OpenCode BasicTool anatomy, extracted (basic-tool.tsx): the trigger
+    // carries tool-trigger > trigger-content > indicator + icon + info
+    // (structured > main > title/subtitle) with the chevron as the
+    // collapsible arrow. Our classes ride along; their verbatim CSS keys
+    // off these data hooks.
+    titleSpan.dataset.slot = 'basic-tool-tool-title';
+    const indicator = element('span', undefined, tool.name === 'think' ? element('span', 'crusorai-glyph-spacer') : statusGlyph(tool.state));
+    indicator.dataset.slot = 'basic-tool-tool-indicator';
+    const toolIcon = icon(presentation.icon);
+    toolIcon.dataset.slot = 'icon-svg';
+    const titleMain = element('span', undefined, titleSpan, targetMeaningful ? element('span', 'crusorai-tool-target', targetText) : undefined);
+    titleMain.dataset.slot = 'basic-tool-tool-info-main';
+    if (targetMeaningful) {
+        titleMain.lastElementChild.dataset.slot = 'basic-tool-tool-subtitle';
+    }
+    const titleStructured = element('span', undefined, titleMain);
+    titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
+    const toolInfo = element('span', undefined, titleStructured);
+    toolInfo.dataset.slot = 'basic-tool-tool-info';
+    const triggerContent = element('span', undefined, indicator, toolIcon, toolInfo);
+    triggerContent.dataset.slot = 'basic-tool-tool-trigger-content';
+    const trigger = element('span', 'crusorai-tool-trigger', triggerContent);
+    trigger.dataset.component = 'tool-trigger';
+    const arrow = element('span', undefined, isPending ? undefined : icon('chevron-right'));
+    arrow.dataset.slot = 'collapsible-arrow';
+    const summary = element('summary', 'crusorai-tool-summary', trigger, arrow);
+    summary.dataset.slot = 'collapsible-trigger';
+    details.dataset.component = 'collapsible';
+    details.classList.add('tool-collapsible');
+    if (tool.duration) {
+        const meta = element('span', 'crusorai-tool-duration', tool.duration);
+        meta.dataset.slot = 'basic-tool-tool-arg';
+        trigger.append(meta);
+    }
     const body = familyBody(tool, host);
+    body.dataset.slot = 'collapsible-content';
     if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) {
         body.append(errorCard(tool));
     }
@@ -1465,6 +1499,7 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
     summary.addEventListener('click', () => details.open ? openTools.delete(key) : openTools.add(key));
     // Split accumulated reasoning into separate blocks (one per LLM call)
     const body = element('div', 'crusorai-thought-body');
+    body.dataset.component = 'markdown';
     const blocks = reasoning.split(/\n\n---\n\n/);
     for (const block of blocks) {
         const trimmed = block.trim();
@@ -1483,6 +1518,13 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
  * come from the view map; a tool whose start frame was missed still paints
  * (after the timeline) so a card can never silently vanish.
  */
+function textPart(text, slot) {
+    const body = element('div', undefined, markdownCopy(text, slot));
+    body.dataset.slot = 'text-part-body';
+    const wrap = element('div', 'crusorai-text-part', body);
+    wrap.dataset.component = 'text-part';
+    return wrap;
+}
 function assistantTurn(spec, host, openTools) {
     const live = spec.live;
     const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
@@ -1541,7 +1583,7 @@ function assistantTurn(spec, host, openTools) {
             return;
         }
         flushRun();
-        response.append(markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined));
+        response.append(textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined));
     });
     flushRun();
     // A tool with no part (a replay that lost its start frame) must still show.
@@ -1551,7 +1593,7 @@ function assistantTurn(spec, host, openTools) {
         response.append(toolSection(orphans, host, openTools, live, false, spec.clarify));
     }
     if (spec.assistantText && lastTextIndex < 0) {
-        response.append(markdownCopy(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
+        response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
     }
     if (spec.assistantText && !live) {
         response.append(copyButton(spec.assistantText, host));
@@ -1565,7 +1607,9 @@ function assistantTurn(spec, host, openTools) {
 function userMessage(text) {
     const bubbleText = element('span', 'crusorai-user-message-text', text);
     bubbleText.dataset.slot = 'user-message-text';
-    const wrap = element('div', 'crusorai-user-message', bubbleText);
+    const body = element('div', undefined, bubbleText);
+    body.dataset.slot = 'user-message-body';
+    const wrap = element('div', 'crusorai-user-message', body);
     wrap.dataset.component = 'user-message';
     return wrap;
 }

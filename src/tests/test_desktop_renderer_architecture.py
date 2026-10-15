@@ -130,7 +130,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
     assert "function assistantTurn(" in renderer
     assert renderer.count("response.append(toolSection(run, host, openTools, live, false, spec.clarify))") == 1, "consecutive tool runs fold through the shared grouping rule"
-    assert "markdownCopy(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only"
+    assert "textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only (inside the OpenCode text-part)"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
         "a settled turn must not narrate in the present tense"
@@ -405,9 +405,13 @@ def test_crusorai_type_grammar_is_tokenized():
     literals; numerals that tick hold tabular; caps labels share ONE tracking
     value; fonts are the host's own stacks."""
     css = _text("browser", "media", "crusorAI.css")
-    raw_sizes = re.findall(r"font-size:\s*[0-9.]+(?:px|rem)\b", css)
+    # The OpenCode block is EXTRACTED VERBATIM (founder 2026-10-15: "extract
+    # codes as it is") — its literal 13px/14px are theirs, kept as-is. The
+    # token-only grammar binds OUR hand-written CSS above that marker.
+    ours = css.split("EXTRACTED VERBATIM", 1)[0]
+    raw_sizes = re.findall(r"font-size:\s*[0-9.]+(?:px|rem)\b", ours)
     assert not raw_sizes, f"raw font sizes: {raw_sizes}"
-    raw_tracking = re.findall(r"letter-spacing:\s*[0-9.]+(?:px|em)\b", css)
+    raw_tracking = re.findall(r"letter-spacing:\s*[0-9.]+(?:px|em)\b", ours)
     assert not raw_tracking, f"raw letter-spacing: {raw_tracking}"
     assert "font-size: var(--crusorai-text-" in css
     assert "letter-spacing: var(--crusorai-track-caps)" in css
@@ -1274,7 +1278,10 @@ def test_opencode_shell_box_is_captured_and_wired_to_v2_terminal_events():
     assert "copyButton(command, host)" in renderer, "copy lives inside the box, as captured"
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-bash-scroll" in css and "max-height: 240px" in css
-    assert "var(--v2-" not in css, "their tokens never ship - workbench vars only"
+    # Founder 2026-10-15 ("extract codes as it is") supersedes the old
+    # interpretive rule: --v2-* now ships, but ONLY behind the token bridge
+    # that maps every one to a live workbench var.
+    assert "--v2-text-text-base: var(--vscode-foreground)" in css, "their tokens ship bridged, never raw"
 
 
 def test_tool_output_frame_accumulates_into_the_running_terminal_card():
@@ -1400,3 +1407,22 @@ def test_wait_and_streaming_states_visibly_breathe():
     import re as _re
     dot = _re.search(r"\.crusorai-activity-dot \{([^}]*)\}", css)
     assert dot and "crusorai-spin" in dot.group(1) and "12px" in dot.group(1), "the Asking row spins, not fades"
+
+
+def test_opencode_session_ui_css_is_extracted_verbatim_and_driven():
+    """Extract as-is (founder 2026-10-15: 'extract codes as it is from
+    opencode'): their message-part.css + basic-tool.css ship IN our
+    stylesheet rule-for-rule (only selector scoping + a --v2-* token
+    bridge), and the transcript DOM emits their data-component/data-slot
+    anatomy so the extracted rules are what actually paint."""
+    css = _text("browser", "media", "crusorAI.css")
+    assert "EXTRACTED VERBATIM" in css
+    assert "--v2-text-text-base: var(--vscode-foreground)" in css
+    assert "--v2-background-bg-layer-02:" in css
+    assert ".crusorai-render-root [data-component=\"assistant-message\"]" in css
+    assert "[data-slot=\"basic-tool-tool-title\"]" in css
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "dataset.component = 'text-part'" in renderer
+    assert "dataset.slot = 'basic-tool-tool-trigger-content'" in renderer
+    assert "dataset.slot = 'collapsible-content'" in renderer
+    assert "dataset.component = 'markdown'" in renderer
