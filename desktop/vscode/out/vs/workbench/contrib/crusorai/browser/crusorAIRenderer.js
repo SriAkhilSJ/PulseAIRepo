@@ -1453,18 +1453,16 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
     reasoning = separateGluedReasoningBlocks(reasoning);
     const key = partKey || 'thought';
     const details = element('details', 'crusorai-thought-row');
-    details.dataset.component = 'disclosure';
+    details.dataset.component = 'reasoning-part';
     details.dataset.conversationScaffold = '';
     details.dataset.disclosureKey = key;
-    details.open = true;
-    details.addEventListener('toggle', () => {
-        if (details.open) {
-            openTools.add(key);
-        }
-        else {
-            openTools.delete(key);
-        }
-    });
+    // OpenCode reasoning anatomy: the live block shows itself; a settled
+    // one rests as a single quiet row the user opens by choice. The old
+    // always-open + 'toggle' latch painted every settled thought at full
+    // size forever (field 2026-10-15) — persist only the user's click.
+    details.open = live || openTools.has(key);
+    const summary = element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be'));
+    summary.addEventListener('click', () => details.open ? openTools.delete(key) : openTools.add(key));
     // Split accumulated reasoning into separate blocks (one per LLM call)
     const body = element('div', 'crusorai-thought-body');
     const blocks = reasoning.split(/\n\n---\n\n/);
@@ -1474,7 +1472,7 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
             body.append(element('p', undefined, trimmed));
         }
     }
-    details.append(element('summary', 'crusorai-disclosure-row', element('span', 'crusorai-disclosure-stack', icon('brain'), element('strong', live ? 'crusorai-shimmer' : undefined, live ? 'Thinking' : 'Thought')), seconds !== undefined ? element('span', 'crusorai-scaffold-meta', formatElapsed(seconds)) : undefined, element('span', 'crusorai-disclosure-caret', '\u25be')), body);
+    details.append(summary, body);
     return details;
 }
 /**
@@ -1488,9 +1486,7 @@ function thinkingBlock(reasoning, openTools, live, seconds, partKey) {
 function assistantTurn(spec, host, openTools) {
     const live = spec.live;
     const response = element('section', `crusorai-assistant-message${live ? ' crusorai-breathing-edge is-streaming' : ''}`);
-    if (spec.current) {
-        response.dataset.component = 'session-turn';
-    }
+    response.dataset.component = spec.current ? 'session-turn' : 'assistant-message';
     response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
     // Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
     // chronological position relative to text and tools is always preserved exactly.
@@ -1562,13 +1558,24 @@ function assistantTurn(spec, host, openTools) {
     }
     return response;
 }
+// OpenCode user-message anatomy (message-part.css): a borderless bubble
+// hugging the right edge — body max-width min(82%, 64ch), bubble padding
+// 8px 12px / radius 10px — built as a named slot so the CSS layer and any
+// future surface styling target the same shape.
+function userMessage(text) {
+    const bubbleText = element('span', 'crusorai-user-message-text', text);
+    bubbleText.dataset.slot = 'user-message-text';
+    const wrap = element('div', 'crusorai-user-message', bubbleText);
+    wrap.dataset.component = 'user-message';
+    return wrap;
+}
 function transcript(model, host, openTools, liveThoughtSeconds) {
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
     // History: previous turns (user → agent) preserved wireframe style, no breathing
     for (const turn of model.history) {
         if (turn.userMessage)
-            lane.append(element('div', 'crusorai-user-message', turn.userMessage));
+            lane.append(userMessage(turn.userMessage));
         if (turn.assistantText || turn.parts.length || turn.tools.length) {
             lane.append(assistantTurn({
                 reasoningParts: turn.reasoningParts,
@@ -1629,7 +1636,7 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
     }
     // Current turn (breathing when running)
     if (model.userMessage) {
-        lane.append(element('div', 'crusorai-user-message', model.userMessage));
+        lane.append(userMessage(model.userMessage));
     }
     // No assistant text means there is nothing to narrate. The line used to fall back to a sentence
     // claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
@@ -1814,7 +1821,7 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
         header.append(parentBtn, element('span', undefined, ' / '), element('h1', 'crusorai-child-header-child', childTitle));
         lane.prepend(header);
         if (delegatedTask) {
-            lane.append(element('div', 'crusorai-user-message', delegatedTask.slice(0, 800)));
+            lane.append(userMessage(delegatedTask.slice(0, 800)));
         }
         const banner = element('div', 'crusorai-child-banner');
         banner.dataset.component = 'child-banner';

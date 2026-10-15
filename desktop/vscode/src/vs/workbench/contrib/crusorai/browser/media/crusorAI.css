@@ -2136,3 +2136,78 @@
 .crusorai-bash-command { display: block; padding: 12px; color: var(--vscode-foreground); }
 .crusorai-bash-result { display: block; padding: 0; border-top: 0.5px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); color: var(--vscode-descriptionForeground); }
 .crusorai-bash-result .crusorai-terminal-output { padding: 12px; }
+
+/* ── OpenCode main-chat layer ─────────────────────────────────────────────
+   The transcript itself, ported from the captured session-ui
+   (message-part.css + basic-tool.css, MIT): right-hugging borderless user
+   bubble, full-width assistant column at 12px gaps, muted 13px reasoning,
+   and BasicTool tool rows — 13px, medium title, muted subtitle, resting at
+   FULL opacity (OpenCode has no scaffold fade). --v2-* tokens map to live
+   workbench vars; this layer loads last and wins over the hermes rhythm
+   above it, in the right panel and the Manager alike. */
+.crusorai-transcript-lane :where(.crusorai-user-message) {
+	align-self: flex-end;
+	margin: 0 0 12px auto;
+	max-width: min(82%, 64ch);
+	padding: 8px 12px;
+	border: 0;
+	border-radius: 10px;
+	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+	font-size: var(--crusorai-conv-size);
+	line-height: 1.45;
+}
+.crusorai-user-message-text { display: inline-block; white-space: pre-wrap; word-break: break-word; }
+.crusorai-transcript-lane :where(.crusorai-assistant-message) { gap: 12px; }
+.crusorai-transcript-lane :where(.crusorai-assistant-copy) {
+	font-size: var(--crusorai-conv-size);
+	line-height: 1.5;
+}
+/* Reasoning: muted, 13px, no rail — their reasoning-part, verbatim metrics. */
+.crusorai-transcript-lane :where(.crusorai-thought-row),
+.crusorai-transcript-lane :where(.crusorai-reasoning) {
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-copy);
+	border-left: 0;
+	margin-left: 0;
+	padding-left: 0;
+}
+.crusorai-transcript-lane :where(.crusorai-thought-body) {
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-copy);
+	line-height: 1.45;
+	padding: 2px 0 6px 22px;
+}
+.crusorai-transcript-lane :where(.crusorai-disclosure-row) {
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-copy);
+}
+.crusorai-transcript-lane :where(.crusorai-disclosure-row) strong { font-weight: 500; color: var(--vscode-foreground); }
+/* BasicTool trigger: 13px row, title medium/full colour, subtitle muted,
+   content indented 12px on the rail instead of boxed. */
+.crusorai-transcript-lane :where(.crusorai-tool-summary) {
+	font-size: var(--crusorai-text-copy);
+	line-height: 1.35;
+	min-height: 26px;
+}
+.crusorai-transcript-lane :where(.crusorai-tool-summary) strong {
+	font-weight: 500;
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-copy);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-target) {
+	font-size: var(--crusorai-text-copy);
+	color: var(--vscode-descriptionForeground);
+}
+.crusorai-transcript-lane :where(.crusorai-tool-row[open]) {
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+}
+.crusorai-transcript-lane :where(.crusorai-tool-row[open]) > :where(.crusorai-tool-body) { margin-inline-start: 12px; }
+/* OpenCode rests scaffold at full opacity — the hermes resting fade goes. */
+.crusorai-assistant-message [data-conversation-scaffold] { opacity: 1; }
+/* Narrow right panel: the user bubble keeps its 82% cap, prose stays 13px. */
+@container crusorai-agent-panel (max-width: 420px) {
+	.crusorai-transcript-lane { width: 100%; padding-inline: 10px; }
+	.crusorai-transcript-lane :where(.crusorai-user-message) { max-width: 88%; }
+}

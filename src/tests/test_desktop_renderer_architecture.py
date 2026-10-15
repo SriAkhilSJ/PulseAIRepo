@@ -1352,3 +1352,21 @@ def test_settled_thought_rows_collapse_and_targets_stay_honest():
     assert "details.addEventListener('toggle', () => details.open ? openTools.add" not in renderer
     assert "trivialTargets" in renderer and "'./'" in renderer
     assert "Proceeding with the approach above" in renderer  # strip pattern
+
+
+def test_main_chat_transcript_follows_opencode_message_anatomy():
+    """Main chat like OpenCode (founder 2026-10-15: 'i am not seeing ur
+    edits'): the transcript itself — not just the tool boxes — ports the
+    captured session-ui anatomy: borderless right-hugging user bubble,
+    reasoning-part hooks with settled thoughts resting closed, BasicTool
+    13px medium-title rows at full opacity (no scaffold fade)."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function userMessage" in renderer
+    assert "user-message-text" in renderer
+    assert "dataset.component = 'reasoning-part'" in renderer
+    assert "details.open = live || openTools.has(key)" in renderer
+    assert "summary.addEventListener('click'" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert "OpenCode main-chat layer" in css
+    assert "max-width: min(82%, 64ch)" in css
+    assert ".crusorai-assistant-message [data-conversation-scaffold] { opacity: 1; }" in css
