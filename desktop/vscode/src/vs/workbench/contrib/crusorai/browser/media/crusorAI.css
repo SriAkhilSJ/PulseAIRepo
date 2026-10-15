@@ -2038,9 +2038,10 @@
 	border-radius: 6px;
 	border: 0.5px solid var(--vscode-widget-border, rgba(128,128,128,.25));
 	background: var(--vscode-editor-background);
-	--task-agent-color: #0b6bcb;
+	--task-agent-color: var(--vscode-textLink-foreground);
 	transition: background 120ms ease;
 }
+.crusorai-task-tool-error { color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); padding: 4px 10px 8px 34px; white-space: normal; }
 .crusorai-task-tool-card.is-clickable { cursor: pointer; }
 .crusorai-task-tool-card.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
 .crusorai-task-tool-card:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }

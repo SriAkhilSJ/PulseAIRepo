@@ -1863,3 +1863,25 @@ def test_web_fetch_earns_no_match_count_chip():
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "if (tool.name === 'web_extract' || tool.name === 'web_fetch') {" in renderer
     assert "Web rows earn no match count" in renderer
+
+
+def test_subagent_card_is_honest_about_navigation():
+    """Sub-agent family pass (founder 2026-10-15, after the web cards
+    verified). The task card kept OpenCode's task-tool-card anatomy
+    but had field-grade defects: console.log/warn debug in the
+    render + click paths, an invented hex agent palette
+    (agentColor), ALWAYS-clickable chrome that navigated by TOOL
+    id when no child session existed yet, batch rows that matched
+    goals against a host API that does not exist, and a duplicated
+    prompt block. Now: clickable only with a real child id (clicks
+    verified in the jsdom harness to hit navigateToSession with
+    'sub-123'), batch rows display-only, agent tone from the theme
+    link colour, and a failed delegation earns its own error line.
+    """
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "taskToolCard render" not in renderer and "getSubAgents" not in renderer
+    assert "agentColor" not in renderer
+    assert "--task-agent-color: var(--vscode-textLink-foreground);" in css
+    assert "if (childId) {" in renderer and "host.navigateToSession?.(String(childId))" in renderer
+    assert "crusorai-task-tool-error" in renderer and ".crusorai-task-tool-error {" in css
