@@ -974,6 +974,32 @@ function toolInfoChip(text) {
     chip.dataset.slot = 'basic-tool-tool-arg';
     return chip;
 }
+/** Tools whose target is a file the header links to (icon + filename). */
+const FILE_LINK_TOOLS = new Set(['read_file', 'edit_file', 'write_file', 'copy_file']);
+/** The diff an edit/write result carries (record field or receipt tail). */
+function editDiffText(tool) {
+    const fromRecord = firstString(resultRecord(tool.result), ['diff']);
+    if (fromRecord) {
+        return fromRecord;
+    }
+    const text = typeof tool.result === 'string' ? tool.result : '';
+    const marker = 'Diff preview:\n';
+    return text.includes(marker) ? text.split(marker)[1] : undefined;
+}
+/** Counted +a −r for an edit/write (receipt-reported, else diff-counted). */
+function editDiffStats(tool) {
+    const receipt = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
+    if (receipt) {
+        return { added: Number(receipt[1]), removed: Number(receipt[2]) };
+    }
+    return diffStats(editDiffText(tool));
+}
+/** OpenCode DiffChanges: the counted chip that rides the file header. */
+function diffChangesChip(stats) {
+    const chip = element('span', 'crusorai-diff-count', element('span', 'is-added', `+${stats.added}`), element('span', 'is-removed', `−${stats.removed}`));
+    chip.dataset.slot = 'basic-tool-tool-arg';
+    return chip;
+}
 /** First error line of an inline row's result, when the tool failed in-band. */
 function toolInlineError(tool) {
     const result = resultRecord(tool.result);
@@ -1044,21 +1070,29 @@ function familyBody(tool, host) {
             body.append(element('div', 'crusorai-tool-actions', button('Reveal image in files', 'crusorai-link-button', () => host.revealFile(savedPath), 'file-media'), copyButton(savedPath, host)));
         }
         else {
-            const rawText = firstString(result, ['diff']) ?? boundedText(result?.diff ?? tool.result, 600);
-            const diff = rawText.includes('Diff preview:\n') ? rawText.split('Diff preview:\n')[1] : rawText;
-            const receiptMatch = /lines added:\s*(\d+),\s*removed:\s*(\d+)/i.exec(typeof tool.result === 'string' ? tool.result : '');
-            const stats = (receiptMatch ? { added: Number(receiptMatch[1]), removed: Number(receiptMatch[2]) } : undefined) ?? diffStats(diff);
-            // OpenCode edit/write: the body is the diff (with counted
-            // +a -r as an arg chip) and earned diagnostics only.
-            const editBox = element('div', 'crusorai-edit-content');
-            if (stats) {
-                const chip = element('span', 'crusorai-tool-arg', `+${stats.added} −${stats.removed}`);
-                chip.dataset.slot = 'basic-tool-tool-arg';
-                editBox.append(chip);
+            // OpenCode edit/write/patch (FileTool): the counted +a −r rides
+            // the HEADER (diffChangesChip in toolRow); the body is the diff
+            // itself in edit-content — or, for a write with no diff, the
+            // written content in write-content — plus earned diagnostics.
+            const diff = editDiffText(tool);
+            if (diff) {
+                const editBox = element('div', 'crusorai-edit-content');
+                editBox.dataset.component = 'edit-content';
+                editBox.append(diffPreview(diff));
+                body.append(editBox);
             }
-            editBox.dataset.component = 'edit-content';
-            editBox.append(diffPreview(diff));
-            body.append(editBox);
+            else if (typeof args?.content === 'string' && args.content) {
+                const writeBox = element('div', 'crusorai-write-content');
+                writeBox.dataset.component = 'write-content';
+                writeBox.append(element('pre', undefined, boundedText(args.content, 8000)));
+                body.append(writeBox);
+            }
+            else {
+                const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? boundedText(tool.result, 4000);
+                if (text.trim()) {
+                    body.append(toolOutputBox(text.slice(0, 4000)));
+                }
+            }
             const diagnostics = diagnosticsBox(tool);
             if (diagnostics) {
                 body.append(diagnostics);
@@ -1076,8 +1110,16 @@ function familyBody(tool, host) {
         }
     }
     else if (presentation.family === 'verification') {
-        body.append(element('div', 'crusorai-tool-checks', element('div', undefined, icon('pass-filled'), element('span', undefined, 'Typecheck'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')), element('div', undefined, tool.state === 'running' ? element('span', 'crusorai-mini-spinner') : icon('circle-outline'), element('span', undefined, 'Browser callback'), element('strong', undefined, tool.state === 'passed' ? 'passed' : tool.state === 'running' ? 'running' : 'queued')), element('div', undefined, icon('circle-outline'), element('span', undefined, 'Destination assertion'), element('strong', undefined, 'queued'))));
-        body.append(element('div', 'crusorai-tool-actions', button('Open evidence', 'crusorai-link-button', () => void 0, 'beaker')));
+        // NO invented checklist (the old body hardcoded Typecheck /
+        // Browser callback / Destination assertion rows and a dead
+        // 'Open evidence' button): the tool's own output — tsc lines,
+        // the verify report — is the body. State rides the header.
+        const text = (typeof tool.result === 'string' ? tool.result : undefined)
+            ?? firstString(result, ['output', 'text', 'report'])
+            ?? boundedText(tool.result, 6000);
+        if (text.trim()) {
+            body.append(toolOutputBox(text.slice(0, 6000)));
+        }
     }
     else if (presentation.family === 'web') {
         body.append(toolOutputBox(boundedText(result ?? tool.result, 6000), true));
@@ -1265,7 +1307,7 @@ function toolRow(tool, host, openTools, pendingClarify) {
     const inlineInfo = isInline ? toolInlineInfo(tool) : undefined;
     let subtitle;
     if (targetMeaningful) {
-        if (tool.name === 'read_file') {
+        if (FILE_LINK_TOOLS.has(tool.name)) {
             // Founder 2026-10-15: the path is a FLAT file link — the file's
             // real workbench icon + filename only, no visible button/pill,
             // never larger than the tool title; the full path is the
@@ -1291,7 +1333,11 @@ function toolRow(tool, host, openTools, pendingClarify) {
         }
         subtitle.dataset.slot = 'basic-tool-tool-subtitle';
     }
-    const titleMain = element('span', undefined, titleSpan, subtitle, ...toolArgsChips(tool), 
+    // OpenCode DiffChanges rides the header (their file-accordion actions):
+    // counted +a −r next to the filename — earned from the result, so it
+    // appears when the edit lands, never while running.
+    const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
+    const titleMain = element('span', undefined, titleSpan, subtitle, ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);

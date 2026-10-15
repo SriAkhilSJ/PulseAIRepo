@@ -285,7 +285,7 @@ def test_file_write_rows_report_counted_values_not_placeholders():
     assert "'+12 −4'" not in renderer
     assert "['Receipt', 'syntax valid']" not in renderer
     assert "export function diffStats" in renderer
-    assert "`+${stats.added} −${stats.removed}`" in renderer
+    assert "`+${stats.added}`" in renderer and "`−${stats.removed}`" in renderer
     # Diff lines are per-line nodes so green/red can exist at all -- the old
     # single <pre> could only be tinted as one block -- and the clamp is bounded for
     # paint while saying what it hid.
@@ -1614,3 +1614,28 @@ def test_scrolling_hides_every_scrollbar_opencode_style():
     doctrine = css.index("Scrolling, OpenCode doctrine")
     assert css.index(".crusorai-bash-result .crusorai-terminal-output") < doctrine
     assert doctrine > css.index("EXTRACTED VERBATIM"), "the doctrine block loads after the extracted block"
+
+
+def test_edit_write_cards_and_verification_follow_opencode():
+    """Founder 2026-10-15: 'next tool cards plz' — after Read/search and
+    Terminal, the Edit/Write cards take OpenCode's FileTool anatomy and
+    the verification family loses its invented checklist. From the
+    captured tool-renderer.tsx (edit/write/patch + FileTool): header =
+    title + file link (real icon, filename, click opens) with the
+    counted DiffChanges +a/-r riding the header; body = the diff in
+    edit-content, or the written content in write-content when a write
+    carries no diff; diagnostics earned only. Verification previously
+    painted hardcoded Typecheck/Browser-callback/Destination rows and
+    a dead 'Open evidence' button — fake UI; the tool's real output
+    is the body now."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "FILE_LINK_TOOLS = new Set(['read_file', 'edit_file', 'write_file', 'copy_file'])" in renderer
+    assert "headerDiffStats ? diffChangesChip(headerDiffStats) : undefined" in renderer
+    assert "function editDiffText" in renderer and "function editDiffStats" in renderer
+    assert "writeBox.dataset.component = 'write-content'" in renderer
+    assert ".crusorai-write-content pre" in css
+    # The invented verification checklist is gone, button included.
+    assert "crusorai-tool-checks" not in renderer
+    assert "Destination assertion" not in renderer
+    assert "Open evidence" not in renderer

@@ -281,6 +281,9 @@
 /* Whole UI layer boxes (ported from the captured message-part.css):
    edit/write content, diagnostics ledger, error card, todos. */
 .crusorai-edit-content { border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; margin-top: 6px; }
+/* OpenCode write-content: a write with no diff shows the written text. */
+.crusorai-write-content { margin-top: 6px; }
+.crusorai-write-content pre { margin: 0; padding: 8px 12px; overflow-x: auto; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-conv-code-size); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .crusorai-diagnostics { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px 10px; }
 .crusorai-diagnostics-row { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
 .crusorai-diagnostics-row.is-failed { color: var(--vscode-errorForeground); }
