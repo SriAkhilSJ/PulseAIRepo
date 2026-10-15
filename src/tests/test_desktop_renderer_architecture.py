@@ -1885,3 +1885,27 @@ def test_subagent_card_is_honest_about_navigation():
     assert "--task-agent-color: var(--vscode-textLink-foreground);" in css
     assert "if (childId) {" in renderer and "host.navigateToSession?.(String(childId))" in renderer
     assert "crusorai-task-tool-error" in renderer and ".crusorai-task-tool-error {" in css
+
+
+def test_child_session_click_mid_run_defers_instead_of_erroring():
+    """Founder 2026-10-15 (build e7782b4b): 'not opening child
+    sessions' — clicking a RUNNING sub-agent row fired
+    navigateToSession into the running guard, which painted the
+    red 'Stop the current run before switching sessions' banner.
+    Live-switching mid-turn still refuses (the session reset would
+    strand the turn's frames), but a CHILD of the running turn now
+    records pendingChildNavigation plus a calm notice (never the
+    error lane), and the frame epilogue auto-opens it when the
+    turn settles (running false after turn_done/turn_failed).
+    Delegate headers also stop repeating the card's mode/type as
+    generic k=v chips."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "pendingChildNavigation" in service
+    assert "That sub-agent session opens when the current run finishes." in service
+    assert "if (!this.running && this.pendingChildNavigation) {" in service
+    assert "notice: this.navigationNotice," in service
+    assert "readonly notice?: string;" in renderer
+    assert "crusorai-notice-row" in renderer and ".crusorai-notice-row {" in css
+    assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer

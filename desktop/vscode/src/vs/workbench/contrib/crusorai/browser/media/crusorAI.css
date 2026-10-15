@@ -537,6 +537,18 @@
 }
 .crusorai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 
+.crusorai-notice-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 7px;
+	margin-top: 8px;
+	padding: 7px;
+	border-left: 2px solid var(--vscode-textLink-foreground);
+	background: var(--vscode-editorWidget-background);
+	color: var(--vscode-foreground);
+	font-size: var(--crusorai-text-meta);
+}
+
 .crusorai-error-row {
 	display: flex;
 	align-items: flex-start;

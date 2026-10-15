@@ -1609,7 +1609,11 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify) {
     // counted +a −r next to the filename — earned from the result, so it
     // appears when the edit lands, never while running.
     const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
-    const titleMain = element('span', undefined, titleSpan, subtitle, ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+    const titleMain = element('span', undefined, titleSpan, subtitle, 
+    // The sub-agent card carries mode/type/description itself; the
+    // generic k=v chips would only repeat it (founder screenshot
+    // 2026-10-15: 'Delegate mode=research subagent_type=research').
+    ...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -2254,6 +2258,9 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
         lane.append(element('div', 'crusorai-error-row', icon(setup ? 'settings-gear' : 'warning'), element('span', undefined, setup ? `Crusor engine setup: ${model.error}` : model.error), setup
             ? button('Open Settings', 'crusorai-link-button', host.openEngineSettings, 'settings-gear')
             : button('Retry', 'crusorai-link-button', host.retryEngine)));
+    }
+    if (model.notice) {
+        lane.append(element('div', 'crusorai-notice-row', icon('lightbulb'), element('span', undefined, model.notice)));
     }
     // OpenCode parity: child header parent / child + agent-designed prompt as user message
     if (model.isChild) {

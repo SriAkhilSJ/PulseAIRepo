@@ -101,6 +101,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private lastSubmittedPrompt: string | undefined;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
+	/** Child session the user clicked mid-run: opens when the turn settles. */
+	private pendingChildNavigation: string | undefined;
+	/** Calm info notice for the pane (NOT the red error lane). */
+	private navigationNotice: string | undefined;
 	private draft = '';
 	private mode: CrusorExecutionMode = 'agent';
 	/** Think level ('none' = thinking disabled by default). */
@@ -450,6 +454,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.assistantText = '';
 		this.pendingPrompt = undefined;
 		this.pendingHydration = undefined;
+		this.pendingChildNavigation = undefined;
+		this.navigationNotice = undefined;
 		this.tools.clear();
 		this.parts = [];
 		this.reasoningParts = [];
@@ -523,6 +529,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// `context.status` event. Absent stays honest: no signal, no row.
 			compacting: this.compacting,
 			contextStatus: this.contextStatus,
+			notice: this.navigationNotice,
 			voiceHeard: this.voiceHeard,
 			llmStatus: this.llmStatus,
 			llmHeads: this.llmHeads,
@@ -578,8 +585,20 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private navigateToSession(targetSessionId: string): void {
 		if (!targetSessionId || targetSessionId === this.sessionId) { return; }
 		// Switching away mid-turn would strand the live run's frames on a surface that no
-		// longer owns them. The user stops the run first; the list stays clickable between turns.
+		// longer owns them. For a CHILD of the running turn (founder
+		// 2026-10-15: 'not opening child sessions' — the click earned a
+		// red error banner), remember the intent and open it the moment
+		// the turn settles; an unrelated mid-run switch still refuses.
 		if (this.running) {
+			const isChildOfCurrent = targetSessionId.startsWith('sub-')
+				|| this.parentMap.has(targetSessionId)
+				|| [...this.subAgents.values()].some(record => record.childThreadId === targetSessionId || record.id === targetSessionId);
+			if (isChildOfCurrent && this.sessionId) {
+				this.pendingChildNavigation = targetSessionId;
+				this.navigationNotice = 'That sub-agent session opens when the current run finishes.';
+				this.render();
+				return;
+			}
 			this.error = 'Stop the current run before switching sessions.';
 			this.render();
 			return;
@@ -1863,6 +1882,16 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			}
 		} else if (frame.type === 'error') {
 			this.error = frame.message;
+		}
+		// A child session clicked mid-run opens now that the turn has
+		// settled (turn_done/turn_failed both land here with running
+		// false). navigateToSession renders; skip the stale paint.
+		if (!this.running && this.pendingChildNavigation) {
+			const target = this.pendingChildNavigation;
+			this.pendingChildNavigation = undefined;
+			this.navigationNotice = undefined;
+			this.navigateToSession(target);
+			return;
 		}
 		this.render();
 	}

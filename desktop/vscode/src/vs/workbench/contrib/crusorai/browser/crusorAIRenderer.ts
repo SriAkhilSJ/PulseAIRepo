@@ -115,6 +115,8 @@ export interface CrusorAIRenderModel {
 	readonly llmReasoningLive?: boolean;
 	/** Bounded anatomy of the live request: role + head per message. */
 	readonly llmHeads?: readonly { readonly role: string; readonly head: string }[];
+	/** Calm info notice (deferred child navigation) — never the error lane. */
+	readonly notice?: string;
 	/** Hermes session-states.ts port: busy but silent for the 5-min watchdog
 	 * window. A presentation hint (hollow dot, honest row text) — never an
 	 * error, never a claim the turn died. */
@@ -1728,7 +1730,10 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	const titleMain = element('span', undefined,
 		titleSpan,
 		subtitle,
-		...toolArgsChips(tool),
+		// The sub-agent card carries mode/type/description itself; the
+		// generic k=v chips would only repeat it (founder screenshot
+		// 2026-10-15: 'Delegate mode=research subagent_type=research').
+		...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)),
 		headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
 		// Inline info (#L1-N, match count) hugs the filename on the same
 		// line — never pushed to the row's far edge (founder 2026-10-15).
@@ -2350,6 +2355,10 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				? button('Open Settings', 'crusorai-link-button', host.openEngineSettings, 'settings-gear')
 				: button('Retry', 'crusorai-link-button', host.retryEngine),
 		));
+	}
+	if (model.notice) {
+		lane.append(element('div', 'crusorai-notice-row', icon('lightbulb'),
+			element('span', undefined, model.notice)));
 	}
 	// OpenCode parity: child header parent / child + agent-designed prompt as user message
 	if (model.isChild) {
