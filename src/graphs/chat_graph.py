@@ -279,6 +279,26 @@ def _drop_repeated_read_calls(result: Any, state: dict) -> Any:
         return result
 
 
+def _should_reprompt_dropped_toolcall(result: Any, tools_bound: bool, retries: int) -> bool:
+    """Dropped-toolcall re-prompt gate (field 2026-10-15, second pass).
+
+    hermes re-prompts when a provider signals tool_calls but delivers
+    none -- the call was DROPPED. But velona/GLM mislabels plain text
+    answers with finish_reason=tool_calls on nearly every reply, so the
+    ungated re-prompt double-billed (and double-painted) every step.
+    A genuinely dropped call delivers no answer text; a mislabelled
+    answer delivers a full one. Only the dropped shape re-prompts --
+    a delivered text answer is accepted as the answer.
+    """
+    if not tools_bound or retries >= 3:
+        return False
+    if getattr(result, "tool_calls", None):
+        return False
+    if not _finish_reason_is_tool_calls(result):
+        return False
+    return not _result_answer_text(result).strip()
+
+
 def _summary_text_from(result: Any) -> str:
     """Answer text of a summary response, <think> blocks stripped
     (hermes :2132-2133)."""
@@ -1926,11 +1946,8 @@ def ai_node(
     # finish_reason="tool_calls" with an empty tool_calls array — the model
     # signalled it wanted to act but delivered no call. Re-prompt up to 3
     # times with a nudge so the turn doesn't waste a full provider round-trip.
-    if (
-        tools_bound
-        and not (getattr(result, "tool_calls", None) or [])
-        and _finish_reason_is_tool_calls(result)
-        and int(state.get("_dropped_toolcall_retries", 0)) < 3
+    if _should_reprompt_dropped_toolcall(
+        result, tools_bound, int(state.get("_dropped_toolcall_retries", 0))
     ):
         _dropped_retries = int(state.get("_dropped_toolcall_retries", 0)) + 1
         print(
@@ -1971,6 +1988,16 @@ def ai_node(
                 flush=True,
             )
     elif tools_bound and not (getattr(result, "tool_calls", None) or []):
+        if _finish_reason_is_tool_calls(result) and _result_answer_text(result).strip():
+            # The velona/GLM shape: a full text answer wearing a
+            # tool_calls finish_reason. Accepted as-is -- re-prompting
+            # here double-bills every step (field logs 2026-10-15).
+            print(
+                "[ai_node] finish_reason=tool_calls with empty tool_calls "
+                "but a text answer was delivered -- accepting the answer "
+                "(provider mislabels finish_reason; no re-prompt)",
+                flush=True,
+            )
         # Reset retry counter if we got a non-empty result or gave up
         pass
 

@@ -139,3 +139,24 @@ def test_discard_retracts_only_what_was_painted(monkeypatch):
     cg._discard_held_answer("t-mix")
     assert seen == [("message.agent.retract",
                      {"chars": 209, "thread_id": "t-mix"})]
+
+
+def test_reprompt_only_for_genuinely_dropped_calls():
+    """velona/GLM mislabels text answers finish_reason=tool_calls; a
+    delivered answer must NOT re-prompt (double billing per step), while
+    an empty dropped call still must."""
+    dropped = AIMessage(content="", response_metadata={"finish_reason": "tool_calls"})
+    assert cg._should_reprompt_dropped_toolcall(dropped, tools_bound=True, retries=0)
+    answered = AIMessage(
+        content="Hi! How can I help you today?",
+        response_metadata={"finish_reason": "tool_calls"},
+    )
+    assert not cg._should_reprompt_dropped_toolcall(answered, tools_bound=True, retries=0)
+    assert not cg._should_reprompt_dropped_toolcall(dropped, tools_bound=False, retries=0)
+    assert not cg._should_reprompt_dropped_toolcall(dropped, tools_bound=True, retries=3)
+    with_calls = AIMessage(
+        content="",
+        tool_calls=[{"id": "x", "name": "list_files", "args": {}, "type": "tool_call"}],
+        response_metadata={"finish_reason": "tool_calls"},
+    )
+    assert not cg._should_reprompt_dropped_toolcall(with_calls, tools_bound=True, retries=0)
