@@ -1450,24 +1450,14 @@
 	flex: 1 1 auto;
 	min-height: 0;
 }
-.crusorai-empty-copy { margin: 0; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-copy); line-height: 1.5; }
-.crusorai-starter-grid { display: grid; gap: 6px; }
-.crusorai-starter-prompt {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	padding: 7px 9px;
-	text-align: left;
-	border: 1px solid var(--vscode-widget-border, transparent);
-	border-radius: 5px;
-	background: var(--vscode-list-hoverBackground, transparent);
-	color: var(--vscode-foreground);
-	cursor: pointer;
-	font-size: var(--crusorai-text-copy);
-	width: 100%;
-}
-.crusorai-starter-prompt:hover { border-color: var(--vscode-focusBorder); }
-.crusorai-starter-prompt > .codicon { color: var(--vscode-descriptionForeground); flex-shrink: 0; }
+/* OpenCode empty session: the mark alone, centred — no starter cards, no
+   explainer copy. In the Agent pane the mark + composer ride as one
+   centred group (is-empty below); elsewhere the hero centres in place. */
+.crusorai-empty-hero { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 12px 0; }
+.crusorai-empty-hero > .codicon, .crusorai-empty-hero svg { width: 40px; height: 40px; color: var(--vscode-foreground); }
+.crusorai-empty-wordmark { font-size: var(--crusorai-text-page); font-weight: 600; letter-spacing: var(--crusorai-track-caps); text-transform: uppercase; color: var(--vscode-foreground); }
+.crusorai-agent-shell.is-empty .crusorai-empty-state { flex: 0 0 auto; margin-top: auto; align-content: end; padding-bottom: 4px; }
+.crusorai-agent-shell.is-empty .crusorai-composer { margin-bottom: auto; }
 @media (max-width: 420px) { .crusorai-empty-state { padding: 12px 8px 8px; } }
 
 /* --- activity runs in the right panel: one summary line per run of activity, cards

@@ -113,7 +113,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     css = _text("browser", "media", "crusorAI.css")
     for behavior in (
         "function planStrip", "function createActivityState", "function emptyState", "function thinkingBlock",
-        "crusorai-section-heading", "host.submitPrompt(prompt)", "planOpen",
+        "crusorai-section-heading", "host.submitPrompt(value)", "planOpen",
     ):
         assert behavior in renderer
     assert "openManager(): void" in renderer
@@ -135,7 +135,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
         "a settled turn must not narrate in the present tense"
     for style in (
-        ".crusorai-starter-grid", ".crusorai-scaffold-status", ".crusorai-plan-strip", ".crusorai-disclosure-row",
+        ".crusorai-empty-hero", ".crusorai-scaffold-status", ".crusorai-plan-strip", ".crusorai-disclosure-row",
         "prefers-reduced-motion", "@media (max-width: 420px)",
         "container-name: crusorai-manager-editor", "@container crusorai-manager-editor (max-width: 610px)",
         "var(--vscode-focusBorder)", "var(--vscode-sideBar-background)",
@@ -1370,3 +1370,17 @@ def test_main_chat_transcript_follows_opencode_message_anatomy():
     assert "OpenCode main-chat layer" in css
     assert "max-width: min(82%, 64ch)" in css
     assert ".crusorai-assistant-message [data-conversation-scaffold] { opacity: 1; }" in css
+
+
+def test_empty_session_is_the_opencode_mark_and_dock():
+    """Empty session like OpenCode (founder 2026-10-15): no starter cards,
+    no explainer copy — the centred mark with the prompt dock as hero in
+    the Agent pane, docking to the bottom once a turn exists."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function isEmptySession" in renderer
+    assert "crusorai-empty-hero" in renderer and "crusorai-empty-wordmark" in renderer
+    assert "STARTER_PROMPTS" not in renderer and "crusorai-starter" not in renderer
+    assert "shell.classList.add('is-empty')" in renderer
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-agent-shell.is-empty .crusorai-composer { margin-bottom: auto; }" in css
+    assert "crusorai-starter" not in css

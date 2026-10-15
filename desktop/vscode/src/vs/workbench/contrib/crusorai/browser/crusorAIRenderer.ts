@@ -1954,31 +1954,32 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 	return scroll;
 }
 
-const STARTER_PROMPTS: readonly string[] = [
-	'Review this workspace and tell me what it does',
-	'Find where the safety approval flow lives and explain it',
-	'Run the project tests and fix the first failure',
-];
+/**
+ * The empty-session predicate: genuinely nothing to render and nothing
+ * broken — engine up, workspace chosen, no turn yet. Setup and
+ * workspace-selection states have their own surfaces.
+ */
+function isEmptySession(model: CrusorAIRenderModel): boolean {
+	if (model.running || model.history.length || model.userMessage || model.assistantText || model.tools.length) { return false; }
+	if (model.engineSetupError || model.noWorkspace || model.workspaceSelectionRequired) { return false; }
+	return true;
+}
 
 /**
- * Shown only when there is genuinely nothing to render and nothing is broken: engine
- * up, workspace chosen, no turn yet. Setup and workspace-selection states have their
- * own surfaces, and a starter grid layered over them reads as a bug.
+ * OpenCode's empty session (founder direction 2026-10-15): NO starter
+ * cards, NO explainer paragraph — their session page rests on the mark
+ * alone with the prompt dock as the hero (DockPrompt: the dock IS the
+ * page until the first message lands). The Agent pane centres the dock
+ * under this mark (see renderAgent's is-empty shell); the Manager keeps
+ * its bottom composer and this hero simply centres above it.
  */
 function emptyState(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTMLElement | undefined {
-	if (model.running || model.history.length || model.userMessage || model.assistantText || model.tools.length) { return undefined; }
-	if (model.engineSetupError || model.noWorkspace || model.workspaceSelectionRequired) { return undefined; }
+	if (!isEmptySession(model)) { return undefined; }
 	const wrap = element('section', 'crusorai-empty-state');
 	wrap.dataset.component = 'empty-state';
-	wrap.append(
-		element('div', 'crusorai-section-heading', element('span', undefined, 'Crusor Agent')),
-		element('p', 'crusorai-empty-copy', 'Ask for a change, or start from one of these. Every file write is consent-checked: git can undo it, so it just runs; git cannot, so it asks.'),
-	);
-	const grid = element('div', 'crusorai-starter-grid');
-	for (const prompt of STARTER_PROMPTS) {
-		grid.append(button(prompt, 'crusorai-starter-prompt', () => host.submitPrompt(prompt), 'arrow-right'));
-	}
-	wrap.append(grid);
+	const hero = element('div', 'crusorai-empty-hero');
+	hero.append(icon('crusor'), element('span', 'crusorai-empty-wordmark', 'Crusor'));
+	wrap.append(hero);
 	return wrap;
 }
 
@@ -2893,6 +2894,13 @@ function renderAgent(root: HTMLElement, model: CrusorAIRenderModel, host: Crusor
 	// The chip rides the Agent header too (next to the Manager button).
 	header.append(engineStatus(model));
 	shell.append(header);
+	// OpenCode empty session: the prompt dock is the hero, centred under
+	// the mark — it docks to the bottom the moment a turn exists. The
+	// is-empty shell class does the centring in CSS (mark + composer
+	// ride as one centred group between the header and the pane bottom);
+	// the engine-starting row still paints above the hero so a dead
+	// engine never reads as a send button that does nothing.
+	if (isEmptySession(model)) { shell.classList.add('is-empty'); }
 	shell.append(...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen));
 	shell.append(composer(model, host, false));
 	root.append(shell);
