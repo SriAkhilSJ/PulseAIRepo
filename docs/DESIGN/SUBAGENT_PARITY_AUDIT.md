@@ -10,10 +10,15 @@ through this audit's fix build (clarify tree-surfacing + stop cascade).
 **Plain-English summary.** A sub-agent is a worker the main agent hires for
 one job. OpenCode's whole design is: *a worker is just another conversation*
 — same screen, same question popups, same stop button behaviour. Crusor now
-matches that core. What remains is depth, not shape: workers can't yet be
-re-hired for a follow-up (resume), can't be given a different brain (model
-choice), their file-approval popups don't surface in the parent's view,
-and they clutter the session list.
+matches that core, including the follow-ups: workers can be re-hired with
+their context intact (resume), given a cheaper brain (model choice), defined
+by you (custom agents), and both their questions AND their permission
+requests surface where you're standing.
+
+*Status update, same day: every ❌ below was closed in the "important" build
+(`test_subagent_registry_resume.py`, 11 tests; jsdom harness; architecture
+pins). Remaining known deltas are the two ⚠️ rows (11 and 20) and #19's
+deliberate difference.*
 
 ## The audit
 
@@ -30,26 +35,28 @@ and they clutter the session list.
 | 9 | Parent **Stop interrupts children** (job cancel + child interrupt; also wakes their pending questions) | Was missing. **Fixed in this audit's build**: delegate registers a turn abort that cancels the child (foreground + batch); proven by `test_subagent_stop_cascade.py` | ✅ DONE (was ❌ MISSING) |
 | 10 | Deleting a session cascades to children | `delete_session` removes child rows + checkpoints | ✅ DONE |
 | 11 | Background tasks: completion delivered INTO the parent as a synthetic `<subagent>` message; an idle parent resumes | Event → bridge frame → service appends the text to the viewed transcript. No persisted synthetic message; an idle/backgrounded parent is not re-invoked to react | ⚠️ PARTIAL |
-| 12 | **Approvals (permissions) from children surface by the same tree rule** | `safety_request` from a child only flags its session-list row `needsInput`; the approval dock answers only the viewed session's own asks | ❌ NOT DONE — next fix (same shape as #8) |
-| 13 | **Resume/continue**: passing `sessionID` continues a previous child (may switch agent/model) | No resume argument; every delegation spawns fresh | ❌ NOT DONE |
-| 14 | **Model choice**: per-agent model, per-call override (`model` arg) | Children inherit the parent's provider/model verbatim | ❌ NOT DONE |
-| 15 | **Open agent registry**: custom agents (own prompt/model/permissions/colour), tool description lists available agents dynamically | Closed 4-mode set (`research/code/test/review`), static tool text | ❌ NOT DONE |
-| 16 | Spawn is permission-gated per agent (a parent agent may be denied specific subagents) | Capability waist exists, but no per-agent spawn permission | ❌ NOT DONE |
-| 17 | Child header lists **siblings** (other children of the same parent) for quick switching | Child nav row shows parent link + task label only | ❌ NOT DONE |
-| 18 | Session list shows only root sessions (children reached via cards) | `list_sessions_rich` has no parent filter — children appear as ordinary rows in the Manager list | ❌ NOT DONE (small fix) |
+| 12 | **Approvals (permissions) from children surface by the same tree rule** | Was row-chip only. **Fixed**: approvals tracked by tool id tree-wide, tree-picked into the approval dock, verdict routed to the asking session | ✅ DONE |
+| 13 | **Resume/continue**: passing `sessionID` continues a previous child (may switch agent/model) | **Fixed**: `session_id` on both delegate tools; same thread/checkpoint, follow-up verbatim (no persona re-applied); only the own parent may resume, only once settled. (Model CAN switch on resume via `model`; agent is the child's own.) | ✅ DONE |
+| 14 | **Model choice**: per-agent model, per-call override (`model` arg) | **Fixed**: per-call `model` > custom agent's frontmatter model > parent's model, threaded delegate → lifecycle → coordinator → invoke_agent | ✅ DONE |
+| 15 | **Open agent registry**: custom agents (own prompt/model/permissions/colour), tool description lists available agents dynamically | **Fixed**: built-ins + `.crusorai/agents/*.md` (workspace) and `~/.crusorai/agents/*.md` (global), frontmatter description/capabilities/model/base + body prompt; custom shadows built-in by name; delegate descriptions rebuilt from the live registry at bind. (No per-agent colour — the card has no colour slot.) | ✅ DONE |
+| 16 | Spawn is permission-gated per agent (a parent agent may be denied specific subagents) | **Fixed**: `CRUSORAI_SUBAGENT_DENIED` / `CRUSORAI_SUBAGENT_ALLOWED` env policy, enforced in both delegate tools with the reason returned to the model | ✅ DONE |
+| 17 | Child header lists **siblings** (other children of the same parent) for quick switching | **Fixed**: sibling chips in the child nav row (service computes them from the session store + tree), click navigates directly | ✅ DONE |
+| 18 | Session list shows only root sessions (children reached via cards) | **Fixed**: `sessionRows()` projects root sessions only; records stay in the store for titles/tree/navigation | ✅ DONE |
 | 19 | Child view: composer disabled — "return to parent to send" | Child sessions accept prompts (they are full sessions). Different, arguably better; flagged, not changed | ⚠️ DIFFERENT BY DESIGN |
 | 20 | Open child view streams tokens live | Checkpoint-polled every 3s + settle hooks (snapshot, not token stream) | ⚠️ KNOWN GAP (accepted for MVP) |
 
 ## Recommended order from here
 
-1. **#12 approvals tree-surfacing** — same one-afternoon shape as #8; without
-   it a child that wants to write a file stalls invisibly until timeout.
-2. **#18 session-list parent filter** — small store/bridge change; keeps the
-   Manager list trustworthy as delegation gets common.
-3. **#13 resume** — the highest product value: follow-up questions to a
-   worker that already has context ("now check the other file too").
-4. **#14 model override** — cost lever (cheap model for research children).
-5. #15/#16/#17 — registry breadth; post-MVP.
+All seven gaps above are closed. What remains, in value order:
+
+1. **#11 background completion** — persist the synthetic `<subagent>`
+   message into the parent thread and re-invoke an idle parent so it can
+   react without being poked (today: the completion text paints live).
+2. **#20 token streaming into an open child view** — replace the 3s
+   checkpoint poll with the child's live token frames while it's open.
+3. Field-verify resume + custom agents with real provider calls (sandbox
+   has no provider keys; the chains are proven with `invoke_agent` faked
+   at exactly the provider seam).
 
 ## What this audit changed in code
 
@@ -65,3 +72,24 @@ and they clutter the session list.
 - Tests: `test_clarify_child_gate.py` (rewritten as block-and-answer),
   `test_subagent_stop_cascade.py` (real delegate→lifecycle chain),
   architecture pins, jsdom harness dock cases (46/46).
+
+Second build (the seven gaps):
+
+- `desktop/…/crusorAIRendererService.ts` — `approvals` map + tree pick +
+  asking-session verdicts; root-only session list; `childSiblings`.
+- `desktop/…/crusorAIRenderer.ts` + `crusorAI.css` — sibling chips in the
+  child nav row.
+- `src/agents/subagent_registry.py` (new) — built-ins + `.crusorai/agents`
+  custom agents, spawn policy (`CRUSORAI_SUBAGENT_ALLOWED/DENIED`).
+- `src/agents/subagent_lifecycle.py` — launch carries provider/model/
+  agent-prompt; `resume_child()` (same thread, verbatim continuation).
+- `src/agents/sub_agent.py` — spawn honours custom prompts and
+  continuations; spawn_batch threads per-task agents/prompts/scopes.
+- `src/graphs/chat_graph.py` — delegate tools take `model` + `session_id`,
+  resolve agents through the registry (unknown = hard error with the
+  available list), enforce spawn policy; the binder rebuilds the delegate
+  descriptions from the live registry per bind.
+- Tests: `test_subagent_registry_resume.py` (11 tests: registry, policy,
+  model override, custom agent end-to-end, resume same-thread-verbatim,
+  foreign/unknown resume rejection, batch resume, dynamic description),
+  architecture pins, jsdom harness approval-dock + sibling cases.

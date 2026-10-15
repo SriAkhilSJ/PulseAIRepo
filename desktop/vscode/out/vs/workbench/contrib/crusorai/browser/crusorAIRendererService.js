@@ -143,6 +143,28 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
     }
+    pickTreeApproval() {
+        if (!this.sessionId || !this.approvals.size) {
+            return undefined;
+        }
+        const entries = [...this.approvals.values()];
+        const own = entries.find(entry => entry.sessionId === this.sessionId);
+        if (own) {
+            return own;
+        }
+        const descendants = this.sessionDescendants(this.sessionId);
+        return entries.find(entry => descendants.has(entry.sessionId));
+    }
+    clearApprovalsFor(sessionId) {
+        if (!sessionId) {
+            return;
+        }
+        for (const [toolId, entry] of this.approvals) {
+            if (entry.sessionId === sessionId) {
+                this.approvals.delete(toolId);
+            }
+        }
+    }
     constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService, themeService, openerService) {
         super();
         this.engineService = engineService;
@@ -194,6 +216,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         /** Reasoning parts seen this turn — each LLM call that produces reasoning adds a new part. */
         this.reasoningParts = [];
         this.reasoningPending = false;
+        /** Every pending safety approval, any session's, keyed by tool id.
+         *  Approvals are session-TREE requests exactly like questions
+         *  (OpenCode surfaces both through the same tree rule): buildModel
+         *  shows the viewed tree's first pending one in the approval dock,
+         *  and the reply routes to the asking session. */
+        this.approvals = new Map();
         this.subAgents = new Map();
         /** OpenCode parity: parentMap child_thread_id -> parent_session_id for navigation */
         this.parentMap = new Map();
@@ -235,12 +263,18 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             },
             steer: text => { this.send({ type: 'steer', session_id: this.sessionId, text }); this.draft = ''; this.render(); },
             replyToSafety: (toolId, approved, alwaysAllow) => {
-                this.send({ type: 'safety_reply', session_id: this.sessionId, tool_id: toolId, approved, always_allow: alwaysAllow });
+                // The verdict routes to the ASKING session (the bridge queue
+                // rejects replies addressed to any other session — same rule as
+                // clarify), then the pending entry retires.
+                const entry = this.approvals.get(toolId);
+                this.send({ type: 'safety_reply', session_id: entry?.sessionId ?? this.sessionId, tool_id: toolId, approved, always_allow: alwaysAllow });
                 const tool = this.tools.get(toolId);
                 if (tool) {
                     this.tools.set(toolId, { ...tool, state: approved ? 'running' : 'failed' });
                 }
-                this.approval = undefined;
+                if (entry) {
+                    this.approvals.delete(toolId);
+                }
                 this.render();
             },
             replyToClarify: (requestId, answers, timedOut) => {
@@ -521,7 +555,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,
-            approval: this.approval,
+            approval: this.pickTreeApproval(),
             clarify: this.pickTreeClarify(),
             todos: this.todos,
             todoRevision: this.todoRevision,
@@ -566,7 +600,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.plan = snapshot.plan;
         this.verification = snapshot.verification;
         this.telemetry = snapshot.telemetry;
-        this.approval = snapshot.approval;
+        // Pending approvals are service-level tree state, not surface state:
+        // the `approvals` map survives the stash and pickTreeApproval
+        // re-derives what this view shows.
         // Pending clarifies are service-level tree state, not surface state:
         // the `clarifies` map survives the stash and pickTreeClarify re-derives
         // what this view shows, so a question asked while away still surfaces.
@@ -641,7 +677,6 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.plan = [];
         this.verification = undefined;
         this.telemetry = {};
-        this.approval = undefined;
         this.todos = [];
         this.todoRevision = 0;
         this.compacting = undefined;
@@ -723,7 +758,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             parentMap: new Map(this.parentMap),
             subAgentGoal: this.currentSubAgentGoal(),
             parentTitle: this.currentParentTitle(),
-            approval: this.approval,
+            childSiblings: this.currentChildSiblings(),
+            approval: this.pickTreeApproval(),
             clarify: this.pickTreeClarify(),
             todos: this.todos,
             todoRevision: this.todoRevision,
@@ -887,6 +923,34 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         return undefined;
     }
+    /** Sibling sub-agents of the viewed child (same parent), OpenCode's
+     *  child-header switcher: id + a human label each, self excluded. */
+    currentChildSiblings() {
+        const parentId = this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined);
+        if (!parentId || !this.sessionId) {
+            return undefined;
+        }
+        const siblings = [];
+        for (const record of this.sessionStore.records()) {
+            if (record.sessionId === this.sessionId) {
+                continue;
+            }
+            const recordParent = record.parentSessionId ?? this.parentMap.get(record.sessionId);
+            if (recordParent === parentId) {
+                siblings.push({ id: record.sessionId, label: record.label });
+            }
+        }
+        for (const sub of this.subAgents.values()) {
+            const id = sub.childThreadId ?? sub.id;
+            if (id === this.sessionId || siblings.some(sibling => sibling.id === id)) {
+                continue;
+            }
+            if ((sub.parentSessionId ?? this.parentMap.get(id)) === parentId) {
+                siblings.push({ id, label: sub.description ?? sub.goal ?? sub.agentName ?? 'Sub-agent' });
+            }
+        }
+        return siblings.length ? siblings : undefined;
+    }
     /** The active session's parent label from the store, for the child breadcrumb. */
     currentParentTitle() {
         const parentId = this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined);
@@ -903,7 +967,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 readState.set(facts.sessionId, isRead);
             }
         }
-        return crusorSessionRows(this.sessionStore.records(), this.sessionId, Date.now(), readState);
+        // The list shows ROOT sessions only (OpenCode: children are reached
+        // through their parent's delegate cards, never as list rows — a
+        // delegation-heavy session otherwise floods the Manager with
+        // workers). Records stay in the store: titles, the session tree,
+        // and navigation keep resolving children from them.
+        const roots = this.sessionStore.records().filter(record => !record.parentSessionId && !this.parentMap.has(record.sessionId));
+        return crusorSessionRows(roots, this.sessionId, Date.now(), readState);
     }
     /**
      * Called before the mount check: a session nobody has painted is still a session the user
@@ -923,7 +993,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             sessionId: this.sessionId,
             label: previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(undefined, this.sessionId),
             workspaceLabel: this.workspaceLabel,
-            statusName: crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined }),
+            statusName: crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.pickTreeApproval() !== undefined }),
             firstSeenAt: Date.now(),
             turnStartedAt: this.turnStartedAt,
             turnEndedAt: this.turnEndedAt,
@@ -955,7 +1025,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         const isActive = sessionId === this.sessionId;
         const statusName = isActive
-            ? crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.approval !== undefined })
+            ? crusorSessionStatusName({ running: this.running, turnOutcome: this.turnOutcome, hasApproval: this.pickTreeApproval() !== undefined })
             : row.unread === true ? 'completed' : undefined;
         const base = crusorFactsFromEngineRow(row, { workspaceLabel: this.workspaceLabel, statusName, now: Date.now() });
         // Active label: the engine's created title wins (fixed, unique; the rename path
@@ -1474,7 +1544,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.hadProviderAttempt = false;
         this.tools.clear();
         this.subAgents.clear();
-        this.approval = undefined;
+        this.clearApprovalsFor(this.sessionId);
         this.clearClarifiesFor(this.sessionId);
         this.plan = [];
         this.verification = undefined;
@@ -1721,17 +1791,31 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 questions: frame.questions,
             });
         }
+        else if (frame.type === 'safety_request') {
+            // Same tree rule as questions: a child's approval must surface in
+            // an open ancestor view, not stall invisibly behind a row chip.
+            const asking = typeof frame.session_id === 'string' && frame.session_id ? frame.session_id : (this.sessionId ?? 'default');
+            this.approvals.set(frame.tool_id, {
+                sessionId: asking,
+                toolId: frame.tool_id,
+                name: frame.name,
+                diff: frame.diff,
+                warning: typeof frame.warning === 'string' ? frame.warning : undefined,
+            });
+        }
         else if (frame.type === 'tool_call_end') {
             for (const [requestId, entry] of this.clarifies) {
                 if (entry.toolId && entry.toolId === frame.tool_id) {
                     this.clarifies.delete(requestId);
                 }
             }
+            this.approvals.delete(frame.tool_id);
         }
         // A background turn's traffic routes to its list row, never the live transcript.
         const foreignId = this.foreignSessionId(frame);
         if ((frame.type === 'turn_done' || frame.type === 'turn_failed') && foreignId) {
             this.clearClarifiesFor(foreignId);
+            this.clearApprovalsFor(foreignId);
         }
         if (foreignId) {
             this.syncStashFrame(foreignId, frame);
@@ -1970,22 +2054,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 state: toolState(frame.status),
                 duration: typeof result?.duration === 'string' ? result.duration : typeof result?.duration_ms === 'number' ? `${result.duration_ms}ms` : undefined,
             });
-            if (this.approval?.toolId === frame.tool_id) {
-                this.approval = undefined;
-            }
         }
         else if (frame.type === 'safety_request') {
             const existing = this.tools.get(frame.tool_id);
             this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
             // An approval can arrive without a prior start frame; the card must
-            // still have a place in the timeline.
+            // still have a place in the timeline. (The pending entry itself was
+            // tracked tree-wide in the pre-routing hook above.)
             this.pushToolPart(frame.tool_id);
-            this.approval = {
-                toolId: frame.tool_id,
-                name: frame.name,
-                diff: frame.diff,
-                warning: typeof frame.warning === 'string' ? frame.warning : undefined,
-            };
             // 1: Show in editor automatically like Copilot ChatEditingCodeEditorIntegration
             // (viewZones + diffDecorations on live file) — don't wait for user to click Review.
             // Best-effort: if diff has inline text, open inline diff preview.
@@ -2099,6 +2175,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // A turn ended with an unanswered clarify: the blocking layer has
             // already timed the wait out — never leave a dead interactive card.
             this.clearClarifiesFor(this.sessionId);
+            this.clearApprovalsFor(this.sessionId);
             // Transport verdict vs task verdict: `completed:false` with
             // `cancelled:false` is an ENDED-INCOMPLETE turn (finalize said the
             // task failed) — the run itself finished and its trailing receipt
@@ -2257,7 +2334,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     async openDiff(toolId) {
         try {
             const tool = this.tools.get(toolId);
-            const approval = this.approval?.toolId === toolId ? this.approval.diff : undefined;
+            const approval = this.approvals.get(toolId)?.diff;
             const sources = [approval, tool?.result, tool?.arguments];
             let original;
             let modified;

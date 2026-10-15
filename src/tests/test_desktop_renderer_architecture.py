@@ -2058,3 +2058,45 @@ def test_clarify_requests_are_session_tree_state():
     # Stop cascade: parent Stop interrupts foreground + batch children.
     assert "subagent_lifecycle.cancel(handle)" in chat_graph
     assert "_abort_batch_children" in chat_graph
+
+def test_approvals_are_session_tree_state_and_lists_show_roots():
+    """Second HITL half (founder 2026-10-15): a CHILD's safety approval
+    surfaces in an open ancestor view exactly like its questions —
+    approvals map keyed by tool id, tree pick in buildModel, verdict
+    routed to the asking session, settle/turn-end retirement. And the
+    session list shows ROOT sessions only (OpenCode: children are
+    reached via delegate cards, not list rows); the child nav row
+    carries a sibling switcher."""
+    service = _text("browser", "crusorAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "private readonly approvals = new Map" in service
+    assert "private pickTreeApproval()" in service
+    assert "approval: this.pickTreeApproval()," in service
+    assert "session_id: entry?.sessionId ?? this.sessionId, tool_id: toolId" in service
+    assert "this.approvals.delete(frame.tool_id);" in service
+    assert "!record.parentSessionId && !this.parentMap.has(record.sessionId)" in service
+    assert "private currentChildSiblings()" in service
+    assert "childSiblings: this.currentChildSiblings()," in service
+    assert "crusorai-child-nav-sibling" in renderer
+    assert ".crusorai-child-nav-sibling {" in css
+
+
+def test_engine_registry_resume_model_and_spawn_policy():
+    """The remaining OpenCode sub-agent gaps, engine side: an open
+    agent registry (.crusorai/agents/*.md over the four built-ins),
+    resume by session id (verbatim follow-up on the same thread),
+    per-call/per-agent model override, per-agent spawn policy, and a
+    delegate description rebuilt from the live registry at bind."""
+    chat_graph = (ROOT / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    registry = (ROOT / "src" / "agents" / "subagent_registry.py").read_text(encoding="utf-8")
+    lifecycle = (ROOT / "src" / "agents" / "subagent_lifecycle.py").read_text(encoding="utf-8")
+    coordinator = (ROOT / "src" / "agents" / "sub_agent.py").read_text(encoding="utf-8")
+    assert "def available_agents(" in registry and "def denied_reason(" in registry
+    assert ".crusorai" in registry and "agents" in registry
+    assert "def resume_child(" in lifecycle
+    assert "continuation=record.continuation" in lifecycle
+    assert "focused_task = task" in coordinator  # resume: verbatim, no persona
+    assert "session_id: RESUME a previous sub-agent session" in chat_graph
+    assert "Available agents: {_listing}" in chat_graph
+    assert "_DELEGATE_BASE_DESCRIPTIONS" in chat_graph

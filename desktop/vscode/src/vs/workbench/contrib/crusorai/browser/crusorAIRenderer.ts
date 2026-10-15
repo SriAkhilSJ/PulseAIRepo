@@ -147,6 +147,8 @@ export interface CrusorAIRenderModel {
 	readonly subAgentGoal?: string;
 	/** The parent session's label, for the child header breadcrumb. */
 	readonly parentTitle?: string;
+	/** Sibling sub-agents (same parent), for the child nav row switcher. */
+	readonly childSiblings?: readonly { readonly id: string; readonly label: string }[];
 	readonly approval?: { readonly toolId: string; readonly name: string; readonly diff?: unknown; readonly warning?: string };
 	/** Pending hermes clarify batch (the ask tool) awaiting this panel's answer.
 	 *  `sessionId` is the ASKING session: when it is a descendant of the viewed
@@ -3568,6 +3570,19 @@ function childNavBar(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTML
 	const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
 	if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
 		bar.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
+	}
+	// Sibling switcher (OpenCode's child header lists the other children
+	// of the same parent): hop between workers without going back first.
+	if (model.childSiblings?.length && host.navigateToSession) {
+		const siblings = element('span', 'crusorai-child-nav-siblings');
+		for (const sibling of model.childSiblings) {
+			const chip = element('button', 'crusorai-child-nav-sibling', sibling.label.slice(0, 40)) as HTMLButtonElement;
+			chip.type = 'button';
+			chip.title = `Open ${sibling.label}`;
+			chip.addEventListener('click', () => host.navigateToSession!(sibling.id));
+			siblings.append(chip);
+		}
+		bar.append(siblings);
 	}
 	return bar;
 }

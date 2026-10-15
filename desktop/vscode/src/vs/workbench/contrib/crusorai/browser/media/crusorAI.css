@@ -2095,6 +2095,10 @@
 .crusorai-child-nav-sep { flex: none; opacity: .6; }
 .crusorai-child-nav-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-child-live { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); margin-left: auto; flex: none; color: var(--vscode-foreground); }
+.crusorai-child-nav-siblings { display: inline-flex; align-items: center; gap: var(--crusorai-space-1); flex: none; margin-left: auto; }
+.crusorai-child-live + .crusorai-child-nav-siblings { margin-left: 0; }
+.crusorai-child-nav-sibling { background: none; border: 1px solid var(--vscode-panel-border); border-radius: var(--crusorai-radius-code); padding: 0 var(--crusorai-space-1); font: inherit; color: var(--vscode-textLink-foreground); cursor: pointer; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-child-nav-sibling:hover { text-decoration: underline; }
 
 /* UI Polish � flat, hover, not hard-coded */
 .crusorai-agent-shell { border-radius: 8px; overflow: hidden; }

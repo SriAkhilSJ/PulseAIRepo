@@ -64,6 +64,8 @@ class SubAgentCoordinator:
         emit_events: bool = True,
         agent_id: str | None = None,
         workspace: str | None = None,
+        agent_prompt: str | None = None,
+        continuation: bool = False,
     ) -> str:
         """
         Spawn a sub-agent with a focused task.
@@ -207,7 +209,17 @@ class SubAgentCoordinator:
             ),
         }
 
-        focused_task = prompts.get(mode, task)
+        if continuation:
+            # Resumed session: the worker keeps its context — the
+            # follow-up goes in verbatim, no persona re-applied
+            # (OpenCode prefixes the subagent prompt on create only).
+            focused_task = task
+        elif agent_prompt:
+            # Custom agent (registry): its own prompt replaces the
+            # built-in persona prefix.
+            focused_task = f"{agent_prompt.strip()}\n\nTask: {task}"
+        else:
+            focused_task = prompts.get(mode, task)
 
         _crashed = False
         # Run the sub-agent synchronously. Crash boundary: a child failure
@@ -304,6 +316,8 @@ class SubAgentCoordinator:
         max_workers: int = 4,
         workspace: str | None = None,
         modes: list[str] | None = None,
+        agent_prompts: list[str | None] | None = None,
+        capabilities: list[tuple[str, ...] | None] | None = None,
     ) -> list[str]:
         """D33 (steal #9, §45): run several sub-agents CONCURRENTLY.
 
@@ -335,9 +349,21 @@ class SubAgentCoordinator:
                 return modes[index]  # type: ignore[return-value]
             return mode
 
+        def _prompt_for(index: int) -> str | None:
+            if agent_prompts and index < len(agent_prompts):
+                return agent_prompts[index]
+            return None
+
+        def _caps_for(index: int) -> tuple[str, ...] | None:
+            if capabilities and index < len(capabilities):
+                return capabilities[index]
+            return None
+
         if len(tasks) == 1:
             return [self.spawn(_mode_for(0), tasks[0], parent_thread_id,
                                provider=provider, model=model,
+                               allowed_capabilities=_caps_for(0),
+                               agent_prompt=_prompt_for(0),
                                workspace=workspace)]
 
         import contextvars
@@ -350,8 +376,10 @@ class SubAgentCoordinator:
             return self.spawn(mode=_mode_for(index), task=task,
                               parent_thread_id=parent_thread_id,
                               provider=provider, model=model,
+                              allowed_capabilities=_caps_for(index),
                               description=task[:50],
                               background=False,
+                              agent_prompt=_prompt_for(index),
                               workspace=workspace)
 
         with ThreadPoolExecutor(max_workers=workers,

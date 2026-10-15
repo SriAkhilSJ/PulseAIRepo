@@ -512,12 +512,14 @@ def verify(
 # finalize rule below survives only as legacy-replay compat for old sessions.
 @tool
 def delegate_to_subagent(
-    mode: Literal["research", "code", "test", "review"] = "general",
+    mode: str = "general",
     task: str = "",
     description: str = "",
     subagent_type: str = "",
     background: bool = False,
     prompt: str = "",
+    model: str = "",
+    session_id: str = "",
     config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
@@ -538,6 +540,9 @@ def delegate_to_subagent(
     - subagent_type: alias for mode (general, explore, etc.) - use "explore" or "research" for folder analysis
     - background: run async, returns immediately
     - prompt: alias for task (OpenCode shape)
+    - model: run this child on a different model than yours (cost lever: cheap model for research children); default inherits the agent's configured model, then yours
+    - session_id: RESUME a previous sub-agent session instead of spawning fresh — the worker keeps its context; `task` is the follow-up. Use the session id from an earlier delegation result.
+    - Agents are an open registry: built-ins research/code/test/review plus custom agents defined in .crusorai/agents/*.md (pass the agent's name as mode).
     """
     from src.config.settings import LLM_PROVIDER, LLM_MODEL
     import os
@@ -545,14 +550,13 @@ def delegate_to_subagent(
     # Normalize args — support both Crusor and OpenCode shapes
     # OpenCode sends prompt + description + subagent_type, Crusor sends mode + task
     actual_task = (prompt or task or "").strip()
-    actual_mode = (subagent_type or mode or "general").strip().lower()
-    if actual_mode not in {"research", "code", "test", "review", "general", "explore", "build", "plan"}:
-        actual_mode = "general"
-    # Map general/explore to internal modes
+    actual_mode = (subagent_type or mode or "general").strip().lower() or "general"
+    # Map general/explore to internal modes. Custom agent names (the
+    # registry, .crusorai/agents/*.md) pass through untouched here and
+    # are resolved — or rejected with the available list — once the
+    # workspace is known below.
     mode_map = {"general": "code", "explore": "research", "build": "code", "plan": "research"}
     internal_mode = mode_map.get(actual_mode, actual_mode)
-    if internal_mode not in {"research", "code", "test", "review"}:
-        internal_mode = "code"
     actual_description = (description or actual_task[:50] or f"{actual_mode} task").strip()[:200]
 
     # Config may be passed as second arg if called with OpenCode shape (tool def positional)
@@ -576,6 +580,26 @@ def delegate_to_subagent(
     if not caller_thread:
         # Fallback: check thread-local or default
         caller_thread = "main"
+
+    # Agent resolution (OpenCode: an open registry — built-ins plus
+    # workspace/global custom agents). Unknown agents are a hard error
+    # with the available list, never a silent remap; spawning can be
+    # policy-gated per agent. Model: per-call override > the agent's
+    # configured model > the parent's model.
+    from src.agents.subagent_registry import available_agents, denied_reason, resolve_agent
+
+    _workspace = ""
+    if isinstance(runnable_config, dict):
+        _workspace = str(runnable_config.get("configurable", {}).get("workspace") or "")
+    agent_def = resolve_agent(actual_mode, _workspace or None)
+    if agent_def is None:
+        _names = ", ".join(a.name for a in available_agents(_workspace or None))
+        return f"⛔ Unknown sub-agent '{actual_mode}'. Available agents: {_names}."
+    _denied = denied_reason(agent_def.name)
+    if _denied:
+        return f"⛔ {_denied}"
+    internal_mode = agent_def.base_mode
+    resolved_model = (model or "").strip() or agent_def.model or LLM_MODEL
 
     # Depth check via store + prefix (OpenCode parity: cfg.subagent_depth default 1)
     try:
@@ -616,6 +640,26 @@ def delegate_to_subagent(
     except Exception:
         pass
 
+    # Resume (OpenCode sessionID): continue a settled child session of
+    # THIS parent — same thread, same checkpoint. Validation failures are
+    # honest errors, never a silent fresh spawn wearing the old id.
+    handle = None
+    if session_id:
+        try:
+            from src.agents.subagent_lifecycle import subagent_lifecycle as _lifecycle
+
+            handle = _lifecycle.resume_child(
+                session_id.strip(), goal=actual_task,
+                parent_session_id=str(caller_thread) or "main",
+                workspace=_workspace or None,
+                provider=LLM_PROVIDER, model=resolved_model,
+                description=actual_description,
+            )
+        except ValueError as exc:
+            return f"⛔ Cannot resume sub-agent session '{session_id}': {exc}"
+        except Exception:
+            return "⛔ Resume unavailable right now; spawn a fresh sub-agent instead."
+
     # Use lifecycle service for persistence + events (OpenCode parity: child session with parentID)
     # Crucial: choose env-aware depth, derive capabilities, inherit deny permissions
     try:
@@ -637,8 +681,9 @@ def delegate_to_subagent(
         # previously named TOOLS (web_search, read_file, ...) and the
         # KNOWN_CAPABILITIES filter below silently reduced every child's
         # requested scope to (), so children ran strict-empty.
-        from src.agents.subagent_permissions import default_capabilities_for_mode
-        requested_caps = default_capabilities_for_mode(internal_mode)
+        # The resolved agent's own capability scope (registry: built-ins
+        # carry MODE_CAPABILITIES; custom agents declare their own).
+        requested_caps = tuple(agent_def.capabilities)
         # Filter to known
         requested_caps = tuple(c for c in requested_caps if c in KNOWN_CAPABILITIES)
         # Derive via permission module (subset enforcement)
@@ -655,20 +700,24 @@ def delegate_to_subagent(
             derived_perm = []
             parent_perm = []
             subagent_perm = []
-        handle = subagent_lifecycle.launch(
-            parent_session_id=str(caller_thread) or "main",
-            goal=actual_task,
-            mode=internal_mode,
-            parent_capabilities=tuple(parent_caps),
-            allowed_capabilities=tuple(derived_caps),
-            description=actual_description,
-            agent_name=actual_mode,
-            tool_call_id=tool_call_id,
-            background=background,
-            parent_permission=parent_perm,
-            subagent_permission=subagent_perm,
-            workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
-        )
+        if handle is None:
+            handle = subagent_lifecycle.launch(
+                parent_session_id=str(caller_thread) or "main",
+                goal=actual_task,
+                mode=internal_mode,
+                parent_capabilities=tuple(parent_caps),
+                allowed_capabilities=tuple(derived_caps),
+                description=actual_description,
+                agent_name=agent_def.name,
+                tool_call_id=tool_call_id,
+                background=background,
+                parent_permission=parent_perm,
+                subagent_permission=subagent_perm,
+                workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
+                provider=LLM_PROVIDER,
+                model=resolved_model,
+                agent_prompt=agent_def.prompt,
+            )
         child_id = handle.subagent_id
 
         # If background, return immediately with running state (OpenCode BACKGROUND_STARTED)
@@ -732,10 +781,12 @@ def delegate_to_subagent(
         task=actual_task,
         parent_thread_id=str(caller_thread) or "main",
         provider=LLM_PROVIDER,
-        model=LLM_MODEL,
+        model=resolved_model,
+        allowed_capabilities=tuple(agent_def.capabilities),
         description=actual_description,
         background=background,
         tool_call_id=tool_call_id,
+        agent_prompt=agent_def.prompt,
         workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
     )
 
@@ -764,8 +815,9 @@ def delegate_to_subagent(
 
 @tool
 def delegate_to_subagent_batch(
-    mode: Literal["research", "code", "test", "review"] = "code",
+    mode: str = "code",
     tasks: list = None,  # type: ignore
+    model: str = "",
     config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
@@ -777,11 +829,14 @@ def delegate_to_subagent_batch(
       no piece needs another piece's output.
 
     TASK SHAPE: each entry is either a plain string (runs with the batch
-    `mode`) or {"task": "...", "mode": "research|code|test|review"}.
-    Give EVERY task the mode ITS work needs — a task that writes or runs
-    code must be mode="code" even when batched next to research tasks:
-    the mode sets the child's tools and instructions, and a writer in
-    research mode cannot write.
+    `mode`) or {"task": "...", "mode": "<agent>"}. Give EVERY task the
+    agent ITS work needs — a task that writes or runs code must be a
+    code agent even when batched next to research tasks: the agent sets
+    the child's tools and instructions, and a writer in research mode
+    cannot write. Agents are the open registry: research/code/test/
+    review plus custom agents from .crusorai/agents/*.md. An entry may
+    also carry "session_id" to RESUME that earlier sub-agent session
+    with this task as its follow-up (runs first, in order).
 
     WHEN NOT TO USE:
     - A single sub-task (use delegate_to_subagent).
@@ -796,27 +851,30 @@ def delegate_to_subagent_batch(
     import os
 
     # Normalize entries: plain strings take the batch mode; dict entries
-    # carry their own mode ({"task": ..., "mode": ...}). A write task in
-    # research clothing cannot write — per-task modes are the fix.
+    # carry their own agent ({"task": ..., "mode": ...}) and optionally a
+    # session_id to resume. A write task in research clothing cannot
+    # write — per-task agents are the fix. Agent NAMES stay raw here;
+    # the registry resolves (or rejects) them once the workspace is
+    # known, so custom agents work per-task too.
     actual_tasks: list[str] = []
     task_modes: list[str] = []
-    _mode_aliases = {"general": "code", "explore": "research", "build": "code", "plan": "research"}
+    task_session_ids: list[str] = []
     for _entry in (tasks or []):
         if isinstance(_entry, dict):
             _text = str(_entry.get("task") or _entry.get("prompt") or _entry.get("description") or "").strip()
             _m = str(_entry.get("mode") or _entry.get("subagent_type") or "").strip().lower()
-            _m = _mode_aliases.get(_m, _m)
-            if _m not in {"research", "code", "test", "review"}:
-                _m = mode
             if _text:
                 actual_tasks.append(_text)
                 task_modes.append(_m)
+                task_session_ids.append(str(_entry.get("session_id") or "").strip())
         elif _entry is not None and str(_entry).strip():
             actual_tasks.append(str(_entry))
-            task_modes.append(mode)
+            task_modes.append("")
+            task_session_ids.append("")
     if isinstance(tasks, dict):
         actual_tasks = []
         task_modes = []
+        task_session_ids = []
     runnable_config = config if isinstance(config, dict) else {}
     caller_thread = (runnable_config or {}).get("configurable", {}).get("thread_id", "") if isinstance(runnable_config, dict) else ""
     if isinstance(config, dict) and not caller_thread:
@@ -855,6 +913,24 @@ def delegate_to_subagent_batch(
             f"into smaller batches."
         )
 
+    # Resolve every task's agent (open registry + spawn policy), the
+    # same rules as the single delegate: unknown agent = hard error
+    # with the available list; denied agent = policy error.
+    from src.agents.subagent_registry import available_agents, denied_reason, resolve_agent
+
+    _ws = str(runnable_config.get("configurable", {}).get("workspace") or "") or None
+    defs = []
+    for _name in task_modes:
+        _def = resolve_agent(_name, _ws) or resolve_agent(mode, _ws)
+        if _def is None:
+            _names = ", ".join(a.name for a in available_agents(_ws))
+            return f"⛔ Unknown sub-agent '{_name or mode}'. Available agents: {_names}."
+        _denied = denied_reason(_def.name)
+        if _denied:
+            return f"⛔ {_denied}"
+        defs.append(_def)
+    batch_model = (model or "").strip() or LLM_MODEL
+
     # Stop on the parent cascades into every batch child (OpenCode:
     # interrupt cancels the job and its children): an abort registered
     # on the parent's turn cancels each running child's turn, which
@@ -878,16 +954,44 @@ def delegate_to_subagent_batch(
         _tc2.register_abort(_parent_thread, _abort_batch_children)
     except Exception:
         pass
+    agent_ids: list[str] = [""] * len(actual_tasks)
+    resume_results: dict[int, str] = {}
     try:
-        agent_ids = subagent_coordinator.spawn_batch(
-            mode=mode,
-            tasks=actual_tasks,
-            parent_thread_id=_parent_thread,
-            provider=LLM_PROVIDER,
-            model=LLM_MODEL,
-            workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
-            modes=task_modes,
-        )
+        # Resume entries first, in order (a follow-up continues its own
+        # session — sequential by nature); fresh spawns then run parallel.
+        spawn_indexes: list[int] = []
+        for _i, _sid in enumerate(task_session_ids):
+            if not _sid:
+                spawn_indexes.append(_i)
+                continue
+            agent_ids[_i] = _sid
+            try:
+                from src.agents.subagent_lifecycle import subagent_lifecycle as _lc
+
+                _handle = _lc.resume_child(
+                    _sid, goal=actual_tasks[_i], parent_session_id=_parent_thread,
+                    workspace=_ws, provider=LLM_PROVIDER, model=batch_model,
+                )
+                _res = _lc.wait(_handle, timeout=600)
+                resume_results[_i] = _res.get("result") or _res.get("error") or "No result"
+            except ValueError as exc:
+                resume_results[_i] = f"⛔ Cannot resume sub-agent session '{_sid}': {exc}"
+            except Exception:
+                resume_results[_i] = "⛔ Resume unavailable right now; spawn a fresh sub-agent instead."
+        if spawn_indexes:
+            _spawned = subagent_coordinator.spawn_batch(
+                mode=defs[spawn_indexes[0]].base_mode,
+                tasks=[actual_tasks[_i] for _i in spawn_indexes],
+                parent_thread_id=_parent_thread,
+                provider=LLM_PROVIDER,
+                model=batch_model,
+                workspace=_ws,
+                modes=[defs[_i].base_mode for _i in spawn_indexes],
+                agent_prompts=[defs[_i].prompt for _i in spawn_indexes],
+                capabilities=[tuple(defs[_i].capabilities) for _i in spawn_indexes],
+            )
+            for _i, _spawned_id in zip(spawn_indexes, _spawned):
+                agent_ids[_i] = _spawned_id
     finally:
         try:
             from src.runtime.turn_control import turn_controls as _tc3
@@ -900,7 +1004,7 @@ def delegate_to_subagent_batch(
         from src.agents.subagent_permissions import format_task_output
         parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
-            result = subagent_coordinator.get_result(agent_id)
+            result = resume_results.get(i - 1) or subagent_coordinator.get_result(agent_id)
             xml_output = format_task_output(session_id=agent_id, state="completed", text=result[:2000])
             parts.append(
                 f"--- [{i}] Task: {task[:200]} ---\n{result[:2000]}\n(ID: {agent_id})\n{xml_output}\n"
@@ -909,7 +1013,7 @@ def delegate_to_subagent_batch(
     except Exception:
         parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
-            result = subagent_coordinator.get_result(agent_id)
+            result = resume_results.get(i - 1) or subagent_coordinator.get_result(agent_id)
             parts.append(
                 f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
             )
@@ -1084,6 +1188,9 @@ tools = [
 # bound list; the SafeToolNode executes whatever the model calls.             #
 # --------------------------------------------------------------------------- #
 _TOOLS_BY_NAME: dict[str, Any] = {t.name: t for t in tools}
+# Base descriptions of the delegate tools, captured before the binder
+# starts refreshing them with the live agent registry listing.
+_DELEGATE_BASE_DESCRIPTIONS: dict[str, str] = {}
 _TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
 
 _FILE_DELIVERY_TOOLS = frozenset({
@@ -1342,6 +1449,30 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
     configurable["phase_max_file_mutations"] = phase.max_file_mutations_per_turn
     configurable["phase_guidance"] = phase.guidance
+    # Dynamic agent list (OpenCode builds the task tool's description
+    # from the live registry): refresh the delegate tools' descriptions
+    # with the agents THIS workspace has, so the model can name custom
+    # agents it was never hard-coded to know. Rebuilt from the stored
+    # base each bind — never appended twice.
+    if "delegate_to_subagent" in names or "delegate_to_subagent_batch" in names:
+        try:
+            from src.agents.subagent_registry import available_agents
+
+            _listing = "; ".join(
+                f"{agent.name} — {agent.description}"
+                for agent in available_agents(str(workspace))
+            )
+            for _tool_name in ("delegate_to_subagent", "delegate_to_subagent_batch"):
+                _tool_obj = _TOOLS_BY_NAME.get(_tool_name)
+                if _tool_obj is None:
+                    continue
+                if _tool_name not in _DELEGATE_BASE_DESCRIPTIONS:
+                    _DELEGATE_BASE_DESCRIPTIONS[_tool_name] = _tool_obj.description
+                _tool_obj.description = (
+                    f"{_DELEGATE_BASE_DESCRIPTIONS[_tool_name]}\n\nAvailable agents: {_listing}"
+                )
+        except Exception:
+            pass  # description refresh must never break binding
     bound = [_TOOLS_BY_NAME[n] for n in names if n in _TOOLS_BY_NAME]
     if bound:
         return bound

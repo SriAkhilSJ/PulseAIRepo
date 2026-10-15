@@ -3477,6 +3477,19 @@ function childNavBar(model, host) {
     if (ownRecord && (ownRecord.state === 'running' || ownRecord.state === 'pending')) {
         bar.append(element('span', 'crusorai-child-live', element('span', 'crusorai-mini-spinner'), element('span', undefined, 'Running…')));
     }
+    // Sibling switcher (OpenCode's child header lists the other children
+    // of the same parent): hop between workers without going back first.
+    if (model.childSiblings?.length && host.navigateToSession) {
+        const siblings = element('span', 'crusorai-child-nav-siblings');
+        for (const sibling of model.childSiblings) {
+            const chip = element('button', 'crusorai-child-nav-sibling', sibling.label.slice(0, 40));
+            chip.type = 'button';
+            chip.title = `Open ${sibling.label}`;
+            chip.addEventListener('click', () => host.navigateToSession(sibling.id));
+            siblings.append(chip);
+        }
+        bar.append(siblings);
+    }
     return bar;
 }
 function agentColumn(model, host, openTools, closedTools, activity, planOpen, setPlanOpen) {

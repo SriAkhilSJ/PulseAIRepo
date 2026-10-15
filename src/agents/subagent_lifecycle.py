@@ -51,6 +51,11 @@ class _Record:
     background: bool = False
     child_thread_id: str = ""
     workspace: str = ""
+    # OpenCode parity: per-agent / per-call model + prompt, and resume.
+    provider: str = ""
+    model: str = ""
+    agent_prompt: str | None = None
+    continuation: bool = False
 
 
 class SubagentLifecycleService:
@@ -86,6 +91,9 @@ class SubagentLifecycleService:
         parent_permission: list[dict] | None = None,
         subagent_permission: list[dict] | None = None,
         workspace: str | None = None,
+        provider: str = "",
+        model: str = "",
+        agent_prompt: str | None = None,
     ) -> SubagentHandle:
         if mode not in {"research", "code", "test", "review"}:
             raise ValueError("invalid subagent mode")
@@ -132,6 +140,9 @@ class SubagentLifecycleService:
             background=background,
             child_thread_id=sid,
             workspace=workspace or "",
+            provider=provider,
+            model=model,
+            agent_prompt=agent_prompt,
         )
         with self._lock:
             self._records[sid] = record
@@ -154,6 +165,58 @@ class SubagentLifecycleService:
                 tool_calls=0,
                 background=background,
             ))
+        except Exception:
+            pass
+        record.future = self._pool.submit(self._run, record)
+        return handle
+
+    def resume_child(
+        self, child_id: str, *, goal: str, parent_session_id: str,
+        workspace: str | None = None, provider: str = "", model: str = "",
+        description: str = "",
+    ) -> SubagentHandle:
+        """Continue an existing child session (OpenCode: passing a
+        sessionID to the task tool resumes that session — same thread,
+        same checkpoint, so the worker keeps its context; the specialist
+        persona is NOT re-applied, the follow-up goes in verbatim). Only
+        the child's own parent may resume it, and only once it settled."""
+        if not goal.strip() or len(goal) > 16000:
+            raise ValueError("goal must be 1..16000 characters")
+        from src.runtime.subagent_store import get_store
+
+        row = get_store().get(child_id)
+        if row is None:
+            raise ValueError(f"unknown sub-agent session '{child_id}'")
+        if str(row.parent_session_id) != str(parent_session_id):
+            raise ValueError(f"session '{child_id}' belongs to a different parent session")
+        if str(row.state) in ("running", "pending"):
+            raise ValueError(f"session '{child_id}' is still running")
+        with self._lock:
+            existing = self._records.get(child_id)
+            if existing is not None and existing.state in (SubagentState.RUNNING, SubagentState.PENDING):
+                raise ValueError(f"session '{child_id}' is still running")
+        from src.agents.subagent_permissions import default_capabilities_for_mode
+
+        mode = row.mode if row.mode in {"research", "code", "test", "review"} else "code"
+        created = time.time()
+        handle = SubagentHandle(child_id, parent_session_id, created, self._token(child_id, parent_session_id, created))
+        record = _Record(
+            handle, SubagentState.PENDING, goal, mode,
+            tuple(default_capabilities_for_mode(mode)),
+            description=(description or goal[:50])[:200],
+            agent_name=row.agent_name or mode,
+            background=False,
+            child_thread_id=child_id,
+            workspace=workspace or "",
+            provider=provider,
+            model=model,
+            continuation=True,
+        )
+        with self._lock:
+            self._records[child_id] = record
+        # Refresh the durable row so lists/cards show it running again.
+        try:
+            get_store().update(child_id, state=record.state.value, updated_at=record.updated_at)
         except Exception:
             pass
         record.future = self._pool.submit(self._run, record)
@@ -273,13 +336,21 @@ class SubagentLifecycleService:
         self._emit(record)
         try:
             from src.agents.sub_agent import subagent_coordinator
+            _model_kwargs: dict[str, str] = {}
+            if record.provider:
+                _model_kwargs["provider"] = record.provider
+            if record.model:
+                _model_kwargs["model"] = record.model
             agent_id = subagent_coordinator.spawn(
                 mode=record.mode, task=record.goal,
                 parent_thread_id=record.handle.parent_session_id,
+                **_model_kwargs,
                 allowed_capabilities=record.allowed_capabilities,
                 description=record.description,
                 background=record.background,
                 tool_call_id=record.tool_call_id,
+                agent_prompt=record.agent_prompt,
+                continuation=record.continuation,
                 # The lifecycle emits this child's subagent.updated
                 # stream itself; the coordinator must not double-speak.
                 emit_events=False,
