@@ -224,7 +224,7 @@ def web_search(query: str, max_results: int = 5) -> str:
 
 @tool
 def web_extract(
-    urls: list[str],
+    urls: list[str] | str | None = None,
     max_chars: int = 12_000,
     char_limit: int | None = None,
     url: str = "",
@@ -244,6 +244,12 @@ def web_extract(
     with a page, or to verify that a web app you built actually renders
     and works for the user, use the browser tools (browser_navigate).
     """
+    # `urls` used to be REQUIRED, so the legacy single-`url` call the
+    # signature itself advertises died in pydantic validation before
+    # this body ran (field 2026-10-15: one wasted model round-trip +
+    # a red error row). Optional now, and a bare string is one URL.
+    if isinstance(urls, str):
+        urls = [urls] if urls.strip() else []
     items: list[str] = list(urls or [])[:5]  # hermes WEB_EXTRACT_SCHEMA maxItems
     if url and url not in items:
         items.append(url)
