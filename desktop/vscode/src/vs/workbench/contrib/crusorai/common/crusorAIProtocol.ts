@@ -142,6 +142,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'reasoning'; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'plan_updated'; readonly steps: readonly unknown[] } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_start'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)
+	| ({ readonly type: 'tool_call_args'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_end'; readonly tool_id: string; readonly status: string; readonly result?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_output'; readonly tool_id: string; readonly name: string; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown; readonly diff?: unknown; readonly warning?: string } & CrusorIdentity)

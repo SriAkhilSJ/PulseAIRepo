@@ -1575,8 +1575,39 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			if (openReasoning && !openReasoning.completedAt) {
 				openReasoning.completedAt = Date.now();
 			}
+			if (!this.tools.has(frame.tool_id)) {
+				// Rebind a streamed preview whose provider never sent the
+				// call id in its chunks (it streamed as stream-<index>):
+				// the durable start adopts that card instead of doubling it.
+				const orphanIndex = this.parts.findIndex(p => p.kind === 'tool' && p.toolId.startsWith('stream-')
+					&& this.tools.get(p.toolId)?.name === frame.name
+					&& this.tools.get(p.toolId)?.state === 'running');
+				if (orphanIndex >= 0) {
+					const orphanId = (this.parts[orphanIndex] as { toolId: string }).toolId;
+					this.tools.delete(orphanId);
+					this.parts[orphanIndex] = { kind: 'tool', toolId: frame.tool_id };
+				}
+			}
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
 			this.pushToolPart(frame.tool_id);
+		} else if (frame.type === 'tool_call_args') {
+			// Streamed tool-call arguments (OpenCode renders edit/write
+			// cards from the streaming input): the card is BORN with the
+			// first fragment and its content grows; the durable
+			// tool_call_start above lands later with complete arguments.
+			const existing = this.tools.get(frame.tool_id);
+			if (existing) {
+				if (existing.state === 'running' || existing.state === 'queued') {
+					this.tools.set(frame.tool_id, { ...existing, arguments: frame.arguments ?? existing.arguments });
+				}
+			} else if (frame.name) {
+				const openReasoning = this.reasoningParts[this.reasoningParts.length - 1];
+				if (openReasoning && !openReasoning.completedAt) {
+					openReasoning.completedAt = Date.now();
+				}
+				this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
+				this.pushToolPart(frame.tool_id);
+			}
 		} else if (frame.type === 'tool_output') {
 			// Live shell output (OpenCode cursor-tail discipline): append to
 			// the running tool's result, keep only the last 64 KB. The

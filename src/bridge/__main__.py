@@ -434,6 +434,7 @@ class BridgeServer:
             "llm.response": "llm.response",
             "reasoning.update": "reasoning",
             "tool.call": "tool_call_start",
+            "tool.args": "tool_call_args",
             "tool.result": "tool_call_end",
             "tool.output": "tool_output",
             "tool.approval.request": "safety_request",
@@ -486,6 +487,13 @@ class BridgeServer:
             # its painted chars; the replacement attempt paints fresh.
             return {**base, "chars": max(0, int(payload.get("chars") or 0))}
         if target == "tool_call_start":
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "arguments": payload.get("arguments", payload.get("tool_args")),
+            }
+        if target == "tool_call_args":
+            # Streamed arguments snapshot (ephemeral; the durable
+            # tool_call_start carries the complete arguments).
             return {
                 **base, "tool_id": tool_id, "name": name,
                 "arguments": payload.get("arguments", payload.get("tool_args")),

@@ -1665,7 +1665,7 @@ def test_user_close_sticks_and_scrolling_is_free():
     assert "details.open = !closedTools.has(key) && (runLive || openTools.has(key))" in renderer
     assert "closedTools.add(tool.id)" in renderer and "closedTools.delete(tool.id)" in renderer
     # Write = content text view; edits keep the diff.
-    assert "tool.name !== 'write_file' && diff" in renderer
+    assert "const streamText" in renderer, "while streaming, the growing content is the view"
     # Free scrolling: no repaint may pin to the floor mid-run.
     assert "scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120 || model.running" not in renderer
     assert "previousScroll.clientHeight < 120 || model.running" not in renderer
@@ -1716,3 +1716,29 @@ def test_file_accordion_matches_the_opencode_reference_render():
     assert ".crusorai-file-scroll { max-height: 300px" in css
     assert ".crusorai-scroll-down {" in css and ".crusorai-scroll-down.is-hidden" in css
     assert ".crusorai-file-view {" in css
+
+
+def test_tool_cards_stream_from_tool_call_args():
+    """Founder 2026-10-15: 'also should be streamable refer opencode and
+    implement' + 'show green and red diffs'. OpenCode renders edit/
+    write cards from the STREAMING input (status='streaming', input
+    growing). The pipeline: the token pump accumulates
+    tool_call_chunks -> tool.args bus events -> Bridge v2
+    tool_call_args frames -> the service births the card early (or
+    rebinds a stream-<index> preview when the durable start lands)
+    -> the body shows the growing content/new_text, settling into
+    the green/red diff when the result arrives. Cards now default
+    open while running so the growth is visible; a user close still
+    wins (closedTools)."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    catalog = _text("common", "crusorAIToolCatalog.ts")
+    protocol = _text("common", "crusorAIProtocol.ts")
+    assert "frame.type === 'tool_call_args'" in service
+    assert "p.toolId.startsWith('stream-')" in service, "streamed previews rebind, never double"
+    assert "type: 'tool_call_args'" in protocol
+    assert "write_file: tool('Write', 'file-write', 'file-add', 'running')" in catalog
+    assert "edit_file: tool('Edit', 'file-write', 'edit', 'running')" in catalog
+    # Settled calls show the diff (green/red) for write too; while
+    # streaming, content/new_text grows in the code view.
+    assert "if (diff) {" in renderer and "codeView(streamText.slice(0, 32_000))" in renderer

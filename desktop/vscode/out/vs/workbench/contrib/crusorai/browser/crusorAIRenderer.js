@@ -1163,31 +1163,26 @@ function familyBody(tool, host) {
             // itself in edit-content — or, for a write with no diff, the
             // written content in write-content — plus earned diagnostics.
             const diff = editDiffText(tool);
-            // OpenCode's write render NEVER shows a diff (tool-renderer.tsx
-            // write: the file component in text mode) — a write's receipt
-            // diff is all '+' lines, which painted as a solid green wall
-            // (founder 2026-10-15: 'write file is not like opencode, worst
-            // look'). Writes show the written content; edits show the diff.
-            // Either way the view rides inside the file accordion box
-            // (their ToolFileAccordion) with its own scroll frame.
+            // The pipeline (OpenCode): a settled call shows its DIFF —
+            // green/red, guttered — for edit and write alike; while the
+            // call is still streaming in (tool_call_args frames), there
+            // is no diff yet, so the view shows the GROWING content
+            // (content for write, new_text for edit) in the code view.
+            const streamText = typeof args?.content === 'string' && args.content
+                ? args.content
+                : (typeof args?.new_text === 'string' && args.new_text ? args.new_text : undefined);
             let view;
-            if (tool.name !== 'write_file' && diff) {
+            if (diff) {
                 const editBox = element('div', 'crusorai-edit-content');
                 editBox.dataset.component = 'edit-content';
                 editBox.append(diffPreview(diff));
                 view = editBox;
             }
-            else if (typeof args?.content === 'string' && args.content) {
+            else if (streamText !== undefined) {
                 const writeBox = element('div', 'crusorai-write-content');
                 writeBox.dataset.component = 'write-content';
-                writeBox.append(codeView(args.content.slice(0, 32_000)));
+                writeBox.append(codeView(streamText.slice(0, 32_000)));
                 view = writeBox;
-            }
-            else if (diff) {
-                const editBox = element('div', 'crusorai-edit-content');
-                editBox.dataset.component = 'edit-content';
-                editBox.append(diffPreview(diff));
-                view = editBox;
             }
             if (view) {
                 body.append(fileAccordion(tool, host, view));

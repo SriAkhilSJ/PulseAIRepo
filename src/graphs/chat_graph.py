@@ -2674,6 +2674,78 @@ _THINK_CLOSE = "</think>"
 _TOOL_BLOCK_SWALLOW_LIMIT = 65_536
 
 
+_PARTIAL_ARG_FIELDS = (
+    "path", "file_path", "content", "new_text", "old_text",
+    "command", "description", "prompt", "query", "pattern", "name", "url",
+)
+
+
+def _partial_json_string(raw: str, field: str) -> str | None:
+    """Decode a string field's value-so-far out of half-streamed JSON.
+
+    The arguments object is invalid JSON until the call completes, so
+    this scans for `"field": "` and decodes escapes until the closing
+    quote or the end of what has arrived (a trailing half-escape is
+    dropped, never painted). Returns None when the field has not
+    started streaming yet.
+    """
+    match = re.search(r'"' + re.escape(field) + r'"\s*:\s*"', raw)
+    if not match:
+        return None
+    i = match.end()
+    chars: list[str] = []
+    escapes = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f"}
+    while i < len(raw):
+        c = raw[i]
+        if c == "\\":
+            if i + 1 >= len(raw):
+                break
+            esc = raw[i + 1]
+            if esc == "u":
+                if i + 6 > len(raw):
+                    break
+                try:
+                    chars.append(chr(int(raw[i + 2:i + 6], 16)))
+                except ValueError:
+                    break
+                i += 6
+                continue
+            chars.append(escapes.get(esc, esc))
+            i += 2
+            continue
+        if c == '"':
+            break
+        chars.append(c)
+        i += 1
+    return "".join(chars)
+
+
+def _partial_tool_args(raw: str) -> dict:
+    """Lenient snapshot of a streaming tool call's arguments.
+
+    OpenCode renders edit/write cards from the STREAMING input, so the
+    card grows while the model is still writing the call. The full
+    parse wins whenever the JSON happens to be complete already;
+    otherwise the string fields the cards actually read are decoded
+    incrementally. Deliberately lossy: the durable tool.call frame
+    that follows carries the authoritative arguments.
+    """
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    out: dict = {}
+    for field in _PARTIAL_ARG_FIELDS:
+        value = _partial_json_string(raw, field)
+        if value is not None:
+            out[field] = value
+    return out
+
+
 class _AgentTokenPump(BaseCallbackHandler):
     """Forward the agent node's tokens to the event bus as live deltas.
 
@@ -2745,6 +2817,11 @@ class _AgentTokenPump(BaseCallbackHandler):
         # NOTHING because the endpoint buffered the whole completion —
         # text reached the transcript only via streamed chunks).
         self.text_chars = 0
+        # Streamed tool-call arguments (OpenCode renders edit/write cards
+        # from the streaming input): per-chunk-index accumulators fed by
+        # AIMessageChunk.tool_call_chunks. Keyed by chunk index; the
+        # provider id is captured from whichever chunk carries it.
+        self._tool_arg_acc: dict[int, dict] = {}
 
     def _emit_reasoning(self, piece: str) -> None:
         """Forward a reasoning delta as the ACCUMULATED text.
@@ -2774,6 +2851,87 @@ class _AgentTokenPump(BaseCallbackHandler):
         self.token_count += 1
         self.char_count += len(piece)
 
+    def _observe_tool_chunks(self, chunk) -> None:  # noqa: ANN001
+        """Accumulate streamed tool-call argument fragments.
+
+        Chat-model chunks carry tool_call_chunks (name + partial args
+        JSON string per index); some routers only fill the raw
+        additional_kwargs tool_calls deltas. Both shapes feed the same
+        accumulator. Emission is throttled by growth — the renderer
+        repaints per frame anyway. NEVER raises: a telemetry failure
+        must not break the model call (class contract).
+        """
+        try:
+            message = getattr(chunk, "message", None)
+            if message is None:
+                return
+            fragments: list[dict] = []
+            chunks = getattr(message, "tool_call_chunks", None) or []
+            for entry in chunks:
+                if isinstance(entry, dict):
+                    fragments.append({
+                        "index": entry.get("index", 0) or 0,
+                        "id": entry.get("id"),
+                        "name": entry.get("name"),
+                        "args": entry.get("args"),
+                    })
+            if not fragments:
+                extra = getattr(message, "additional_kwargs", None) or {}
+                for entry in extra.get("tool_calls") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    fn = entry.get("function") or {}
+                    fragments.append({
+                        "index": entry.get("index", 0) or 0,
+                        "id": entry.get("id"),
+                        "name": fn.get("name") or entry.get("name"),
+                        "args": fn.get("arguments"),
+                    })
+            for frag in fragments:
+                index = frag["index"]
+                acc = self._tool_arg_acc.setdefault(
+                    index, {"id": None, "name": "", "raw": "", "emitted_len": -1})
+                if frag.get("id"):
+                    acc["id"] = str(frag["id"])
+                if frag.get("name"):
+                    acc["name"] = str(frag["name"])
+                if isinstance(frag.get("args"), str):
+                    acc["raw"] += frag["args"]
+                if acc["name"] and (
+                    acc["emitted_len"] < 0
+                    or len(acc["raw"]) - acc["emitted_len"] >= 96
+                ):
+                    self._emit_tool_args(index, acc)
+        except Exception:
+            pass
+
+    def _emit_tool_args(self, index: int, acc: dict) -> None:
+        acc["emitted_len"] = len(acc["raw"])
+        self.streamed = True
+        try:
+            event_bus.emit("tool.args", {
+                "tool_id": f"{self._thread_id}-{acc['id'] or f'stream-{index}'}",
+                "tool_name": acc["name"],
+                "tool_args": _partial_tool_args(acc["raw"]),
+                "thread_id": self._thread_id,
+            })
+        except Exception:
+            pass
+
+    def on_llm_end(self, response, **kwargs) -> None:  # noqa: ANN001, ANN003
+        # Flush the final fragments so the card paints the complete
+        # input just before the durable tool.call frame lands.
+        try:
+            for index, acc in self._tool_arg_acc.items():
+                if acc["name"] and len(acc["raw"]) != acc["emitted_len"]:
+                    self._emit_tool_args(index, acc)
+        except Exception:
+            pass
+        self._tool_arg_acc.clear()
+
+    def on_llm_error(self, error, **kwargs) -> None:  # noqa: ANN001, ANN003
+        self._tool_arg_acc.clear()
+
     def on_llm_new_token(self, token, **kwargs) -> None:  # noqa: ANN001, ANN003
         # Chat models may deliver the chunk payload as the positional string
         # OR as a GenerationChunk on the token/kwarg -- take .text when the
@@ -2782,6 +2940,8 @@ class _AgentTokenPump(BaseCallbackHandler):
         # on the message or the chunk) -- forward them as live Thinking BEFORE
         # the answer, exactly as hermes' desktop separates thought from reply.
         chunk = kwargs.get("chunk")
+        if chunk is not None:
+            self._observe_tool_chunks(chunk)
         reasoning_piece = ""
         if chunk is not None:
             extra = getattr(chunk, "additional_kwargs", None) or {}

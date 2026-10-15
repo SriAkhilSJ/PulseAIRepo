@@ -354,3 +354,85 @@ def test_content_block_answers_normalize_to_clean_text():
         assert isinstance(cg._result_answer_text(message), str)
     finally:
         cg.event_bus.emit = original
+
+
+# ---------------------------------------------------------------------------
+# streamed tool-call arguments: edit/write cards grow while the model writes
+# ---------------------------------------------------------------------------
+
+def _chunk_with_tool_fragments(fragments):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        message=SimpleNamespace(tool_call_chunks=fragments, additional_kwargs={}),
+        additional_kwargs={},
+    )
+
+
+def test_pump_streams_partial_tool_args(monkeypatch):
+    """OpenCode renders edit/write cards from the streaming input: the
+    pump accumulates tool_call_chunks fragments and emits tool.args
+    snapshots (lenient-parsed) long before the call completes."""
+    import src.graphs.chat_graph as chat_graph
+
+    emitted = []
+    monkeypatch.setattr(chat_graph, "event_bus", type(
+        "Bus", (), {"emit": staticmethod(lambda kind, payload: emitted.append((kind, payload)))}
+    )())
+
+    pump = chat_graph._AgentTokenPump("thread-1")
+    raw = '{"path": "src/a.py", "content": "line one\\nline two with \\"quotes\\" and more text to grow past the throttle window...."}'
+    # fragment 1: name + id + args start; fragment 2: args continue (no id)
+    pump.on_llm_new_token("", chunk=_chunk_with_tool_fragments([
+        {"index": 0, "id": "call_1", "name": "write_file", "args": raw[:30]},
+    ]))
+    pump.on_llm_new_token("", chunk=_chunk_with_tool_fragments([
+        {"index": 0, "id": None, "name": None, "args": raw[30:80]},
+    ]))
+    pump.on_llm_new_token("", chunk=_chunk_with_tool_fragments([
+        {"index": 0, "id": None, "name": None, "args": raw[80:]},
+    ]))
+    pump.on_llm_end(None)
+
+    kinds = [kind for kind, _ in emitted]
+    assert kinds and all(kind == "tool.args" for kind in kinds), kinds
+    payloads = [payload for _, payload in emitted]
+    assert payloads[0]["tool_id"] == "thread-1-call_1"
+    assert payloads[0]["tool_name"] == "write_file"
+    # partial JSON decoded leniently: path present from the first frame,
+    # content grows across frames with escapes decoded.
+    assert payloads[0]["tool_args"]["path"] == "src/a.py"
+    contents = [p["tool_args"].get("content", "") for p in payloads]
+    assert contents == sorted(contents, key=len) and contents[-1].startswith("line one\nline two")
+    assert 'with "quotes"' in contents[-1]
+
+
+def test_pump_streams_args_without_provider_id(monkeypatch):
+    """Routers that never put the call id in chunks stream under a
+    stream-<index> id; the renderer rebinds it when the durable
+    tool_call_start lands (see rendererService)."""
+    import src.graphs.chat_graph as chat_graph
+
+    emitted = []
+    monkeypatch.setattr(chat_graph, "event_bus", type(
+        "Bus", (), {"emit": staticmethod(lambda kind, payload: emitted.append((kind, payload)))}
+    )())
+
+    pump = chat_graph._AgentTokenPump("thread-9")
+    pump.on_llm_new_token("", chunk=_chunk_with_tool_fragments([
+        {"index": 0, "id": None, "name": "edit_file", "args": '{"path": "b.py", "new_text": "x"}'},
+    ]))
+    assert emitted and emitted[0][1]["tool_id"] == "thread-9-stream-0"
+    assert emitted[0][1]["tool_args"]["new_text"] == "x"
+
+
+def test_partial_tool_args_drops_trailing_half_escape():
+    import src.graphs.chat_graph as chat_graph
+
+    # raw ends mid-escape / mid-unicode: the tail is dropped, never painted
+    out = chat_graph._partial_tool_args('{"content": "abc\\')
+    assert out["content"] == "abc"
+    out = chat_graph._partial_tool_args('{"content": "abc\\u12')
+    assert out["content"] == "abc"
+    # complete JSON parses whole
+    assert chat_graph._partial_tool_args('{"path": "x", "n": 3}') == {"path": "x", "n": 3}
