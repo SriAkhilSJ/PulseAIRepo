@@ -1865,6 +1865,24 @@ def test_web_fetch_earns_no_match_count_chip():
     assert "Web rows earn no match count" in renderer
 
 
+def test_clarify_always_renders_as_its_card_never_raw_json():
+    """Field 2026-10-15: a sub-agent's clarify painted as a generic
+    shell dumping the raw arguments JSON ('DETAILS {"arguments":
+    ...}') — settled calls only reached clarifyCard when a live
+    pending request existed, which replays and child views never
+    have. Every clarify tool now routes to the card: pending ->
+    interactive form, settled -> Q&A from the result, in-flight
+    without a frame -> the read-only question ('clarify-waiting').
+    The card call also passes closedTools + pending in the right
+    slots (it previously dropped a parameter, leaving pending
+    permanently undefined at runtime)."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "if (tool.name === 'clarify') {" in renderer
+    assert "clarifyCard(tool, host, openTools, closedTools, pendingClarify)" in renderer
+    assert "pending?: CrusorAIRenderModel['clarify']" in renderer
+    assert "card.dataset.component = 'clarify-waiting'" in renderer
+
+
 def test_subagent_card_is_honest_about_navigation():
     """Sub-agent family pass. Founder 2026-10-15 (second verdict):
     "the sub agent UI in the main agent is not nice — see the

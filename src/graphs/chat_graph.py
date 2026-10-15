@@ -746,16 +746,23 @@ def delegate_to_subagent(
 @tool
 def delegate_to_subagent_batch(
     mode: Literal["research", "code", "test", "review"] = "code",
-    tasks: list[str] = None,  # type: ignore
+    tasks: list = None,  # type: ignore
     config: RunnableConfig = None,  # type: ignore
 ) -> str:
     """
     Delegate SEVERAL independent sub-tasks at once — they run in parallel.
 
     WHEN TO USE:
-    - 2-5 INDEPENDENT pieces of the same kind (e.g. "review these 3 files",
+    - 2-5 INDEPENDENT pieces (e.g. "review these 3 files",
       "research these 2 libraries"). Independence means: different files,
       no piece needs another piece's output.
+
+    TASK SHAPE: each entry is either a plain string (runs with the batch
+    `mode`) or {"task": "...", "mode": "research|code|test|review"}.
+    Give EVERY task the mode ITS work needs — a task that writes or runs
+    code must be mode="code" even when batched next to research tasks:
+    the mode sets the child's tools and instructions, and a writer in
+    research mode cannot write.
 
     WHEN NOT TO USE:
     - A single sub-task (use delegate_to_subagent).
@@ -769,9 +776,28 @@ def delegate_to_subagent_batch(
     from src.config.settings import LLM_PROVIDER, LLM_MODEL
     import os
 
-    actual_tasks = tasks or []
+    # Normalize entries: plain strings take the batch mode; dict entries
+    # carry their own mode ({"task": ..., "mode": ...}). A write task in
+    # research clothing cannot write — per-task modes are the fix.
+    actual_tasks: list[str] = []
+    task_modes: list[str] = []
+    _mode_aliases = {"general": "code", "explore": "research", "build": "code", "plan": "research"}
+    for _entry in (tasks or []):
+        if isinstance(_entry, dict):
+            _text = str(_entry.get("task") or _entry.get("prompt") or _entry.get("description") or "").strip()
+            _m = str(_entry.get("mode") or _entry.get("subagent_type") or "").strip().lower()
+            _m = _mode_aliases.get(_m, _m)
+            if _m not in {"research", "code", "test", "review"}:
+                _m = mode
+            if _text:
+                actual_tasks.append(_text)
+                task_modes.append(_m)
+        elif _entry is not None and str(_entry).strip():
+            actual_tasks.append(str(_entry))
+            task_modes.append(mode)
     if isinstance(tasks, dict):
         actual_tasks = []
+        task_modes = []
     runnable_config = config if isinstance(config, dict) else {}
     caller_thread = (runnable_config or {}).get("configurable", {}).get("thread_id", "") if isinstance(runnable_config, dict) else ""
     if isinstance(config, dict) and not caller_thread:
@@ -817,6 +843,7 @@ def delegate_to_subagent_batch(
         provider=LLM_PROVIDER,
         model=LLM_MODEL,
         workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
+        modes=task_modes,
     )
 
     try:

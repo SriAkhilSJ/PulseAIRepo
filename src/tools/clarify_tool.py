@@ -272,10 +272,28 @@ def clarify(
 ) -> str:
     """Ask the user one or more questions when you need a decision, clarification, or feedback before proceeding. Pass every question in `questions` (1-5 entries) — a single question is a one-entry array, and several INDEPENDENT questions belong in ONE call (one form beats a chain of clarify calls; if one answer would change another question, ask separately). Per question: single-select (up to 4 choices — put your recommended option FIRST, the UI marks it '(Recommended)' and auto-appends an 'Other' free-text row), multi-select (multi_select=true), or open-ended (omit choices). Options go ONLY in `choices`, never enumerated inside the question text (choices render as pickable rows; options written into the question are dead prose the user can't click). Result: {responses: [...]} in question order (plus timed_out=true if the user stopped part-way). Prefer deciding low-stakes questions yourself; don't use this for dangerous-command confirmation (the terminal tool handles that)."""
     session_id = "default"
+    _configurable: dict = {}
     try:
-        session_id = str((config or {}).get("configurable", {}).get("thread_id") or "default")
+        _configurable = (config or {}).get("configurable", {}) or {}
+        session_id = str(_configurable.get("thread_id") or "default")
     except Exception:
         pass
+    # Sub-agent children have no user to ask: their session is read-only
+    # in the desktop (prompt disabled by design) and the parent's turn
+    # is blocked inside the delegation, so a blocking question freezes
+    # the child for the full timeout with nobody able to answer (field
+    # 2026-10-15: a research child stalled on a model-authored
+    # placeholder question and its session read as a dead, unscrollable
+    # page for five minutes). Children get the walk-away outcome
+    # immediately — the same result a timeout produces — and proceed on
+    # best judgment. The parent (non-strict) still asks normally.
+    if _configurable.get("scope_capabilities_strict"):
+        return clarify_tool(
+            questions=questions, question=question, choices=choices,
+            multi_select=multi_select,
+            callback=lambda *a, **k: TIMEOUT_RESPONSE,
+            session_id=session_id, timeout=0.0,
+        )
     timeout = 300.0
     try:
         import os

@@ -774,11 +774,19 @@ function taskToolCard(tool, host, subAgents = []) {
         };
         const batchList = element('div', 'crusorai-task-tool-batch');
         for (let i = 0; i < batchTasks.length; i++) {
-            const t = String(batchTasks[i] ?? '');
+            // Entries are plain strings or {task, mode} objects (each
+            // task names its own agent — a writer batched with
+            // researchers still runs as a writer).
+            const entry = batchTasks[i];
+            const entryRec = entry && typeof entry === 'object' ? entry : undefined;
+            const t = entryRec
+                ? String(entryRec.task ?? entryRec.prompt ?? entryRec.description ?? '')
+                : String(entry ?? '');
+            const entryMode = entryRec ? firstString(entryRec, ['mode', 'subagent_type']) : undefined;
             const child = subAgents.length ? matchChild(t) : undefined;
             const label = t.split('\n')[0].slice(0, 90);
             const childRunning = child ? (child.state === 'running' || child.state === 'pending') : running;
-            const rowTitle = element('span', 'crusorai-task-tool-title', agentTitle(child?.agentName ?? child?.mode ?? agentName));
+            const rowTitle = element('span', 'crusorai-task-tool-title', agentTitle(child?.agentName ?? child?.mode ?? entryMode ?? agentName));
             rowTitle.dataset.component = 'task-tool-title';
             const row = element('div', 'crusorai-task-tool-batch-row', stateIcon(childRunning), rowTitle, element('span', 'crusorai-task-tool-batch-text', label));
             row.title = t;
@@ -1586,11 +1594,14 @@ function familyBody(tool, host, subAgents = []) {
 function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents = []) {
     // Hermes (message-parts ChainToolFallback): a clarify call renders its own
     // widget card — the interactive question while it blocks, the settled Q&A
-    // after — never a generic collapsible tool row.
-    if (tool.name === 'clarify' && pendingClarify !== undefined) {
+    // after — never a generic collapsible tool row. Settled calls (every
+    // replay, every child view) reach the card too: the generic shell
+    // painted the raw arguments JSON ("DETAILS {"arguments": ...}") in a
+    // sub-agent session, field 2026-10-15.
+    if (tool.name === 'clarify') {
         // The card is a widget, not a disclosure row; the toolSection slot
         // only appends HTMLElements, so the cast keeps the signature honest.
-        return clarifyCard(tool, host, openTools, pendingClarify);
+        return clarifyCard(tool, host, openTools, closedTools, pendingClarify);
     }
     const presentation = crusorAIToolPresentation(tool.name);
     // OpenCode: the subagent tool never wears the generic collapsible
@@ -2626,7 +2637,10 @@ function clarifyCard(tool, host, _openTools, closedTools, pending) {
             if (answerText) {
                 card.append(element('div', `crusorai-clarify-a${error ? ' is-error' : ''}${skipped ? ' is-skipped' : ''}`, element('span', 'crusorai-clarify-a-badge', 'A'), element('span', undefined, answerText)));
             }
-            if (timedOut || skipped) {
+            // Late answers draft a follow-up into the composer — only
+            // where a composer can send (a child session is read-only;
+            // clickable rows that draft nowhere are dead ends).
+            if ((timedOut || skipped) && !host.isChildSession?.()) {
                 const choices = response.choices_offered ?? [];
                 if (choices.length) {
                     const late = element('div', 'crusorai-clarify-late');
@@ -2645,6 +2659,34 @@ function clarifyCard(tool, host, _openTools, closedTools, pending) {
                     late.append(element('p', 'crusorai-clarify-late-hint', 'The turn moved on — pick one to draft a follow-up instead.'));
                     card.append(late);
                 }
+            }
+        }
+        return card;
+    }
+    if (!pending) {
+        // In flight with no request frame on this surface (a sub-agent's
+        // question, or the frame has not landed yet): the question
+        // itself, read-only — choices shown, nothing clickable, and
+        // never the raw arguments JSON the generic shell used to dump.
+        const argsRec = record(tool.arguments) ?? {};
+        const rawList = Array.isArray(argsRec.questions) ? argsRec.questions : [argsRec];
+        const card = element('div', 'crusorai-clarify-card');
+        card.dataset.component = 'clarify-waiting';
+        for (const entry of rawList) {
+            const q = entry && typeof entry === 'object' ? entry : {};
+            const questionText = typeof q.question === 'string' ? q.question : '';
+            if (!questionText) {
+                continue;
+            }
+            card.append(element('div', 'crusorai-clarify-q', icon('question'), element('span', undefined, questionText)));
+            const choices = Array.isArray(q.choices) ? q.choices.filter(c => typeof c === 'string') : [];
+            if (choices.length) {
+                const group = element('div', 'crusorai-clarify-choices');
+                choices.forEach((choice, index) => {
+                    const { bare } = choiceParts(choice);
+                    group.append(element('div', 'crusorai-clarify-choice is-static', keyBadge(letterFor(index), false), element('span', 'crusorai-clarify-choice-label', bare)));
+                });
+                card.append(group);
             }
         }
         return card;

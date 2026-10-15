@@ -36,6 +36,90 @@ def _clean():
     yield
 
 
+def test_batch_modes_give_each_child_its_own_scope(monkeypatch):
+    """Field 2026-10-15: one batch mode for every child put a
+    code-writing task in a research child's clothing (research
+    scope + 'Do NOT write code' prompt) and it flailed on repeated
+    reads. modes[i] must give child i its own agent: the child id
+    names the mode, and the strict scope follows it."""
+    scopes: dict[str, object] = {}
+
+    def fake(message, thread_id="default", provider=None, model=None,
+             workspace=".", execution_mode="agent", **kw):
+        scopes[thread_id] = kw.get("scope_capabilities")
+        return "done"
+
+    monkeypatch.setattr("src.graphs.chat_graph.invoke_agent", fake)
+    coord = SubAgentCoordinator()
+    ids = coord.spawn_batch(
+        "research",
+        ["research the algorithm", "write the benchmark script"],
+        "parent",
+        modes=["research", "code"],
+    )
+    assert ids[0].startswith("sub-research-"), ids
+    assert ids[1].startswith("sub-code-"), ids
+    from src.agents.subagent_permissions import default_capabilities_for_mode
+    assert scopes[ids[0]] == default_capabilities_for_mode("research")
+    assert scopes[ids[1]] == default_capabilities_for_mode("code")
+    assert "workspace_write" in scopes[ids[1]]
+    assert "workspace_write" not in scopes[ids[0]]
+
+
+def test_delegate_batch_tool_honors_per_task_mode_dicts(monkeypatch, tmp_path):
+    """The tool schema shape the model actually emits: entries may be
+    {"task": ..., "mode": ...}. The real delegate tool (ToolNode
+    harness, invoke_agent faked at the capture seam) must spawn a
+    code child for the writing task even when the batch default is
+    research."""
+    from unittest.mock import patch
+
+    from langchain_core.messages import AIMessage
+    from langgraph.graph import END, START, MessagesState, StateGraph
+    from langgraph.prebuilt import ToolNode
+
+    import src.graphs.chat_graph as cg
+
+    captured: list[dict] = []
+
+    def fake_invoke_agent(**kwargs):
+        captured.append(kwargs)
+        return "done"
+
+    state = {"messages": [AIMessage(
+        content="",
+        tool_calls=[{
+            "name": "delegate_to_subagent_batch",
+            "args": {
+                "mode": "research",
+                "tasks": [
+                    {"task": "research bubble sort complexity", "mode": "research"},
+                    {"task": "write benchmark_bubble_sort.py", "mode": "code"},
+                ],
+            },
+            "id": "call_batch_modes",
+        }],
+    )]}
+    config = {"configurable": {"thread_id": "main", "workspace": str(tmp_path)}}
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", ToolNode([cg.delegate_to_subagent_batch]))
+    builder.add_edge(START, "tools")
+    builder.add_edge("tools", END)
+    app = builder.compile()
+    with patch.object(cg, "invoke_agent", fake_invoke_agent):
+        app.invoke(state, config=config)
+
+    threads = sorted(str(c.get("thread_id")) for c in captured)
+    assert any(t.startswith("sub-research-") for t in threads), threads
+    assert any(t.startswith("sub-code-") for t in threads), threads
+    by_thread = {str(c.get("thread_id")): c.get("scope_capabilities") for c in captured}
+    code_scope = next(v for k, v in by_thread.items() if k.startswith("sub-code-"))
+    research_scope = next(v for k, v in by_thread.items() if k.startswith("sub-research-"))
+    assert "workspace_write" in (code_scope or ())
+    assert "workspace_write" not in (research_scope or ())
+
+
 def test_single_task_batch_uses_legacy_sequential_path(monkeypatch):
     calls = []
 

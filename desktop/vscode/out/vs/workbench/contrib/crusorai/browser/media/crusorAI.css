@@ -895,6 +895,8 @@
 	font-size: inherit; text-align: left; cursor: pointer;
 }
 .crusorai-clarify-choice:hover, .crusorai-clarify-other:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
+.crusorai-clarify-choice.is-static { cursor: default; }
+.crusorai-clarify-choice.is-static:hover { background: transparent; color: var(--vscode-descriptionForeground); }
 .crusorai-clarify-choice.is-selected { color: var(--vscode-foreground); }
 .crusorai-clarify-choice.is-active, .crusorai-clarify-other.is-active { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
 .crusorai-clarify-choice-label { flex: 1 1 auto; overflow-wrap: anywhere; }

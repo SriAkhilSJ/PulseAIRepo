@@ -303,6 +303,7 @@ class SubAgentCoordinator:
         model: str = LLM_MODEL,
         max_workers: int = 4,
         workspace: str | None = None,
+        modes: list[str] | None = None,
     ) -> list[str]:
         """D33 (steal #9, §45): run several sub-agents CONCURRENTLY.
 
@@ -323,8 +324,19 @@ class SubAgentCoordinator:
         """
         if not tasks:
             return []
+        # Per-task modes (OpenCode: every delegation names its own
+        # agent): one batch-level mode for every child put a
+        # code-writing task in a research child's clothing — research
+        # scope, "Do NOT write code" prompt — and it flailed (field
+        # 2026-10-15). modes[i] wins for tasks[i]; the batch mode is
+        # only the fallback.
+        def _mode_for(index: int) -> str:
+            if modes and index < len(modes) and modes[index]:
+                return modes[index]  # type: ignore[return-value]
+            return mode
+
         if len(tasks) == 1:
-            return [self.spawn(mode, tasks[0], parent_thread_id,
+            return [self.spawn(_mode_for(0), tasks[0], parent_thread_id,
                                provider=provider, model=model,
                                workspace=workspace)]
 
@@ -335,7 +347,7 @@ class SubAgentCoordinator:
         workers = max(1, min(max_workers, len(tasks)))
 
         def _one(index: int, task: str) -> str:
-            return self.spawn(mode=mode, task=task,
+            return self.spawn(mode=_mode_for(index), task=task,
                               parent_thread_id=parent_thread_id,
                               provider=provider, model=model,
                               description=task[:50],
