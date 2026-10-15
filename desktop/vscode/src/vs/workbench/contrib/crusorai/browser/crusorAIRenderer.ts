@@ -1306,25 +1306,31 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 			// itself in edit-content — or, for a write with no diff, the
 			// written content in write-content — plus earned diagnostics.
 			const diff = editDiffText(tool);
-			// The pipeline (OpenCode): a settled call shows its DIFF —
-			// green/red, guttered — for edit and write alike; while the
-			// call is still streaming in (tool_call_args frames), there
-			// is no diff yet, so the view shows the GROWING content
-			// (content for write, new_text for edit) in the code view.
+			// The pipeline (OpenCode): edits settle into the green/red
+			// guttered DIFF; a write shows the FILE (code view) while it
+			// streams in and after — never an all-green wall (founder's
+			// reference renders, 2026-10-15).
 			const streamText = typeof args?.content === 'string' && args.content
 				? args.content
 				: (typeof args?.new_text === 'string' && args.new_text ? args.new_text : undefined);
 			let view: HTMLElement | undefined;
-			if (diff) {
+			if (tool.name !== 'write_file' && diff) {
 				const editBox = element('div', 'crusorai-edit-content');
 				editBox.dataset.component = 'edit-content';
-				editBox.append(diffPreview(diff));
+				editBox.append(diffPreview(diff, target));
 				view = editBox;
 			} else if (streamText !== undefined) {
+				// OpenCode's write view is the file itself (never a green
+				// wall): the code view, streaming while the call lands.
 				const writeBox = element('div', 'crusorai-write-content');
 				writeBox.dataset.component = 'write-content';
-				writeBox.append(codeView(streamText.slice(0, 32_000)));
+				writeBox.append(codeView(streamText.slice(0, 32_000), target));
 				view = writeBox;
+			} else if (diff) {
+				const editBox = element('div', 'crusorai-edit-content');
+				editBox.dataset.component = 'edit-content';
+				editBox.append(diffPreview(diff, target));
+				view = editBox;
 			}
 			if (view) {
 				body.append(fileAccordion(tool, host, view));
@@ -2829,9 +2835,11 @@ const DIFF_PREVIEW_LINE_LIMIT = 40;
 // hermes diff-lines.tsx wireframe, ported: file-headers + `@@` hunk noise and
 // the +/- gutter are DROPPED -- changes read by tint + a 2px gutter accent,
 // rows flush to the card edges, the box scrolls like a code block.
-function diffPreview(diff: string): HTMLElement {
+function diffPreview(diff: string, path = ''): HTMLElement {
 	const wrap = element('div', 'crusorai-diff-body');
 	wrap.dataset.component = 'diff';
+	const language = syntaxLanguageOf(path);
+	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const parsed = parseDiff(diff || '');
 	const shown = parsed.slice(0, DIFF_PREVIEW_LINE_LIMIT);
 	for (const line of shown) {
@@ -2842,7 +2850,7 @@ function diffPreview(diff: string): HTMLElement {
 		const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
 		wrap.append(element('span', `crusorai-diff-row is-${line.kind}`,
 			element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''),
-			element('span', 'crusorai-diff-text', line.text.length ? line.text : ' ')));
+			element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
 	}
 	if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
 		wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));
@@ -2852,21 +2860,133 @@ function diffPreview(diff: string): HTMLElement {
 
 const CODE_VIEW_LINE_LIMIT = 200;
 
+// ---------------------------------------------------------------------------
+// Syntax colour for the file viewers (OpenCode's file component colours
+// tokens; the founder's reference renders prove it is half the look).
+// A small stateful per-line tokenizer — comments, strings, numbers,
+// keywords, Capitalized types — painted with the workbench theme's own
+// symbolIcon token colours, so it follows the theme and invents no hex.
+// Deliberately an approximation of the editor's TextMate colours; the
+// real editor (one click on the filename) has the exact ones.
+// ---------------------------------------------------------------------------
+
+type SyntaxKind = 'comment' | 'string' | 'keyword' | 'number' | 'type';
+
+const SYNTAX_KEYWORDS = new Set((
+	'def class return if elif else for while import from as with try except finally raise pass break continue '
+	+ 'lambda yield global nonlocal assert del in is not and or None True False function const let var new delete '
+	+ 'typeof instanceof async await static get set public private protected readonly abstract extends implements '
+	+ 'interface type enum namespace switch case default this self super true false null undefined void fn pub '
+	+ 'struct impl trait match use mod package go defer select map chan print echo int float bool string char '
+	+ 'double long short unsigned void signed extern typedef sizeof do while'
+).split(' '));
+
+function syntaxLanguageOf(path: string): string {
+	const ext = path.replace(/\\/g, '/').split('.').pop()?.toLowerCase() ?? '';
+	if (ext === 'py' || ext === 'pyi') { return 'python'; }
+	if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || ext === 'yaml' || ext === 'yml' || ext === 'toml' || ext === 'rb') { return 'hash'; }
+	if (ext === 'json' || ext === 'jsonc') { return 'json'; }
+	if (ext === 'html' || ext === 'xml' || ext === 'svg') { return 'html'; }
+	if (ext === 'md') { return 'markdown'; }
+	return 'code';
+}
+
+interface SyntaxState { blockComment: boolean; triple: string | undefined }
+
+function syntaxPainted(line: string, language: string, state: SyntaxState): HTMLElement {
+	const root = element('span', undefined);
+	const push = (text: string, kind?: SyntaxKind) => {
+		if (!text) { return; }
+		root.append(kind ? element('span', `crusorai-tok-${kind}`, text) : document.createTextNode(text));
+	};
+	let rest = line;
+	const hashComments = language === 'python' || language === 'hash' || language === 'markdown';
+	while (rest.length) {
+		if (state.triple) {
+			const end = rest.indexOf(state.triple);
+			if (end === -1) { push(rest, 'string'); rest = ''; }
+			else { push(rest.slice(0, end + state.triple.length), 'string'); rest = rest.slice(end + state.triple.length); state.triple = undefined; }
+			continue;
+		}
+		if (state.blockComment) {
+			const end = rest.indexOf('*/');
+			if (end === -1) { push(rest, 'comment'); rest = ''; }
+			else { push(rest.slice(0, end + 2), 'comment'); rest = rest.slice(end + 2); state.blockComment = false; }
+			continue;
+		}
+		if (language === 'html' && rest.startsWith('<!--')) {
+			const end = rest.indexOf('-->');
+			if (end === -1) { push(rest, 'comment'); rest = ''; }
+			else { push(rest.slice(0, end + 3), 'comment'); rest = rest.slice(end + 3); }
+			continue;
+		}
+		if (rest.startsWith('/*')) {
+			const end = rest.indexOf('*/', 2);
+			if (end === -1) { push(rest, 'comment'); state.blockComment = true; rest = ''; }
+			else { push(rest.slice(0, end + 2), 'comment'); rest = rest.slice(end + 2); }
+			continue;
+		}
+		if ((hashComments && rest.startsWith('#')) || rest.startsWith('//')) {
+			push(rest, 'comment');
+			rest = '';
+			continue;
+		}
+		const triple = language === 'python' ? (/^'''|^"""/.exec(rest)?.[0]) : undefined;
+		if (triple) {
+			const end = rest.indexOf(triple, triple.length);
+			if (end === -1) { push(rest, 'string'); state.triple = triple; rest = ''; }
+			else { push(rest.slice(0, end + triple.length), 'string'); rest = rest.slice(end + triple.length); }
+			continue;
+		}
+		const quote = rest[0];
+		if (quote === '"' || quote === "'" || quote === '`') {
+			let i = 1;
+			while (i < rest.length) {
+				if (rest[i] === '\\') { i += 2; continue; }
+				if (rest[i] === quote) { i += 1; break; }
+				i += 1;
+			}
+			push(rest.slice(0, i), 'string');
+			rest = rest.slice(i);
+			continue;
+		}
+		const number = /^(0x[\da-fA-F]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)/.exec(rest);
+		if (number) { push(number[0], 'number'); rest = rest.slice(number[0].length); continue; }
+		const word = /^[A-Za-z_$][\w$]*/.exec(rest);
+		if (word) {
+			const w = word[0];
+			push(w, SYNTAX_KEYWORDS.has(w) ? 'keyword' : (/^[A-Z]/.test(w) ? 'type' : undefined));
+			rest = rest.slice(w.length);
+			continue;
+		}
+		push(rest[0]);
+		rest = rest.slice(1);
+	}
+	return root;
+}
+
+/** Wrap plain text so empty/short lines still occupy their row. */
+function syntaxText(text: string, language: string, state: SyntaxState): HTMLElement {
+	return text.length ? syntaxPainted(text, language, state) : element('span', undefined, ' ');
+}
+
 /**
  * OpenCode's write view (write-content > code): the written file as a
  * line-numbered code view — mono, editor foreground, no diff colour.
  * Lines are capped for paint; the file link in the header opens the
  * full file in the real editor.
  */
-function codeView(text: string): HTMLElement {
+function codeView(text: string, path = ''): HTMLElement {
 	const view = element('div', 'crusorai-code-view');
 	view.dataset.component = 'code';
+	const language = syntaxLanguageOf(path);
+	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const lines = text.split('\n');
 	const shown = lines.slice(0, CODE_VIEW_LINE_LIMIT);
 	shown.forEach((line, index) => {
 		view.append(element('span', 'crusorai-code-row',
 			element('span', 'crusorai-code-gutter', String(index + 1)),
-			element('span', 'crusorai-code-text', line.length ? line : ' ')));
+			element('span', 'crusorai-code-text', syntaxText(line, language, state))));
 	});
 	if (lines.length > shown.length) {
 		view.append(element('div', 'crusorai-diff-row is-truncated', `… ${lines.length - shown.length} more line(s) — open the file for the rest`));

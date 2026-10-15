@@ -1741,4 +1741,26 @@ def test_tool_cards_stream_from_tool_call_args():
     assert "edit_file: tool('Edit', 'file-write', 'edit', 'running')" in catalog
     # Settled calls show the diff (green/red) for write too; while
     # streaming, content/new_text grows in the code view.
-    assert "if (diff) {" in renderer and "codeView(streamText.slice(0, 32_000))" in renderer
+    assert "tool.name !== 'write_file' && diff" in renderer and "codeView(streamText.slice(0, 32_000), target)" in renderer
+
+
+def test_file_viewers_carry_syntax_token_colours():
+    """Founder comparison 2026-10-15: his Write screenshot (flat green
+    wall) vs OpenCode's render ('which looks nice') — the remaining
+    gap was token colour: green strings, coloured keywords/numbers/
+    types, grey comments over the diff tints. A small stateful
+    tokenizer now paints both viewers (code view + diff text) with
+    the workbench theme's own symbolIcon token colours; Write is
+    back to OpenCode's file view (never a wall), Edit keeps the
+    green/red diff."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "function syntaxPainted" in renderer
+    assert "function syntaxLanguageOf" in renderer
+    assert "syntaxText(line.text, language, state)" in renderer
+    assert "syntaxText(line, language, state)" in renderer
+    for kind in ("comment", "string", "keyword", "number", "type"):
+        assert f".crusorai-tok-{kind}" in css, kind
+    assert "var(--vscode-symbolIcon-stringForeground)" in css
+    # Flat whole-line green/red text (the wall) stays retired.
+    assert "var(--crusorai-diff-add-foreground) 70%" not in css
