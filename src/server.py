@@ -37,10 +37,17 @@ add_langgraph_fastapi_endpoint(
 )
 
 def main() -> None:
+    # Bind guard (AGUI_A2UI_PLAN.md Phase 1): loopback by default; a
+    # non-loopback bind without CRUSORAI_DASHBOARD_TOKEN is refused.
+    from src.agui.bind import resolve_bind
+
+    decision = resolve_bind()
+    if not decision.ok:
+        raise SystemExit(decision.error)
     uvicorn.run(
         "src.server:app",
-        host="0.0.0.0",
-        port=8123,
+        host=decision.host,
+        port=decision.port,
         reload=False,
     )
 

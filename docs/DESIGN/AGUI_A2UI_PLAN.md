@@ -1,6 +1,6 @@
 # AG-UI + A2UI Plan — CrusorAI
 
-**Status: DECISIONS LOCKED by founder, 2026-10-14. Not yet implemented.**
+**Status: DECISIONS LOCKED by founder, 2026-10-14. Phase 1 IMPLEMENTED (server bind guard, `src/agui/` mapping + tests); Phases 2-4 pending.**
 This is the build doc the desktop agent executes against. UI-language rule from the
 founder applies everywhere in this doc: visible labels are human words, never raw
 tool ids (the ids appear here only as engineering references).
@@ -114,7 +114,7 @@ drop + log, never throw; surfaces die with their turn unless pinned by id.
 
 ## 5. Phases
 
-### Phase 1 — AG-UI edge hardening + mapping (engine)
+### Phase 1 — AG-UI edge hardening + mapping (engine) ✅ DONE 2026-10-14 (`src/agui/bind.py`, `src/agui/mapping.py`, `src/tests/test_agui_mapping.py` — 11 tests incl. real-SDK wire validation; server refuses non-loopback without token)
 - `src/server.py`: bind `127.0.0.1` by default; `CRUSORAI_HOST` env to override;
   token required when non-loopback (`CRUSORAI_DASHBOARD_TOKEN` pattern from
   `src/dashboard_server.py:372-375`). Refuse public bind without token.
