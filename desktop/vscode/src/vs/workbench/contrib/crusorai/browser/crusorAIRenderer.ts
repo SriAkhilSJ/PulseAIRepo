@@ -208,6 +208,12 @@ export interface CrusorAIRenderHost {
 	 * Implementations own the file->browser-URI translation so this file
 	 * stays free of workbench URI services. */
 	resourceSrc(resource: string): string | undefined;
+	/** The workbench file-icon theme classes for a resource (VS Code's own
+	 * `getIconClasses` — Seti & co), so file rows paint the same icon the
+	 * Explorer shows. Optional, same rule as the hooks above: hosts without
+	 * it fall back to the generic file-icon class. Implementations own the
+	 * model/language services; this file stays service-free. */
+	fileIconClasses?(resource: string): string | undefined;
 	restoreCheckpoint(hash: string): void;
 	retryEngine(): void;
 	selectWorkspace(uri: string): void;
@@ -257,6 +263,19 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
  */
 function icon(name: string): HTMLElement {
 	return renderToolIcon(name);
+}
+
+/**
+ * The workbench's real file-type icon for a path: a span carrying the
+ * active file icon theme's classes (host-provided `getIconClasses`
+ * output). The theme's injected CSS paints `::before` when an ancestor
+ * carries `.show-file-icons` — the same contract the Explorer uses, so
+ * `AGENTS.md`, `package.json` and `page.tsx` each get THEIR icon.
+ */
+function fileIcon(host: CrusorAIRenderHost, resource: string): HTMLElement {
+	const span = element('span', 'crusorai-file-icon');
+	span.className = `crusorai-file-icon ${host.fileIconClasses?.(resource) ?? 'file-icon'}`;
+	return span;
 }
 
 // ---------------------------------------------------------------------------
@@ -1354,12 +1373,12 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	let subtitle: HTMLElement | undefined;
 	if (targetMeaningful) {
 		if (tool.name === 'read_file') {
-			// Founder 2026-10-15: the path becomes a file chip — icon +
-			// filename only, reading as "selected/loaded" (the agent read
-			// this code); the full path is the tooltip, and clicking the
-			// chip opens that file in the editor.
+			// Founder 2026-10-15: the path is a FLAT file link — the file's
+			// real workbench icon + filename only, no visible button/pill,
+			// never larger than the tool title; the full path is the
+			// tooltip, and clicking it opens that file in the editor.
 			const fileName = targetText.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? targetText;
-			subtitle = element('button', 'crusorai-tool-file-chip', icon('file'), element('span', undefined, fileName));
+			subtitle = element('span', 'crusorai-tool-file-link show-file-icons', fileIcon(host, targetText), element('span', 'crusorai-tool-file-name', fileName));
 			subtitle.title = targetText;
 			subtitle.addEventListener('click', (event) => {
 				event.stopPropagation();
@@ -1847,8 +1866,8 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				element('span', undefined, `${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'} changed`)));
 			const rows = element('div', 'crusorai-changed-files-rows');
 			for (const file of turnFiles) {
-				const row = element('div', 'crusorai-changed-file-row is-activatable',
-					icon('file'),
+				const row = element('div', 'crusorai-changed-file-row is-activatable show-file-icons',
+					fileIcon(host, file.path),
 					element('span', 'crusorai-changed-file-name', file.name),
 					element('span', 'crusorai-diff-count',
 						element('span', 'is-added', `+${file.added}`),
@@ -2695,8 +2714,8 @@ function changedFilesCard(model: CrusorAIRenderModel, host: CrusorAIRenderHost):
 		element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
 	const rows = element('div', 'crusorai-changed-files-rows');
 	for (const file of files) {
-		const row = element('div', 'crusorai-changed-file-row');
-		row.append(icon('file'),
+		const row = element('div', 'crusorai-changed-file-row show-file-icons');
+		row.append(fileIcon(host, file.path),
 			element('span', 'crusorai-changed-file-name', file.name),
 			element('span', 'crusorai-diff-count',
 				element('span', 'is-added', `+${file.added}`),

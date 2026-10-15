@@ -35,6 +35,18 @@ function element(tag, className, ...children) {
 function icon(name) {
     return renderToolIcon(name);
 }
+/**
+ * The workbench's real file-type icon for a path: a span carrying the
+ * active file icon theme's classes (host-provided `getIconClasses`
+ * output). The theme's injected CSS paints `::before` when an ancestor
+ * carries `.show-file-icons` — the same contract the Explorer uses, so
+ * `AGENTS.md`, `package.json` and `page.tsx` each get THEIR icon.
+ */
+function fileIcon(host, resource) {
+    const span = element('span', 'crusorai-file-icon');
+    span.className = `crusorai-file-icon ${host.fileIconClasses?.(resource) ?? 'file-icon'}`;
+    return span;
+}
 // ---------------------------------------------------------------------------
 // Minimal markdown rendering for the transcript (pure DOM, zero deps).
 // The panel used to print assistant text as one plain text node, so every
@@ -1233,12 +1245,12 @@ function toolRow(tool, host, openTools, pendingClarify) {
     let subtitle;
     if (targetMeaningful) {
         if (tool.name === 'read_file') {
-            // Founder 2026-10-15: the path becomes a file chip — icon +
-            // filename only, reading as "selected/loaded" (the agent read
-            // this code); the full path is the tooltip, and clicking the
-            // chip opens that file in the editor.
+            // Founder 2026-10-15: the path is a FLAT file link — the file's
+            // real workbench icon + filename only, no visible button/pill,
+            // never larger than the tool title; the full path is the
+            // tooltip, and clicking it opens that file in the editor.
             const fileName = targetText.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? targetText;
-            subtitle = element('button', 'crusorai-tool-file-chip', icon('file'), element('span', undefined, fileName));
+            subtitle = element('span', 'crusorai-tool-file-link show-file-icons', fileIcon(host, targetText), element('span', 'crusorai-tool-file-name', fileName));
             subtitle.title = targetText;
             subtitle.addEventListener('click', (event) => {
                 event.stopPropagation();
@@ -1737,7 +1749,7 @@ function transcript(model, host, openTools, liveThoughtSeconds) {
             card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'} changed`)));
             const rows = element('div', 'crusorai-changed-files-rows');
             for (const file of turnFiles) {
-                const row = element('div', 'crusorai-changed-file-row is-activatable', icon('file'), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
+                const row = element('div', 'crusorai-changed-file-row is-activatable show-file-icons', fileIcon(host, file.path), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
                 row.title = file.path;
                 const target = file.path;
                 row.addEventListener('click', () => host.revealFile(target));
@@ -2610,8 +2622,8 @@ function changedFilesCard(model, host) {
     card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
     const rows = element('div', 'crusorai-changed-files-rows');
     for (const file of files) {
-        const row = element('div', 'crusorai-changed-file-row');
-        row.append(icon('file'), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
+        const row = element('div', 'crusorai-changed-file-row show-file-icons');
+        row.append(fileIcon(host, file.path), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
         row.title = file.path;
         row.classList.add('is-activatable');
         row.addEventListener('click', () => host.revealFile(file.path));

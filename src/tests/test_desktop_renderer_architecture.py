@@ -1537,16 +1537,27 @@ def test_read_and_search_rows_are_single_line_info_rows():
 
 
 def test_read_row_filename_is_a_clickable_file_chip():
-    """Founder screenshot 2026-10-15: '#L1... SHOULD BE NEAR TO THE FILE',
+    """Founder screenshots 2026-10-15: '#L1... SHOULD BE NEAR TO THE FILE',
     the path 'should be replaced with File icon and only File Name',
-    clicking it opens that file, shown selected like the agent read it.
-    So: the #L chip rides inside the title line next to the filename,
-    and a Read row's path is a file chip (icon + basename, full path as
-    tooltip) whose click opens the file via host.revealFile."""
+    clicking it opens that file. Refined the same day: REAL file icons
+    from inside desktop/vscode (VS Code's getIconClasses + the Seti file
+    icon theme, Explorer parity), NO visible button/pill, and the
+    filename never larger than the tool title. So: the #L chip rides
+    inside the title line next to the filename; a Read row's path is a
+    FLAT link (theme file icon + basename, full path as tooltip) whose
+    click opens the file via host.revealFile."""
     renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "inlineInfo ? toolInfoChip(inlineInfo) : undefined" in renderer
-    assert "element('button', 'crusorai-tool-file-chip', icon('file')" in renderer
+    assert "crusorai-tool-file-link show-file-icons" in renderer
+    assert "fileIcon(host, targetText)" in renderer
+    assert "fileIconClasses?(resource: string)" in renderer, "host owns the workbench icon services"
+    assert "getIconClasses(this.modelService, this.languageService" in service
     assert "host.revealFile(targetText)" in renderer
-    assert ".crusorai-tool-file-chip {" in css
     assert "subtitle.title = targetText" in renderer, "full path survives as the tooltip"
+    # No visible button: the pill anatomy is gone from both layers.
+    assert "crusorai-tool-file-chip" not in renderer
+    assert ".crusorai-tool-file-link {" in css
+    assert ".crusorai-file-icon::before" in css, "theme CSS paints the icon under .show-file-icons"
+    assert "crusorai-tool-file-chip" not in css

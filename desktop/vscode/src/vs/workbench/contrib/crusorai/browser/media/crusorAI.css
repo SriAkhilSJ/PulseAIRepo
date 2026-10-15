@@ -318,24 +318,19 @@
 .crusorai-tool-inline.is-failed { color: var(--crusorai-failed); }
 .crusorai-tool-inline-error { min-width: 0; overflow: hidden; color: var(--vscode-errorForeground); font-size: var(--crusorai-text-meta); text-overflow: ellipsis; white-space: nowrap; }
 
-/* Read-row file chip (founder 2026-10-15): icon + filename only, shown
-   selected/loaded — the agent read this code. Click opens the file. */
-.crusorai-tool-file-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	max-width: 280px;
-	padding: 1px 8px;
-	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
-	color: var(--vscode-foreground);
-	font: inherit;
-	cursor: pointer;
-}
-.crusorai-tool-file-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crusorai-tool-file-chip:hover { background: color-mix(in srgb, var(--vscode-foreground) 16%, transparent); }
-.crusorai-tool-file-chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+/* Read-row file link (founder 2026-10-15, refined same day): NO visible
+   button — flat icon + filename at the row's own subtitle size, never
+   larger than the tool title; clicking opens the file in the editor. */
+.crusorai-tool-file-link { display: inline-flex; align-items: center; gap: 5px; max-width: 280px; color: var(--vscode-descriptionForeground); cursor: pointer; }
+.crusorai-tool-file-link:hover { color: var(--vscode-foreground); text-decoration: underline; }
+.crusorai-tool-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The workbench's real file-type icon: the span carries the active file
+   icon theme's classes (host getIconClasses output); the theme's injected
+   CSS paints ::before under a .show-file-icons ancestor — Explorer parity.
+   Sized 16px like the Explorer, on the row's own line. */
+.crusorai-file-icon { display: inline-block; flex: none; width: 16px; height: 16px; }
+.crusorai-file-icon::before { display: block; width: 16px; height: 16px; background-position: center; background-repeat: no-repeat; background-size: 16px; }
 
 .crusorai-tool-state {
 	padding: 1px 4px;

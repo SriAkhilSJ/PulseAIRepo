@@ -15,6 +15,10 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { getIconClasses } from '../../../../editor/common/services/getIconClasses.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { FileKind } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -81,7 +85,7 @@ function stringField(source, keys) {
     return undefined;
 }
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
-    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService) {
+    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService) {
         super();
         this.engineService = engineService;
         this.workbenchService = workbenchService;
@@ -92,6 +96,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.auxiliaryWindowService = auxiliaryWindowService;
         this.sessionStore = sessionStore;
         this.notificationService = notificationService;
+        this.modelService = modelService;
+        this.languageService = languageService;
         this.mounts = new Set();
         this.tools = new Map();
         this.seenEventIds = new Set();
@@ -179,6 +185,16 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openDiff: toolId => { void this.openDiff(toolId); },
             revealFile: resource => { void this.revealFile(resource); },
             resourceSrc: resource => this.resourceBrowserSrc(resource),
+            fileIconClasses: resource => {
+                // VS Code's own file-icon resolution (Seti theme classes) — the
+                // same classes the Explorer paints for this file.
+                try {
+                    return getIconClasses(this.modelService, this.languageService, this.resourceUri(resource), FileKind.FILE).join(' ');
+                }
+                catch (error) {
+                    return undefined;
+                }
+            },
             restoreCheckpoint: checkpointHash => {
                 const workspace = this.workspacePath;
                 if (workspace) {
@@ -2005,6 +2021,8 @@ CrusorAIRendererService = __decorate([
     __param(5, IClipboardService),
     __param(6, IAuxiliaryWindowService),
     __param(7, ICrusorAISessionStore),
-    __param(8, INotificationService)
+    __param(8, INotificationService),
+    __param(9, IModelService),
+    __param(10, ILanguageService)
 ], CrusorAIRendererService);
 export { CrusorAIRendererService };

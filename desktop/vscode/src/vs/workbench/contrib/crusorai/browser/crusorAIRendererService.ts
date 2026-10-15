@@ -7,6 +7,10 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { getIconClasses } from '../../../../editor/common/services/getIconClasses.js';
+import { IModelService } from '../../../../editor/common/services/model.js';
+import { ILanguageService } from '../../../../editor/common/languages/language.js';
+import { FileKind } from '../../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -252,6 +256,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openDiff: toolId => { void this.openDiff(toolId); },
 		revealFile: resource => { void this.revealFile(resource); },
 		resourceSrc: resource => this.resourceBrowserSrc(resource),
+		fileIconClasses: resource => {
+			// VS Code's own file-icon resolution (Seti theme classes) — the
+			// same classes the Explorer paints for this file.
+			try {
+				return getIconClasses(this.modelService, this.languageService, this.resourceUri(resource), FileKind.FILE).join(' ');
+			} catch (error) {
+				return undefined;
+			}
+		},
 		restoreCheckpoint: checkpointHash => {
 			const workspace = this.workspacePath;
 			if (workspace) { this.send({ type: 'checkpoint_restore', session_id: this.sessionId, workspace, checkpoint_hash: checkpointHash }); }
@@ -321,6 +334,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
 		@ICrusorAISessionStore private readonly sessionStore: ICrusorAISessionStore,
 		@INotificationService private readonly notificationService: INotificationService,
+		@IModelService private readonly modelService: IModelService,
+		@ILanguageService private readonly languageService: ILanguageService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
