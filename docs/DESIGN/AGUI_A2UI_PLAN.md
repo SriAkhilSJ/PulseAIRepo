@@ -127,7 +127,7 @@ drop + log, never throw; surfaces die with their turn unless pinned by id.
 - Acceptance: tests green; server refuses `0.0.0.0` without token; branding +
   protocol tests untouched and green.
 
-### Phase 2 — A2UI surface manager + Catalog v1 (desktop)
+### Phase 2 — A2UI surface manager + Catalog v1 (desktop) ✅ DONE 2026-10-14 (sandbox; laptop visual check pending)
 - `common/crusorAIProtocol.ts`: accept the A2UI envelope where it already
   flows — tool results shaped `{"a2ui_operations": [...]}` (the shape
   `display_crusor_task` returns). No protocol version bump: it rides
@@ -136,11 +136,19 @@ drop + log, never throw; surfaces die with their turn unless pinned by id.
   component builders for Catalog v1 (wrapping existing body builders).
 - Renderer: when a card tool's result parses as A2UI ops, render via the
   surface manager instead of `familyBody`. `display_crusor_task` migrates to
-  the generic path; bespoke `taskToolCard` is deleted once parity is proven.
+  the generic path. CORRECTION to the original text: `taskToolCard` is the
+  sub-agent navigation card, not the task-display card — it stays; what
+  migrated was `display_crusor_task`, which previously painted its raw
+  surface JSON as prose through the generic body.
 - Tests: extend `src/tests/test_desktop_renderer_architecture.py` (surface
   store isolation, unknown-component drop, data-model patch re-render);
   re-emit bundle (`node scripts/emit-crusorai-bundle.mjs` in
-  `desktop/vscode`).
+  `desktop/vscode`). Shipped: 3 new architecture tests + Node runtime smoke
+  of the store against the real `crusor_task_schema.json` (12/12 components
+  accepted, injected `Script` dropped); renderer suite 82 passed combined
+  with branding + AG-UI suites; bundle re-emitted (42 files, stamp
+  2026-10-14). A2UI action events currently log at the renderer host —
+  Phase 4 wires approval/clarify names to the existing v2 replies.
 - Acceptance: task card renders identically through the generic path;
   renderer architecture suite green; no raw tool id visible anywhere.
 

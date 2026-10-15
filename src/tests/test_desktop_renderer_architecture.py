@@ -726,7 +726,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-12';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-14';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -866,7 +866,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-12'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-14'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1212,3 +1212,45 @@ def test_pipeline_audit_fails_loudly_when_out_is_incomplete():
     assert "is not a complete image of src/" in audit
     assert "emit-crusorai-bundle.mjs" in audit, "name the one-command fix in the failure text"
     assert "missingMedia" in audit, "call out the media the app loads by URL, not just any file"
+
+
+def test_a2ui_surface_manager_is_catalog_bounded_and_fail_soft():
+    """Phase 2 (AGUI_A2UI_PLAN §4): the native A2UI surface manager renders a
+    FIXED catalog only — unknown ops/components drop + log, never throw, and
+    the text-only boundary (no innerHTML) holds in the new module too."""
+    surface = _text("browser", "crusorA2UISurface.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    for component in (
+        "Card", "Column", "Row", "Text", "Diff", "TerminalOutput",
+        "PlanList", "Receipt", "QuestionForm", "ApprovalBar", "Image", "Button",
+    ):
+        assert f"'{component}'" in surface, f"Catalog v1 missing {component}"
+    assert "MAX_A2UI_OPS" in surface and "MAX_A2UI_COMPONENTS" in surface
+    assert "unknown component" in surface and "A2UI dropped" in surface
+    assert ".innerHTML" not in surface
+    assert "deleteSurface" in surface and "updateDataModel" in surface
+    assert "resolveA2UIPointer" in surface, "data-model {path} binding is A2UI semantics"
+    # Renderer: the envelope is tried BEFORE family dispatch, so a result
+    # carrying a2ui_operations never falls through to prose/JSON painting.
+    assert "renderA2UIToolBody(tool.result" in renderer
+    assert renderer.index("renderA2UIToolBody(tool.result") < renderer.index("presentation.family === 'terminal'")
+
+
+def test_a2ui_engine_task_schema_uses_only_catalog_v1_components():
+    """The engine's one shipped A2UI schema (display_crusor_task) must name
+    only components the native Catalog v1 can render — otherwise the generic
+    path drops pieces of the task card silently."""
+    surface = _text("browser", "crusorA2UISurface.ts")
+    catalog = set(re.findall(r"'([A-Z][A-Za-z]+)'", surface.split("CRUSOR_A2UI_CATALOG_V1")[1].split("];")[0]))
+    schema = json.loads((ROOT / "src" / "a2ui_schemas" / "crusor_task_schema.json").read_text(encoding="utf-8"))
+    used = {component["component"] for component in schema}
+    assert used <= catalog, f"engine schema names components outside Catalog v1: {used - catalog}"
+
+
+def test_a2ui_envelope_rides_tool_results_without_protocol_bump():
+    """The envelope is documentation + types on the existing tool_call_end
+    result — Bridge Protocol v2 itself does not move."""
+    protocol_ts = _text("common", "crusorAIProtocol.ts")
+    assert "CrusorA2UIOperation" in protocol_ts and "a2ui_operations" in protocol_ts
+    protocol_py = (ROOT / "src" / "bridge" / "protocol.py").read_text(encoding="utf-8")
+    assert "PROTOCOL_VERSION = 2" in protocol_py

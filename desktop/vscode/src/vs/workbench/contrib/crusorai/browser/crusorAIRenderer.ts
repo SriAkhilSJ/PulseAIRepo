@@ -14,6 +14,7 @@ import { crusorSessionIdFromUri, type CrusorAISessionRow } from '../common/cruso
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
+import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
 import {
 	activityOrigin, activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName,
@@ -322,7 +323,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-12';
+const CRUSORAI_UI_STAMP = '2026-10-14';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -878,6 +879,15 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 }
 
 function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+	// A2UI Catalog v1 (plan Phase 2): a tool result carrying an
+	// {"a2ui_operations": [...]} envelope renders through the fixed-catalog
+	// surface manager — display_crusor_task takes this generic path instead
+	// of painting its surface JSON as prose. No envelope -> today's bodies.
+	const a2uiBody = renderA2UIToolBody(tool.result, {
+		onAction: (event) => { console.log('[CrusorAI] A2UI action (no v2 handler wired yet)', event); },
+		resourceSrc: (resource) => host.resourceSrc(resource),
+	});
+	if (a2uiBody) { return a2uiBody; }
 	const presentation = crusorAIToolPresentation(tool.name);
 	if (presentation.family === 'terminal' || presentation.family === 'process') {
 		return terminalBody(tool, host);

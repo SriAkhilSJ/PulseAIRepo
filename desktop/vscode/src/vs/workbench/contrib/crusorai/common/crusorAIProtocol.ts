@@ -112,6 +112,25 @@ export interface CrusorClarifyQuestion {
 	readonly multi_select?: boolean;
 }
 
+/**
+ * A2UI v0.9 surface envelope (docs/DESIGN/AGUI_A2UI_PLAN.md §4). It rides
+ * INSIDE tool_call_end.result as {"a2ui_operations": [...]} — the shape
+ * display_crusor_task already returns — so there is no protocol version
+ * bump and no new frame type. The renderer validates operations against
+ * the fixed Catalog v1 before paint; unknown ops/components are dropped.
+ */
+export interface CrusorA2UIComponent {
+	readonly id: string;
+	readonly component: string;
+	readonly [key: string]: unknown;
+}
+
+export type CrusorA2UIOperation =
+	| { readonly version?: string; readonly createSurface: { readonly surfaceId: string; readonly catalogId?: string } }
+	| { readonly version?: string; readonly updateComponents: { readonly surfaceId: string; readonly components: readonly CrusorA2UIComponent[] } }
+	| { readonly version?: string; readonly updateDataModel: { readonly surfaceId: string; readonly path?: string; readonly value: unknown } }
+	| { readonly version?: string; readonly deleteSurface: { readonly surfaceId: string } };
+
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
