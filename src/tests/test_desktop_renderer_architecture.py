@@ -726,7 +726,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-14';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-15';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -866,7 +866,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-14'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-15'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1254,3 +1254,22 @@ def test_a2ui_envelope_rides_tool_results_without_protocol_bump():
     assert "CrusorA2UIOperation" in protocol_ts and "a2ui_operations" in protocol_ts
     protocol_py = (ROOT / "src" / "bridge" / "protocol.py").read_text(encoding="utf-8")
     assert "PROTOCOL_VERSION = 2" in protocol_py
+
+
+def test_opencode_shell_box_is_captured_and_wired_to_v2_terminal_events():
+    """Founder direction 2026-10-15: do not reinvent the box - OpenCode's
+    bash-output UI is captured verbatim under third-party/ (MIT, provenance
+    in its README) and its STRUCTURE is wired into the native terminal body
+    on Bridge v2 events. The live-output streaming gap is documented, never
+    faked."""
+    capture = ROOT / "third-party" / "opencode"
+    assert (capture / "LICENSE").is_file()
+    assert (capture / "session-ui" / "components" / "message-part.css").is_file()
+    assert (capture / "session-ui" / "tools" / "shell-output.ts").is_file()
+    assert "GAP" in (capture / "README.md").read_text(encoding="utf-8")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "crusorai-bash-output" in renderer and "crusorai-bash-result" in renderer
+    assert "copyButton(command, host)" in renderer, "copy lives inside the box, as captured"
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-bash-scroll" in css and "max-height: 240px" in css
+    assert "var(--v2-" not in css, "their tokens never ship - workbench vars only"

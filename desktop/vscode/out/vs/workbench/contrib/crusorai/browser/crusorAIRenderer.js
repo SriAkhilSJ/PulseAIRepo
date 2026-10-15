@@ -104,7 +104,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-14';
+const CRUSORAI_UI_STAMP = '2026-10-15';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -578,18 +578,47 @@ function terminalBody(tool, host) {
     exit ??= (tool.state === 'running' ? 'running' : 'unknown');
     const duration = tool.duration ?? firstString(result, ['duration', 'elapsed']) ?? '\u2014';
     const body = element('div', 'crusorai-tool-body crusorai-terminal-body');
-    body.append(element('div', 'crusorai-terminal-command', element('span', 'crusorai-terminal-prompt', '$'), element('code', undefined, command)), expandableOutput(terminalOutputContent(output, tool.state === 'running')), 
+    // OpenCode bash-output box, copied from the captured reference
+    // (third-party/opencode/session-ui/components/message-part.css) and wired
+    // to Bridge v2 terminal events: ONE box — command block, then the result
+    // block split by a hairline — with the copy control inside the box,
+    // revealed on hover. Their --v2-* tokens map to live workbench vars.
+    const outputBox = element('div', 'crusorai-bash-output');
+    outputBox.dataset.component = 'bash-output';
+    outputBox.dataset.variant = 'shell';
+    const copyWrap = element('div', 'crusorai-bash-copy');
+    copyWrap.append(copyButton(command, host));
+    const scroll = element('div', 'crusorai-bash-scroll');
+    const pre = element('pre', 'crusorai-bash-pre');
+    const codeEl = element('code');
+    codeEl.append(element('span', 'crusorai-terminal-command crusorai-bash-command', command));
+    const resultSpan = element('span', 'crusorai-bash-result');
+    resultSpan.append(terminalOutputContent(output, tool.state === 'running'));
+    codeEl.append(resultSpan);
+    pre.append(codeEl);
+    scroll.append(pre);
+    outputBox.append(copyWrap, scroll);
+    // First delivery pins to the latest output (their tail discipline); a
+    // later repaint must not yank a user reading earlier lines.
+    window.requestAnimationFrame(() => {
+        if (!scroll.dataset.tailed) {
+            scroll.dataset.tailed = 'true';
+            scroll.scrollTop = scroll.scrollHeight;
+        }
+    });
+    body.append(outputBox, 
     // One meta line (hermes scaffold grammar): state word + exit code
     // + duration, plain text — the colored glyph in the header already
     // carries the state, so no second PASSED pill here.
     element('div', 'crusorai-terminal-result', element('span', undefined, `${stateLabel(tool.state)} · exit ${exit}`), element('span', 'crusorai-tool-duration', duration)));
     const actions = element('div', 'crusorai-tool-actions');
-    actions.append(copyButton(command, host));
     const cwd = firstString(args, ['cwd', 'path']);
     if (cwd) {
         actions.append(button('Reveal location', 'crusorai-link-button', () => host.revealFile(cwd), 'go-to-file'));
     }
-    body.append(actions);
+    if (cwd) {
+        body.append(actions);
+    }
     return body;
 }
 function toolFields(rows) {

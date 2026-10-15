@@ -2063,3 +2063,15 @@
 .crusorai-a2ui-question { display: flex; flex-direction: column; gap: 6px; }
 .crusorai-a2ui-approval-actions { display: flex; gap: 8px; margin-top: 6px; }
 .crusorai-a2ui-image { max-width: 100%; border-radius: 6px; }
+
+/* OpenCode bash-output box (ported from third-party/opencode/session-ui/
+   components/message-part.css, MIT; --v2-* mapped to workbench vars). */
+.crusorai-bash-output { position: relative; width: 100%; border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; }
+.crusorai-bash-copy { position: absolute; top: 4px; right: 4px; z-index: 1; transition: opacity 0.15s ease; opacity: 0; pointer-events: none; }
+.crusorai-bash-output:hover .crusorai-bash-copy, .crusorai-bash-output:focus-within .crusorai-bash-copy { opacity: 1; pointer-events: auto; }
+.crusorai-bash-scroll { width: 100%; overflow-y: auto; overflow-x: hidden; max-height: 240px; scrollbar-width: none; }
+.crusorai-bash-scroll::-webkit-scrollbar { display: none; }
+.crusorai-bash-pre { margin: 0; padding: 0; font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.crusorai-bash-command { display: block; padding: 12px; color: var(--vscode-foreground); }
+.crusorai-bash-result { display: block; padding: 0; border-top: 0.5px solid var(--vscode-panel-border); background: var(--vscode-editorWidget-background); color: var(--vscode-descriptionForeground); }
+.crusorai-bash-result .crusorai-terminal-output { padding: 12px; }
