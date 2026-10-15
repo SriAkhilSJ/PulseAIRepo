@@ -537,6 +537,18 @@
 }
 .crusorai-link-button:hover { color: var(--vscode-textLink-activeForeground); text-decoration: underline; }
 
+/* Batch delegation rows: each task its own separated line; a row
+   matched to a real child session is an open target (arrow affordance,
+   pointer, hover), unmatched rows stay plain text. */
+.crusorai-task-tool-batch { display: flex; flex-direction: column; }
+.crusorai-task-tool-batch-row { display: flex; align-items: baseline; gap: var(--crusorai-space-2); padding: var(--crusorai-space-1) var(--crusorai-space-2); border-radius: var(--crusorai-radius-code); }
+.crusorai-task-tool-batch-row + .crusorai-task-tool-batch-row { border-top: 1px solid var(--vscode-widget-border); }
+.crusorai-task-tool-batch-row.is-clickable { cursor: pointer; }
+.crusorai-task-tool-batch-row.is-clickable:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-task-tool-batch-index { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.crusorai-task-tool-batch-text { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-task-tool-batch-action { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+
 .crusorai-notice-row {
 	display: flex;
 	align-items: flex-start;

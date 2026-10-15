@@ -669,7 +669,7 @@ function terminalBody(tool, host) {
     return body;
 }
 // OpenCode parity: agent color hash for task cards
-function taskToolCard(tool, host) {
+function taskToolCard(tool, host, subAgents = []) {
     const args = record(tool.arguments) ?? {};
     const resultRec = resultRecord(tool.result);
     // Extract from args: description, prompt, subagent_type, mode, background
@@ -713,16 +713,56 @@ function taskToolCard(tool, host) {
     const subtitleText = description + (isBackground ? ' (background)' : '') + (toolCalls ? ` · ${toolCalls} calls` : '');
     surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
     card.append(surface);
-    // Batch: one row per delegated task. Rows are display-only — the
-    // per-child session ids are not in this tool's payload, and the
-    // old goal-matching host cast navigated by guesswork.
+    // Batch: one row per delegated task. Each row opens ITS child
+    // session when the turn's sub-agent records identify it (goal/
+    // description prefix, else spawn order); unmatched rows stay
+    // honest display text. Founder 2026-10-15: 'WHERE SHOULD I
+    // CLICK??' — the batch card must BE the navigation.
     const batchTasks = args.tasks;
     if (Array.isArray(batchTasks) && batchTasks.length > 0) {
+        const claimed = new Set();
+        const childTarget = (sub) => sub.childThreadId ?? sub.id;
+        const matchChild = (taskText) => {
+            const key = (value) => (value ?? '').slice(0, 24);
+            const byText = subAgents.find(sub => !claimed.has(sub.id)
+                && ((key(sub.goal) !== '' && taskText.includes(key(sub.goal)))
+                    || (key(sub.description) !== '' && taskText.includes(key(sub.description)))));
+            const picked = byText ?? subAgents.find(sub => !claimed.has(sub.id));
+            if (picked) {
+                claimed.add(picked.id);
+            }
+            return picked;
+        };
         const batchList = element('div', 'crusorai-task-tool-batch');
         for (let i = 0; i < batchTasks.length; i++) {
             const t = String(batchTasks[i] ?? '');
-            const row = element('div', 'crusorai-task-tool-batch-row', element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`), element('span', undefined, t.slice(0, 80)));
+            const child = subAgents.length ? matchChild(t) : undefined;
+            const label = t.split('\n')[0].slice(0, 90);
+            const rowChildren = [
+                element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`),
+                element('span', 'crusorai-task-tool-batch-text', label),
+            ];
+            if (child) {
+                rowChildren.push(element('span', 'crusorai-task-tool-batch-action', icon('arrow-up-right')));
+            }
+            const row = element('div', 'crusorai-task-tool-batch-row', ...rowChildren);
             row.title = t;
+            if (child) {
+                const target = childTarget(child);
+                row.classList.add('is-clickable');
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
+                row.addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    host.navigateToSession?.(String(target));
+                });
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        host.navigateToSession?.(String(target));
+                    }
+                });
+            }
             batchList.append(row);
         }
         card.append(batchList);
@@ -1207,7 +1247,7 @@ function webSearchBody(tool, host) {
     out.dataset.component = 'exa-tool-output';
     return out;
 }
-function familyBody(tool, host) {
+function familyBody(tool, host, subAgents = []) {
     // A2UI Catalog v1 (plan Phase 2): a tool result carrying an
     // {"a2ui_operations": [...]} envelope renders through the fixed-catalog
     // surface manager — display_crusor_task takes this generic path instead
@@ -1441,7 +1481,7 @@ function familyBody(tool, host) {
     }
     else if (presentation.family === 'subagent' || tool.name.startsWith('delegate_to_subagent')) {
         // OpenCode parity: task-tool-card clickable navigation
-        return taskToolCard(tool, host);
+        return taskToolCard(tool, host, subAgents);
     }
     else if (presentation.family === 'code' || presentation.family === 'scaffold') {
         // Field 2026-09-10: this body hardcoded a fake RUNTIME value —
@@ -1500,7 +1540,7 @@ function familyBody(tool, host) {
     }
     return body;
 }
-function toolRow(tool, host, openTools, closedTools, pendingClarify) {
+function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents = []) {
     // Hermes (message-parts ChainToolFallback): a clarify call renders its own
     // widget card — the interactive question while it blocks, the settled Q&A
     // after — never a generic collapsible tool row.
@@ -1650,7 +1690,7 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify) {
         }
         return row;
     }
-    const body = familyBody(tool, host);
+    const body = familyBody(tool, host, subAgents);
     body.dataset.slot = 'collapsible-content';
     if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) {
         body.append(errorCard(tool));
@@ -1684,7 +1724,7 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify) {
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools, host, openTools, closedTools, live, showHeading = true, pendingClarify) {
+function toolSection(tools, host, openTools, closedTools, live, showHeading = true, pendingClarify, subAgents = []) {
     const section = element('section', 'crusorai-tool-list');
     section.dataset.component = 'tool-list';
     if (showHeading) {
@@ -1696,12 +1736,12 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
     // screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
     // card said the same thing twice). Only 2+ calls earn a run summary.
     if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
-        section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify));
+        section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify, subAgents));
         return section;
     }
     for (const group of groups) {
         if (group.kind === 'card') {
-            section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify));
+            section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify, subAgents));
             continue;
         }
         const runTools = group.tools;
@@ -1726,7 +1766,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         details.append(summary);
         const body = element('div', 'crusorai-tool-run-body');
         for (const tool of runTools) {
-            body.append(toolRow(tool, host, openTools, closedTools, pendingClarify));
+            body.append(toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents));
         }
         details.append(body);
         section.append(details);
@@ -2008,7 +2048,7 @@ function assistantTurn(spec, host, openTools, closedTools) {
         if (!run.length) {
             return;
         }
-        response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify));
+        response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents));
         run = [];
     };
     parts.forEach((part, index) => {
@@ -2042,7 +2082,7 @@ function assistantTurn(spec, host, openTools, closedTools) {
     const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
     const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
     if (orphans.length) {
-        response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify));
+        response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents));
     }
     if (spec.assistantText && lastTextIndex < 0) {
         response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
@@ -2080,6 +2120,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
                 tools: turn.tools,
                 live: false,
                 turnKey: `history:${model.sessionId || 's'}`,
+                subAgents: turn.subAgents,
             }, host, openTools, closedTools));
         }
         if (turn.subAgents.length) {
@@ -2150,6 +2191,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             cancelRequested: model.cancelRequested,
             clarify: model.clarify,
             turnKey: `current:${model.sessionId || 's'}`,
+            subAgents: model.subAgents,
         }, host, openTools, closedTools));
     }
     if (model.subAgents.length) {

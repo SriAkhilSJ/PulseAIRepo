@@ -851,7 +851,7 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 }
 
 // OpenCode parity: agent color hash for task cards
-function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
 	const args = record(tool.arguments) ?? {};
 	const resultRec = resultRecord(tool.result);
 	// Extract from args: description, prompt, subagent_type, mode, background
@@ -895,16 +895,49 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	surface.append(element('span', 'crusorai-task-tool-subtitle', subtitleText));
 
 	card.append(surface);
-	// Batch: one row per delegated task. Rows are display-only — the
-	// per-child session ids are not in this tool's payload, and the
-	// old goal-matching host cast navigated by guesswork.
+	// Batch: one row per delegated task. Each row opens ITS child
+	// session when the turn's sub-agent records identify it (goal/
+	// description prefix, else spawn order); unmatched rows stay
+	// honest display text. Founder 2026-10-15: 'WHERE SHOULD I
+	// CLICK??' — the batch card must BE the navigation.
 	const batchTasks = (args as any).tasks;
 	if (Array.isArray(batchTasks) && batchTasks.length > 0) {
+		const claimed = new Set<string>();
+		const childTarget = (sub: CrusorAISubAgentView): string => (sub as any).childThreadId ?? sub.id;
+		const matchChild = (taskText: string): CrusorAISubAgentView | undefined => {
+			const key = (value?: string): string => (value ?? '').slice(0, 24);
+			const byText = subAgents.find(sub => !claimed.has(sub.id)
+				&& ((key(sub.goal) !== '' && taskText.includes(key(sub.goal)))
+					|| (key(sub.description) !== '' && taskText.includes(key(sub.description)))));
+			const picked = byText ?? subAgents.find(sub => !claimed.has(sub.id));
+			if (picked) { claimed.add(picked.id); }
+			return picked;
+		};
 		const batchList = element('div', 'crusorai-task-tool-batch');
 		for (let i = 0; i < batchTasks.length; i++) {
 			const t = String(batchTasks[i] ?? '');
-			const row = element('div', 'crusorai-task-tool-batch-row', element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`), element('span', undefined, t.slice(0, 80)));
+			const child = subAgents.length ? matchChild(t) : undefined;
+			const label = t.split('\n')[0].slice(0, 90);
+			const rowChildren: (HTMLElement | string)[] = [
+				element('span', 'crusorai-task-tool-batch-index', `${i + 1}.`),
+				element('span', 'crusorai-task-tool-batch-text', label),
+			];
+			if (child) { rowChildren.push(element('span', 'crusorai-task-tool-batch-action', icon('arrow-up-right'))); }
+			const row = element('div', 'crusorai-task-tool-batch-row', ...rowChildren);
 			row.title = t;
+			if (child) {
+				const target = childTarget(child);
+				row.classList.add('is-clickable');
+				row.tabIndex = 0;
+				row.setAttribute('role', 'button');
+				row.addEventListener('click', (event) => {
+					event.stopPropagation();
+					host.navigateToSession?.(String(target));
+				});
+				row.addEventListener('keydown', (e: KeyboardEvent) => {
+					if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); host.navigateToSession?.(String(target)); }
+				});
+			}
 			batchList.append(row);
 		}
 		card.append(batchList);
@@ -1364,7 +1397,7 @@ function webSearchBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEl
 	return out;
 }
 
-function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
 	// A2UI Catalog v1 (plan Phase 2): a tool result carrying an
 	// {"a2ui_operations": [...]} envelope renders through the fixed-catalog
 	// surface manager — display_crusor_task takes this generic path instead
@@ -1567,7 +1600,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 		body.append(toolOutputBox(boundedText(result ?? tool.result, 4000)));
 	} else if (presentation.family === 'subagent' || tool.name.startsWith('delegate_to_subagent')) {
 		// OpenCode parity: task-tool-card clickable navigation
-		return taskToolCard(tool, host);
+		return taskToolCard(tool, host, subAgents);
 	} else if (presentation.family === 'code' || presentation.family === 'scaffold') {
 		// Field 2026-09-10: this body hardcoded a fake RUNTIME value —
 		// invented text on a JS scaffolding call. The card shows the call's
@@ -1621,7 +1654,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 	return body;
 }
 
-function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
+function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
 	// Hermes (message-parts ChainToolFallback): a clarify call renders its own
 	// widget card — the interactive question while it blocks, the settled Q&A
 	// after — never a generic collapsible tool row.
@@ -1774,7 +1807,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		if (errorLine) { row.append(element('span', 'crusorai-tool-inline-error', errorLine)); }
 		return row;
 	}
-	const body = familyBody(tool, host);
+	const body = familyBody(tool, host, subAgents);
 	body.dataset.slot = 'collapsible-content';
 	if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) { body.append(errorCard(tool)); }
 	details.append(summary, body);
@@ -1801,7 +1834,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify']): HTMLElement {
+function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
 	const section = element('section', 'crusorai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -1817,12 +1850,12 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 	// screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
 	// card said the same thing twice). Only 2+ calls earn a run summary.
 	if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
-		section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify));
+		section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify, subAgents));
 		return section;
 	}
 	for (const group of groups) {
 		if (group.kind === 'card') {
-			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify));
+			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify, subAgents));
 			continue;
 		}
 		const runTools = group.tools;
@@ -1844,7 +1877,7 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 		);
 		details.append(summary);
 		const body = element('div', 'crusorai-tool-run-body');
-		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, closedTools, pendingClarify)); }
+		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents)); }
 		details.append(body);
 		section.append(details);
 	}
@@ -2084,6 +2117,7 @@ function assistantTurn(
 		cancelRequested?: boolean;
 		clarify?: CrusorAIRenderModel['clarify'];
 		turnKey?: string;
+		subAgents?: readonly CrusorAISubAgentView[];
 	},
 	host: CrusorAIRenderHost,
 	openTools: Set<string>, closedTools: Set<string>,
@@ -2114,7 +2148,7 @@ function assistantTurn(
 	let run: CrusorAIToolView[] = [];
 	const flushRun = () => {
 		if (!run.length) { return; }
-		response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify));
+		response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents));
 		run = [];
 	};
 	parts.forEach((part, index) => {
@@ -2143,7 +2177,7 @@ function assistantTurn(
 	// A tool with no part (a replay that lost its start frame) must still show.
 	const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
 	const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
-	if (orphans.length) { response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify)); }
+	if (orphans.length) { response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents)); }
 	if (spec.assistantText && lastTextIndex < 0) {
 		response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
 	}
@@ -2179,6 +2213,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				tools: turn.tools,
 				live: false,
 				turnKey: `history:${model.sessionId || 's'}`,
+				subAgents: turn.subAgents,
 			}, host, openTools, closedTools));
 		}
 		if (turn.subAgents.length) {
@@ -2250,6 +2285,7 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 			cancelRequested: model.cancelRequested,
 			clarify: model.clarify,
 			turnKey: `current:${model.sessionId || 's'}`,
+			subAgents: model.subAgents,
 		}, host, openTools, closedTools));
 	}
 	if (model.subAgents.length) {

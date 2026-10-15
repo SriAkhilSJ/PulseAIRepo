@@ -129,7 +129,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # transcript branches, every consecutive tool run through the shared rule.
     assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
     assert "function assistantTurn(" in renderer
-    assert renderer.count("response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify))") == 1, "consecutive tool runs fold through the shared grouping rule"
+    assert renderer.count("response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents))") == 1, "consecutive tool runs fold through the shared grouping rule"
     assert "textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only (inside the OpenCode text-part)"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
@@ -1538,7 +1538,7 @@ def test_read_and_search_rows_are_single_line_info_rows():
     assert "'No matches'" in renderer
     # the inline branch returns a plain row before any body is built
     inline_at = renderer.index("if (isInline) {")
-    body_at = renderer.index("const body = familyBody(tool, host);")
+    body_at = renderer.index("const body = familyBody(tool, host, subAgents);")
     assert inline_at < body_at, "inline rows must return before familyBody runs"
     assert "crusorai-tool-inline" in renderer and ".crusorai-tool-inline {" in css
     assert "isPending || isInline ? undefined : icon('chevron-down')" in renderer, "no caret on a line that cannot open"
@@ -1909,3 +1909,22 @@ def test_child_session_click_mid_run_defers_instead_of_erroring():
     assert "readonly notice?: string;" in renderer
     assert "crusorai-notice-row" in renderer and ".crusorai-notice-row {" in css
     assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer
+
+
+def test_batch_card_rows_open_their_child_sessions():
+    """Founder 2026-10-15 (build f2362c89): 'WHERE SHOULD I CLICK??' —
+    the batch Delegate card rendered its tasks as a dead display-only
+    list while the real child links hid in a Sub-Agents section.
+    Sub-agent records now thread model -> assistantTurn -> toolSection
+    -> toolRow -> familyBody -> taskToolCard, and each batch row
+    matches its child (goal/description prefix, else spawn order)
+    and navigates on click; rows style as separated lines with an
+    arrow affordance when clickable."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "subAgents: model.subAgents" in renderer
+    assert "subAgents: turn.subAgents" in renderer
+    assert "function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents" in renderer
+    assert "const matchChild" in renderer and "crusorai-task-tool-batch-action" in renderer
+    assert ".crusorai-task-tool-batch-row.is-clickable" in css
+    assert "crusorai-task-tool-batch-text" in css
