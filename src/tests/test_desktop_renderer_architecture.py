@@ -1686,7 +1686,33 @@ def test_edit_and_write_bodies_are_real_viewers():
     assert "function codeView" in renderer
     assert "view.dataset.component = 'code'" in renderer
     assert "wrap.dataset.component = 'diff'" in renderer
-    assert "crusorai-diff-gutter" in renderer and "crusorai-diff-sign" in renderer
+    assert "crusorai-diff-gutter" in renderer
     assert ".crusorai-code-view {" in css and ".crusorai-code-gutter" in css
-    assert ".crusorai-diff-row.is-add .crusorai-diff-sign" in css
+    assert ".crusorai-diff-row.is-add .crusorai-diff-gutter" in css
     assert "crusorai-write-content pre" not in css, "the prose <pre> is retired"
+
+
+def test_file_accordion_matches_the_opencode_reference_render():
+    """Founder reference image 2026-10-15 (OpenCode's own Edit card):
+    'now output should look like this — will i see outputs like this?'
+    Their render: outer Edit title + file + counts; inside, the file's
+    OWN accordion box (real icon, directory/filename, DiffChanges,
+    chevron) whose content is a diff viewer with ONE line-number
+    gutter (removed = old number in red, added = new in green, no
+    sign column) in a capped frame with a floating scroll-down
+    button. Structure must match exactly; token-level syntax
+    highlighting is their app file component, not faked here."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "function fileAccordion" in renderer
+    assert "group.dataset.scope = 'apply-patch'" in renderer
+    assert "name.dataset.slot = 'apply-patch-filename'" in renderer
+    assert "body.append(fileAccordion(tool, host, view));" in renderer
+    # One gutter, old number for removals, new for the rest.
+    assert "const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);" in renderer
+    assert "crusorai-diff-sign" not in renderer
+    # Capped frame + floating jump button, shown only when below-fold.
+    assert "function fileScrollFrame" in renderer
+    assert ".crusorai-file-scroll { max-height: 300px" in css
+    assert ".crusorai-scroll-down {" in css and ".crusorai-scroll-down.is-hidden" in css
+    assert ".crusorai-file-view {" in css

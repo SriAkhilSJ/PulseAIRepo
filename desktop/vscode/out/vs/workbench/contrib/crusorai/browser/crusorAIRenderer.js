@@ -1013,6 +1013,94 @@ function toolInlineError(tool) {
     }
     return undefined;
 }
+// Per-tool file-accordion memory: a user-collapsed file box stays
+// collapsed across repaints (same law as closedTools, one level in).
+const closedFileViews = new Set();
+/**
+ * The file viewer's scroll frame (OpenCode's code component inside
+ * edit-content/write-content): ONE capped scroll region with a
+ * floating scroll-to-bottom button that shows only while more output
+ * sits below — never a second nested scroller.
+ */
+function fileScrollFrame(content) {
+    const scroller = element('div', 'crusorai-file-scroll', content);
+    scroller.dataset.scrollable = '';
+    const down = element('button', 'crusorai-scroll-down is-hidden', icon('arrow-down'));
+    down.type = 'button';
+    down.setAttribute('aria-label', 'Scroll to bottom');
+    const frame = element('div', 'crusorai-file-frame', scroller, down);
+    const update = () => {
+        const overflow = scroller.scrollHeight - scroller.clientHeight > 8;
+        const atBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 24;
+        down.classList.toggle('is-hidden', !overflow || atBottom);
+    };
+    scroller.addEventListener('scroll', update, { passive: true });
+    down.addEventListener('click', () => scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' }));
+    window.requestAnimationFrame(update);
+    return frame;
+}
+/**
+ * OpenCode's file accordion (ToolFileAccordion inside FileTool): the
+ * edited/written file gets its OWN bordered box inside the card — the
+ * extracted apply-patch hooks paint icon + directory/filename header
+ * with the counted DiffChanges riding the actions slot; the header
+ * collapses the diff/code view below it.
+ */
+function fileAccordion(tool, host, content) {
+    const path = displayTarget(tool);
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+    const fileName = parts.pop() ?? path;
+    const directory = parts.length ? `${parts.join('/')}/` : '';
+    const nameContainer = element('span', undefined);
+    nameContainer.dataset.slot = 'apply-patch-file-name-container';
+    if (directory) {
+        const dir = element('span', undefined, directory);
+        dir.dataset.slot = 'apply-patch-directory';
+        nameContainer.append(dir);
+    }
+    const name = element('span', undefined, fileName);
+    name.dataset.slot = 'apply-patch-filename';
+    nameContainer.append(name);
+    const fileInfo = element('span', 'show-file-icons', fileIcon(host, path), nameContainer);
+    fileInfo.dataset.slot = 'apply-patch-file-info';
+    // Their write accordion carries no DiffChanges action (counts ride
+    // the outer header there); edit/copy headers carry them, as captured.
+    const stats = tool.name === 'write_file' ? undefined : editDiffStats(tool);
+    const chevron = element('span', 'crusorai-file-view-chevron', icon('chevron-down'));
+    const actions = element('span', undefined, stats ? diffChangesChip(stats) : undefined, chevron);
+    actions.dataset.slot = 'apply-patch-trigger-actions';
+    const triggerContent = element('span', undefined, fileInfo, actions);
+    triggerContent.dataset.slot = 'apply-patch-trigger-content';
+    const trigger = element('button', 'crusorai-file-view-trigger', triggerContent);
+    trigger.type = 'button';
+    trigger.dataset.slot = 'accordion-trigger';
+    const header = element('h3', 'crusorai-file-view-header', trigger);
+    header.dataset.slot = 'accordion-header';
+    const contentRegion = element('div', 'crusorai-file-view-content', fileScrollFrame(content));
+    contentRegion.dataset.slot = 'accordion-content';
+    const item = element('div', 'crusorai-file-view-item', header, contentRegion);
+    item.dataset.slot = 'accordion-item';
+    const applyOpen = () => {
+        const open = !closedFileViews.has(tool.id);
+        contentRegion.hidden = !open;
+        item.classList.toggle('is-closed', !open);
+        trigger.setAttribute('aria-expanded', String(open));
+    };
+    trigger.addEventListener('click', () => {
+        if (closedFileViews.has(tool.id)) {
+            closedFileViews.delete(tool.id);
+        }
+        else {
+            closedFileViews.add(tool.id);
+        }
+        applyOpen();
+    });
+    applyOpen();
+    const group = element('div', 'crusorai-file-view', item);
+    group.dataset.component = 'accordion';
+    group.dataset.scope = 'apply-patch';
+    return group;
+}
 function familyBody(tool, host) {
     // A2UI Catalog v1 (plan Phase 2): a tool result carrying an
     // {"a2ui_operations": [...]} envelope renders through the fixed-catalog
@@ -1080,17 +1168,29 @@ function familyBody(tool, host) {
             // diff is all '+' lines, which painted as a solid green wall
             // (founder 2026-10-15: 'write file is not like opencode, worst
             // look'). Writes show the written content; edits show the diff.
+            // Either way the view rides inside the file accordion box
+            // (their ToolFileAccordion) with its own scroll frame.
+            let view;
             if (tool.name !== 'write_file' && diff) {
                 const editBox = element('div', 'crusorai-edit-content');
                 editBox.dataset.component = 'edit-content';
                 editBox.append(diffPreview(diff));
-                body.append(editBox);
+                view = editBox;
             }
             else if (typeof args?.content === 'string' && args.content) {
                 const writeBox = element('div', 'crusorai-write-content');
                 writeBox.dataset.component = 'write-content';
                 writeBox.append(codeView(args.content.slice(0, 32_000)));
-                body.append(writeBox);
+                view = writeBox;
+            }
+            else if (diff) {
+                const editBox = element('div', 'crusorai-edit-content');
+                editBox.dataset.component = 'edit-content';
+                editBox.append(diffPreview(diff));
+                view = editBox;
+            }
+            if (view) {
+                body.append(fileAccordion(tool, host, view));
             }
             else {
                 const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? boundedText(tool.result, 4000);
@@ -2661,11 +2761,12 @@ function diffPreview(diff) {
     const parsed = parseDiff(diff || '');
     const shown = parsed.slice(0, DIFF_PREVIEW_LINE_LIMIT);
     for (const line of shown) {
-        // OpenCode's diff viewer (edit-content > diff): old/new line-number
-        // gutters, the sign, then the line — added/removed rows carry the
-        // tint, the code text keeps the editor foreground.
-        const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : '';
-        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-gutter', line.oldNo !== undefined ? String(line.oldNo) : ''), element('span', 'crusorai-diff-gutter', line.newNo !== undefined ? String(line.newNo) : ''), element('span', 'crusorai-diff-sign', sign), element('span', 'crusorai-diff-text', line.text.length ? line.text : ' ')));
+        // OpenCode's diff viewer (their reference render): ONE gutter —
+        // removed rows carry their OLD number, added/context their NEW
+        // number, the number itself coloured by kind; no +/- sign column,
+        // the row tint + number carry the meaning.
+        const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
+        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''), element('span', 'crusorai-diff-text', line.text.length ? line.text : ' ')));
     }
     if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
         wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));
