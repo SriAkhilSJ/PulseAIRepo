@@ -214,6 +214,11 @@ export interface CrusorAIRenderHost {
 	 * it fall back to the generic file-icon class. Implementations own the
 	 * model/language services; this file stays service-free. */
 	fileIconClasses?(resource: string): string | undefined;
+	/** The active editor theme's REAL token colours (comment/string/
+	 * keyword/number/type CSS values) for the file viewers' syntax
+	 * layer, keyed by the renderer's language bucket. Optional: hosts
+	 * without it leave the CSS-var fallbacks in charge. */
+	syntaxColors?(language: string): CrusorAISyntaxColors | undefined;
 	restoreCheckpoint(hash: string): void;
 	retryEngine(): void;
 	selectWorkspace(uri: string): void;
@@ -1313,23 +1318,24 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEleme
 			const streamText = typeof args?.content === 'string' && args.content
 				? args.content
 				: (typeof args?.new_text === 'string' && args.new_text ? args.new_text : undefined);
+			const syntax = host.syntaxColors?.(syntaxLanguageOf(target));
 			let view: HTMLElement | undefined;
 			if (tool.name !== 'write_file' && diff) {
 				const editBox = element('div', 'crusorai-edit-content');
 				editBox.dataset.component = 'edit-content';
-				editBox.append(diffPreview(diff, target));
+				editBox.append(diffPreview(diff, target, syntax));
 				view = editBox;
 			} else if (streamText !== undefined) {
 				// OpenCode's write view is the file itself (never a green
 				// wall): the code view, streaming while the call lands.
 				const writeBox = element('div', 'crusorai-write-content');
 				writeBox.dataset.component = 'write-content';
-				writeBox.append(codeView(streamText.slice(0, 32_000), target));
+				writeBox.append(codeView(streamText.slice(0, 32_000), target, syntax));
 				view = writeBox;
 			} else if (diff) {
 				const editBox = element('div', 'crusorai-edit-content');
 				editBox.dataset.component = 'edit-content';
-				editBox.append(diffPreview(diff, target));
+				editBox.append(diffPreview(diff, target, syntax));
 				view = editBox;
 			}
 			if (view) {
@@ -2835,9 +2841,10 @@ const DIFF_PREVIEW_LINE_LIMIT = 40;
 // hermes diff-lines.tsx wireframe, ported: file-headers + `@@` hunk noise and
 // the +/- gutter are DROPPED -- changes read by tint + a 2px gutter accent,
 // rows flush to the card edges, the box scrolls like a code block.
-function diffPreview(diff: string, path = ''): HTMLElement {
+function diffPreview(diff: string, path = '', colors?: CrusorAISyntaxColors): HTMLElement {
 	const wrap = element('div', 'crusorai-diff-body');
 	wrap.dataset.component = 'diff';
+	applySyntaxColors(wrap, colors);
 	const language = syntaxLanguageOf(path);
 	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const parsed = parseDiff(diff || '');
@@ -2871,6 +2878,24 @@ const CODE_VIEW_LINE_LIMIT = 200;
 // ---------------------------------------------------------------------------
 
 type SyntaxKind = 'comment' | 'string' | 'keyword' | 'number' | 'type';
+
+/** CSS colour values for each syntax kind, from the host's theme. */
+export interface CrusorAISyntaxColors {
+	readonly comment?: string;
+	readonly string?: string;
+	readonly keyword?: string;
+	readonly number?: string;
+	readonly type?: string;
+}
+
+/** Ride the theme's token colours into the viewer as CSS variables. */
+function applySyntaxColors(view: HTMLElement, colors: CrusorAISyntaxColors | undefined): void {
+	if (!colors) { return; }
+	for (const kind of ['comment', 'string', 'keyword', 'number', 'type'] as const) {
+		const value = colors[kind];
+		if (value) { view.style.setProperty(`--crusorai-tok-${kind}`, value); }
+	}
+}
 
 const SYNTAX_KEYWORDS = new Set((
 	'def class return if elif else for while import from as with try except finally raise pass break continue '
@@ -2976,9 +3001,10 @@ function syntaxText(text: string, language: string, state: SyntaxState): HTMLEle
  * Lines are capped for paint; the file link in the header opens the
  * full file in the real editor.
  */
-function codeView(text: string, path = ''): HTMLElement {
+function codeView(text: string, path = '', colors?: CrusorAISyntaxColors): HTMLElement {
 	const view = element('div', 'crusorai-code-view');
 	view.dataset.component = 'code';
+	applySyntaxColors(view, colors);
 	const language = syntaxLanguageOf(path);
 	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const lines = text.split('\n');

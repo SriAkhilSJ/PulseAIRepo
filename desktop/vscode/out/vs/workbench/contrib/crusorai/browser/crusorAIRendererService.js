@@ -19,6 +19,7 @@ import { getIconClasses } from '../../../../editor/common/services/getIconClasse
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { FileKind } from '../../../../platform/files/common/files.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -85,7 +86,7 @@ function stringField(source, keys) {
     return undefined;
 }
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
-    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService) {
+    constructor(engineService, workbenchService, workspaceContextService, configurationService, commandService, clipboardService, auxiliaryWindowService, sessionStore, notificationService, modelService, languageService, themeService) {
         super();
         this.engineService = engineService;
         this.workbenchService = workbenchService;
@@ -98,6 +99,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.notificationService = notificationService;
         this.modelService = modelService;
         this.languageService = languageService;
+        this.themeService = themeService;
         this.mounts = new Set();
         this.tools = new Map();
         this.seenEventIds = new Set();
@@ -185,6 +187,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openDiff: toolId => { void this.openDiff(toolId); },
             revealFile: resource => { void this.revealFile(resource); },
             resourceSrc: resource => this.resourceBrowserSrc(resource),
+            syntaxColors: language => this.syntaxColors(language),
             fileIconClasses: resource => {
                 // VS Code's own file-icon resolution (Seti theme classes) — the
                 // same classes the Explorer paints for this file.
@@ -269,6 +272,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // are isolated so one broken panel never eats the frame dispatch.
         this._hubListeners = new Set();
         this._oneshotListeners = new Set();
+        this.syntaxColorCache = new Map();
         this._register(this.engineService.onDidChangeState(state => {
             if (state === CrusorAIEngineState.Ready) {
                 this.restartAttempts = 0;
@@ -300,6 +304,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.publishHostCapabilities();
             this.render();
         }));
+        this._register(this.themeService.onDidColorThemeChange(() => this.syntaxColorCache.clear()));
         this._register(toDisposable(() => {
             if (this.renderFrame !== undefined) {
                 cancelAnimationFrame(this.renderFrame);
@@ -1972,6 +1977,39 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.render();
         }
     }
+    /**
+     * The active editor theme's real token colours for the file
+     * viewers: resolved through IColorTheme.getTokenStyleMetadata —
+     * the same machinery the editor itself paints with — and cached
+     * per language bucket until the theme changes.
+     */
+    syntaxColors(language) {
+        const cached = this.syntaxColorCache.get(language);
+        if (cached) {
+            return cached;
+        }
+        try {
+            const theme = this.themeService.getColorTheme();
+            const editorLanguage = { python: 'python', hash: 'shellscript', json: 'json', html: 'html', markdown: 'markdown' }[language] ?? 'typescript';
+            const pick = (type, fallback) => {
+                const style = theme.getTokenStyleMetadata(type, [], editorLanguage)
+                    ?? (fallback ? theme.getTokenStyleMetadata(fallback, [], editorLanguage) : undefined);
+                return style?.foreground !== undefined ? theme.tokenColorMap[style.foreground] : undefined;
+            };
+            const colors = {
+                comment: pick('comment'),
+                string: pick('string'),
+                keyword: pick('keyword'),
+                number: pick('number'),
+                type: pick('type', 'class'),
+            };
+            this.syntaxColorCache.set(language, colors);
+            return colors;
+        }
+        catch (error) {
+            return undefined;
+        }
+    }
     resourceBrowserSrc(resource) {
         // file:// is not loadable from the workbench DOM; FileAccess translates
         // it to the scheme the renderer may fetch (same path resolution as
@@ -2056,6 +2094,7 @@ CrusorAIRendererService = __decorate([
     __param(7, ICrusorAISessionStore),
     __param(8, INotificationService),
     __param(9, IModelService),
-    __param(10, ILanguageService)
+    __param(10, ILanguageService),
+    __param(11, IThemeService)
 ], CrusorAIRendererService);
 export { CrusorAIRendererService };

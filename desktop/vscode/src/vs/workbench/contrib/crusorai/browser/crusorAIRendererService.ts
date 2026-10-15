@@ -11,6 +11,7 @@ import { getIconClasses } from '../../../../editor/common/services/getIconClasse
 import { IModelService } from '../../../../editor/common/services/model.js';
 import { ILanguageService } from '../../../../editor/common/languages/language.js';
 import { FileKind } from '../../../../platform/files/common/files.js';
+import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
@@ -35,6 +36,7 @@ import {
 	CrusorAIToolView,
 	CrusorAITurnPart,
 	CrusorAISubAgentView,
+	CrusorAISyntaxColors,
 } from './crusorAIRenderer.js';
 
 function valueRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -256,6 +258,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		openDiff: toolId => { void this.openDiff(toolId); },
 		revealFile: resource => { void this.revealFile(resource); },
 		resourceSrc: resource => this.resourceBrowserSrc(resource),
+		syntaxColors: language => this.syntaxColors(language),
 		fileIconClasses: resource => {
 			// VS Code's own file-icon resolution (Seti theme classes) — the
 			// same classes the Explorer paints for this file.
@@ -336,6 +339,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		@INotificationService private readonly notificationService: INotificationService,
 		@IModelService private readonly modelService: IModelService,
 		@ILanguageService private readonly languageService: ILanguageService,
+		@IThemeService private readonly themeService: IThemeService,
 	) {
 		super();
 		this._register(this.engineService.onDidChangeState(state => {
@@ -368,6 +372,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.publishHostCapabilities();
 			this.render();
 		}));
+		this._register(this.themeService.onDidColorThemeChange(() => this.syntaxColorCache.clear()));
 		this._register(toDisposable(() => {
 			if (this.renderFrame !== undefined) { cancelAnimationFrame(this.renderFrame); }
 			if (this.restartTimer !== undefined) { clearTimeout(this.restartTimer); }
@@ -1912,6 +1917,39 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		} catch (error) {
 			this.error = error instanceof Error ? error.message : String(error);
 			this.render();
+		}
+	}
+
+	private readonly syntaxColorCache = new Map<string, CrusorAISyntaxColors>();
+
+	/**
+	 * The active editor theme's real token colours for the file
+	 * viewers: resolved through IColorTheme.getTokenStyleMetadata —
+	 * the same machinery the editor itself paints with — and cached
+	 * per language bucket until the theme changes.
+	 */
+	private syntaxColors(language: string): CrusorAISyntaxColors | undefined {
+		const cached = this.syntaxColorCache.get(language);
+		if (cached) { return cached; }
+		try {
+			const theme = this.themeService.getColorTheme();
+			const editorLanguage = ({ python: 'python', hash: 'shellscript', json: 'json', html: 'html', markdown: 'markdown' } as Record<string, string>)[language] ?? 'typescript';
+			const pick = (type: string, fallback?: string): string | undefined => {
+				const style = theme.getTokenStyleMetadata(type, [], editorLanguage)
+					?? (fallback ? theme.getTokenStyleMetadata(fallback, [], editorLanguage) : undefined);
+				return style?.foreground !== undefined ? theme.tokenColorMap[style.foreground] : undefined;
+			};
+			const colors: CrusorAISyntaxColors = {
+				comment: pick('comment'),
+				string: pick('string'),
+				keyword: pick('keyword'),
+				number: pick('number'),
+				type: pick('type', 'class'),
+			};
+			this.syntaxColorCache.set(language, colors);
+			return colors;
+		} catch (error) {
+			return undefined;
 		}
 	}
 

@@ -1764,3 +1764,23 @@ def test_file_viewers_carry_syntax_token_colours():
     assert "var(--vscode-symbolIcon-stringForeground)" in css
     # Flat whole-line green/red text (the wall) stays retired.
     assert "var(--crusorai-diff-add-foreground) 70%" not in css
+
+
+def test_syntax_colours_come_from_the_editor_theme():
+    """Founder screenshot 2026-10-15 (build 5e30b20c): 'color??' — the
+    tokenizer painted, but symbolIcon.*Foreground resolves to plain
+    foreground under CrusorAI Dark, so everything stayed white. The
+    real token colours live in the editor theme: the service now
+    resolves them through IColorTheme.getTokenStyleMetadata +
+    tokenColorMap (the editor's own machinery), cached per language
+    and invalidated on theme change; the renderer rides them into
+    the viewers as --crusorai-tok-* variables."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    service = _text("browser", "crusorAIRendererService.ts")
+    css = _text("browser", "media", "crusorAI.css")
+    assert "syntaxColors?(language: string)" in renderer
+    assert "applySyntaxColors(wrap, colors)" in renderer
+    assert "getTokenStyleMetadata" in service and "tokenColorMap" in service
+    assert "@IThemeService private readonly themeService" in service
+    assert "onDidColorThemeChange(() => this.syntaxColorCache.clear())" in service
+    assert "var(--crusorai-tok-string, var(--vscode-symbolIcon-stringForeground))" in css

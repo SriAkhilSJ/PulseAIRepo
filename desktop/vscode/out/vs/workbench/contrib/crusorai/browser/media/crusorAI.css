@@ -293,11 +293,11 @@
 /* Syntax token colours for the file viewers — the workbench theme's
    own symbolIcon token palette (strings, keywords, numbers, types),
    comments muted. No invented hex; it follows the active theme. */
-.crusorai-tok-comment { color: var(--vscode-descriptionForeground); font-style: italic; }
-.crusorai-tok-string { color: var(--vscode-symbolIcon-stringForeground); }
-.crusorai-tok-keyword { color: var(--vscode-symbolIcon-keywordForeground); }
-.crusorai-tok-number { color: var(--vscode-symbolIcon-numberForeground); }
-.crusorai-tok-type { color: var(--vscode-symbolIcon-classForeground); }
+.crusorai-tok-comment { color: var(--crusorai-tok-comment, var(--vscode-descriptionForeground)); font-style: italic; }
+.crusorai-tok-string { color: var(--crusorai-tok-string, var(--vscode-symbolIcon-stringForeground)); }
+.crusorai-tok-keyword { color: var(--crusorai-tok-keyword, var(--vscode-symbolIcon-keywordForeground)); }
+.crusorai-tok-number { color: var(--crusorai-tok-number, var(--vscode-symbolIcon-numberForeground)); }
+.crusorai-tok-type { color: var(--crusorai-tok-type, var(--vscode-symbolIcon-classForeground)); }
 
 /* The file accordion box (OpenCode ToolFileAccordion): their extracted
    apply-patch hooks paint header layout; glue supplies the bordered

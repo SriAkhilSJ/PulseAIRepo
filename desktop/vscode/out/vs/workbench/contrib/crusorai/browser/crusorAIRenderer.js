@@ -1170,11 +1170,12 @@ function familyBody(tool, host) {
             const streamText = typeof args?.content === 'string' && args.content
                 ? args.content
                 : (typeof args?.new_text === 'string' && args.new_text ? args.new_text : undefined);
+            const syntax = host.syntaxColors?.(syntaxLanguageOf(target));
             let view;
             if (tool.name !== 'write_file' && diff) {
                 const editBox = element('div', 'crusorai-edit-content');
                 editBox.dataset.component = 'edit-content';
-                editBox.append(diffPreview(diff, target));
+                editBox.append(diffPreview(diff, target, syntax));
                 view = editBox;
             }
             else if (streamText !== undefined) {
@@ -1182,13 +1183,13 @@ function familyBody(tool, host) {
                 // wall): the code view, streaming while the call lands.
                 const writeBox = element('div', 'crusorai-write-content');
                 writeBox.dataset.component = 'write-content';
-                writeBox.append(codeView(streamText.slice(0, 32_000), target));
+                writeBox.append(codeView(streamText.slice(0, 32_000), target, syntax));
                 view = writeBox;
             }
             else if (diff) {
                 const editBox = element('div', 'crusorai-edit-content');
                 editBox.dataset.component = 'edit-content';
-                editBox.append(diffPreview(diff, target));
+                editBox.append(diffPreview(diff, target, syntax));
                 view = editBox;
             }
             if (view) {
@@ -2757,9 +2758,10 @@ const DIFF_PREVIEW_LINE_LIMIT = 40;
 // hermes diff-lines.tsx wireframe, ported: file-headers + `@@` hunk noise and
 // the +/- gutter are DROPPED -- changes read by tint + a 2px gutter accent,
 // rows flush to the card edges, the box scrolls like a code block.
-function diffPreview(diff, path = '') {
+function diffPreview(diff, path = '', colors) {
     const wrap = element('div', 'crusorai-diff-body');
     wrap.dataset.component = 'diff';
+    applySyntaxColors(wrap, colors);
     const language = syntaxLanguageOf(path);
     const state = { blockComment: false, triple: undefined };
     const parsed = parseDiff(diff || '');
@@ -2778,6 +2780,18 @@ function diffPreview(diff, path = '') {
     return wrap;
 }
 const CODE_VIEW_LINE_LIMIT = 200;
+/** Ride the theme's token colours into the viewer as CSS variables. */
+function applySyntaxColors(view, colors) {
+    if (!colors) {
+        return;
+    }
+    for (const kind of ['comment', 'string', 'keyword', 'number', 'type']) {
+        const value = colors[kind];
+        if (value) {
+            view.style.setProperty(`--crusorai-tok-${kind}`, value);
+        }
+    }
+}
 const SYNTAX_KEYWORDS = new Set(('def class return if elif else for while import from as with try except finally raise pass break continue '
     + 'lambda yield global nonlocal assert del in is not and or None True False function const let var new delete '
     + 'typeof instanceof async await static get set public private protected readonly abstract extends implements '
@@ -2930,9 +2944,10 @@ function syntaxText(text, language, state) {
  * Lines are capped for paint; the file link in the header opens the
  * full file in the real editor.
  */
-function codeView(text, path = '') {
+function codeView(text, path = '', colors) {
     const view = element('div', 'crusorai-code-view');
     view.dataset.component = 'code';
+    applySyntaxColors(view, colors);
     const language = syntaxLanguageOf(path);
     const state = { blockComment: false, triple: undefined };
     const lines = text.split('\n');
