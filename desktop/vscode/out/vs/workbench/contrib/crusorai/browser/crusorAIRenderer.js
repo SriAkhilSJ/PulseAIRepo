@@ -1110,10 +1110,9 @@ function familyBody(tool, host) {
         }
     }
     else if (presentation.family === 'verification') {
-        // NO invented checklist (the old body hardcoded Typecheck /
-        // Browser callback / Destination assertion rows and a dead
-        // 'Open evidence' button): the tool's own output — tsc lines,
-        // the verify report — is the body. State rides the header.
+        // NO invented checklist (the old body hardcoded three check rows
+        // and a dead evidence button): the tool's own output — tsc
+        // lines, the verify report — is the body. State rides the header.
         const text = (typeof tool.result === 'string' ? tool.result : undefined)
             ?? firstString(result, ['output', 'text', 'report'])
             ?? boundedText(tool.result, 6000);
