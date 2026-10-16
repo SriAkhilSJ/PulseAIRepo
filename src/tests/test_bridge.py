@@ -402,6 +402,41 @@ def test_delegate_child_is_always_its_own_tip():
         subagent_store.get_store = original  # type: ignore[assignment]
 
 
+def test_parent_never_resolves_to_its_delegate_child():
+    """The mirror climb (field 2026-10-16: "end of the response i got
+    sub agent output not main agent output"): resolve_tip's parent
+    edges make the delegate child the parent's "latest descendant",
+    so the parent's transcript page came back as the CHILD's history
+    and poured into the parent surface. A resolved tip with a
+    sub-agent row is a delegation boundary — the requested session
+    is its own tip; fork tips (no row) still stand."""
+    from types import SimpleNamespace
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime import subagent_store
+
+    rows = {"sub-kid": SimpleNamespace(parent_session_id="parent-1")}
+
+    class _Store:
+        def get(self, sid):
+            return rows.get(sid)
+
+        def get_by_child(self, sid):
+            return rows.get(sid)
+
+    original = subagent_store.get_store
+    subagent_store.get_store = lambda: _Store()  # type: ignore[assignment]
+    try:
+        server = object.__new__(BridgeServer)
+        # Climbed onto a delegate child -> pinned back to the parent.
+        assert server._delegate_tip("parent-1", "sub-kid") == "parent-1"
+        # A fork continuation tip (no sub-agent row) still stands.
+        assert server._delegate_tip("parent-1", "fork-2") == "fork-2"
+        # No climb at all -> identity.
+        assert server._delegate_tip("parent-1", "parent-1") == "parent-1"
+    finally:
+        subagent_store.get_store = original  # type: ignore[assignment]
+
+
 def test_projected_frames_carry_their_authors_session():
     """A child's frames must say CHILD, not the running turn's session
     (field 2026-10-16: child words merged into the parent's live

@@ -1070,6 +1070,18 @@ class BridgeServer:
             subs = get_store()
             if subs.get(sid) is not None or subs.get_by_child(sid) is not None:
                 return sid
+            if tip != sid and (subs.get(tip) is not None or subs.get_by_child(tip) is not None):
+                # The climb crossed a delegation boundary: resolve_tip's
+                # parent edges treat a delegate child as the parent's
+                # latest descendant, so the parent's conversation
+                # "resolved" to the child and its transcript page was
+                # served for the parent — the child's history under the
+                # parent's chrome, live composer, no way back (field
+                # 2026-10-16: "i got sub agent output not main agent
+                # output"). A delegate is a separate conversation: the
+                # requested session is its own tip here. Fork
+                # continuations carry no sub-agent row and still climb.
+                return sid
         except Exception:
             pass
         return tip
