@@ -360,10 +360,22 @@ class SubagentLifecycleService:
                 agent_id=record.handle.subagent_id,
                 workspace=record.workspace or None,
             )
-            result = subagent_coordinator.get_result(agent_id)
+            # The coordinator's settled verdict crosses this boundary
+            # WITH its text (OpenCode: job status and output are
+            # separate fields). Reading only the text here stamped a
+            # crashed child's apology SUCCEEDED — the store row the
+            # coordinator had marked failed was overwritten below.
+            _get_outcome = getattr(subagent_coordinator, "get_outcome", None)
+            if _get_outcome is not None:
+                outcome_state, result = _get_outcome(agent_id)
+            else:
+                outcome_state, result = "succeeded", subagent_coordinator.get_result(agent_id)
             with self._lock:
                 if record.state == SubagentState.CANCEL_REQUESTED:
                     record.state = SubagentState.CANCELLED
+                elif outcome_state == "failed":
+                    record.state = SubagentState.FAILED
+                    record.error = result[:32000]
                 else:
                     record.state = SubagentState.SUCCEEDED
                     record.result = result[:32000]

@@ -35,6 +35,13 @@ import uuid
 from typing import Literal, Any
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
 
+# OpenCode's SubagentCompletion.NO_TEXT (session/subagent-completion.ts),
+# verbatim: a child whose run ends without a final text response
+# completes with THIS sentence as its output — never an empty result
+# wearing a success. Applied at the extraction seam in spawn(), the
+# same place upstream applies `text(assistant) || NO_TEXT`.
+NO_TEXT_RESPONSE = "Subagent completed without a text response."
+
 # Orphaned entries (crash between spawn and get_result) never exceed this.
 _MAX_COMPLETED_AGENTS = 50
 
@@ -253,6 +260,11 @@ class SubAgentCoordinator:
                 "outage/rate-limit, or a bug in the delegated step. You can retry "
                 "with a narrower task or complete it directly here."
             )
+        if not _crashed and not str(result or "").strip():
+            # Upstream extraction: the last assistant message's text,
+            # or NO_TEXT when the run produced none. An empty string
+            # is not a deliverable and must never read as one.
+            result = NO_TEXT_RESPONSE
         final_state = "failed" if _crashed else "succeeded"
 
         with self._lock:
@@ -261,6 +273,12 @@ class SubAgentCoordinator:
                 "task": task,
                 "description": (description or task[:50])[:200],
                 "result": result,
+                # The run's settled verdict rides WITH the result
+                # (OpenCode's Job.Info.status: completed/error are
+                # different facts, not different readings of one
+                # string). Consumers that only lift the text off a
+                # crashed child used to re-stamp it succeeded.
+                "state": final_state,
                 "parent": parent_thread_id,
                 "child_thread_id": agent_id,
                 "tool_call_id": tool_call_id,
@@ -400,14 +418,25 @@ class SubAgentCoordinator:
                     )
         return [str(r) for r in results]
 
-    def get_result(self, agent_id: str) -> str:
-        # Pop-on-read: a result has exactly one consumer (the delegating tool
-        # call) — the entry must die the moment it is delivered, or the
-        # singleton accumulates every sub-agent result for the process's life.
+    def get_outcome(self, agent_id: str) -> tuple[str, str]:
+        """The settled (state, result) pair for a spawned child.
+
+        OpenCode's job record keeps status and output as separate
+        fields (`result?.info.status === "error"` is checked, never
+        inferred from the text); ours does the same. Pop-on-read,
+        like get_result: the entry dies the moment it is delivered.
+        """
         agent = self._active_agents.pop(agent_id, None)
         if not agent:
-            return f"No sub-agent found with ID: {agent_id}"
-        return agent["result"]
+            return "failed", f"No sub-agent found with ID: {agent_id}"
+        return str(agent.get("state") or "succeeded"), str(agent.get("result") or "")
+
+    def get_result(self, agent_id: str) -> str:
+        # Text-only view of get_outcome for consumers that cannot
+        # carry a verdict (kept for compatibility; new consumers
+        # should read the outcome so failure is never re-read as
+        # success downstream).
+        return self.get_outcome(agent_id)[1]
 
     def list_active(self) -> list[dict]:
         return [

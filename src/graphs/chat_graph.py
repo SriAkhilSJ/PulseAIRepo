@@ -751,8 +751,35 @@ def delegate_to_subagent(
                     _tc.unregister_abort(str(caller_thread) or "main", _abort_child)
                 except Exception:
                     pass
+        # OpenCode's foreground contract (tool/plugin/subagent.ts):
+        # the run's exit status decides the tool's answer — error and
+        # cancelled FAIL the tool call with the child's session id in
+        # the message (so the parent can resume that exact child),
+        # and a wait that times out on a still-running child reports
+        # running, never a fake completion. Only a succeeded run
+        # earns the completed shape below.
+        from src.agents.subagent_permissions import format_task_output as _fmt_task
+        _child_state = str(result_dict.get("state") or "")
+        if result_dict.get("timed_out") and _child_state in ("running", "pending"):
+            return _fmt_task(
+                session_id=child_id,
+                state="running",
+                text=(
+                    f"Sub-agent still running (session_id: {child_id}). "
+                    "It was not waited out; check on it later or resume "
+                    "it by session_id — do not duplicate its work."
+                ),
+                summary="Sub-agent still running",
+            )
+        if _child_state == "failed":
+            return (
+                f"⛔ Subagent failed (session_id: {child_id}): "
+                f"{result_dict.get('error') or result_dict.get('result') or 'unknown error'}"
+            )
+        if _child_state in ("cancelled", "cancel_requested"):
+            return f"⛔ Subagent cancelled (session_id: {child_id})"
         result_text = result_dict.get("result") or result_dict.get("error") or "No result"
-        state = "completed" if result_dict.get("state") == "succeeded" else "error"
+        state = "completed" if _child_state == "succeeded" else "error"
 
         # Format as OpenCode XML for parent LLM + also keep friendly prefix for UI
         from src.agents.subagent_permissions import format_task_output
@@ -790,7 +817,11 @@ def delegate_to_subagent(
         workspace=str(runnable_config.get("configurable", {}).get("workspace") or "") or None,
     )
 
-    result = subagent_coordinator.get_result(agent_id)
+    _outcome_state, result = subagent_coordinator.get_outcome(agent_id)
+    if _outcome_state == "failed":
+        # Same upstream failure line as the lifecycle path: the
+        # session id stays visible so the parent can resume it.
+        return f"⛔ Subagent failed (session_id: {agent_id}): {result}"
 
     # Emit XML as well for new UI
     try:
@@ -956,6 +987,7 @@ def delegate_to_subagent_batch(
         pass
     agent_ids: list[str] = [""] * len(actual_tasks)
     resume_results: dict[int, str] = {}
+    resume_states: dict[int, str] = {}
     try:
         # Resume entries first, in order (a follow-up continues its own
         # session — sequential by nature); fresh spawns then run parallel.
@@ -974,6 +1006,7 @@ def delegate_to_subagent_batch(
                 )
                 _res = _lc.wait(_handle, timeout=600)
                 resume_results[_i] = _res.get("result") or _res.get("error") or "No result"
+                resume_states[_i] = str(_res.get("state") or "")
             except ValueError as exc:
                 resume_results[_i] = f"⛔ Cannot resume sub-agent session '{_sid}': {exc}"
             except Exception:
@@ -1000,24 +1033,44 @@ def delegate_to_subagent_batch(
         except Exception:
             pass
 
+    # Each child's section carries ITS OWN settled state (upstream:
+    # status is a fact of the run, never a blanket "completed" over
+    # the batch) — a crashed child reads error with its crash text,
+    # and the header counts only the children that actually finished.
+    def _section(i: int, task: str, agent_id: str) -> tuple[str, bool]:
+        if (i - 1) in resume_results:
+            result = resume_results[i - 1]
+            done = resume_states.get(i - 1) == "succeeded"
+        else:
+            _ostate, result = subagent_coordinator.get_outcome(agent_id)
+            done = _ostate == "succeeded"
+        return result, done
+
     try:
         from src.agents.subagent_permissions import format_task_output
-        parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
+        sections: list[str] = []
+        _done_count = 0
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
-            result = resume_results.get(i - 1) or subagent_coordinator.get_result(agent_id)
-            xml_output = format_task_output(session_id=agent_id, state="completed", text=result[:2000])
-            parts.append(
+            result, done = _section(i, task, agent_id)
+            _done_count += 1 if done else 0
+            xml_output = format_task_output(
+                session_id=agent_id,
+                state="completed" if done else "error",
+                text=result[:2000])
+            sections.append(
                 f"--- [{i}] Task: {task[:200]} ---\n{result[:2000]}\n(ID: {agent_id})\n{xml_output}\n"
             )
-        return "\n".join(parts)
+        header = f"🤖 Sub-agent batch ({mode}) — {_done_count}/{len(agent_ids)} completed:\n"
+        return "\n".join([header, *sections])
     except Exception:
-        parts = [f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} completed:\n"]
+        sections = []
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
-            result = resume_results.get(i - 1) or subagent_coordinator.get_result(agent_id)
-            parts.append(
+            result, _done = _section(i, task, agent_id)
+            sections.append(
                 f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
             )
-        return "\n".join(parts)
+        header = f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} result(s):\n"
+        return "\n".join([header, *sections])
 
 
 class CrusorTask(TypedDict):
