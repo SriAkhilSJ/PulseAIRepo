@@ -246,6 +246,25 @@ def test_copy_button_spawns_only_at_the_end_of_the_communication():
 	assert "ownRecord.state === 'running' || ownRecord.state === 'pending'" in renderer
 
 
+def test_child_identity_survives_resume_and_the_way_back_is_always_visible():
+	"""Founder 2026-10-16 (b795802c): "where am i this is not parent
+	screen" — inside a finished child there was no child chrome in
+	sight. Three locks: the bridge never resolves a delegate child to
+	its parent; the desktop never rebinds an opened child to a lineage
+	tip and derives child identity from every delegate signal; the nav
+	row (transcript's last element, founder's design) is sticky at the
+	scroller's bottom edge so the way back is always on screen."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "isDelegateChildView" in service
+	assert "openedIsDelegateChild" in service
+	assert "!openedIsDelegateChild" in service
+	bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+	assert "_delegate_tip" in bridge
+	css = _text("browser", "media", "crusorAI.css")
+	nav_rule = css[css.index(".crusorai-child-nav {"):css.index("}", css.index(".crusorai-child-nav {"))]
+	assert "position: sticky" in nav_rule and "bottom: 0" in nav_rule
+
+
 def test_child_view_adopts_the_live_stream_over_checkpoint_polling():
 	"""Founder 2026-10-16: "i want same streaming response as in parent
 	session". The bridge forwards proven in-tree content; the service

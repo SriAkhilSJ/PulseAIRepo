@@ -1035,6 +1035,27 @@ class BridgeServer:
         if queued and not self._shutdown.is_set():
             self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
 
+    def _delegate_tip(self, sid: str, tip: str) -> str:
+        """A delegated child is always its OWN tip.
+
+        Delegation is not lineage continuation: even where an older
+        writer rooted a child's session row in the parent's lineage,
+        resolve_tip would climb to the (more recently active) parent,
+        and opening the child would rebind the desktop surface to the
+        parent while painting the child's transcript — no child
+        chrome, no way back (field 2026-10-16: "where am i this is
+        not parent screen"). Fork children carry no sub-agent row, so
+        genuine lineage continuations still resolve to their tip.
+        """
+        try:
+            from src.runtime.subagent_store import get_store
+            subs = get_store()
+            if subs.get(sid) is not None or subs.get_by_child(sid) is not None:
+                return sid
+        except Exception:
+            pass
+        return tip
+
     def _handle_session_meta(self, kind: str, sid: str, frame: dict, workspace: str) -> bool:
         """Durable-row session APIs (Hermes PATCH/DELETE/GET messages parity)."""
         try:
@@ -1047,6 +1068,7 @@ class BridgeServer:
                 tip = store.resolve_tip(sid)
             except Exception:
                 tip = sid
+            tip = self._delegate_tip(sid, tip)
             try:
                 limit = int(frame.get("limit") or 120)
             except (TypeError, ValueError):
@@ -1377,6 +1399,7 @@ class BridgeServer:
                 tip = self._durable_store().resolve_tip(sid)
             except Exception:
                 tip = sid
+            tip = self._delegate_tip(sid, tip)
             try:
                 from src.graphs.chat_graph import get_agent_status
                 status = get_agent_status(tip)

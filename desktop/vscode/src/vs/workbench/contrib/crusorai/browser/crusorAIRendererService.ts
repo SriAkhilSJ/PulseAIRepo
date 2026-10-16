@@ -485,7 +485,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		},
 		navigateToSession: (sessionId: string) => { this.navigateToSession(sessionId); },
 		newSession: () => { this.newSession(); },
-		isChildSession: () => !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
+		isChildSession: () => this.isDelegateChildView(),
 	};
 
 	constructor(
@@ -913,8 +913,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				reasoningParts: [...this.reasoningParts],
 			tools: [...this.tools.values()],
 			subAgents: [...this.subAgents.values()],
-			isChild: !!(this.childParentId || (this.sessionId && (this.sessionId.startsWith('sub-') || this.parentMap.has(this.sessionId)))),
-			parentSessionId: this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined),
+			isChild: this.isDelegateChildView(),
+			parentSessionId: this.currentParentId(),
 			parentMap: new Map(this.parentMap),
 			subAgentGoal: this.currentSubAgentGoal(),
 			parentTitle: this.currentParentTitle(),
@@ -1106,9 +1106,42 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 
 	/** The active session's parent label from the store, for the child breadcrumb. */
 	private currentParentTitle(): string | undefined {
-		const parentId = this.childParentId ?? (this.sessionId ? this.parentMap.get(this.sessionId) : undefined);
+		const parentId = this.currentParentId();
 		if (!parentId) { return undefined; }
 		return this.sessionStore.records().find(record => record.sessionId === parentId)?.label;
+	}
+
+	/**
+	 * The viewed session's parent, from EVERY lineage signal: the
+	 * navigation link, the parent map, the child's own sub-agent
+	 * record, and the durable session row. Whichever hop learned the
+	 * lineage first, the others may never hear of it (cold panel,
+	 * legacy rows) — the child chrome must not depend on one channel.
+	 */
+	private currentParentId(): string | undefined {
+		if (!this.sessionId) { return this.childParentId; }
+		return this.childParentId
+			?? this.parentMap.get(this.sessionId)
+			?? [...this.subAgents.values()].find(entry => (entry.childThreadId ?? entry.id) === this.sessionId)?.parentSessionId
+			?? this.sessionStore.records().find(record => record.sessionId === this.sessionId)?.parentSessionId;
+	}
+
+	/**
+	 * True when the open session is a delegated child, by any signal.
+	 * The field failure (2026-10-16, "where am i this is not parent
+	 * screen") was a child transcript painting under a parent
+	 * identity — composer live, no back row — because the one signal
+	 * consulted had not survived the trip. Never again one channel.
+	 */
+	private isDelegateChildView(): boolean {
+		if (!this.sessionId) { return false; }
+		return this.childParentId !== undefined
+			|| this.parentMap.has(this.sessionId)
+			|| this.sessionId.startsWith('sub-')
+			|| [...this.subAgents.values()].some(entry => (entry.childThreadId ?? entry.id) === this.sessionId);
+		// Deliberately NOT "the durable row names a parent": fork
+		// continuations carry a parent id too, and they are sessions
+		// the user chats in — only delegate signals mark a child.
 	}
 
 	private sessionRows(): readonly CrusorAISessionRow[] {
@@ -1984,7 +2017,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.sessionId = frame.session_id;
 			// A resume can resolve to a lineage tip that is NOT the requested id (fork
 			// children): the surface binds the tip, because that is what the user now sees.
-			if (frame.resumed && frame.resolved_session_id && frame.resolved_session_id !== this.sessionId) {
+			// NEVER for a delegated child the user explicitly opened: its transcript
+			// would keep painting under the parent's identity — live composer, no
+			// back row, "where am i this is not parent screen" (field 2026-10-16).
+			const openedIsDelegateChild = !!previousSessionId && (this.childParentId !== undefined
+				|| this.parentMap.has(previousSessionId) || previousSessionId.startsWith('sub-')
+				|| [...this.subAgents.values()].some(entry => (entry.childThreadId ?? entry.id) === previousSessionId));
+			if (frame.resumed && frame.resolved_session_id && frame.resolved_session_id !== this.sessionId && !openedIsDelegateChild) {
 				this.sessionId = frame.resolved_session_id;
 				this.setRememberedSession(this.sessionId);
 			}

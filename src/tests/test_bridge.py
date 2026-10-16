@@ -370,6 +370,38 @@ def test_forwarder_passes_tree_hitl_from_children_drops_child_content():
     assert "token" not in kinds, kinds
 
 
+def test_delegate_child_is_always_its_own_tip():
+    """Opening a child must never climb to its parent (field 2026-10-16:
+    "where am i this is not parent screen" — the child's transcript
+    painted under the parent's identity). Wherever resolve_tip lands,
+    a session with a sub-agent row resolves to ITSELF; fork children
+    (no sub-agent row) keep lineage-tip semantics."""
+    from types import SimpleNamespace
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime import subagent_store
+
+    rows = {"sub-kid": SimpleNamespace(parent_session_id="parent-1")}
+
+    class _Store:
+        def get(self, sid):
+            return rows.get(sid)
+
+        def get_by_child(self, sid):
+            return rows.get(sid)
+
+    original = subagent_store.get_store
+    subagent_store.get_store = lambda: _Store()  # type: ignore[assignment]
+    try:
+        server = object.__new__(BridgeServer)
+        # Climbed tip for a delegate child -> pinned back to the child.
+        assert server._delegate_tip("sub-kid", "parent-1") == "sub-kid"
+        # No sub-agent row (a fork continuation) -> tip stands.
+        assert server._delegate_tip("fork-1", "parent-1") == "parent-1"
+        assert server._delegate_tip("fork-1", "fork-2") == "fork-2"
+    finally:
+        subagent_store.get_store = original  # type: ignore[assignment]
+
+
 def test_forwarder_streams_proven_tree_content_isolates_proven_foreign():
     """Child sessions stream like the parent: PROVEN in-tree content
     (tokens, tool cards) forwards so the desktop paints a child view
