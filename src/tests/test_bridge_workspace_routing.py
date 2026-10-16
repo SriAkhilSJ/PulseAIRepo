@@ -121,6 +121,32 @@ def test_no_silent_dot_fallback_on_missing_workspace(bridge):
     assert reply["message"] != "."
 
 
+def test_workspace_less_frame_mints_no_binding(bridge, tmp_path):
+    """Field 2026-10-16: a delegate child could never be opened. The
+    desktop's subagent_status carries no workspace, so it minted the
+    child's in-memory entry with workspace '' — and every later open
+    (session_messages / resume WITH the real workspace) was refused
+    with "bound to workspace ''; cannot switch", leaving the finished
+    child's session invisible. '' is the absence of a binding: the
+    first workspace-carrying frame must ADOPT it, not be refused."""
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    # A workspace-less frame names the child first (the desktop's
+    # subagent_status on opening a delegate card).
+    send(bridge, {"type": "subagent_status", "session_id": "sub-kid",
+                  "subagent_id": "sub-kid"})
+    # The transcript request WITH the workspace is the first real
+    # binding — it must succeed, not be refused by the '' entry.
+    reply = send(bridge, {"type": "session_messages", "session_id": "sub-kid",
+                          "workspace": str(ws), "limit": 10, "order": "latest"})
+    assert reply["type"] == "session_messages", reply
+    # And a resume in the same workspace works too.
+    reply = send(bridge, {"type": "session_resume", "session_id": "sub-kid",
+                          "workspace": str(ws), "include_events": False})
+    assert reply["type"] == "session_info", reply
+    assert "bound to workspace" not in str(reply.get("message") or "")
+
+
 def test_session_fork_and_load_require_workspace(bridge):
     for kind in ("session_load", "session_fork"):
         reply = send(bridge, {"type": kind, "session_id": "s"})

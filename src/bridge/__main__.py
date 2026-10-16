@@ -423,8 +423,17 @@ class BridgeServer:
         sid = normalize_id(requested, prefix="session")
         existing = self._sessions.get(sid)
         if existing is not None:
-            if workspace and existing["workspace"] != workspace:
+            if workspace and existing["workspace"] and existing["workspace"] != workspace:
                 raise WorkspaceSwitchError(sid, existing["workspace"], workspace)
+            if workspace and not existing["workspace"]:
+                # First REAL binding: an entry minted by a workspace-less
+                # frame (subagent_status, reply routes) carries '' — the
+                # absence of a binding, not a binding to nowhere. Adopt
+                # the real workspace instead of refusing it forever
+                # (field 2026-10-16: a delegate child could never be
+                # opened — "bound to workspace ''" — so its finished
+                # session stayed invisible).
+                existing["workspace"] = workspace
             return sid
         self._sessions[sid] = {"session_id": sid, "workspace": workspace}
         return sid
@@ -1329,11 +1338,16 @@ class BridgeServer:
                 self.emit(error_frame(f"{kind} requires session_id"))
                 return True
             bound = self._sessions.get(raw_sid)
-            if workspace and bound is not None and bound.get("workspace") != workspace:
+            if workspace and bound is not None and bound.get("workspace") and bound.get("workspace") != workspace:
                 self.emit(error_frame(
                     f"session {raw_sid} is bound to workspace {bound.get('workspace')!r}; "
                     f"cannot switch to workspace {workspace!r}"))
                 return True
+            if workspace and bound is not None and not bound.get("workspace"):
+                # Same first-real-binding rule as _session: '' is the
+                # absence of a binding (minted by a workspace-less
+                # frame), never a binding to nowhere.
+                bound["workspace"] = workspace
             return self._handle_session_meta(kind, raw_sid, frame, workspace)
         if kind == "session_list":
             # A listing must never mint: resolving-or-creating here would add a
