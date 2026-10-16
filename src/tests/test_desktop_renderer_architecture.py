@@ -284,6 +284,25 @@ def test_foreign_tool_call_args_never_paint_in_the_viewed_lane():
 	assert "frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output'" in service
 
 
+def test_hydrated_delegate_cards_stay_navigable():
+	"""Founder 2026-10-16 (bb4644a5): "even if completed why can't i
+	see the session" — after the transcript re-hydrated (post-settle
+	refresh / coming home / reopening), the completed delegate card
+	was dead: hydrateTranscript rebuilt every history turn with
+	subAgents: [], so the card could not resolve its child — no
+	click target, no record state. Hydrated turns now carry the
+	session's current records, history rendering falls back to the
+	live records when a turn's snapshot is empty, and the card's
+	title comes from the child's own record (a resume call carries
+	no mode in its args, and once wore a "General" card over a
+	research child)."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert service.count("subAgents: [...this.subAgents.values()],") >= 2
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	assert "turn.subAgents.length ? turn.subAgents : model.subAgents" in renderer
+	assert "agentTitle(matchedRecord?.agentName ?? matchedRecord?.mode ?? agentName)" in renderer
+
+
 def test_tool_call_end_adopts_the_frames_name_never_unknown():
 	"""Founder 2026-10-16 (build c274f8b7): the child's tool cards
 	rendered 'Unknown' while a sibling web_search was named. Children
@@ -891,7 +910,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-16-7';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-16-8';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1031,7 +1050,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-16-7'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-16-8'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

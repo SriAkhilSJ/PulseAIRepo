@@ -1384,7 +1384,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			parts: turn.parts,
 			reasoningParts: turn.reasoningParts,
 			tools: turn.tools,
-			subAgents: [],
+			// Hydrated turns must keep the session's sub-agent records:
+			// without them a rebuilt delegate card cannot resolve its
+			// child and renders dead — no click, no record state
+			// (field 2026-10-16: "even if completed why can't i see
+			// the session"). Records are session-scoped and current
+			// at hydration time.
+			subAgents: [...this.subAgents.values()],
 			turnOutcome: 'completed' as const,
 			plan: [],
 		}));

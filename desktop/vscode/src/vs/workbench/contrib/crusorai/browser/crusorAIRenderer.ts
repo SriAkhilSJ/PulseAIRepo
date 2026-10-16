@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-16-7';
+const CRUSORAI_UI_STAMP = '2026-10-16-8';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -998,7 +998,12 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgent
 
 	const surface = element('div', 'crusorai-task-tool-surface');
 	surface.dataset.component = 'task-tool-surface';
-	const cardTitle = element('span', 'crusorai-task-tool-title', agentTitle(agentName));
+	// The child's own record names the agent — the call's args only
+	// guess (a resume call carries no mode, and once read the parent
+	// "General": field 2026-10-16, the resumed research child wore a
+	// General card). Batch rows already prefer the record; so does
+	// the single card.
+	const cardTitle = element('span', 'crusorai-task-tool-title', agentTitle(matchedRecord?.agentName ?? matchedRecord?.mode ?? agentName));
 	cardTitle.dataset.component = 'task-tool-title';
 	// The card must SAY whether the child started or ended (founder
 	// 2026-10-16: "we can't find out it ended or started"). The child's
@@ -2343,7 +2348,10 @@ function transcript(model: CrusorAIRenderModel, host: CrusorAIRenderHost, openTo
 				tools: turn.tools,
 				live: false,
 				turnKey: `history:${model.sessionId || 's'}`,
-				subAgents: turn.subAgents,
+				// A turn rebuilt before its records landed (or by an
+				// older hydration) falls back to the session's live
+				// records — the delegate card must stay navigable.
+				subAgents: turn.subAgents.length ? turn.subAgents : model.subAgents,
 				clarify: historyTurnClarify(model, turn),
 				communicationOpen: turnIndex === model.history.length - 1 && sessionOpen,
 			}, host, openTools, closedTools));
