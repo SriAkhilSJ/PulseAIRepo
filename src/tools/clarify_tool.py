@@ -25,9 +25,21 @@ from pydantic import Field
 MAX_CHOICES = 4  # the UI always appends an "Other (type your answer)" row
 MAX_QUESTIONS = 5  # independent questions per batch call
 # Canonical timeout sentinel. The blocking layer returns this exact text; the
-# tool treats it (like an empty answer) as "the user walked away".
-TIMEOUT_RESPONSE = ("The user did not provide a response within the time limit. "
-                    "Use your best judgement to make the choice and proceed.")
+# tool treats it (like an empty answer) as "the user walked away". The text
+# must carry that truth into the run: an unanswered question may not be
+# upgraded into an invented preference (field 2026-10-16: a child asked,
+# nobody answered inside 300s, the run still landed "Completed", and the
+# parent — unable to tell the question had already died once — asked the
+# SAME question again for another 300s; 600 of the turn's 742 seconds were
+# two silent timeouts).
+TIMEOUT_RESPONSE = (
+    "The user did not answer this question within the time limit — the "
+    "question is UNANSWERED. Never state or imply the user chose any "
+    "option. Use your best judgement to choose and proceed, and in your "
+    "final answer say plainly that this question went unanswered, so the "
+    "user can correct the choice. Do not ask the same question again "
+    "with clarify in this turn."
+)
 # Applied to the first choice here (not per-surface) so every surface renders it identically.
 RECOMMENDED_LABEL = "(Recommended)"
 _UNAVAILABLE = "Clarify tool is not available in this execution context."
@@ -148,6 +160,12 @@ def _batch_result(normalized: list[dict], answers: dict, timed_out: bool) -> str
     result: dict[str, Any] = {"responses": responses}
     if timed_out:
         result["timed_out"] = True
+        result["note"] = (
+            "The user did not answer — unanswered questions are NOT "
+            "choices. Never state or imply the user picked an option; "
+            "proceed with your best judgement and say plainly in your "
+            "final answer that the question went unanswered."
+        )
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -270,7 +288,7 @@ def clarify(
     multi_select: bool = False,
     config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
-    """Ask the user one or more questions when you need a decision, clarification, or feedback before proceeding. Pass every question in `questions` (1-5 entries) — a single question is a one-entry array, and several INDEPENDENT questions belong in ONE call (one form beats a chain of clarify calls; if one answer would change another question, ask separately). Per question: single-select (up to 4 choices — put your recommended option FIRST, the UI marks it '(Recommended)' and auto-appends an 'Other' free-text row), multi-select (multi_select=true), or open-ended (omit choices). Options go ONLY in `choices`, never enumerated inside the question text (choices render as pickable rows; options written into the question are dead prose the user can't click). Result: {responses: [...]} in question order (plus timed_out=true if the user stopped part-way). Prefer deciding low-stakes questions yourself; don't use this for dangerous-command confirmation (the terminal tool handles that)."""
+    """Ask the user one or more questions when you need a decision, clarification, or feedback before proceeding. Pass every question in `questions` (1-5 entries) — a single question is a one-entry array, and several INDEPENDENT questions belong in ONE call (one form beats a chain of clarify calls; if one answer would change another question, ask separately). Per question: single-select (up to 4 choices — put your recommended option FIRST, the UI marks it '(Recommended)' and auto-appends an 'Other' free-text row), multi-select (multi_select=true), or open-ended (omit choices). Options go ONLY in `choices`, never enumerated inside the question text (choices render as pickable rows; options written into the question are dead prose the user can't click). Result: {responses: [...]} in question order (plus timed_out=true if the user stopped part-way). Prefer deciding low-stakes questions yourself; don't use this for dangerous-command confirmation (the terminal tool handles that). If a sub-agent's result says its question went unanswered, do NOT re-ask the same question — disclose that it went unanswered and proceed with your best judgement."""
     session_id = "default"
     try:
         session_id = str((config or {}).get("configurable", {}).get("thread_id") or "default")

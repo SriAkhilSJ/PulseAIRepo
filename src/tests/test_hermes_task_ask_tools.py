@@ -161,6 +161,26 @@ def test_clarify_timeout_returns_canonical_sentinel_flag():
     assert result["responses"][0]["user_response"] == ""
 
 
+def test_clarify_timeout_carries_the_unanswered_truth():
+    """Field 2026-10-16: a child's question timed out at 300s, the run
+    still landed 'Completed', and the parent asked the SAME question
+    again for another 300s — 600 of the turn's 742 seconds were two
+    silent timeouts. The timeout must reach the model as an
+    UNANSWERED fact (never an implied choice), on both paths."""
+    assert "UNANSWERED" in TIMEOUT_RESPONSE
+    assert "Never state or imply the user chose" in TIMEOUT_RESPONSE
+    assert "Do not ask the same question again" in TIMEOUT_RESPONSE
+
+    questions = [{"question": "Pick", "choices": ["A", "B"]}]
+
+    def callback(question, choices, multi_select, questions=None):
+        return TIMEOUT_RESPONSE
+
+    result = json.loads(clarify_tool(questions=questions, callback=callback))
+    assert result["timed_out"] is True
+    assert "did not answer" in result["note"]
+
+
 def test_clarify_validation_errors():
     assert "error" in json.loads(clarify_tool(questions="nope", callback=lambda *a, **k: ""))
     assert "error" in json.loads(clarify_tool(questions=[], callback=None))
