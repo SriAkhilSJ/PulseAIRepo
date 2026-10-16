@@ -284,6 +284,20 @@ def test_foreign_tool_call_args_never_paint_in_the_viewed_lane():
 	assert "frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output'" in service
 
 
+def test_tool_call_end_adopts_the_frames_name_never_unknown():
+	"""Founder 2026-10-16 (build c274f8b7): the child's tool cards
+	rendered 'Unknown' while a sibling web_search was named. Children
+	on the invoke path receive no durable tool_call_start, and some
+	tools' streamed args never birth a row either, so tool_call_end
+	is their first frame — yet the handler christened the row
+	'existing?.name ?? unknown' and discarded the durable name the
+	end frame itself carries. The end now adopts frame.name, joins a
+	stream-<index> orphan preview exactly like the start path does,
+	and an end-born tool takes its place in the timeline."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "existing?.name && existing.name !== 'unknown' ? existing.name : (frame.name ?? existing?.name ?? 'unknown')" in service
+
+
 def test_child_identity_survives_resume_and_the_way_back_is_always_visible():
 	"""Founder 2026-10-16 (b795802c): "where am i this is not parent
 	screen" — inside a finished child there was no child chrome in
@@ -877,7 +891,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-16-6';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-16-7';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1017,7 +1031,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-16-6'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-16-7'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

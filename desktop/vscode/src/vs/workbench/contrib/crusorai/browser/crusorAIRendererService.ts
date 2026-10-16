@@ -2177,16 +2177,40 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				this.tools.set(frame.tool_id, { ...existing, result: (prior + frame.text).slice(-65_536) });
 			}
 		} else if (frame.type === 'tool_call_end') {
-			const existing = this.tools.get(frame.tool_id);
+			let existing = this.tools.get(frame.tool_id);
+			if (!existing && frame.name) {
+				// A child on the invoke path never receives a durable
+				// tool_call_start, so a streamed preview accumulated
+				// under a stream-<index> id (the provider had not sent
+				// the call id in its chunks yet) can only be joined
+				// here: adopt the orphan's part and arguments instead
+				// of birthing a nameless duplicate beside it.
+				const orphanIndex = this.parts.findIndex(p => p.kind === 'tool' && p.toolId.startsWith('stream-')
+					&& this.tools.get(p.toolId)?.name === frame.name
+					&& this.tools.get(p.toolId)?.state === 'running');
+				if (orphanIndex >= 0) {
+					const orphanId = (this.parts[orphanIndex] as { toolId: string }).toolId;
+					existing = this.tools.get(orphanId);
+					this.tools.delete(orphanId);
+					this.parts[orphanIndex] = { kind: 'tool', toolId: frame.tool_id };
+				}
+			}
 			const result = valueRecord(frame.result);
 			this.tools.set(frame.tool_id, {
 				id: frame.tool_id,
-				name: existing?.name ?? 'unknown',
+				// The end frame is durable and always carries the true
+				// name: a row born here (children get no start frame)
+				// must not be christened 'unknown' (field 2026-10-16:
+				// the child's cards rendered "Unknown").
+				name: existing?.name && existing.name !== 'unknown' ? existing.name : (frame.name ?? existing?.name ?? 'unknown'),
 				arguments: existing?.arguments,
 				result: frame.result,
 				state: toolState(frame.status),
 				duration: typeof result?.duration === 'string' ? result.duration : typeof result?.duration_ms === 'number' ? `${result.duration_ms}ms` : undefined,
 			});
+			// An end can be a tool's first frame entirely: the card
+			// still needs its place in the timeline.
+			this.pushToolPart(frame.tool_id);
 		} else if (frame.type === 'safety_request') {
 			const existing = this.tools.get(frame.tool_id);
 			this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: existing?.arguments ?? frame.arguments ?? frame.diff, result: existing?.result, state: 'approval' });
