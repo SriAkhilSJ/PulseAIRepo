@@ -268,6 +268,22 @@ def test_frames_carry_their_author_and_children_never_merge():
 	assert ".crusorai-task-tool-state.is-completed" in css
 
 
+def test_foreign_tool_call_args_never_paint_in_the_viewed_lane():
+	"""Founder 2026-10-16 (on the authorship build): the child's tool
+	rows ("Exploring 3 files", "Search web", "List files") painted in
+	the PARENT under the delegate card while the card said Running.
+	The wire was innocent — real-frame capture proved the child's
+	tool_call_args carry the child's session — but acceptFrame's
+	foreign-session drop list omitted 'tool_call_args', so the frame
+	fell through into the live-lane dispatch and the card was BORN in
+	whichever session was on screen. Every lane-mutating frame type
+	must route foreign; args frames join the drop list, and a viewed
+	child adopts its tail on an args frame like on a start frame."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "case 'tool_call_start': case 'tool_call_args': case 'tool_call_end'" in service
+	assert "frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output'" in service
+
+
 def test_child_identity_survives_resume_and_the_way_back_is_always_visible():
 	"""Founder 2026-10-16 (b795802c): "where am i this is not parent
 	screen" — inside a finished child there was no child chrome in

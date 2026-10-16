@@ -1988,7 +1988,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.syncStashFrame(foreignId, frame);
 			switch (frame.type) {
 				case 'turn_started': case 'token': case 'token_retract': case 'reasoning': case 'plan_updated':
-				case 'tool_call_start': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
+				case 'tool_call_start': case 'tool_call_args': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
 				case 'todo_updated': case 'verification_updated': case 'telemetry': case 'turn_done':
 				case 'turn_failed': case 'voice_text': case 'llm.request': case 'llm.response':
 				case 'context_status': case 'runtime_degraded':
@@ -1999,7 +1999,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		// First live frame for the VIEWED child: adopt its checkpoint-painted
 		// tail turn into the live lane so the stream continues it in place.
 		if (frame.type === 'token' || frame.type === 'token_retract' || frame.type === 'reasoning'
-			|| frame.type === 'tool_call_start' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
+			|| frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
 			this.adoptHistoryTailIfLive();
 		}
 		if (frame.type === 'session_info') {

@@ -1995,6 +1995,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'reasoning':
                 case 'plan_updated':
                 case 'tool_call_start':
+                case 'tool_call_args':
                 case 'tool_call_end':
                 case 'tool_output':
                 case 'safety_request':
@@ -2016,7 +2017,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // First live frame for the VIEWED child: adopt its checkpoint-painted
         // tail turn into the live lane so the stream continues it in place.
         if (frame.type === 'token' || frame.type === 'token_retract' || frame.type === 'reasoning'
-            || frame.type === 'tool_call_start' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
+            || frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
             this.adoptHistoryTailIfLive();
         }
         if (frame.type === 'session_info') {
