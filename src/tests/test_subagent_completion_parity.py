@@ -121,3 +121,42 @@ def test_delegate_fails_the_call_with_the_resumable_session_id(monkeypatch):
     assert "Sub-agent crashed" in content  # the cause survives for the parent
     assert "sub-agent exploded" in content
     assert "completed" not in content.split("):")[0]
+
+
+# ---------------------------------------------------------------------------
+# Delivery: the child's answer reaches the parent whole, once.
+# Founder field 2026-10-16: the parent announced "its conclusion was
+# truncated in the summary and I can't verify from it whether your
+# preference question was actually asked and answered" and re-asked
+# the user. The envelope cut the result at 2,000 characters,
+# head-first (the conclusion lives at the end), and pasted the
+# truncated text twice (friendly blob + XML). OpenCode's tool-output
+# limits are 2,000 lines / 50 KiB — those are the limits now, the
+# result is delivered once, and a real truncation says so.
+# ---------------------------------------------------------------------------
+
+def test_delegate_result_survives_past_the_old_2000_char_cut():
+    from src.agents.subagent_permissions import truncate_delegate_result
+    conclusion = "CONCLUSION: bubble wins on nearly-sorted data."
+    text = ("research notes line\n" * 200) + conclusion
+    assert len(text) > 2000
+    delivered = truncate_delegate_result(text, "sub-x-1")
+    assert delivered == text  # whole, once, no marker
+
+
+def test_delegate_result_truncation_is_explicit_and_points_at_the_child():
+    from src.agents.subagent_permissions import truncate_delegate_result
+    text = "x" * (60 * 1024)
+    delivered = truncate_delegate_result(text, "sub-x-2")
+    assert delivered.startswith("x" * 100)
+    assert "Result truncated" in delivered
+    assert "session_id: sub-x-2" in delivered
+    assert len(delivered) < len(text)
+
+
+def test_format_task_output_no_longer_amputates_at_2000_chars():
+    from src.agents.subagent_permissions import format_task_output
+    conclusion = "CONCLUSION: merge wins on random data."
+    text = ("evidence line\n" * 200) + conclusion
+    out = format_task_output(session_id="sub-x-3", state="completed", text=text)
+    assert conclusion in out

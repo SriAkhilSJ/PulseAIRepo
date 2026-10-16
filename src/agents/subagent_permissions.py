@@ -110,6 +110,42 @@ def derive_subagent_capabilities(
         return tuple(sorted(requested_set & parent_set))
     return requested_capabilities
 
+# OpenCode's tool-output limits (packages/core tool-output:
+# MAX_LINES = 2000, MAX_BYTES = 50 KiB). A child's result used to be
+# cut at 2,000 CHARACTERS, head-first — but a final answer's
+# conclusion sits at its end, so the parent received research with
+# its verdict amputated and had to re-ask the user things the child
+# had already settled (founder field 2026-10-16, the parent's own
+# words: "its conclusion was truncated in the summary and I can't
+# verify from it whether your preference question was actually
+# asked and answered"). Upstream's limits, and when they do bite
+# the marker says so and points at the child's session, where the
+# full answer durably lives.
+_DELEGATE_RESULT_MAX_LINES = 2000
+_DELEGATE_RESULT_MAX_CHARS = 50 * 1024
+
+
+def truncate_delegate_result(text: str, session_id: str) -> str:
+    """One result, delivered whole up to OpenCode's tool-output
+    limits; past them, cut with an explicit marker (never silently,
+    and never duplicated under two wrappers)."""
+    truncated = False
+    lines = text.split("\n")
+    if len(lines) > _DELEGATE_RESULT_MAX_LINES:
+        text = "\n".join(lines[:_DELEGATE_RESULT_MAX_LINES])
+        truncated = True
+    if len(text) > _DELEGATE_RESULT_MAX_CHARS:
+        text = text[:_DELEGATE_RESULT_MAX_CHARS]
+        truncated = True
+    if truncated:
+        text += (
+            f"\n\n[Result truncated — the child's full answer is in "
+            f"its session (session_id: {session_id}); open or resume "
+            f"that session to read the rest.]"
+        )
+    return text
+
+
 def format_task_output(
     session_id: str,
     state: str,
@@ -128,7 +164,7 @@ def format_task_output(
         safe_summary = summary.replace("<", "&lt;").replace(">", "&gt;")[:200]
         parts.append(f"<summary>{safe_summary}</summary>")
     parts.append(f"<{tag}>")
-    parts.append(text[:2000] if state != "running" else text[:500])
+    parts.append(truncate_delegate_result(text, session_id) if state != "running" else text[:500])
     parts.append(f"</{tag}>")
     parts.append("</task>")
     return "\n".join(parts)

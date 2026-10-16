@@ -781,22 +781,20 @@ def delegate_to_subagent(
         result_text = result_dict.get("result") or result_dict.get("error") or "No result"
         state = "completed" if _child_state == "succeeded" else "error"
 
-        # Format as OpenCode XML for parent LLM + also keep friendly prefix for UI
-        from src.agents.subagent_permissions import format_task_output
-        xml_output = format_task_output(
-            session_id=child_id,
-            state=state,
-            text=result_text[:2000],
-            summary=None,
-        )
-        # Keep human-readable header for backward compat + XML for structured parsing
+        # The result is delivered ONCE, whole up to OpenCode's
+        # tool-output limits. It used to be pasted twice (friendly
+        # blob + XML), each copy head-cut at 2,000 characters — the
+        # child's conclusion, which sits at the end of its answer,
+        # never reached the parent at all (founder field 2026-10-16:
+        # the parent then re-asked the user what the child was
+        # supposed to have settled).
+        from src.agents.subagent_permissions import truncate_delegate_result
         return (
             f"🤖 Sub-agent ({actual_mode}) completed.\n\n"
             f"**Description:** {actual_description}\n"
             f"**Task:** {actual_task[:500]}\n\n"
-            f"**Result:**\n{result_text[:2000]}\n\n"
-            f"*Agent ID: {child_id}*\n\n"
-            f"{xml_output}"
+            f"**Result:**\n{truncate_delegate_result(result_text, child_id)}\n\n"
+            f"*Agent ID: {child_id}*"
         )
     except Exception:
         # Fallback to legacy coordinator path (no lifecycle)
@@ -823,23 +821,23 @@ def delegate_to_subagent(
         # session id stays visible so the parent can resume it.
         return f"⛔ Subagent failed (session_id: {agent_id}): {result}"
 
-    # Emit XML as well for new UI
+    # One delivery, whole up to OpenCode's tool-output limits (the
+    # duplicated XML second copy and 2,000-char head-cut are gone —
+    # see the lifecycle path above).
+    from src.agents.subagent_permissions import truncate_delegate_result
     try:
-        from src.agents.subagent_permissions import format_task_output
-        xml_output = format_task_output(session_id=agent_id, state="completed", text=result[:2000])
         return (
             f"🤖 Sub-agent ({actual_mode}) completed.\n\n"
             f"**Description:** {actual_description}\n"
             f"**Task:** {actual_task[:500]}\n\n"
-            f"**Result:**\n{result[:2000]}\n\n"
-            f"*Agent ID: {agent_id}*\n\n"
-            f"{xml_output}"
+            f"**Result:**\n{truncate_delegate_result(result, agent_id)}\n\n"
+            f"*Agent ID: {agent_id}*"
         )
     except Exception:
         return (
             f"🤖 Sub-agent ({internal_mode}) completed.\n\n"
             f"**Task:** {actual_task}\n\n"
-            f"**Result:**\n{result[:2000]}\n\n"
+            f"**Result:**\n{truncate_delegate_result(result, agent_id)}\n\n"
             f"*Agent ID: {agent_id}*"
         )
 
@@ -1047,27 +1045,27 @@ def delegate_to_subagent_batch(
         return result, done
 
     try:
-        from src.agents.subagent_permissions import format_task_output
+        from src.agents.subagent_permissions import truncate_delegate_result
         sections: list[str] = []
         _done_count = 0
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
             result, done = _section(i, task, agent_id)
             _done_count += 1 if done else 0
-            xml_output = format_task_output(
-                session_id=agent_id,
-                state="completed" if done else "error",
-                text=result[:2000])
+            # One copy per child, whole up to OpenCode's tool-output
+            # limits (was: friendly copy + XML copy, each head-cut
+            # at 2,000 characters — conclusions never arrived).
             sections.append(
-                f"--- [{i}] Task: {task[:200]} ---\n{result[:2000]}\n(ID: {agent_id})\n{xml_output}\n"
+                f"--- [{i}] Task: {task[:200]} ---\n{truncate_delegate_result(result, agent_id)}\n(ID: {agent_id})\n"
             )
         header = f"🤖 Sub-agent batch ({mode}) — {_done_count}/{len(agent_ids)} completed:\n"
         return "\n".join([header, *sections])
     except Exception:
+        from src.agents.subagent_permissions import truncate_delegate_result
         sections = []
         for i, (task, agent_id) in enumerate(zip(actual_tasks, agent_ids), 1):
             result, _done = _section(i, task, agent_id)
             sections.append(
-                f"--- [{i}] Task: {task} ---\n{result[:2000]}\n(ID: {agent_id})\n"
+                f"--- [{i}] Task: {task} ---\n{truncate_delegate_result(result, agent_id)}\n(ID: {agent_id})\n"
             )
         header = f"🤖 Sub-agent batch ({mode}) — {len(agent_ids)} result(s):\n"
         return "\n".join([header, *sections])
