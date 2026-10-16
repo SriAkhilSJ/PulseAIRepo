@@ -216,6 +216,21 @@ def test_child_clarify_answerable_and_lane_holds_still():
 	assert "(streaming?.text ?? '') === lastPaint.text" in renderer
 
 
+def test_clarify_tool_id_is_never_the_request_id():
+	"""Field 2026-10-16: the bridge stamped the clarify frame's tool_id
+	from the queue item's "id" — the REQUEST id — so the child's pending
+	ask never matched its transcript tool call and painted the read-only
+	waiting card ("couldn't select options"). Pins: the service
+	canonicalizes a request-id tool id away; the session tree links a
+	child by the id it runs under, not only the record id; the renderer's
+	history match falls back to the turn's unsettled clarify call."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	assert "frame.tool_id !== frame.request_id" in service
+	assert "link(sub.childThreadId, sub.parentSessionId)" in service
+	assert "turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined)" in renderer
+
+
 def test_transcript_heights_are_exact_no_receding_bottom():
 	"""Field 2026-10-15 ("i cannot stay bottom of the sub agent"): the
 	OpenCode message CSS sets content-visibility:auto on history turns /

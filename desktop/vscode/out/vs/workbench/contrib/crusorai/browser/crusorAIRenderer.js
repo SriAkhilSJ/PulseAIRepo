@@ -2184,10 +2184,12 @@ function historyTurnClarify(model, turn) {
     if (!pending || pending.sessionId !== model.sessionId) {
         return undefined;
     }
-    if (pending.toolId) {
-        return turn.tools.some(tool => tool.id === pending.toolId) ? pending : undefined;
+    if (pending.toolId && turn.tools.some(tool => tool.id === pending.toolId)) {
+        return pending;
     }
-    // No tool id on the frame: the ask is the turn's unsettled clarify call.
+    // No tool id on the frame — or one that matches no call in this turn
+    // (the bridge once stamped the REQUEST id there): the ask is the
+    // turn's unsettled clarify call.
     return turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined) ? pending : undefined;
 }
 function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {

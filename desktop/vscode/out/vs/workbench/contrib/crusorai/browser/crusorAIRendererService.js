@@ -137,7 +137,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             link(child, parent);
         }
         for (const sub of this.subAgents.values()) {
+            // Link by the id the child RUNS under as well as the record id:
+            // emitters have disagreed about which one subagent_id carries,
+            // and a tree that misses the link parks the child's question
+            // where no ancestor can see it.
             link(sub.id, sub.parentSessionId);
+            link(sub.childThreadId, sub.parentSessionId);
         }
         const seen = new Set();
         const queue = [root];
@@ -1814,7 +1819,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 sessionId: asking,
                 requestId: frame.request_id,
                 title: frame.title ?? '',
-                toolId: frame.tool_id,
+                // A tool id equal to the request id is no tool id at all
+                // (older bridges stamped the queue item's id there): the
+                // renderer matches a pending ask to its transcript tool
+                // call by this field, and a request id can never match —
+                // the ask painted read-only forever (field 2026-10-16).
+                toolId: frame.tool_id && frame.tool_id !== frame.request_id ? frame.tool_id : undefined,
                 questions: frame.questions,
             });
         }

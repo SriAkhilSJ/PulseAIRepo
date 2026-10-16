@@ -396,6 +396,24 @@ def test_project_event_forwards_clarify_request_and_todo_updated():
     assert clarify_frame is not None and clarify_frame["type"] == "clarify_request"
     assert clarify_frame["request_id"] == "abc123"
     assert clarify_frame["questions"][0]["qid"] == "q0"
+    # The queue item's "id" is the REQUEST id: it must never ride out as
+    # tool_id. The desktop matches a pending ask to its transcript tool
+    # call by tool_id, and a request id there made every hydrated ask
+    # unanswerable (field 2026-10-16).
+    assert clarify_frame["tool_id"] == ""
+    # A real tool call id, when the payload carries one, is the tool_id.
+    called_frame = BridgeServer._project_event({
+        "type": "tool.clarify.request",
+        "payload": {
+            "id": "def456", "session_id": "proj-3",
+            "tool_call_id": "call_clarify_9",
+            "questions": [{"qid": "q0", "question": "Which stack?",
+                           "choices": ["FastAPI"], "multi_select": False}],
+            "title": "",
+        },
+    }, identity)
+    assert called_frame is not None and called_frame["tool_id"] == "call_clarify_9"
+    assert called_frame["request_id"] == "def456"
 
     todo_frame = BridgeServer._project_event({
         "type": "todo.updated",

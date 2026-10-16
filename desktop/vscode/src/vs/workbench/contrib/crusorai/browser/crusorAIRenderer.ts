@@ -2285,10 +2285,10 @@ function userMessage(text: string): HTMLElement {
 function historyTurnClarify(model: CrusorAIRenderModel, turn: CrusorAIRenderModel['history'][number]): CrusorAIRenderModel['clarify'] {
 	const pending = model.clarify;
 	if (!pending || pending.sessionId !== model.sessionId) { return undefined; }
-	if (pending.toolId) {
-		return turn.tools.some(tool => tool.id === pending.toolId) ? pending : undefined;
-	}
-	// No tool id on the frame: the ask is the turn's unsettled clarify call.
+	if (pending.toolId && turn.tools.some(tool => tool.id === pending.toolId)) { return pending; }
+	// No tool id on the frame — or one that matches no call in this turn
+	// (the bridge once stamped the REQUEST id there): the ask is the
+	// turn's unsettled clarify call.
 	return turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined) ? pending : undefined;
 }
 

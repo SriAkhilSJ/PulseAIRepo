@@ -527,8 +527,14 @@ class BridgeServer:
         if target == "clarify_request":
             # Hermes clarify card payload: one batch of normalized questions,
             # answered per qid through the clarify_reply frame.
+            # tool_id is the ASK TOOL CALL's id or nothing: the generic
+            # fallback above would stamp payload["id"] — the queue item's
+            # REQUEST id — and the desktop matches a pending ask to its
+            # transcript tool call by this field. A request id here made
+            # every checkpoint-hydrated ask paint read-only and
+            # unanswerable (field 2026-10-16).
             return {
-                **base, "tool_id": tool_id,
+                **base, "tool_id": str(payload.get("tool_id") or payload.get("tool_call_id") or ""),
                 "request_id": str(payload.get("id") or ""),
                 "title": payload.get("title", ""),
                 "questions": payload.get("questions", []),
