@@ -402,6 +402,47 @@ def test_delegate_child_is_always_its_own_tip():
         subagent_store.get_store = original  # type: ignore[assignment]
 
 
+def test_projected_frames_carry_their_authors_session():
+    """A child's frames must say CHILD, not the running turn's session
+    (field 2026-10-16: child words merged into the parent's live
+    answer, showed twice, and the child view never streamed because
+    its own frames routed as foreign). Session-less events keep the
+    turn identity."""
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="parent-1", workspace="/tmp/ws")
+    child = "sub-research-kid01"
+
+    token = BridgeServer._project_event(
+        {"type": "message.agent.chunk",
+         "payload": {"chunk": "child words", "thread_id": child}}, identity)
+    assert token["type"] == "token" and token["session_id"] == child
+
+    own = BridgeServer._project_event(
+        {"type": "message.agent.chunk",
+         "payload": {"chunk": "parent words", "thread_id": "parent-1"}}, identity)
+    assert own["session_id"] == "parent-1"
+
+    # Streamer tool ids are prefixed with the AUTHOR's thread: the
+    # prefix strips by the event session so live cards match the
+    # checkpoint-hydrated tool ids.
+    start = BridgeServer._project_event(
+        {"type": "tool.call",
+         "payload": {"tool_id": f"{child}-call_9", "name": "read_file",
+                     "thread_id": child}}, identity)
+    assert start["session_id"] == child and start["tool_id"] == "call_9"
+
+    reasoning = BridgeServer._project_event(
+        {"type": "reasoning.update",
+         "payload": {"text": "thinking", "thread_id": child}}, identity)
+    assert reasoning["session_id"] == child
+
+    sessionless = BridgeServer._project_event(
+        {"type": "reasoning.update", "payload": {"text": "aux thought"}}, identity)
+    assert sessionless["session_id"] == "parent-1"
+
+
 def test_forwarder_streams_proven_tree_content_isolates_proven_foreign():
     """Child sessions stream like the parent: PROVEN in-tree content
     (tokens, tool cards) forwards so the desktop paints a child view

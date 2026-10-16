@@ -53,6 +53,25 @@ function toolState(status: string): CrusorAIToolState {
 	return 'queued';
 }
 
+/**
+ * Engine sub-agent states, normalized to the desktop vocabulary at
+ * intake: the lifecycle says `succeeded`, the views speak `completed`
+ * — unnormalized, a settled child matched NEITHER running nor settled
+ * anywhere, so its card could not say it had ended (field 2026-10-16:
+ * "we can't find out it ended or started").
+ */
+function subAgentState(raw: unknown, fallback: CrusorAISubAgentView['state'] = 'pending'): CrusorAISubAgentView['state'] {
+	const value = typeof raw === 'string' ? raw.toLowerCase() : '';
+	switch (value) {
+		case 'pending': case 'queued': return 'pending';
+		case 'running': case 'in_progress': case 'cancel_requested': return 'running';
+		case 'completed': case 'succeeded': case 'success': case 'complete': case 'done': return 'completed';
+		case 'failed': case 'error': case 'errored': return 'failed';
+		case 'cancelled': case 'canceled': return 'cancelled';
+		default: return fallback;
+	}
+}
+
 function planText(step: unknown): string {
 	if (typeof step === 'string') { return step; }
 	const record = valueRecord(step);
@@ -605,7 +624,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		map.set(subagentId, {
 			...existing,
 			id: subagentId,
-			state: ((frame as any).state ?? existing.state) as CrusorAISubAgentView['state'],
+			state: subAgentState((frame as any).state, existing.state),
 			goal: (frame as any).goal ?? existing.goal,
 			description: (frame as any).description ?? (existing as any).description,
 			mode: (frame as any).mode ?? existing.mode,
@@ -2039,7 +2058,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				if (childId && parentId) this.parentMap.set(childId, parentId);
 				this.subAgents.set(sid, {
 					id: sid,
-					state: (row.state ?? 'pending') as CrusorAISubAgentView['state'],
+					state: subAgentState(row.state),
 					goal: row.goal,
 					description: row.description,
 					mode: row.mode,
@@ -2232,7 +2251,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				if (childId && parentId) this.parentMap.set(childId, parentId);
 				this.subAgents.set(sid, {
 					id: sid,
-					state: (row.state ?? 'pending') as CrusorAISubAgentView['state'],
+					state: subAgentState(row.state),
 					goal: row.goal,
 					description: row.description,
 					mode: row.mode,
@@ -2246,17 +2265,17 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				} as any);
 			}
 		} else if ((frame as any).type === 'subagent_background_completed') {
-			// Background task finished, inject into transcript as token + update subagent
-			const subId = (frame as any).subagent_id;
-			const text = (frame as any).text ?? '';
-			if (text) {
-				this.assistantText += text;
-				this.appendTextPart(text);
-			}
+			// A background child finished: update its RECORD only. The
+			// child's output is never appended to this session's voice —
+			// that injection merged the child into the parent and showed
+			// its answer twice (field 2026-10-16). The parent model
+			// learns the result through the engine's own channel; here
+			// the card simply reads Completed.
+			const subId = (frame as any).subagent_id ?? (frame as any).child_thread_id;
 			if (subId) {
 				const existing = this.subAgents.get(subId);
-				if (existing) {
-					this.subAgents.set(subId, { ...existing, state: 'completed' as const, result: text } as any);
+				if (existing && existing.state !== 'completed') {
+					this.subAgents.set(subId, { ...existing, state: 'completed' as const });
 				}
 			}
 		} else if (frame.type === 'verification_updated') {

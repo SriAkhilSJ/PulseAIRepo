@@ -996,7 +996,25 @@ function taskToolCard(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgent
 	surface.dataset.component = 'task-tool-surface';
 	const cardTitle = element('span', 'crusorai-task-tool-title', agentTitle(agentName));
 	cardTitle.dataset.component = 'task-tool-title';
-	const infoMain = element('div', undefined, stateIcon(running), cardTitle);
+	// The card must SAY whether the child started or ended (founder
+	// 2026-10-16: "we can't find out it ended or started"). The child's
+	// own record is the truth — a background child's tool call settles
+	// long before the child does; the engine's state is normalized at
+	// intake (`succeeded` arrives as `completed`).
+	const recordState = matchedRecord?.state;
+	const childRunning = recordState ? (recordState === 'running' || recordState === 'pending') : running;
+	const infoMain = element('div', undefined, stateIcon(childRunning), cardTitle);
+	const stateLabel = recordState === 'failed' || tool.state === 'failed' ? 'Failed'
+		: childRunning ? (recordState === 'pending' ? 'Pending' : 'Running…')
+		: recordState === 'cancelled' ? 'Cancelled'
+		: 'Completed';
+	const stateKey = stateLabel === 'Running…' || stateLabel === 'Pending' ? 'running'
+		: stateLabel.toLowerCase();
+	const duration = matchedRecord?.duration;
+	const stateEl = element('span', `crusorai-task-tool-state is-${stateKey}`,
+		stateLabel === 'Completed' && duration ? `Completed · ${duration}` : stateLabel);
+	stateEl.dataset.slot = 'task-tool-state';
+	infoMain.append(stateEl);
 	infoMain.dataset.slot = 'basic-tool-tool-info-main';
 	// Their subtitle: the description (or the child id), with the
 	// background marker — never a meta table of calls and clocks.

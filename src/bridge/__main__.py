@@ -459,11 +459,23 @@ class BridgeServer:
         target = mapping.get(kind)
         if target is None:
             return None
+        # Frames carry their AUTHOR's session, not the running turn's.
+        # The old base stamped every event with the turn identity (the
+        # parent), so a child's tokens/tool cards/reasoning arrived
+        # labelled "parent": they merged into the parent's live answer
+        # (and repeated in the child's own session), while the child
+        # view — routing frames by session — saw them as foreign and
+        # never streamed (field 2026-10-16). Session-less events keep
+        # the turn's identity (aux/pre-turn traffic).
+        event_session = str(
+            payload.get("session_id") or payload.get("thread_id") or ""
+        ) or identity.session_id
         base = {
             "type": target,
             "event_id": event.get("event_id"),
             "timestamp": event.get("timestamp"),
             **identity.event_fields(),
+            "session_id": event_session,
             "lineage_id": identity.lineage_root_id,
         }
 
@@ -471,14 +483,17 @@ class BridgeServer:
             payload.get("tool_id") or payload.get("tool_call_id")
             or payload.get("id") or ""
         )
-        prefix = f"{identity.session_id}-"
+        prefix = f"{event_session}-"
         tool_id = raw_tool_id[len(prefix):] if raw_tool_id.startswith(prefix) else raw_tool_id
         name = str(payload.get("name") or payload.get("tool_name") or "")
 
         if target == "subagent_background_completed":
-            # OpenCode parity: background task completion injects <task> result into parent transcript
-            # Emit as token (for transcript) + also keep subagent_updated semantics via base payload
-            # The bridge forwarder will emit this frame; renderer can show completion
+            # A background child's completion is a STATUS signal for the
+            # parent's card (the engine wakes the parent model through its
+            # own channel). It is never transcript text: injecting the
+            # child's <task> output into the parent's voice merged the
+            # child into the parent and duplicated its answer
+            # (field 2026-10-16: "i don't want the child to get merged").
             return {
                 **base,
                 "type": "subagent_background_completed",
@@ -579,9 +594,12 @@ class BridgeServer:
             "tool_id": str(event.get("tool_call_id") or payload.get("tool_id") or ""),
         }
         if target == "subagent_background_completed":
-            # OpenCode parity: background task completion injects <task> result into parent transcript
-            # Emit as token (for transcript) + also keep subagent_updated semantics via base payload
-            # The bridge forwarder will emit this frame; renderer can show completion
+            # A background child's completion is a STATUS signal for the
+            # parent's card (the engine wakes the parent model through its
+            # own channel). It is never transcript text: injecting the
+            # child's <task> output into the parent's voice merged the
+            # child into the parent and duplicated its answer
+            # (field 2026-10-16: "i don't want the child to get merged").
             return {
                 **base,
                 "type": "subagent_background_completed",

@@ -1310,6 +1310,14 @@
 .crusorai-subagent-state.is-completed { color: var(--crusorai-verified); }
 .crusorai-subagent-state.is-failed { color: var(--crusorai-failed); }
 .crusorai-subagent-state.is-cancelled { color: var(--crusorai-approval); }
+/* The single card's readable state (Running… / Completed · 1:42 /
+   Failed): the shape alone could not say it started or ended. Same
+   earned colours as the batch rows, quiet meta size, right-aligned
+   before the chevron. */
+.crusorai-task-tool-state { margin-left: auto; flex: none; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.crusorai-task-tool-state.is-completed { color: var(--crusorai-verified); }
+.crusorai-task-tool-state.is-failed { color: var(--crusorai-failed); }
+.crusorai-task-tool-state.is-cancelled { color: var(--crusorai-approval); }
 .crusorai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); white-space: nowrap; }
 .crusorai-subagent-result {
 	grid-column: 1 / -1;

@@ -246,6 +246,28 @@ def test_copy_button_spawns_only_at_the_end_of_the_communication():
 	assert "ownRecord.state === 'running' || ownRecord.state === 'pending'" in renderer
 
 
+def test_frames_carry_their_author_and_children_never_merge():
+	"""Founder 2026-10-16: "i don't want the child to get merged",
+	"showing 2 times the same output", "we can't find out it ended or
+	started", "child is not streaming like parent". One root: projected
+	frames were stamped with the RUNNING TURN's session (the parent),
+	so child words landed in the parent's voice and routed foreign in
+	the child's own view. Frames now carry their author's session;
+	engine states normalize at intake (succeeded -> completed); a
+	background completion updates the record only, never the
+	transcript; the delegate card reads its state in words."""
+	bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+	assert '"session_id": event_session' in bridge
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "function subAgentState(" in service
+	assert "case 'completed': case 'succeeded'" in service
+	assert "state: subAgentState((frame as any).state, existing.state)" in service
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	assert "crusorai-task-tool-state" in renderer
+	css = _text("browser", "media", "crusorAI.css")
+	assert ".crusorai-task-tool-state.is-completed" in css
+
+
 def test_child_identity_survives_resume_and_the_way_back_is_always_visible():
 	"""Founder 2026-10-16 (b795802c): "where am i this is not parent
 	screen" — inside a finished child there was no child chrome in
