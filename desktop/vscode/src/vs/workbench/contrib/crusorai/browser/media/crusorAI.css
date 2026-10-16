@@ -576,9 +576,15 @@
 .crusorai-task-tool-batch-row .crusorai-task-tool-icon { display: inline-flex; flex: none; }
 .crusorai-task-tool-batch-row .crusorai-mini-spinner { width: 12px; height: 12px; }
 .crusorai-task-tool-batch-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--crusorai-text-body); color: var(--v2-text-text-base); }
-.crusorai-task-tool-batch-action { display: inline-flex; align-items: center; justify-content: center; width: 0; overflow: hidden; flex-shrink: 0; opacity: 0; transform: translateX(-4px); transition: width 150ms ease, opacity 150ms ease, transform 150ms ease; color: var(--v2-icon-icon-muted); }
-.crusorai-task-tool-batch-row:hover .crusorai-task-tool-batch-action, .crusorai-task-tool-batch-row:focus-visible .crusorai-task-tool-batch-action { width: 16px; opacity: 1; transform: none; }
-@media (hover: none) { .crusorai-task-tool-batch-action { width: 16px; opacity: 1; transform: none; } }
+/* The chevron slot is RESERVED (16px always): hover fades opacity
+   only. Animating width here shook the row right-left in the field —
+   our transcript rebuilds the node on every repaint (streaming
+   frames + the 1s ticker), restarting the width transition forever
+   while a child ran under the cursor. Nothing that carries layout
+   may animate on a repaint-rebuilt row. */
+.crusorai-task-tool-batch-action { display: inline-flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; opacity: 0; transition: opacity 150ms ease; color: var(--v2-icon-icon-muted); }
+.crusorai-task-tool-batch-row:hover .crusorai-task-tool-batch-action, .crusorai-task-tool-batch-row:focus-visible .crusorai-task-tool-batch-action { opacity: 1; }
+@media (hover: none) { .crusorai-task-tool-batch-action { opacity: 1; } }
 
 .crusorai-notice-row {
 	display: flex;
@@ -4140,6 +4146,19 @@
    descriptions push the chevron out of the row). */
 .crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-info-structured"] { display: flex; align-items: center; }
 .crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-info-main"] { display: flex; }
+/* Founder field 2026-10-16 (build -8): hovering the RUNNING delegate
+   card shook it right-left. The extracted rules animate the chevron
+   slot's width 0→16px on hover; OpenCode's Solid tree never rebuilds
+   that node, so it slides once and rests. Our transcript repaints
+   wholesale — every streaming frame and the 1s activity ticker
+   replace the node, restarting the width transition each time, so
+   the row's right side (state + description, parked there by
+   margin-left:auto) slid left, reset, and slid again for as long as
+   the child ran under the cursor. The slot now reserves its 16px
+   permanently; hover moves only the opacity/color its transition
+   already carries. Same law as the batch rows above: nothing that
+   carries layout may animate on a repaint-rebuilt row. */
+.crusorai-render-root [data-component="task-tool-card"] [data-component="task-tool-action"] { width: 16px; margin-inline-start: 2px; transform: none; }
 .crusorai-render-root [data-component="task-tool-card"] [data-slot="basic-tool-tool-subtitle"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-render-root .crusorai-tool-trigger { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 .crusorai-render-root [data-slot="collapsible-arrow"] { display: inline-flex; flex-shrink: 0; opacity: 0.7; transform: rotate(-90deg); transition: transform 150ms ease, opacity 150ms ease; }

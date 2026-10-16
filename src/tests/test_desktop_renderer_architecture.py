@@ -303,6 +303,23 @@ def test_hydrated_delegate_cards_stay_navigable():
 	assert "agentTitle(matchedRecord?.agentName ?? matchedRecord?.mode ?? agentName)" in renderer
 
 
+def test_delegate_card_chevron_slot_never_animates_layout():
+	"""Founder 2026-10-16 (build -8): hovering the running delegate
+	card shook it right-left. Upstream's chevron slot animates width
+	0→16px on hover and rests — their tree never rebuilds the node.
+	Ours repaints wholesale (every streaming frame, plus the 1s
+	activity ticker), so the width transition restarted on every
+	repaint and the card's right side slid left, reset, and slid
+	again for as long as the child ran under the cursor. The slot
+	reserves its 16px permanently; hover may move opacity only. No
+	rule may put width on a transition for these actions again."""
+	css = _text("browser", "media", "crusorAI.css")
+	assert '[data-component="task-tool-action"] { width: 16px; margin-inline-start: 2px; transform: none; }' in css
+	assert ".crusorai-task-tool-batch-action { display: inline-flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; opacity: 0; transition: opacity 150ms ease;" in css
+	assert ".crusorai-task-tool-batch-row:hover .crusorai-task-tool-batch-action" in css
+	assert "task-tool-batch-action { width: 16px; opacity: 1" not in css
+
+
 def test_tool_call_end_adopts_the_frames_name_never_unknown():
 	"""Founder 2026-10-16 (build c274f8b7): the child's tool cards
 	rendered 'Unknown' while a sibling web_search was named. Children
@@ -910,7 +927,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-16-8';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-16-9';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1050,7 +1067,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-16-8'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-16-9'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
