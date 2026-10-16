@@ -216,6 +216,19 @@ def test_child_clarify_answerable_and_lane_holds_still():
 	assert "(streaming?.text ?? '') === lastPaint.text" in renderer
 
 
+def test_transcript_heights_are_exact_no_receding_bottom():
+	"""Field 2026-10-15 ("i cannot stay bottom of the sub agent"): the
+	OpenCode message CSS sets content-visibility:auto on history turns /
+	tool triggers with no contain-intrinsic-size, so off-screen turns
+	size as ~0, scrollHeight lies, and the bottom recedes as turns render.
+	A child view is all history turns. Inside the transcript scroller
+	the heights must be exact — pinned by the override rule."""
+	css = _text("browser", "media", "crusorAI.css")
+	assert '.crusorai-transcript-scroll [data-component="assistant-message"]' in css
+	assert '.crusorai-transcript-scroll [data-component="tool-trigger"]' in css
+	assert "content-visibility: visible" in css
+
+
 def test_engine_tools_todo_and_clarify_are_core():
 	"""hermes registers both tools with check_fn -> True (never posture-gated);
 	Crusor keeps the same universality in the core toolset."""

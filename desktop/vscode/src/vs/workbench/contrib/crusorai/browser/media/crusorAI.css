@@ -152,6 +152,20 @@
 	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
 }
 
+/* The bottom must be a place, not a mirage (field 2026-10-15: "i cannot
+   stay bottom of the sub agent"). The OpenCode message CSS puts
+   content-visibility:auto on history turns and tool triggers with no
+   contain-intrinsic-size anywhere, so unrendered turns size as ~0:
+   scrollHeight lies, the paint's pin-to-bottom lands mid-transcript,
+   and every scroll materializes more height below — the floor recedes
+   forever. A child view is ALL history turns, so it suffered most.
+   Inside the transcript scroller, heights are exact; our paints rebuild
+   the lane wholesale anyway, so the skip-render saving buys nothing. */
+.crusorai-render-root .crusorai-transcript-scroll [data-component="assistant-message"],
+.crusorai-render-root .crusorai-transcript-scroll [data-component="tool-trigger"] {
+	content-visibility: visible;
+}
+
 .crusorai-transcript-lane {
 	width: min(86%, 44rem);
 	box-sizing: border-box;
