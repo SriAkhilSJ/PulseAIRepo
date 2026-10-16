@@ -160,3 +160,51 @@ def test_format_task_output_no_longer_amputates_at_2000_chars():
     text = ("evidence line\n" * 200) + conclusion
     out = format_task_output(session_id="sub-x-3", state="completed", text=text)
     assert conclusion in out
+
+
+# ---------------------------------------------------------------------------
+# Model-time accounting: child model seconds are attributed to the
+# parent turn, not dumped into "non-model".
+# Founder field 2026-10-16: "[bridge] turn end ... wall=742.3s
+# (model 42.8s, non-model 699.6s)" while the child's model calls sat
+# invisibly inside the delegate wait — children accumulate model
+# wall under their own thread id and nothing ever moved it.
+# ---------------------------------------------------------------------------
+
+def test_subagent_model_wall_transfers_once_and_accounting_clears():
+    cg._TURN_MODEL_WALL["child-t"] = 12.5
+    moved = cg.note_subagent_model_wall("parent-t", "child-t")
+    assert moved == 12.5
+    assert cg.turn_model_wall("child-t") == 0.0  # popped, not copied
+    # A second transfer (e.g. a redundant read) moves nothing again.
+    assert cg.note_subagent_model_wall("parent-t", "child-t") == 0.0
+
+    cg._TURN_MODEL_WALL["parent-t"] = 3.0
+    own, sub = cg.pop_turn_model_accounting("parent-t")
+    assert (own, sub) == (3.0, 12.5)
+    # Read-and-clear: the next turn starts from zero.
+    assert cg.pop_turn_model_accounting("parent-t") == (0.0, 0.0)
+
+
+def test_delegate_settles_child_model_wall_on_the_parent(monkeypatch):
+    """End to end at the delegate seam: a child whose (faked) model
+    calls burned 7s under its own thread id leaves those seconds in
+    the parent's sub-agent bucket, readable by the turn receipt."""
+    def fake(message, thread_id="default", provider=None, model=None,
+             workspace=".", execution_mode="agent", **_kw):
+        cg._TURN_MODEL_WALL[thread_id] = 7.0
+        return "child findings, concluded"
+
+    monkeypatch.setattr(cg, "invoke_agent", fake)
+    out = _delegate_app().invoke(
+        {"messages": [AIMessage(content="", tool_calls=[{
+            "name": "delegate_to_subagent",
+            "args": {"mode": "research", "task": "audit the thing"},
+            "id": "call_1",
+        }])]},
+        config={"configurable": {"thread_id": "main", "workspace": "."}},
+    )
+    assert "child findings, concluded" in str(out["messages"][-1].content)
+    own, sub = cg.pop_turn_model_accounting("main")
+    assert sub == 7.0
+    assert own == 0.0

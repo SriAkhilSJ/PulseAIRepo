@@ -1008,20 +1008,29 @@ class BridgeServer:
                     except Exception:
                         pass  # accounting never breaks the receipt
                 _model_wall = 0.0
+                _subagent_model_wall = 0.0
                 try:
-                    from src.graphs.chat_graph import turn_model_wall
-                    # Field 2026-09-09: this read used `session_id`, a name
-                    # that does not exist in this scope (the bridge thread id
-                    # is `sid`) — NameError, swallowed, "model 0.0s" forever
-                    # while the model visibly consumed minutes.
-                    _model_wall = turn_model_wall(sid)
+                    from src.graphs.chat_graph import pop_turn_model_accounting
+                    # Read-and-clear (field 2026-09-09's cumulative read
+                    # charged later turns for earlier ones). Sub-agent
+                    # model seconds arrive already attributed: children
+                    # accumulate under their own thread ids and the
+                    # delegate settles their wall onto this thread —
+                    # before that transfer existed, a 742.3s turn
+                    # reported "model 42.8s, non-model 699.6s" while
+                    # the child's model calls hid inside the wait.
+                    _model_wall, _subagent_model_wall = pop_turn_model_accounting(sid)
                 except Exception:
                     pass  # accounting never breaks the receipt
-                _other = max(0.0, (_time.monotonic() - _turn_t0) - _model_wall)
+                _other = max(0.0, (_time.monotonic() - _turn_t0) - _model_wall - _subagent_model_wall)
+                _model_part = (
+                    f"model {_model_wall:.1f}s + sub-agent model {_subagent_model_wall:.1f}s"
+                    if _subagent_model_wall > 0 else f"model {_model_wall:.1f}s"
+                )
                 print(
                     f"[bridge] turn end: completed={task_completed and not cancelled} "
                     f"cancelled={cancelled} wall={_time.monotonic() - _turn_t0:.1f}s "
-                    f"(model {_model_wall:.1f}s, non-model {_other:.1f}s — tools, "
+                    f"({_model_part}, non-model {_other:.1f}s — tools, "
                     "finalize, review, transport gaps live there)",
                     file=_sys.stderr, flush=True,
                 )

@@ -751,6 +751,13 @@ def delegate_to_subagent(
                     _tc.unregister_abort(str(caller_thread) or "main", _abort_child)
                 except Exception:
                     pass
+        # The child's model seconds accumulated under ITS thread id;
+        # settle them onto this thread's sub-agent bucket so the turn
+        # receipt stops reporting them as "non-model" (a still-running
+        # child after a wait timeout keeps its wall — it transfers
+        # when it actually settles or is resumed to completion).
+        if not result_dict.get("timed_out"):
+            note_subagent_model_wall(str(caller_thread) or "main", child_id)
         # OpenCode's foreground contract (tool/plugin/subagent.ts):
         # the run's exit status decides the tool's answer — error and
         # cancelled FAIL the tool call with the child's session id in
@@ -816,6 +823,7 @@ def delegate_to_subagent(
     )
 
     _outcome_state, result = subagent_coordinator.get_outcome(agent_id)
+    note_subagent_model_wall(str(caller_thread) or "main", agent_id)
     if _outcome_state == "failed":
         # Same upstream failure line as the lifecycle path: the
         # session id stays visible so the parent can resume it.
@@ -1057,6 +1065,8 @@ def delegate_to_subagent_batch(
             sections.append(
                 f"--- [{i}] Task: {task[:200]} ---\n{truncate_delegate_result(result, agent_id)}\n(ID: {agent_id})\n"
             )
+        for _aid in agent_ids:
+            note_subagent_model_wall(str(caller_thread) or "main", _aid)
         header = f"🤖 Sub-agent batch ({mode}) — {_done_count}/{len(agent_ids)} completed:\n"
         return "\n".join([header, *sections])
     except Exception:
@@ -2815,6 +2825,40 @@ _TURN_MODEL_WALL: dict[str, float] = {}
 def turn_model_wall(thread_id: str) -> float:
     """Total seconds this thread's turn has spent inside model requests."""
     return _TURN_MODEL_WALL.get(thread_id, 0.0)
+
+
+# Sub-agent model wall, attributed to the PARENT thread. Children run
+# their model calls under their own thread id, so the bridge's
+# per-parent read used to count every child model-second as
+# "non-model" (founder field 2026-10-16: a 742.3s turn reported
+# "model 42.8s, non-model 699.6s" while the child's model calls sat
+# invisibly inside the delegate wait). Each settled child's wall is
+# popped out of its own bucket exactly once and settled here, so the
+# turn receipt can name all three numbers honestly.
+_TURN_SUBAGENT_MODEL_WALL: dict[str, float] = {}
+
+
+def note_subagent_model_wall(parent_thread_id: str, child_thread_id: str) -> float:
+    """Settle a finished child's accumulated model wall onto its
+    parent's sub-agent bucket. Pop semantics: a resumed child
+    transfers each of its runs exactly once."""
+    seconds = _TURN_MODEL_WALL.pop(child_thread_id, 0.0)
+    if seconds > 0 and parent_thread_id:
+        _TURN_SUBAGENT_MODEL_WALL[parent_thread_id] = (
+            _TURN_SUBAGENT_MODEL_WALL.get(parent_thread_id, 0.0) + seconds
+        )
+    return seconds
+
+
+def pop_turn_model_accounting(thread_id: str) -> tuple[float, float]:
+    """(own model seconds, sub-agent model seconds) for the turn that
+    just ended — read-and-clear, so a session's second turn is not
+    charged for its first (the old cumulative read clamped every
+    later turn's non-model remainder to zero)."""
+    return (
+        _TURN_MODEL_WALL.pop(thread_id, 0.0),
+        _TURN_SUBAGENT_MODEL_WALL.pop(thread_id, 0.0),
+    )
 
 # Auth-dead providers (hermes-style circuit breaker): a 401 never heals
 # mid-session, yet the router kept re-proposing the dead provider on EVERY
