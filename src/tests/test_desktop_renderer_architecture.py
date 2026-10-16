@@ -231,6 +231,16 @@ def test_clarify_tool_id_is_never_the_request_id():
 	assert "turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined)" in renderer
 
 
+def test_copy_button_spawns_only_at_the_end_of_the_communication():
+	"""Founder 2026-10-16: the copy button spawned mid-communication —
+	a checkpoint-hydrated turn paints non-live even while it is still
+	open, so the button appeared under an unanswered question. It may
+	only spawn once the turn's communication has ended."""
+	renderer = _text("browser", "crusorAIRenderer.ts")
+	assert "communicationOpen" in renderer
+	assert "!live && !communicationOpen" in renderer
+
+
 def test_transcript_heights_are_exact_no_receding_bottom():
 	"""Field 2026-10-15 ("i cannot stay bottom of the sub agent"): the
 	OpenCode message CSS sets content-visibility:auto on history turns /
@@ -786,9 +796,12 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     makes forgetting to bump it a *false* STALE, which is what happened — the preview chrome landed
     on 2026-09-26 (crusorAIPreviewService.ts, the overlay, the media) while the stamp still said
     2026-09-11, so the owner's freshly compiled workbench accused itself of being old.
+    Bumped 2026-10-15 -> 2026-10-16 for the clarify-tree round (copy button
+    only at the end of the communication): the dd385dfb engine build is
+    dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-15';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-16';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -928,7 +941,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-15'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-16'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

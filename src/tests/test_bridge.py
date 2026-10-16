@@ -325,6 +325,51 @@ def test_forwarder_keeps_sessionless_events_drops_other_sessions():
     assert "tool_call_start" not in kinds              # other session dropped
 
 
+def test_forwarder_passes_tree_hitl_from_children_drops_child_content():
+    """Blocking HITL asks are session-TREE traffic: a child's clarify /
+    approval names the child session, and the old isolation drop ate
+    every one — the desktop never learned the ask existed (field
+    2026-10-16: child question unanswerable, parent showed nothing).
+    Turn CONTENT from another session still drops."""
+    import queue as _queue
+    import threading
+    import time
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="own", workspace="/tmp/ws")
+    q: _queue.Queue = _queue.Queue()
+    done = threading.Event()
+    emitted = []
+    server = object.__new__(BridgeServer)
+    server.emit = emitted.append
+
+    q.put({"type": "tool.clarify.request", "payload": {
+        "id": "req1", "session_id": "sub-research-kid",
+        "questions": [{"qid": "q0", "question": "Which?", "choices": ["a", "b"]}],
+    }})  # child clarify -> forward (tree HITL)
+    q.put({"type": "tool.approval.request", "payload": {
+        "tool_id": "call_write_1", "thread_id": "sub-research-kid",
+    }})  # child approval -> forward (tree HITL)
+    q.put({"type": "message.agent.chunk", "payload": {
+        "session_id": "sub-research-kid", "text": "child tokens",
+    }})  # child turn content -> drop (isolation intact)
+    q.put({"type": "message.agent.chunk", "payload": {
+        "session_id": "other-root", "text": "foreign tokens",
+    }})  # foreign root content -> drop
+
+    t = threading.Thread(
+        target=server._forward_events, args=(q, identity, done, "own"), daemon=True)
+    t.start()
+    time.sleep(0.5)
+    done.set(); t.join(timeout=2)
+
+    kinds = [f["type"] for f in emitted]
+    assert kinds.count("clarify_request") == 1, kinds
+    assert kinds.count("safety_request") == 1, kinds
+    assert "token" not in kinds, kinds
+
+
 def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
     """session_create must not claim a fresh start silently: a session id with
     durable checkpointer history resumes it (live-measured as linear call

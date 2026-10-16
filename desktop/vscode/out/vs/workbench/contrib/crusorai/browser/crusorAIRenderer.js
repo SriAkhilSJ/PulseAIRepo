@@ -116,7 +116,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-15';
+const CRUSORAI_UI_STAMP = '2026-10-16';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2154,7 +2154,13 @@ function assistantTurn(spec, host, openTools, closedTools) {
     if (spec.assistantText && lastTextIndex < 0) {
         response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
     }
-    if (spec.assistantText && !live) {
+    // The copy button spawns at the END of the communication (founder
+    // 2026-10-16): a checkpoint-hydrated turn paints non-live even while
+    // it is still open, so without this gate the button appeared under
+    // an unanswered question — mid-conversation, with more coming.
+    const communicationOpen = !!spec.clarify
+        || spec.tools.some(tool => tool.name === 'clarify' && tool.result === undefined);
+    if (spec.assistantText && !live && !communicationOpen) {
         response.append(copyButton(spec.assistantText, host));
     }
     return response;
