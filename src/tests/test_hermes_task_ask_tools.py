@@ -227,6 +227,53 @@ def test_clarify_tool_invoke_blocks_until_reply():
     assert out["responses"][0]["user_response"] == "B"
 
 
+def test_clarify_tool_invoke_single_question_returns_bare_answer():
+    """Founder field 2026-10-17 ('JSON FIXX'): asked via the
+    question/choices kwargs (the shape GLM actually calls), the
+    settled card painted the raw queue payload
+    {"answers": {"q0": "Built-in sorted() / list.sort()"},
+    "request_id": "..."} as the user's answer — the queue callback
+    returned its batch envelope to the single-question path, which
+    never unwrapped it. The batch test above passed for years while
+    this path leaked wire JSON to the model and the card."""
+    from src.tools.clarify_tool import clarify
+
+    def answerer():
+        for _ in range(100):
+            pending = clarify_queue.get_pending("invoke-single")
+            if pending:
+                clarify_queue.resolve(
+                    pending[0]["id"], {"q0": "Built-in sorted() / list.sort()"},
+                    session_id="invoke-single",
+                )
+                return
+            threading.Event().wait(0.05)
+        raise AssertionError("clarify request never landed")
+
+    thread = threading.Thread(target=answerer, daemon=True)
+    thread.start()
+    out = json.loads(clarify.invoke(
+        {"question": "Which sorting approach do you prefer?",
+         "choices": ["Built-in sorted() / list.sort()", "Bubble sort"]},
+        config={"configurable": {"thread_id": "invoke-single"}},
+    ))
+    thread.join(timeout=5)
+    assert out["user_response"] == "Built-in sorted() / list.sort()"
+    assert "request_id" not in out["user_response"]
+
+
+def test_clarify_single_path_unwraps_envelope_callbacks():
+    """Any platform callback that answers the single-question path
+    with the {"answers": {...}} envelope gets unwrapped — the
+    answer is the human's text, never wire JSON."""
+    out = json.loads(clarify_tool(
+        question="Pick", choices=["A", "B"],
+        callback=lambda *a, **k: json.dumps(
+            {"answers": {"q0": "A"}, "request_id": "req-9"}),
+    ))
+    assert out["user_response"] == "A"
+
+
 # ── Field 2026-09-06 prompt-engineering round ────────────────────────────────
 
 def test_list_files_without_path_lists_the_workspace_root(tmp_path):

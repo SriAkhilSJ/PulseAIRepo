@@ -208,6 +208,16 @@ def clarify_tool(
         raw_response = callback(question, shown, multi_select)
     except Exception as exc:
         return json.dumps({"error": f"Failed to get user input: {exc}"}, ensure_ascii=False)
+    # A batch-shaped callback may answer with the {"answers": {...}}
+    # envelope even on this single-question path — unwrap it here so
+    # user_response is always the human's answer, never wire JSON
+    # (the queue factory returns the bare answer; this guards every
+    # other platform callback).
+    if isinstance(raw_response, str):
+        envelope = _json_as(raw_response, dict)
+        if envelope is not None and isinstance(envelope.get("answers"), dict):
+            answers = envelope["answers"]
+            raw_response = answers.get("q0", next(iter(answers.values()), ""))
     return json.dumps({
         "question": question, "choices_offered": choices,
         "user_response": _clean_answer(raw_response, multi_select and choices is not None),
@@ -221,7 +231,16 @@ def _queue_callback_factory(session_id: str, timeout: float):
     from src.dashboard.event_bus import clarify_queue, event_bus
 
     def _callback(question: str, _choices, _multi_select, questions=None):
-        if not questions:
+        # The single-question path (no `questions` batch) expects the
+        # bare answer back; the batch path expects the JSON envelope.
+        # This factory used to return the envelope to BOTH, so a
+        # question asked via question/choices handed the model — and
+        # the settled question card, which paints user_response
+        # verbatim — the raw payload {"answers": {...},
+        # "request_id": "..."} instead of the picked option (founder
+        # field 2026-10-17, "JSON FIXX").
+        single = not questions
+        if single:
             questions = [{
                 "qid": "q0", "id": None, "question": question,
                 "choices": _choices, "choices_offered": _choices,
@@ -249,8 +268,12 @@ def _queue_callback_factory(session_id: str, timeout: float):
             return TIMEOUT_RESPONSE
         if decision.get("timed_out"):
             return TIMEOUT_RESPONSE
+        answers = decision.get("answers") or {}
+        if single:
+            answer = answers.get("q0", "")
+            return answer if isinstance(answer, (str, list)) else str(answer)
         return json.dumps(
-            {"answers": decision.get("answers") or {}, "request_id": request_id},
+            {"answers": answers, "request_id": request_id},
             ensure_ascii=False,
         )
 
