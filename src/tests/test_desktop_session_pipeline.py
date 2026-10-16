@@ -67,7 +67,10 @@ def test_session_list_refresh_never_clobbers_the_active_id():
 
 def test_navigation_rebinds_and_hydrates_from_checkpoints():
     service = _text("browser", "crusorAIRendererService.ts")
-    assert "Stop the current run before switching sessions." in service
+    # Navigation never demands stopping the run: departing a live
+    # surface stashes it, returning restores it (founder 2026-10-16).
+    assert "Stop the current run before switching sessions." not in service
+    assert "const stashedIsRunning = !!this.liveStash && this.liveStash.snapshot.running;" in service
     # An explicit open IS the read, and the session is remembered per workspace.
     assert "this.sessionStore.markRead(targetSessionId, true);" in service
     assert "this.setRememberedSession(targetSessionId);" in service

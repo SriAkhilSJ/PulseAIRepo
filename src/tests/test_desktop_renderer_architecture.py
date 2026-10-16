@@ -2069,7 +2069,14 @@ def test_child_session_click_mid_run_opens_live():
     assert "private requestChildSnapshot()" in service
     assert "private syncChildLivePoll()" in service
     assert "healAfterRestore" in service
-    assert "Stop the current run before switching sessions." in service
+    # Mid-run navigation is never refused (founder field 2026-10-16:
+    # the back arrow inside a running child answered 'Stop the current
+    # run before switching sessions.'). The stashed live surface is
+    # restored first — running or not — and departing a live surface
+    # stashes it instead of blocking.
+    assert "Stop the current run before switching sessions." not in service
+    assert "if (this.liveStash && this.liveStash.sessionId === targetSessionId)" in service
+    assert "const stashedIsRunning = !!this.liveStash && this.liveStash.snapshot.running;" in service
     assert "crusorai-child-live" in renderer
 
 

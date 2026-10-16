@@ -916,30 +916,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             return;
         }
         this.stopChildLivePoll();
-        // Stepping INTO a child of the running turn (founder 2026-10-15:
-        // 'i am inside the same parent session' — a deferral notice is NOT
-        // an open session): stash the parent's live surface and open the
-        // child NOW; the parent keeps running and its frames keep noting
-        // its list row. An unrelated mid-run switch still refuses.
-        if (this.running) {
-            const isChildOfCurrent = targetSessionId.startsWith('sub-')
-                || this.parentMap.has(targetSessionId)
-                || [...this.subAgents.values()].some(record => record.childThreadId === targetSessionId || record.id === targetSessionId);
-            if (isChildOfCurrent && this.sessionId) {
-                this.liveStash = { sessionId: this.sessionId, snapshot: this.captureSurface(this.sessionId) };
-                // Fall through to the normal open below; resetSessionState
-                // never touches liveStash.
-            }
-            else {
-                this.error = 'Stop the current run before switching sessions.';
-                this.render();
-                return;
-            }
-        }
-        else if (this.liveStash && this.liveStash.sessionId === targetSessionId) {
-            // BACK to the still-running parent: restore its surface exactly
-            // where it left off; the stream resumes appending live. Tokens
-            // from the away window are healed from the checkpoint at settle.
+        // BACK to a stashed live surface: restore it exactly where it left
+        // off, whether or not a run is still in flight. This is checked
+        // FIRST — while viewing a running child, this.running is true, and
+        // the way home must never be refused (field 2026-10-16: the back
+        // arrow inside a running child answered 'Stop the current run
+        // before switching sessions.').
+        if (this.liveStash && this.liveStash.sessionId === targetSessionId) {
             const stash = this.liveStash;
             this.liveStash = undefined;
             this.restoreSurface(stash.snapshot);
@@ -949,6 +932,19 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.setRememberedSession(targetSessionId);
             this.render();
             return;
+        }
+        // Departing a LIVE surface never blocks navigation: every session
+        // is a place you can stand (OpenCode), and the run continues
+        // server-side regardless of which one is on screen. The departed
+        // surface is stashed so returning restores it exactly; while
+        // away, its frames note its list row (see foreignSessionId). A
+        // stash of a still-running surface is never overwritten by a
+        // calmer one.
+        if (this.running && this.sessionId) {
+            const stashedIsRunning = !!this.liveStash && this.liveStash.snapshot.running;
+            if (!stashedIsRunning || (this.liveStash && this.liveStash.sessionId === this.sessionId)) {
+                this.liveStash = { sessionId: this.sessionId, snapshot: this.captureSurface(this.sessionId) };
+            }
         }
         const previousSessionId = this.sessionId;
         const previousChildParentId = this.childParentId;
