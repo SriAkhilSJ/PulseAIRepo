@@ -357,7 +357,11 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // URL ERRs) and nothing on screen could tell. This constant lives in this
 // source file, so any compile of current source carries it while a stale
 // out/ shows an older date; engineStatus() flags engine-newer skew as STALE.
-const CRUSORAI_UI_STAMP = '2026-10-16';
+// BUMP THE SERIAL ON EVERY UI SHIP (even same-day): the founder's
+// screenshot header is the only build evidence support gets, and four
+// same-day ships once shared '2026-10-16', making a stale renderer
+// indistinguishable from a current one (field 2026-10-16).
+const CRUSORAI_UI_STAMP = '2026-10-16-6';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
