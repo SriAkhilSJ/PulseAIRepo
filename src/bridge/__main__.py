@@ -634,31 +634,60 @@ class BridgeServer:
             "completed": False, "cancelled": False, "stub": False,
         })
 
-    def _in_session_tree(self, session_id: str, root: str) -> bool:
-        """True when `session_id` is `root` or a descendant of it.
+    def _lineage_root(self, session_id: str) -> str | None:
+        """The topmost ancestor of `session_id` per the durable rows.
 
-        Lineage comes from the durable sub-agent rows. Unproven lineage
-        (no row yet — the spawn race) fails OPEN: the desktop parks asks
-        outside the viewed tree harmlessly, while a dropped ask blocks a
-        child invisibly. Only a proven different tree isolates.
+        A rowless session DEEP in the walk is a top-level session (the
+        chain's proven root); a rowless ASKER is unproven lineage (a
+        fresh child's row may not exist yet — the spawn race) and returns
+        None. Proven roots cache on the server — a session's lineage
+        never changes once its row exists.
         """
+        cache = getattr(self, "_lineage_root_cache", None)
+        if cache is None:
+            cache = self._lineage_root_cache = {}
+        if session_id in cache:
+            return cache[session_id]
         try:
             from src.runtime.subagent_store import get_store
             store = get_store()
-            current = session_id
-            for depth in range(8):
-                if current == root:
-                    return True
-                row = store.get(current)
-                if row is None:
-                    return depth == 0
-                parent = getattr(row, "parent_session_id", None)
-                if not parent:
-                    return False
-                current = str(parent)
-            return current == root
         except Exception:
+            return None
+        current = session_id
+        for depth in range(8):
+            row = store.get(current)
+            if row is None:
+                if depth == 0:
+                    return None
+                cache[session_id] = current
+                return current
+            parent = getattr(row, "parent_session_id", None)
+            if not parent:
+                cache[session_id] = current
+                return current
+            current = str(parent)
+        return None
+
+    def _in_session_tree(self, session_id: str, root: str, *,
+                         fail_open: bool = True) -> bool:
+        """True when `session_id` is `root` or a descendant of it.
+
+        Lineage comes from the durable sub-agent rows (cached per
+        session). Unproven lineage fails OPEN for blocking asks — the
+        desktop parks asks outside the viewed tree harmlessly, while a
+        dropped ask blocks a child invisibly — but CLOSED for turn
+        content: foreign tokens must never stream into a running turn's
+        view. Only a proven different tree isolates either kind.
+        """
+        if session_id == root:
             return True
+        try:
+            top = self._lineage_root(session_id)
+        except Exception:
+            return fail_open
+        if top is None:
+            return fail_open
+        return top == root
 
     def _forward_events(self, q: queue.Queue, identity: TurnIdentity, done: threading.Event,
                         own_sid: str | None = None, liveness: TurnLiveness | None = None) -> None:
@@ -687,23 +716,26 @@ class BridgeServer:
                     # turn content — forward them; concurrency isolation stays
                     # for everything user-visible.
                     is_llm_status = str(event.get("type") or "").startswith("llm.")
-                    # Blocking human-in-the-loop asks are session-TREE
-                    # traffic, not turn content: a child's question or
-                    # approval names the CHILD session, so the isolation
-                    # drop below silently ate every one — the desktop never
-                    # learned the ask existed (child painted its read-only
-                    # card, the parent showed nothing; field 2026-10-16).
-                    # The desktop surfaces tree asks in whichever ancestor
-                    # view is open and routes replies to the asker; here
-                    # they forward when the asker lives in this turn's
-                    # session tree (and fail open when lineage is unproven —
-                    # a question must never be stranded invisible).
+                    # Session-TREE traffic: a child's frames name the CHILD
+                    # session, so plain isolation drops them all — which is
+                    # how child questions/approvals vanished invisibly
+                    # (field 2026-10-16), and why child transcripts could
+                    # only poll checkpoints instead of streaming. Blocking
+                    # asks fail OPEN on unproven lineage (a question must
+                    # never be stranded); turn CONTENT (tokens, tool cards,
+                    # reasoning — what makes a child view stream like the
+                    # parent's) forwards only on PROVEN in-tree lineage, so
+                    # a concurrent foreign turn can never paint into this
+                    # one. The desktop routes every forwarded frame by its
+                    # own session: viewed sessions paint live, background
+                    # ones update their rows.
                     is_tree_hitl = str(event.get("type") or "") in (
                         "tool.clarify.request", "tool.approval.request")
                     if (event_session is not None and event_session != own_sid
                             and not is_llm_status
-                            and not (is_tree_hitl
-                                     and self._in_session_tree(event_session, own_sid))):
+                            and not self._in_session_tree(
+                                event_session, own_sid,
+                                fail_open=is_tree_hitl)):
                         continue
                 if liveness is not None:
                     # Hermes activity_tracking discipline: relayed engine

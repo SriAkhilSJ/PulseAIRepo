@@ -2158,7 +2158,7 @@ function assistantTurn(spec, host, openTools, closedTools) {
     // 2026-10-16): a checkpoint-hydrated turn paints non-live even while
     // it is still open, so without this gate the button appeared under
     // an unanswered question — mid-conversation, with more coming.
-    const communicationOpen = !!spec.clarify
+    const communicationOpen = spec.communicationOpen === true || !!spec.clarify
         || spec.tools.some(tool => tool.name === 'clarify' && tool.result === undefined);
     if (spec.assistantText && !live && !communicationOpen) {
         response.append(copyButton(spec.assistantText, host));
@@ -2201,8 +2201,16 @@ function historyTurnClarify(model, turn) {
 function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
+    // The viewed session's own turn may still be OPEN underneath its last
+    // history turn: a running child paints checkpoint turns as history
+    // while the work continues (its nav row says Running…). That turn is
+    // mid-communication — the copy action belongs only at the very end,
+    // once the final answer has landed and the session settled.
+    const ownRecord = model.subAgents.find(entry => (entry.childThreadId ?? entry.id) === model.sessionId);
+    const sessionOpen = !!model.clarify
+        || (ownRecord !== undefined && (ownRecord.state === 'running' || ownRecord.state === 'pending'));
     // History: previous turns (user → agent) preserved wireframe style, no breathing
-    for (const turn of model.history) {
+    for (const [turnIndex, turn] of model.history.entries()) {
         if (turn.userMessage)
             lane.append(userMessage(turn.userMessage));
         if (turn.assistantText || turn.parts.length || turn.tools.length) {
@@ -2215,6 +2223,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
                 turnKey: `history:${model.sessionId || 's'}`,
                 subAgents: turn.subAgents,
                 clarify: historyTurnClarify(model, turn),
+                communicationOpen: turnIndex === model.history.length - 1 && sessionOpen,
             }, host, openTools, closedTools));
         }
         // No trailing Sub-Agents section (OpenCode has none): the turn's

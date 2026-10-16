@@ -370,6 +370,74 @@ def test_forwarder_passes_tree_hitl_from_children_drops_child_content():
     assert "token" not in kinds, kinds
 
 
+def test_forwarder_streams_proven_tree_content_isolates_proven_foreign():
+    """Child sessions stream like the parent: PROVEN in-tree content
+    (tokens, tool cards) forwards so the desktop paints a child view
+    live instead of checkpoint-polling; a PROVEN foreign tree isolates
+    completely — even its blocking asks."""
+    import queue as _queue
+    import threading
+    import time
+    from types import SimpleNamespace
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime import subagent_store
+    from src.runtime.identity import TurnIdentity
+
+    rows = {
+        "sub-kid": SimpleNamespace(parent_session_id="own"),
+        "sub-grandkid": SimpleNamespace(parent_session_id="sub-kid"),
+        "sub-alien": SimpleNamespace(parent_session_id="other-root"),
+    }
+
+    class _Store:
+        def get(self, sid):
+            return rows.get(sid)
+
+    original = subagent_store.get_store
+    subagent_store.get_store = lambda: _Store()  # type: ignore[assignment]
+    try:
+        identity = TurnIdentity.create(session_id="own", workspace="/tmp/ws")
+        q: _queue.Queue = _queue.Queue()
+        done = threading.Event()
+        emitted = []
+        server = object.__new__(BridgeServer)
+        server.emit = emitted.append
+
+        q.put({"type": "message.agent.chunk", "payload": {
+            "session_id": "sub-kid", "text": "hi"}})  # proven child token -> stream
+        q.put({"type": "tool.start", "payload": {
+            "session_id": "sub-kid", "tool_id": "tc-1",
+            "name": "read_file"}})  # proven child tool card -> stream
+        q.put({"type": "tool.clarify.request", "payload": {
+            "id": "cr-gk", "session_id": "sub-grandkid",
+            "questions": [{"qid": "q0", "question": "Which?", "choices": ["a"]}],
+        }})  # proven grandchild ask -> surface
+        q.put({"type": "message.agent.chunk", "payload": {
+            "session_id": "sub-alien", "text": "nope"}})  # proven foreign -> drop
+        q.put({"type": "tool.clarify.request", "payload": {
+            "id": "cr-alien", "session_id": "sub-alien",
+            "questions": [{"qid": "q0", "question": "Which?", "choices": ["a"]}],
+        }})  # proven foreign ask -> drop too
+        q.put({"type": "message.agent.chunk", "payload": {
+            "session_id": "mystery", "text": "hidden"}})  # unproven content -> drop
+
+        t = threading.Thread(
+            target=server._forward_events, args=(q, identity, done, "own"), daemon=True)
+        t.start()
+        time.sleep(0.5)
+        done.set(); t.join(timeout=2)
+    finally:
+        subagent_store.get_store = original  # type: ignore[assignment]
+
+    kinds = [f["type"] for f in emitted]
+    assert kinds.count("token") == 1, kinds
+    assert [f.get("text") for f in emitted if f["type"] == "token"] == ["hi"]
+    assert kinds.count("clarify_request") == 1, kinds
+    asks = [f.get("request_id") or f.get("id") for f in emitted
+            if f["type"] == "clarify_request"]
+    assert asks == ["cr-gk"], asks
+
+
 def test_session_create_reports_prior_checkpoints(sidecar, tmp_path):
     """session_create must not claim a fresh start silently: a session id with
     durable checkpointer history resumes it (live-measured as linear call

@@ -212,6 +212,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         /** After a stash restore, heal the away-window gap once from the settled checkpoint. */
         this.healAfterRestore = false;
         this.healRequested = false;
+        /** True once the viewed child's tail history turn has been adopted into
+         * the live lane: the rest of the turn then streams frame-by-frame like
+         * the parent's (the bridge forwards proven in-tree content), checkpoint
+         * snapshots stand down, and the poll stops. Reset on navigation/settle. */
+        this.childLiveAdopted = false;
         /** A refresh (unlike the opening hydration) must never blank the paint with an empty in-flight read. */
         this.childRefreshInFlight = false;
         this.draft = '';
@@ -643,8 +648,67 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.pendingPrompt = snapshot.pendingPrompt;
         this.pendingHydration = undefined;
     }
+    /**
+     * Adopt the viewed child's tail history turn into the live lane. The
+     * opening snapshot paints the child's turn-so-far as history; the first
+     * live frame for the viewed child means the real stream has arrived —
+     * continuing to append to a fresh live lane would duplicate that turn
+     * (history + live both painting it). Moving the tail up makes the
+     * stream CONTINUE the painted turn exactly like the parent's, and the
+     * checkpoint poll stands down (snapshots would freeze-frame over it).
+     */
+    adoptHistoryTailIfLive() {
+        if (this.childLiveAdopted) {
+            return;
+        }
+        const viewingChild = !!this.sessionId && !!(this.childParentId || this.parentMap.has(this.sessionId));
+        if (!viewingChild || !this.history.length) {
+            return;
+        }
+        if (this.userMessage || this.assistantText || this.tools.size > 0) {
+            return;
+        }
+        const tail = this.history[this.history.length - 1];
+        this.history = this.history.slice(0, -1);
+        this.userMessage = tail.userMessage;
+        this.assistantText = tail.assistantText;
+        this.parts = [...tail.parts];
+        this.reasoningParts = (tail.reasoningParts ?? []).map(part => ({ ...part }));
+        this.tools = new Map(tail.tools.map(entry => [entry.id, entry]));
+        this.running = true;
+        this.turnOutcome = 'running';
+        this.childLiveAdopted = true;
+        this.stopChildLivePoll();
+    }
+    /**
+     * The viewed child's adopted turn just settled: move it into history
+     * and clear the live lane. Order-independent — if a settle snapshot
+     * already hydrated the same turn into the history tail, the lane is
+     * simply cleared so the turn never paints twice (history + live).
+     */
+    settleAdoptedTurn() {
+        if (!this.childLiveAdopted) {
+            return;
+        }
+        this.childLiveAdopted = false;
+        const tail = this.history[this.history.length - 1];
+        const alreadyHydrated = !!tail && tail.userMessage === this.userMessage
+            && tail.assistantText === this.assistantText;
+        if (!alreadyHydrated) {
+            this.archiveLiveTurn();
+        }
+        this.userMessage = undefined;
+        this.assistantText = '';
+        this.parts = [];
+        this.reasoningParts = [];
+        this.reasoningPending = false;
+        this.tools.clear();
+    }
     /** Refresh the open child's transcript from its checkpoint (its steps land there as it works). */
     requestChildSnapshot() {
+        if (this.childLiveAdopted) {
+            return;
+        }
         const workspace = this.workspacePath;
         if (!workspace || !this.sessionId) {
             return;
@@ -660,12 +724,16 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     /**
      * While a child session is open and its record has not settled, keep its
-     * transcript checkpoint-fresh on a timer. There is no child event stream
-     * yet (the child's frames ride the parent's turn), so snapshots poll at
-     * a modest cadence and stop the moment the record settles or the user
-     * leaves the child.
+     * transcript checkpoint-fresh on a timer until its live frames adopt the
+     * tail turn — from then on the child's own stream (forwarded by the
+     * bridge on proven lineage) is the truth and snapshots stand down. The
+     * poll also stops the moment the record settles or the user leaves.
      */
     syncChildLivePoll() {
+        if (this.childLiveAdopted) {
+            this.stopChildLivePoll();
+            return;
+        }
         const viewingChild = !!this.sessionId && !!(this.childParentId || this.parentMap.has(this.sessionId));
         const record = viewingChild
             ? [...this.subAgents.values()].find(entry => (entry.childThreadId ?? entry.id) === this.sessionId)
@@ -682,6 +750,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     resetSessionState() {
         this.sessionId = undefined;
         this.running = false;
+        this.childLiveAdopted = false;
         this.cancelRequested = false;
         this.turnOutcome = 'idle';
         this.turnStartedAt = undefined;
@@ -1881,6 +1950,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     return;
             }
         }
+        // First live frame for the VIEWED child: adopt its checkpoint-painted
+        // tail turn into the live lane so the stream continues it in place.
+        if (frame.type === 'token' || frame.type === 'token_retract' || frame.type === 'reasoning'
+            || frame.type === 'tool_call_start' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
+            this.adoptHistoryTailIfLive();
+        }
         if (frame.type === 'session_info') {
             // Durable list refresh: a session_list reply carries `sessions` and NO session_id --
             // it notes every row and leaves the active session alone. (An unconditional adopt
@@ -2245,6 +2320,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             // The finished turn minted the durable row's title and counts: re-sync the list.
             this.requestSessionList();
+            this.settleAdoptedTurn();
         }
         else if (frame.type === 'turn_failed') {
             this.running = false;
@@ -2261,6 +2337,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.clearStallWatchdog();
             this.notifyResponseReady(frame.error, true);
             this.requestSessionList();
+            this.settleAdoptedTurn();
         }
         else if (frame.type === 'voice_text') {
             this.voiceHeard = { ok: frame.ok, text: frame.text ?? '', error: frame.error };
@@ -2304,6 +2381,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // session's history under the active transcript.
             const forId = frame.requested_session_id ?? frame.session_id;
             if (forId !== this.pendingHydration && forId !== this.sessionId) {
+                return;
+            }
+            // The viewed child is streaming live now: its stream outruns any
+            // snapshot, and hydrating would replace the adopted tail turn
+            // with a checkpoint copy and then stream over it twice.
+            if (this.childLiveAdopted && forId === this.sessionId) {
+                this.childRefreshInFlight = false;
                 return;
             }
             if (this.childRefreshInFlight) {

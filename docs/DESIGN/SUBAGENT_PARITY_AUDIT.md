@@ -43,7 +43,7 @@ deliberate difference.*
 | 17 | Child header lists **siblings** (other children of the same parent) for quick switching | **Fixed**: sibling chips in the child nav row (service computes them from the session store + tree), click navigates directly | ✅ DONE |
 | 18 | Session list shows only root sessions (children reached via cards) | **Fixed**: `sessionRows()` projects root sessions only; records stay in the store for titles/tree/navigation | ✅ DONE |
 | 19 | Child view: composer disabled — "return to parent to send" | Child sessions accept prompts (they are full sessions). Different, arguably better; flagged, not changed | ⚠️ DIFFERENT BY DESIGN |
-| 20 | Open child view streams tokens live | Checkpoint-polled every 3s + settle hooks (snapshot, not token stream) | ⚠️ KNOWN GAP (accepted for MVP) |
+| 20 | Open child view streams tokens live | Bridge forwards PROVEN in-tree content; the desktop adopts the snapshot tail into the live lane on the first frame (stream, not poll) | ✅ SHIPPED `6afaf93c` (laptop verify pending) |
 
 ## Recommended order from here
 
@@ -52,7 +52,7 @@ All seven gaps above are closed. What remains, in value order:
 1. **#11 background completion** — persist the synthetic `<subagent>`
    message into the parent thread and re-invoke an idle parent so it can
    react without being poked (today: the completion text paints live).
-2. **#20 token streaming into an open child view** — replace the 3s
+2. ~~**#20 token streaming into an open child view**~~ — SHIPPED: the bridge forwards proven in-tree frames; the service adopts the checkpoint tail turn into the live lane and stands the 3s poll down. (Was: replace the 3s
    checkpoint poll with the child's live token frames while it's open.
 3. Field-verify resume + custom agents with real provider calls (sandbox
    has no provider keys; the chains are proven with `invoke_agent` faked

@@ -239,6 +239,25 @@ def test_copy_button_spawns_only_at_the_end_of_the_communication():
 	renderer = _text("browser", "crusorAIRenderer.ts")
 	assert "communicationOpen" in renderer
 	assert "!live && !communicationOpen" in renderer
+	# The tail history turn is open while the viewed session itself is
+	# still working (running child record) or an ask is pending — its
+	# copy stays unspawned until the communication closes.
+	assert "communicationOpen: turnIndex === model.history.length - 1 && sessionOpen" in renderer
+	assert "ownRecord.state === 'running' || ownRecord.state === 'pending'" in renderer
+
+
+def test_child_view_adopts_the_live_stream_over_checkpoint_polling():
+	"""Founder 2026-10-16: "i want same streaming response as in parent
+	session". The bridge forwards proven in-tree content; the service
+	adopts the snapshot's tail turn into the live lane on the first live
+	frame (so the stream continues the painted turn), stands snapshots
+	and the poll down while adopted, and resets on navigation/settle."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "childLiveAdopted" in service
+	assert "adoptHistoryTailIfLive" in service
+	assert "settleAdoptedTurn" in service
+	assert "if (this.childLiveAdopted && forId === this.sessionId)" in service
+	assert "if (this.childLiveAdopted) { this.stopChildLivePoll(); return; }" in service
 
 
 def test_transcript_heights_are_exact_no_receding_bottom():
