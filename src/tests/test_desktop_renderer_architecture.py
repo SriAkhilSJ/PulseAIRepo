@@ -303,6 +303,22 @@ def test_hydrated_delegate_cards_stay_navigable():
 	assert "agentTitle(matchedRecord?.agentName ?? matchedRecord?.mode ?? agentName)" in renderer
 
 
+def test_viewed_child_settles_on_its_record_not_a_turn_frame():
+	"""Founder field 2026-10-16 (build -9, inside the running child):
+	'copy button not there inside sub agent' + Thinking still
+	spawning in the finished child. Children run through
+	invoke_agent — no turn_done frame ever names the child — yet the
+	adopted live turn only settled on turn_done, so the child view
+	stayed `running` forever after its record completed: the live
+	turn never archived (no copy at the end of its answer) and the
+	live machinery never stood down. The sub-agent record's terminal
+	state is now the viewed child's turn end."""
+	service = _text("browser", "crusorAIRendererService.ts")
+	assert "const settled = record !== undefined" in service
+	assert "this.turnOutcome = record.state === 'completed' ? 'completed'" in service
+	assert service.count("this.settleAdoptedTurn();") >= 3
+
+
 def test_delegate_card_chevron_slot_never_animates_layout():
 	"""Founder 2026-10-16 (build -8): hovering the running delegate
 	card shook it right-left. Upstream's chevron slot animates width
@@ -927,7 +943,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-16-9';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-16-10';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1067,7 +1083,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-16-9'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-16-10'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

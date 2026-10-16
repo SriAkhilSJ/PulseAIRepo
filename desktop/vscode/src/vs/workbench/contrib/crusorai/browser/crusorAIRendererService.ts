@@ -2261,6 +2261,26 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// The open session IS this child: its steps just moved —
 			// refresh the transcript snapshot and re-decide liveness.
 			if (subagentId === this.sessionId || childId === this.sessionId) {
+				const record = this.subAgents.get(subagentId);
+				const settled = record !== undefined
+					&& (record.state === 'completed' || record.state === 'failed' || record.state === 'cancelled');
+				if (settled && this.childLiveAdopted) {
+					// Children run through invoke_agent: no turn_done
+					// frame ever names the child, so the record's
+					// settle IS the child's turn end. Without this the
+					// adopted live turn stayed `running` forever after
+					// the child finished — the copy action never
+					// spawned at the end of its answer and the live
+					// Thinking machinery never stood down (field
+					// 2026-10-16: "copy button not there inside sub
+					// agent", Thinking spawning in a finished child).
+					this.turnOutcome = record.state === 'completed' ? 'completed'
+						: record.state === 'cancelled' ? 'cancelled' : 'failed';
+					this.running = false;
+					this.cancelRequested = false;
+					this.turnEndedAt = Date.now();
+					this.settleAdoptedTurn();
+				}
 				this.requestChildSnapshot();
 				this.syncChildLivePoll();
 			}
