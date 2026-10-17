@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-13';
+const CRUSORAI_UI_STAMP = '2026-10-17-14';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -398,12 +398,22 @@ function boundedText(value, max = 12_000) {
     if (typeof value === 'string') {
         text = value;
     }
+    else if (value === undefined || value === null) {
+        // No output yet is NOT "{}": a pending call's missing result
+        // used to stringify into a literal {} body inside its card
+        // (field 2026-10-17: an opened List files card showing "{}").
+        // Nothing arrived — paint nothing.
+        text = '';
+    }
     else {
         try {
-            text = JSON.stringify(value ?? {}, undefined, 2);
+            text = JSON.stringify(value, undefined, 2) ?? '';
         }
         catch {
             text = String(value);
+        }
+        if (text === '{}') {
+            text = '';
         }
     }
     if (text.length <= max) {
@@ -2747,6 +2757,49 @@ function emptyState(model, host) {
     wrap.append(hero);
     return wrap;
 }
+/**
+ * The permission dock's one plain hint line (OpenCode's
+ * session-permission-dock: `settings.permissions.tool.<action>
+ * .description`). The guard's warning text is written for a chat
+ * transcript ("**Safety Check:** … Reply with: 'yes' or 'y'…") —
+ * painting it raw leaked markdown, emoji and chat instructions into
+ * the dock (field 2026-10-17). Here each warning class is restated
+ * in one calm sentence; unguarded asks fall back to upstream's
+ * per-tool descriptions.
+ */
+function approvalHintText(approval) {
+    const warning = (approval.warning ?? '').replace(/\s+/g, ' ').trim();
+    const lower = warning.toLowerCase();
+    if (/already exists/.test(lower) && /overwrite/.test(lower)) {
+        return 'This file already exists. Running this will overwrite it.';
+    }
+    if (/sensitive file/.test(lower) || /credentials, secrets/.test(lower)) {
+        return 'This file holds credentials, secrets, or config. Editing it could break authentication or expose secrets.';
+    }
+    if (/git-ignored/.test(lower)) {
+        return 'This file is git-ignored, so nothing can restore it if this goes wrong.';
+    }
+    if (approval.name === 'run_terminal' || approval.name === 'start_terminal' || approval.name === 'terminal' || approval.name === 'execute_code') {
+        return 'Run shell commands';
+    }
+    if (approval.name === 'write_file' || approval.name === 'edit_file' || approval.name === 'copy_file') {
+        return 'Modify files, including edits, writes, and patches';
+    }
+    if (warning) {
+        // Unknown warning class: restate its first sentence as plain
+        // text (markdown and emoji stripped), never the raw string.
+        const plain = warning
+            .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/`([^`]*)`/g, '$1')
+            .trim();
+        const [head] = plain.split(/(?<=[.!?])\s+/);
+        if (head) {
+            return head;
+        }
+    }
+    return `${crusorAIToolPresentation(approval.name).title} · ${displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })}`;
+}
 function approvalDock(model, host) {
     if (!model.approval) {
         return undefined;
@@ -2796,7 +2849,7 @@ function approvalDock(model, host) {
     // Deny (ghost) | Allow always (neutral, behind our confirm dialog — the
     // grant is session-scoped in our backend) | Allow once (primary).
     const alwaysButton = button('Allow always', 'crusorai-permission-always', () => overlay.classList.add('is-open'), 'shield');
-    hinted(alwaysButton, 'Stop asking for this tool this session.');
+    hinted(alwaysButton, 'Stop asking before this file or command for the rest of the session.');
     const reject = hinted(button('Deny', 'crusorai-permission-deny', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
     reject.dataset.deny = '';
     const footerActions = element('div', 'crusorai-permission-actions', reject, alwaysButton, runButton);
@@ -2810,7 +2863,9 @@ function approvalDock(model, host) {
     // step rather than firing straight from the menu (hermes' dialog rule).
     const overlay = element('div', 'crusorai-dialog-overlay');
     const dialog = element('div', 'crusorai-dialog');
-    dialog.append(element('h3', undefined, 'Always allow this?'), element('p', 'crusorai-dialog-copy', `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} for the rest of this session. Secret paths and git-ignored files are still asked every time.`));
+    dialog.append(element('h3', undefined, 'Always allow this?'), element('p', 'crusorai-dialog-copy', commandText
+        ? `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} on ${commandText} for the rest of this session. Secret paths and git-ignored files are still asked every time.`
+        : `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} for the rest of this session. Secret paths and git-ignored files are still asked every time.`));
     // append() takes (string | Node)[] — a ternary undefined arg is a type
     // error, so the optional command preview appends conditionally.
     if (commandText) {
@@ -2847,7 +2902,7 @@ function approvalDock(model, host) {
     body.append(headerRow);
     const content = element('div', 'crusorai-permission-content');
     content.dataset.slot = 'permission-content';
-    const hintRow = element('div', 'crusorai-permission-row', element('span', 'crusorai-permission-spacer'), element('div', 'crusorai-permission-hint', approval.warning ?? `${crusorAIToolPresentation(approval.name).title} · ${displayTarget({ id: approval.toolId, name: approval.name, state: 'approval', arguments: approval.diff })}`));
+    const hintRow = element('div', 'crusorai-permission-row', element('span', 'crusorai-permission-spacer'), element('div', 'crusorai-permission-hint', approvalHintText(approval)));
     hintRow.dataset.slot = 'permission-row';
     content.append(hintRow);
     if (riskText) {
@@ -2878,15 +2933,10 @@ function approvalCommandText(name, diff) {
             return value.trim();
         }
     }
-    if (diff === undefined || diff === null) {
-        return name;
-    }
-    try {
-        return `${name} ${JSON.stringify(diff)}`.trim();
-    }
-    catch {
-        return name;
-    }
+    // Nothing human to name — never a JSON dump of the diff record
+    // (the field 2026-10-17 class: raw {…} painted as UI text). The
+    // pattern row and the dialog preview simply omit it.
+    return '';
 }
 // ── Hermes clarify card (the ask tool) ───────────────────────────────────────
 // Port of apps/desktop/src/components/assistant-ui/clarify-tool.tsx: a widget

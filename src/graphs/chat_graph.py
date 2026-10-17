@@ -5419,8 +5419,30 @@ class SafeToolNode:
             "write_file", "edit_file", "copy_file", "scaffold_nextjs",
             "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
         }
+
+        def _approval_grant_key(tc) -> str:
+            # OpenCode's "always" grants the RESOURCES the dock showed
+            # (the file, the command) — not the whole tool. The key is
+            # the tool plus its primary resource string.
+            args = tc.get("args", {}) or {}
+            resource = ""
+            for arg_key in ("path", "file_path", "dst", "command", "cmd", "code"):
+                value = args.get(arg_key)
+                if isinstance(value, str) and value.strip():
+                    resource = value.strip()
+                    break
+            return f"{tc.get('name', '')}\n{resource}"
+
+        from src.context.safety_guard import session_grant_vetoed
+
         approval_candidates = []
+        preapproved_ids: set[str] = set()
         if approval_channel:
+            # A prior "Allow always" verdict for this exact tool +
+            # resource skips the queue (OpenCode's session ruleset).
+            # Veto-class warnings never consult the grant store: the
+            # guard re-asks secrets and git-ignored paths every time.
+            from src.dashboard.event_bus import approval_queue as _queue_peek
             for tc in tool_calls:
                 warning = unsafe_by_id.get(tc.get("id"), "")
                 is_mutation = tc.get("name") in mutation_names
@@ -5430,8 +5452,16 @@ class SafeToolNode:
                     and tc.get("id") not in unsafe_by_id
                 )
                 if tc.get("id") in unsafe_by_id or (is_mutation and not auto_safe_mutation):
+                    if (
+                        not session_grant_vetoed(warning)
+                        and _queue_peek.is_granted(
+                            thread_id or "default", _approval_grant_key(tc)
+                        )
+                    ):
+                        preapproved_ids.add(str(tc.get("id") or ""))
+                        continue
                     approval_candidates.append((tc, False, warning))
-        if approval_candidates and approval_channel:
+        if approval_channel and (approval_candidates or preapproved_ids):
             # Real pre-execution UI approval: publish the proposed diff, wait
             # on this session's request, deny on timeout/failure, then execute
             # only approved + originally-safe calls through the durable path.
@@ -5440,7 +5470,7 @@ class SafeToolNode:
                 (config or {}).get("configurable", {}).get("approval_timeout", 300.0)
             )
             unsafe_ids = {tc.get("id") for tc, _, _ in approval_candidates}
-            approved_ids: set[str] = set()
+            approved_ids: set[str] = set(preapproved_ids)
             denials: dict[str, ToolMessage] = {}
             for tc, _, warning in approval_candidates:
                 tool_id = str(tc.get("id") or "")
@@ -5473,6 +5503,14 @@ class SafeToolNode:
                     _tc.unregister_abort(_cfg_sid, _cancel_approval)
                 if decision and decision.get("decision") is True:
                     approved_ids.add(tool_id)
+                    # "Allow always": remember (session, tool, resource)
+                    # so the same ask is not repeated this session —
+                    # OpenCode's session ruleset. Veto classes (secrets,
+                    # git-ignored paths) are never remembered.
+                    if decision.get("always_allow") and not session_grant_vetoed(warning):
+                        approval_queue.grant(
+                            thread_id or "default", _approval_grant_key(tc)
+                        )
                 else:
                     reason = (
                         "cancelled"

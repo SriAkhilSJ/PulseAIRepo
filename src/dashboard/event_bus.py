@@ -125,6 +125,21 @@ class ApprovalQueue:
         self._pending: dict[str, dict] = {}
         self._conditions: dict[str, threading.Condition] = {}
         self._lock = threading.RLock()
+        # "Allow always" grants (OpenCode's session ruleset): keys the
+        # human approved for the rest of the session, per session id.
+        # The grant is consulted by the graph BEFORE queueing a new
+        # request; veto-class warnings (secrets, git-ignored paths)
+        # never consult it — the guard re-asks those every time.
+        self._grants: dict[str, set[str]] = {}
+
+    def grant(self, session_id: str, key: str) -> None:
+        """Remember an "always" verdict for (session, key)."""
+        with self._lock:
+            self._grants.setdefault(session_id or "default", set()).add(key)
+
+    def is_granted(self, session_id: str, key: str) -> bool:
+        with self._lock:
+            return key in self._grants.get(session_id or "default", set())
 
     def request(
         self, tool_id: str, tool_name: str, tool_args: dict,

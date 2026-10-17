@@ -192,6 +192,24 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	for piece in ("crusorai-permission-footer", "crusorai-permission-once", "Permission required", "Allow once", "crusorai-dialog-overlay"):
 		assert piece in renderer, piece
 	assert "crusorai-permission-patterns" in renderer and "crusorai-permission-footer" in css
+	# Field 2026-10-17: the dock's hint is one plain restated sentence
+	# (OpenCode's per-tool permission description) — the guard's chat
+	# markdown ("**Safety Check:** … Reply with: 'yes'…") never paints
+	# raw, and no surface shows a JSON dump of the approval payload.
+	assert "function approvalHintText" in renderer
+	assert "element('div', 'crusorai-permission-hint', approvalHintText(approval))" in renderer, (
+		"the hint line is the restated sentence, never the raw warning")
+	assert "This file already exists. Running this will overwrite it." in renderer
+	assert "git-ignored, so nothing can restore it" in renderer
+	assert "${name} ${JSON.stringify(diff)}" not in renderer, "approval text is never a JSON dump"
+	# The hint's plain-language contract rides with the engine: the
+	# "always" verdict grants (session, tool, resource) and the veto
+	# classes re-ask forever (executed in test_permission_grants).
+	assert "session_grant_vetoed" in (ROOT / "src" / "context" / "safety_guard.py").read_text(encoding="utf-8")
+	# A pending call's missing result is not "{}" — nothing arrived,
+	# so nothing paints (field 2026-10-17: List files showing {}).
+	assert "No output yet is NOT" in renderer
+	assert "JSON.stringify(value ?? {}, undefined, 2)" not in renderer
 
 
 def test_child_clarify_answerable_and_lane_holds_still():
@@ -1003,7 +1021,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-13';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-14';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1143,7 +1161,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-13'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-14'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

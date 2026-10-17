@@ -52,6 +52,26 @@ from typing import Any
 
 _UNSET = object()
 
+
+def session_grant_vetoed(warning: str) -> bool:
+    """True when this warning class must be re-asked EVERY time.
+
+    An "Allow always" grant (OpenCode's session ruleset) covers the
+    ordinary asks — overwriting a restorable file, a dangerous command
+    the human waved through. It never covers the veto classes the
+    guard itself names unsatisfiable-for-the-session: sensitive files
+    (credentials/secrets/config) and git-ignored paths, where nothing
+    can give the file back. The approval dialog promises exactly this
+    split, so the check lives with the guard that writes the strings.
+    """
+    text = warning or ""
+    return (
+        "git-ignored" in text
+        or "sensitive file" in text
+        or "credentials, secrets" in text
+    )
+
+
 class SafetyGuard:
     """
     Checks tool calls for safety before execution.

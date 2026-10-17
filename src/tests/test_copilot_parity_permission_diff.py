@@ -99,15 +99,20 @@ def test_workbench_service_tracks_active_diffs_and_resolves():
 
 
 def test_approval_dock_renders_inline_diff_and_warning():
-    """Approval dock renders inline diff preview, diff stats, and warning box."""
+    """Approval dock renders the inline diff preview with stats and the
+    plain-language hint. (The warning box / risk badge this test once
+    pinned were the amber design the founder rejected 2026-10-15; the
+    dock is OpenCode's permission dock now — header, one plain hint,
+    the diff, Deny | Allow always | Allow once.)"""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "crusorai-approval-diff-preview" in renderer
     assert "crusorai-approval-diff-header" in renderer
-    assert "crusorai-approval-warning" in renderer
-    assert "crusorai-approval-risk-badge" in renderer
+    assert "function approvalHintText" in renderer
+    assert "crusorai-approval-warning" not in renderer
+    assert "crusorai-approval-risk-badge" not in renderer
     assert ".crusorai-approval-diff-preview" in css
-    assert ".crusorai-approval-warning" in css
+    assert ".crusorai-approval-warning" not in css
 
 
 def test_renderer_service_wires_diff_resolution_and_robust_open_diff():
