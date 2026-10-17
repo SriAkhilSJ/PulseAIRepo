@@ -365,6 +365,7 @@ def test_activity_grouping_follows_opencode_law():
     assert "'Exploring' : 'Explored'" in renderer
     assert "crusorai-tool-run-target" not in renderer, "group headers do not preview member filenames or targets"
     assert "groupArrow.dataset.slot = 'collapsible-arrow'" in renderer, "groups carry the side disclosure arrow"
+    assert "icon('tools')" not in renderer, "no nut/wrench glyph leads a dropdown header (founder 2026-10-17)"
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-tool-run-target" not in css
     assert ".crusorai-tool-run-count {\n\tmargin-left: 0;" in css, "the group count hugs the label instead of floating across the row"
@@ -995,7 +996,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-11';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-12';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1135,7 +1136,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-11'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-12'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

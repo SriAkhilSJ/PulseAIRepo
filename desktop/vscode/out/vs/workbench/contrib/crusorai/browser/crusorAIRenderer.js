@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-11';
+const CRUSORAI_UI_STAMP = '2026-10-17-12';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2139,7 +2139,12 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
-        const summary = element('summary', 'crusorai-tool-run-summary', runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'), element('span', 'crusorai-tool-run-text', header), element('span', 'crusorai-tool-run-count', String(runTools.length)), groupArrow);
+        const summary = element('summary', 'crusorai-tool-run-summary', 
+        // No leading nut/wrench glyph (founder 2026-10-17:
+        // 'remove that Nut icon in the dropdown menu'). A live
+        // group still earns its spinner; settled headers are
+        // just the word, the count and the arrow.
+        runLive ? element('span', 'crusorai-mini-spinner') : undefined, element('span', 'crusorai-tool-run-text', header), element('span', 'crusorai-tool-run-count', String(runTools.length)), groupArrow);
         details.append(summary);
         const body = element('div', 'crusorai-tool-run-body');
         for (const tool of runTools) {
