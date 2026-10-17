@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-16-10';
+const CRUSORAI_UI_STAMP = '2026-10-17-1';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -857,6 +857,144 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	const cwd = firstString(args, ['cwd', 'path']);
 	if (cwd) { actions.append(button('Reveal location', 'crusorai-link-button', () => host.revealFile(cwd), 'go-to-file')); }
 	if (cwd) { body.append(actions); }
+	return body;
+}
+
+/** The OpenCode bash-output box in its static form: command block,
+ * then output block split by the hairline — same classes the live
+ * terminal body paints, minus the streaming patch target. */
+function processOutputBox(command: string, output: string, running: boolean): HTMLElement {
+	const outputBox = element('div', 'crusorai-bash-output');
+	outputBox.dataset.component = 'bash-output';
+	outputBox.dataset.variant = 'shell';
+	const scroll = element('div', 'crusorai-bash-scroll');
+	scroll.dataset.slot = 'bash-scroll';
+	scroll.dataset.scrollable = '';
+	scroll.tabIndex = 0;
+	scroll.setAttribute('role', 'region');
+	scroll.setAttribute('aria-label', 'Process output');
+	const pre = element('pre', 'crusorai-bash-pre');
+	pre.dataset.slot = 'bash-pre';
+	const codeEl = element('code');
+	if (command) {
+		const commandSpan = element('span', 'crusorai-bash-command', command);
+		commandSpan.dataset.slot = 'bash-command';
+		codeEl.append(commandSpan);
+	}
+	if (output.trim()) {
+		const resultSpan = element('span', 'crusorai-bash-result');
+		resultSpan.dataset.slot = 'bash-result';
+		resultSpan.append(terminalOutputContent(output, running));
+		codeEl.append(resultSpan);
+	}
+	pre.append(codeEl);
+	scroll.append(pre);
+	outputBox.append(scroll);
+	return outputBox;
+}
+
+function processBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+	// The process family used to borrow the terminal body, which
+	// reads a STDOUT/Exit-code envelope these tools never produce —
+	// a started process painted its whole receipt as "output" and a
+	// process list painted as one text blob. Their real receipts are
+	// field lines (Status:/Process ID:/Command:); the card shows the
+	// earned fields and the process's own output, nothing invented.
+	const args = record(tool.arguments);
+	const raw = typeof tool.result === 'string' ? tool.result : '';
+	const body = element('div', 'crusorai-tool-body crusorai-family-process');
+	body.dataset.rendererFamily = 'process';
+	const fieldLine = (label: string): string | undefined => {
+		const match = new RegExp(`^${label}:\\s*(.+)$`, 'm').exec(raw);
+		return match?.[1]?.trim();
+	};
+	if (tool.name === 'list_terminal_processes') {
+		const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+		if (!lines.length || lines[0].startsWith('No terminal processes')) {
+			body.append(element('div', 'crusorai-process-line', lines[0] ?? 'No terminal processes found.'));
+			return body;
+		}
+		const list = element('div', 'crusorai-process-list');
+		for (const line of lines) {
+			const firstBar = line.indexOf(' | ');
+			const secondBar = firstBar < 0 ? -1 : line.indexOf(' | ', firstBar + 3);
+			if (firstBar < 0 || secondBar < 0) {
+				list.append(element('div', 'crusorai-process-line', line));
+				continue;
+			}
+			const running = /^running/i.test(line.slice(firstBar + 3, secondBar));
+			const row = element('div', 'crusorai-process-row',
+				element('span', `crusorai-process-state is-${running ? 'running' : 'completed'}`, running ? 'Running' : 'Completed'),
+				element('span', 'crusorai-process-id', line.slice(0, firstBar)),
+				element('span', 'crusorai-process-command', line.slice(secondBar + 3)));
+			row.title = line;
+			list.append(row);
+		}
+		body.append(list);
+		return body;
+	}
+	if (tool.name === 'start_terminal') {
+		const command = firstString(args, ['command']) ?? fieldLine('Command') ?? '';
+		const startup = raw.split('Initial startup output:\n')[1]?.trim() ?? '';
+		if (command || startup) { body.append(processOutputBox(command, startup, tool.state === 'running')); }
+		const id = fieldLine('Process ID');
+		if (id) {
+			body.append(element('div', 'crusorai-tool-actions', copyButton(id, host)));
+		}
+		return body;
+	}
+	if (tool.name === 'check_terminal') {
+		const running = (fieldLine('Status') ?? '').toUpperCase() === 'RUNNING';
+		const exitMatch = /\nExit code: (-?\d+)\s*$/.exec(raw);
+		let output = '';
+		const marker = 'New output:\n';
+		const at = raw.indexOf(marker);
+		if (at >= 0) {
+			output = raw.slice(at + marker.length);
+			if (exitMatch && output.endsWith(exitMatch[0])) { output = output.slice(0, -exitMatch[0].length); }
+			output = output.trim();
+		}
+		if (output) { body.append(processOutputBox('', output, running)); }
+		if (raw.trim()) {
+			const statusText = running ? 'Still running' : exitMatch ? `Completed · exit ${exitMatch[1]}` : 'Completed';
+			body.append(element('div', `crusorai-process-status is-${running ? 'running' : 'completed'}`, statusText));
+		}
+		return body;
+	}
+	if (tool.name === 'read_terminal_output') {
+		const lines = raw.split('\n');
+		while (lines.length && /^(Process ID|Total lines):/.test(lines[0])) { lines.shift(); }
+		const text = lines.join('\n').trim();
+		if (text) { body.append(toolOutputBox(text.slice(0, 8000))); }
+		return body;
+	}
+	// stop_terminal / cleanup_terminal_processes / unknown-process
+	// replies: the receipt sentence IS the content — one quiet line.
+	if (raw.trim()) {
+		body.append(element('div', 'crusorai-process-line', raw.trim().split('\n')[0]));
+	}
+	return body;
+}
+
+function codeBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+	// execute_code buried its script in an Arguments dump and its
+	// printed result in a plain box. OpenCode shell anatomy: the
+	// call rides the top block, what it produced rides below — the
+	// script in the code view, the printed output in the output box.
+	const args = record(tool.arguments);
+	const body = element('div', 'crusorai-tool-body crusorai-family-code');
+	body.dataset.rendererFamily = 'code';
+	const code = firstString(args, ['code']);
+	if (code) {
+		const codeBox = element('div', 'crusorai-write-content');
+		codeBox.dataset.component = 'write-content';
+		codeBox.append(codeView(code.slice(0, 32_000), 'script.py', host.syntaxColors?.(syntaxLanguageOf('script.py'))));
+		body.append(codeBox);
+	}
+	const output = typeof tool.result === 'string' ? tool.result : '';
+	if (output.trim() && tool.state !== 'running' && tool.state !== 'queued') {
+		body.append(toolOutputBox(output.slice(0, 8000)));
+	}
 	return body;
 }
 
@@ -1495,8 +1633,11 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents:
 	});
 	if (a2uiBody) { return a2uiBody; }
 	const presentation = crusorAIToolPresentation(tool.name);
-	if (presentation.family === 'terminal' || presentation.family === 'process') {
+	if (presentation.family === 'terminal') {
 		return terminalBody(tool, host);
+	}
+	if (presentation.family === 'process') {
+		return processBody(tool, host);
 	}
 	const args = record(tool.arguments);
 	const result = resultRecord(tool.result);
@@ -1684,11 +1825,21 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents:
 	} else if (presentation.family === 'target') {
 		body.append(targetBody(tool, host, result, args));
 	} else if (presentation.family === 'session') {
-		body.append(toolOutputBox(boundedText(result ?? tool.result, 4000)));
+		body.append(toolOutputBox(boundedText(result ?? tool.result, 8000)));
+	} else if (tool.name === 'open_preview') {
+		// Fell into the generic Arguments dump before this: the card
+		// is the engine's receipt (the preview opened, or why not) —
+		// the URL already rides the header as a link-styled target.
+		const text = (typeof tool.result === 'string' ? tool.result : undefined)
+			?? firstString(result, ['output', 'text', 'message'])
+			?? boundedText(tool.result, 2000);
+		if (text.trim()) { body.append(toolOutputBox(text.slice(0, 2000))); }
 	} else if (presentation.family === 'subagent' || tool.name.startsWith('delegate_to_subagent')) {
 		// OpenCode parity: task-tool-card clickable navigation
 		return taskToolCard(tool, host, subAgents);
-	} else if (presentation.family === 'code' || presentation.family === 'scaffold') {
+	} else if (presentation.family === 'code') {
+		return codeBody(tool, host);
+	} else if (presentation.family === 'scaffold') {
 		// Field 2026-09-10: this body hardcoded a fake RUNTIME value —
 		// invented text on a JS scaffolding call. The card shows the call's
 		// OWN fields and the honest state, nothing else.

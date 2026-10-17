@@ -1325,6 +1325,26 @@
 .crusorai-task-tool-state.is-failed { color: var(--crusorai-failed); }
 .crusorai-task-tool-state.is-cancelled { color: var(--crusorai-approval); }
 .crusorai-subagent-duration { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-micro); white-space: nowrap; }
+/* Process family (start/check/read/list/stop): earned state words in
+   the same colours as the sub-agent rows, the process id in mono,
+   one row per process — never a text blob. */
+.crusorai-process-list { display: flex; flex-direction: column; }
+.crusorai-process-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding: 3px 0;
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-process-state { flex: none; font-size: var(--crusorai-text-micro); text-transform: uppercase; white-space: nowrap; }
+.crusorai-process-state.is-running { color: var(--crusorai-running); }
+.crusorai-process-state.is-completed { color: var(--crusorai-verified); }
+.crusorai-process-id { flex: none; font-family: var(--crusorai-font-mono); color: var(--vscode-descriptionForeground); }
+.crusorai-process-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crusorai-process-status { padding-top: 4px; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
+.crusorai-process-status.is-running { color: var(--crusorai-running); }
+.crusorai-process-status.is-completed { color: var(--crusorai-verified); }
+.crusorai-process-line { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); padding: 2px 0; }
 .crusorai-subagent-result {
 	grid-column: 1 / -1;
 	margin-top: 4px;

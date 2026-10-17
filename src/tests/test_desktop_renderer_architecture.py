@@ -319,6 +319,28 @@ def test_viewed_child_settles_on_its_record_not_a_turn_frame():
 	assert service.count("this.settleAdoptedTurn();") >= 3
 
 
+def test_process_code_and_preview_families_have_designed_bodies():
+    """The last undesigned families (founder 2026-10-17: 'STILL UI
+    CARD DESIGNING IS THERE'): the process family borrowed the
+    terminal body, which reads a STDOUT/Exit-code envelope those
+    tools never produce — a started process painted its whole
+    receipt as output and the process list painted as one blob.
+    execute_code buried its script in an Arguments dump;
+    open_preview fell into the generic dump too. Each now has a
+    body built from the tool's real receipt fields and output."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function processBody(tool: CrusorAIToolView, host: CrusorAIRenderHost)" in renderer
+    assert "function codeBody(tool: CrusorAIToolView, host: CrusorAIRenderHost)" in renderer
+    assert "return processBody(tool, host);" in renderer
+    assert "return codeBody(tool, host);" in renderer
+    family_section = renderer.split("function familyBody", 1)[1].split("function toolRow", 1)[0]
+    assert "presentation.family === 'process') {\n\t\treturn terminalBody" not in family_section
+    assert "tool.name === 'open_preview'" in family_section
+    css = _text("browser", "media", "crusorAI.css")
+    for selector in (".crusorai-process-row", ".crusorai-process-state", ".crusorai-process-line"):
+        assert selector in css, selector
+
+
 def test_delegate_card_chevron_slot_never_animates_layout():
 	"""Founder 2026-10-16 (build -8): hovering the running delegate
 	card shook it right-left. Upstream's chevron slot animates width
@@ -943,7 +965,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-16-10';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-1';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1083,7 +1105,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-16-10'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-1'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
