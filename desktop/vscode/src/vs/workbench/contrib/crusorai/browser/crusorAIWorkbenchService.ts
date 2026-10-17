@@ -336,10 +336,20 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		const languageResource = request.resource
 			? /^[a-z][a-z0-9+.-]*:/i.test(request.resource) ? URI.parse(request.resource) : URI.file(request.resource)
 			: undefined;
-		const fileName = languageResource?.path.split('/').pop() || 'proposed-change.txt';
-		const key = `${request.toolId.replace(/[^a-z0-9._-]/gi, '_').slice(0, 96)}-${Date.now().toString(36)}`;
-		const original = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: 'crusorai', path: `/${key}/before/${fileName}` });
-		const modified = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: 'crusorai', path: `/${key}/after/${fileName}` });
+		// The review must read as THE FILE being edited, the way
+		// Copilot's does: its original/modified text models carry
+		// the file's own path and differ only by scheme/authority
+		// (chatEditingSession / TextModelRefUri). The multi-diff
+		// header derives its label from the modified resource
+		// (file name + folder), and differing paths would flag
+		// the change a "rename" and print both synthetic paths.
+		// So both sides share the file's path; the authority
+		// carries the side plus a stamp so concurrent reviews of
+		// the same file never share a model.
+		const filePath = languageResource?.path || '/proposed-change.txt';
+		const stamp = Date.now().toString(36);
+		const original = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: `original-${stamp}`, path: filePath });
+		const modified = URI.from({ scheme: CRUSOR_AI_DIFF_SCHEME, authority: `modified-${stamp}`, path: filePath });
 		this.rememberInlineDiff(original, request.original, languageResource);
 		this.rememberInlineDiff(modified, request.modified, languageResource);
 		this.activeDiffs.set(modified.toString(), {
@@ -356,9 +366,17 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		// file header per resource with the real diff editor's
 		// green/red inside, instead of a naked two-model diff tab.
 		try {
+			// The tab names the file under review, not the tool
+			// that proposed it; goToFile aims the header's open
+			// affordance at the real file, as Copilot's does.
+			const fileLabel = filePath.split('/').filter(Boolean).pop() || 'proposed-change.txt';
 			const input = MultiDiffEditorInput.fromResourceMultiDiffEditorInput({
-				label: request.label,
-				resources: [{ original: { resource: original }, modified: { resource: modified } }],
+				label: fileLabel,
+				resources: [{
+					original: { resource: original },
+					modified: { resource: modified },
+					...(languageResource ? { goToFile: { resource: languageResource } } : {}),
+				}],
 			}, this.instantiationService);
 			await this.editorService.openEditor(input, { pinned: true, activation: EditorActivation.ACTIVATE });
 		} catch {
@@ -410,6 +428,17 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 	private getActiveDiffForCurrentEditor(): CrusorActiveDiffEntry | undefined {
 		const activeEditor = this.editorService.activeEditor;
 		if (!activeEditor) { return undefined; }
+		// The review surface is a multi-diff input: its items carry
+		// the synthetic modified/original URIs directly.
+		if (activeEditor instanceof MultiDiffEditorInput) {
+			for (const item of activeEditor.initialResources ?? []) {
+				for (const candidate of [item.modifiedUri, item.originalUri]) {
+					const hit = candidate ? this.activeDiffs.get(candidate.toString()) : undefined;
+					if (hit) { return hit; }
+				}
+			}
+			return undefined;
+		}
 		const modifiedUri = (activeEditor as { modified?: { resource?: URI } })?.modified?.resource?.toString()
 			?? (activeEditor as { resource?: URI })?.resource?.toString();
 		if (modifiedUri && this.activeDiffs.has(modifiedUri)) {

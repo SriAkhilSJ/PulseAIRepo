@@ -57,6 +57,20 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     workbench = _text("browser", "crusorAIWorkbenchService.ts")
     assert "MultiDiffEditorInput.fromResourceMultiDiffEditorInput" in workbench
     assert "activation: EditorActivation.ACTIVATE" in workbench
+    # The review must name the file being edited (founder: the old
+    # tab read "Crusor: write_file" and the header printed two
+    # truncated synthetic paths). Like Copilot's models (its
+    # TextModelRefUri), both synthetic sides carry the file's own
+    # path and differ only by authority -- the header then derives
+    # the file's label, differing paths do not flag a bogus rename,
+    # the tab labels the file, and goToFile opens the real file.
+    assert "path: filePath" in workbench
+    assert "authority: `original-${stamp}`" in workbench
+    assert "authority: `modified-${stamp}`" in workbench
+    assert "label: fileLabel" in workbench
+    assert "goToFile: { resource: languageResource }" in workbench
+    assert "`/${key}/before/${fileName}`" not in workbench
+    assert "`/${key}/after/${fileName}`" not in workbench
     assert "old_text" in service and "new_text" in service
     assert "session_resume" in service
     assert "events_replay" in service
@@ -1035,7 +1049,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-23';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-24';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1175,7 +1189,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-23'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-24'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
