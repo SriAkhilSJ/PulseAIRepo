@@ -1339,6 +1339,12 @@
 .crusorai-process-state { flex: none; font-size: var(--crusorai-text-micro); text-transform: uppercase; white-space: nowrap; }
 .crusorai-process-state.is-running { color: var(--crusorai-running); }
 .crusorai-process-state.is-completed { color: var(--crusorai-verified); }
+.crusorai-process-state.is-failed { color: var(--crusorai-failed); }
+/* The process line's verdict chip: earned colour only — green a
+   clean completion, red a failure, accent still running. */
+.crusorai-tool-arg.is-passed { color: var(--crusorai-verified); }
+.crusorai-tool-arg.is-failed { color: var(--crusorai-failed); }
+.crusorai-tool-arg.is-running { color: var(--crusorai-running); }
 .crusorai-process-id { flex: none; font-family: var(--crusorai-font-mono); color: var(--vscode-descriptionForeground); }
 .crusorai-process-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-process-line { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); padding: 2px 0; }

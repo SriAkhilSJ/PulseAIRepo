@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-3';
+const CRUSORAI_UI_STAMP = '2026-10-17-4';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -692,7 +692,7 @@ function processLine(tool, host) {
         const match = new RegExp(`^${label}:\\s*(.+)$`, 'm').exec(raw);
         return match?.[1]?.trim();
     };
-    const shellLine = (main, info) => {
+    const shellLine = (main, info, tone) => {
         const row = element('div', `crusorai-tool-row crusorai-tool-inline is-${tool.state}`);
         row.dataset.component = 'tool-trigger';
         row.dataset.conversationScaffold = '';
@@ -702,7 +702,21 @@ function processLine(tool, host) {
         const titleSpan = element('strong', isPendingLine ? 'crusorai-shimmer' : undefined, presentation.title);
         titleSpan.dataset.slot = 'basic-tool-tool-title';
         const mainSpan = element('span', 'crusorai-tool-target crusorai-process-main', main);
-        const titleMain = element('span', undefined, titleSpan, mainSpan, info ? toolInfoChip(info) : undefined);
+        // How a line answers "failed or passed" (founder 2026-10-17):
+        // the chip carries the verdict in earned colour — green =
+        // completed clean, red = failed (the call itself failed, or
+        // the process died non-zero), accent = still running. A call
+        // that failed with nothing more specific to say says Failed.
+        const chipText = info ?? (tool.state === 'failed' ? 'Failed' : undefined);
+        const chipTone = tone ?? (tool.state === 'failed' ? 'failed' : undefined);
+        let chip;
+        if (chipText) {
+            chip = toolInfoChip(chipText);
+            if (chipTone) {
+                chip.classList.add(`is-${chipTone}`);
+            }
+        }
+        const titleMain = element('span', undefined, titleSpan, mainSpan, chip);
         titleMain.dataset.slot = 'basic-tool-tool-info-main';
         const titleStructured = element('span', undefined, titleMain);
         titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
@@ -738,8 +752,13 @@ function processLine(tool, host) {
                 wrap.append(element('div', 'crusorai-process-line', line));
                 continue;
             }
-            const running = /^running/i.test(line.slice(firstBar + 3, secondBar));
-            const row = element('div', 'crusorai-process-row', element('span', `crusorai-process-state is-${running ? 'running' : 'completed'}`, running ? 'Running' : 'Completed'), element('span', 'crusorai-process-id', line.slice(0, firstBar)), element('span', 'crusorai-process-command', line.slice(secondBar + 3)));
+            const statusSegment = line.slice(firstBar + 3, secondBar);
+            const running = /^running/i.test(statusSegment);
+            // A process that died non-zero is named Failed here too,
+            // in the same earned red — not a green Completed.
+            const exitMatch = /exit code:?\s*(-?\d+)/i.exec(statusSegment);
+            const failed = !running && exitMatch !== null && exitMatch[1] !== '0';
+            const row = element('div', 'crusorai-process-row', element('span', `crusorai-process-state is-${running ? 'running' : failed ? 'failed' : 'completed'}`, running ? 'Running' : failed ? 'Failed' : 'Completed'), element('span', 'crusorai-process-id', line.slice(0, firstBar)), element('span', 'crusorai-process-command', line.slice(secondBar + 3)));
             row.title = line;
             wrap.append(row);
         }
@@ -747,29 +766,49 @@ function processLine(tool, host) {
     }
     if (tool.name === 'start_terminal') {
         const command = (firstString(args, ['command']) ?? fieldLine('Command') ?? '').split('\n')[0];
+        // The engine reports a spawn failure as a plain receipt
+        // ("Failed to start process: ..."), so the line must say
+        // Failed itself — in red — not sit silent next to the id.
+        if (/^Failed to start/.test(raw.trim())) {
+            return shellLine(command, 'Failed to start', 'failed');
+        }
         return shellLine(command, fieldLine('Process ID'));
     }
     if (tool.name === 'check_terminal') {
         const id = firstString(args, ['process_id']) ?? fieldLine('Process ID') ?? '';
         let info;
+        let tone;
         if (raw.trim()) {
             if (/^Unknown process/.test(raw.trim())) {
                 info = 'Unknown process';
+                tone = 'failed';
             }
             else if ((fieldLine('Status') ?? '').toUpperCase() === 'RUNNING') {
                 info = 'Still running';
+                tone = 'running';
             }
             else {
-                // Silent on success (the shell rule): only a non-zero
-                // exit earns its number on the line.
+                // The process verdict, not the call's: exit 0 reads
+                // Completed in the earned green; a non-zero death
+                // says Failed and keeps its number.
                 const exit = /\nExit code: (-?\d+)\s*$/.exec(raw)?.[1];
-                info = exit !== undefined && exit !== '0' ? `Completed · Exit code ${exit}` : 'Completed';
+                if (exit !== undefined && exit !== '0') {
+                    info = `Failed · Exit code ${exit}`;
+                    tone = 'failed';
+                }
+                else {
+                    info = 'Completed';
+                    tone = 'passed';
+                }
             }
         }
-        return shellLine(id, info);
+        return shellLine(id, info, tone);
     }
     if (tool.name === 'read_terminal_output') {
         const id = firstString(args, ['process_id']) ?? fieldLine('Process ID') ?? '';
+        if (/^Unknown process/.test(raw.trim())) {
+            return shellLine(id, 'Unknown process', 'failed');
+        }
         const startLine = typeof args?.start_line === 'number' ? args.start_line : undefined;
         const endLine = typeof args?.end_line === 'number' ? args.end_line : undefined;
         const info = startLine !== undefined || endLine !== undefined
@@ -780,20 +819,24 @@ function processLine(tool, host) {
     if (tool.name === 'stop_terminal') {
         const id = firstString(args, ['process_id']) ?? '';
         let info;
+        let tone;
         if (raw.trim()) {
             const exit = /[Ee]xit code: (-?\d+)/.exec(raw)?.[1];
             const failed = exit !== undefined && exit !== '0';
             if (/^Unknown process/.test(raw.trim())) {
                 info = 'Unknown process';
+                tone = 'failed';
             }
             else if (raw.includes('already completed')) {
                 info = failed ? `Already done · Exit code ${exit}` : 'Already done';
+                tone = failed ? 'failed' : undefined;
             }
             else {
                 info = failed ? `Stopped · Exit code ${exit}` : 'Stopped';
+                tone = failed ? 'failed' : undefined;
             }
         }
-        return shellLine(id, info);
+        return shellLine(id, info, tone);
     }
     if (tool.name === 'cleanup_terminal_processes') {
         let info;
