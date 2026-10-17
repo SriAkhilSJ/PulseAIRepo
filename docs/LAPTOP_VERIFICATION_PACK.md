@@ -1,155 +1,147 @@
-# Laptop verification pack — sub-agent builds (through `d54ebd0a`)
+# Laptop verification pack — through `593b9aa1` (UI stamp `2026-10-17-15`)
 
-Pull `arena/0d4596c3-pulseairepo`, open your test workspace in the agent,
-run each prompt in the **desktop agent**. Every prompt is one delegated
-run (real provider credits). Work top to bottom — later steps reuse
-earlier results. Mark each ✅ / ❌ and send me the numbers that failed.
+## Setup (every round)
 
-Setup for step 6 only: create this file in your workspace first —
-`.crusorai/agents/release-writer.md`:
+1. Pull `arena/0d4596c3-pulseairepo`.
+2. Fully quit and reopen the agent (a running workbench keeps the old
+   compiled panel — that is what the freshness stamp exists to catch).
+3. The status chip must read **`593b9aa1` · `ui 2026-10-17-15`**.
+   Anything older = you are not testing this code; stop and tell me.
 
-```markdown
----
-description: Writes release notes
-base: code
-capabilities: workspace_read, workspace_write
+Run each check in the **desktop agent**. Mark ✅ / ❌ and send me the
+failing numbers.
+
 ---
 
-You are a release-notes specialist. Write short, friendly release
-notes with a "Highlights" heading. Never run terminal commands.
+## A. Permission rules — the new rule table (`593b9aa1`)
+
+### A1. Doom loop asks
+
+> Read the file README.md (or any workspace file) — actually, read it,
+> then read it again, then read it a third time, one call at a time.
+
+- The **third identical read** produces a permission dock:
+  *"The same call has repeated 3 times with identical input."*
+- **Allow once** → the read runs. Ask again later in the session →
+  **Allow always** → further identical reads run without asking.
+
+Fail if: the third read just runs silently (or errors as "blocked").
+
+### A2. Shell reaching outside the project asks
+
+> Run this terminal command: `cat ~/.bashrc` (any file outside the
+> workspace works).
+
+- Dock appears: *"This touches files outside the project directory."*
+- **Deny** → the command must NOT run.
+
+Fail if: the command runs without asking, or runs after Deny.
+
+### A3. Your own deny rule (config)
+
+Create `<workspace>/.crusorai/settings.json`:
+
+```json
+{ "permission": { "edit": "deny" } }
 ```
 
-## 1. A child asks YOU a question (answer it from the parent view)
+Then:
 
-Paste:
+> Create a new file called perm-test.txt with any content.
 
-> Delegate this to a research sub-agent: find out whether bubble sort
-> or merge sort is better for nearly-sorted data. Tell the sub-agent:
-> before you finish, you MUST use the question tool to ask me which one
-> I prefer, with choices "bubble" and "merge", and wait for my answer
-> before concluding.
+- **No dock at all.** The write is refused outright; the agent reports
+  it was blocked ("Permission denied"), and `perm-test.txt` does NOT
+  exist afterwards.
+- Delete the settings file afterwards (or the rest of this pack gets
+  weird).
 
-You should see:
-- The sub-agent card spins; a **question card docks above the composer
-  in the parent view** (not inside the transcript).
-- Answer it right there. The child then finishes and its result uses
-  your choice.
-- Bonus: while it waits, click into the child — the same question is
-  in its transcript, its page scrolls, and the nav row at the very
-  bottom shows Running…
+Fail if: a dock appears, or the file gets created.
 
-Fail if: the child never asks and just concludes silently, the question
-only appears inside the child, or answering in the parent does nothing
-(the child hangs).
+### A4. Ask-everything knob (optional)
 
-## 2. A child's approval surfaces — and check the look
+Same file, `{ "permission": { "*": "ask" } }` — now even a plain file
+read asks. Remove the file when done.
 
-Paste:
+## B. Allow always finally means it (`4449c5f9`)
 
-> Delegate to a code sub-agent: create hello.py in the workspace root
-> that prints "hello from child", run it with the terminal, and report
-> the output.
+### B1. Overwrite the same file twice
 
-You should see (whenever the approval appears — if your settings
-already allow the action, do step 2b):
-- An approval dock: **flat dark card, black tray underneath it,
-  amber ⚠ icon only** (nothing amber-tinted), title "Permission
-  required", the command/file as a plain code line, and
-  **Deny | Allow always | Allow once** buttons bottom-right.
-- It appears in the **parent view** while the child waits. Allow once →
-  the child proceeds and finishes.
+> Create notes-check.py with a print statement. (let it finish)
+> Now rewrite notes-check.py completely with different content.
 
-### 2b. Force an approval in your own session
+- Second write → dock: *"This file already exists. Running this will
+  overwrite it."* + the diff. Choose **Allow always** (confirm dialog
+  names the file).
+- Repeat: *"Rewrite notes-check.py again, different content."*
+  → **no dock** — it just writes.
+- *"Rewrite some OTHER existing file."* → dock returns (the grant was
+  for notes-check.py only).
 
-> Create a file crusor-check.txt with any content, then delete it using
-> the terminal `rm` command.
+Fail if: the same-file rewrite asks again after Allow always, or the
+other file does NOT ask.
 
-Same dock, this time for your own session. Deny it: the deletion must
-not happen.
+### B2. Secrets always ask
 
-Fail if: the approval only shows inside the child, the card is
-amber-tinted/light, or Deny still lets it run.
+> Rewrite .env (or create one first, then rewrite it).
 
-## 3. Stop kills the worker
+- It asks. **Allow always** it. Rewrite it again → **it asks again**.
+  No grant can silence a secret.
 
-Paste, then press **Stop** within ~2 seconds:
+Fail if: the second .env write runs without asking.
 
-> Delegate a long research task: research the complete history of
-> sorting algorithms, in depth, with many sources.
+## C. The dock's look (`4449c5f9`)
 
-You should see: the sub-agent card stops spinning and settles
-(cancelled/error), the parent turn ends as cancelled, and opening the
-child shows its turn ended too — nothing keeps running in the
-background.
+During any ask above, check with your eyes:
 
-Fail if: the child keeps running / completes normally after Stop.
+- Flat black card, amber ⚠ icon only (nothing amber-tinted), title
+  "Permission required".
+- One plain sentence under it — **no** `**`, no "Reply with: yes/no",
+  no emoji walls.
+- File ask shows the diff (`+`/`-` signed rows); shell ask shows the
+  command as a code line and names what's dangerous.
+- Buttons bottom-right: **Deny | Allow always | Allow once**.
 
-## 4. Resume the same worker (it remembers)
+Fail if: anything shows raw `**Safety Check:**` text.
 
-Step A paste:
+## D. Cards & dropdowns (`115b5252`)
 
-> Delegate to a research sub-agent: read README.md and summarise it in
-> one line. Report the sub-agent's session id back to me.
+### D1. List files — the `{}` is dead
 
-Keep the session id from the result. Step B paste:
+> List the files in this workspace, then list a subfolder.
 
-> Continue that same sub-agent session (session_id from your last
-> result): also read the LICENSE file and add one line about it.
+- While it runs, the **List files** row shows nothing expandable.
+- When done, it has a chevron; open it → the **actual file names**,
+  not `{}`.
+- Any running tool card (terminal, web search) stays **closed while
+  it renders**; click it mid-run → it opens; before your click it
+  never pops open by itself.
 
-You should see: the follow-up result builds on the first one, and
-opening that child session shows **both exchanges in one transcript**.
+### D2. Dropdown headers
 
-Fail if: a brand-new session starts (empty transcript), or it errors
-about the session.
+Trigger two reads/searches in a row (ask: "search the codebase for X,
+then read the top two matches"):
 
-## 5. Per-task agents + sibling hopping
+- Group header reads **`⌄ Explored 2`** — arrow at the START, word,
+  count hugging it.
+- Live: reads say **Exploring**, edits say **Editing** (then settle to
+  Explored / Edit), terminals stay **Terminal**; the live word
+  shimmers.
 
-Paste:
+## E. Older, still unverified (one pass, any order)
 
-> Delegate these in parallel: (1) research which Python version this
-> project needs, (2) write version_check.py that prints the Python
-> version, (3) review README.md for problems.
-
-You should see: three sub-agent cards (or batch rows) with their own
-agent names — the writer says Code, not Research. Open a running
-child: the nav row at the bottom has **sibling chips**; clicking one
-jumps straight to that worker.
-
-Fail if: the write task runs as Research, or siblings aren't clickable.
-
-## 6. Your own custom agent
-
-With the setup file above in place, paste:
-
-> Use the release-writer agent to draft release notes for the most
-> recent change in this workspace.
-
-You should see: a card titled for **release-writer**; the result reads
-like release notes with a "Highlights" heading (its own prompt), and
-it does not run terminal commands (its declared capabilities).
-
-Fail if: the agent says it doesn't know "release-writer", or it runs
-as plain research/code with no release-notes shape.
-
-## 7. Session list stays clean
-
-Open the session list / Manager. You should see only your real
-conversations — **no worker (sub-…) sessions as rows**, even after all
-the delegations above. Workers are reached through their cards.
-
-## 8. (Optional) Cheap model for workers
-
-Only if you have a second model configured. Paste:
-
-> Delegate a research task about sorting, but run the sub-agent on
-> model <your-other-model-name>.
-
-Pass = it completes and the engine log/show-model reflects the
-override; skip freely with a single model.
-
-## Report back
-
-Just reply with the step numbers and ✅/❌ (plus a screenshot of any
-❌). Especially valuable: step 1 (child question answered from the
-parent) and step 2 (approval look + surfacing) — those are the
-human-in-the-loop paths.
+1. **Child settles when watched** (`ab8f234a`): open a running child;
+   when it finishes, its view settles (no stuck "Running…"), and no
+   answer text appears twice.
+2. **Hover shake** (`201faf63`): hover a running sub-agent card —
+   nothing wiggles sideways.
+3. **Big delegate answer** (`ee4ae231`): have a sub-agent produce a
+   long report (50+ lines) — the full answer arrives in the parent,
+   not truncated to a preview.
+4. **Clarify timeout** (`6166843d`): make a child ask a question with
+   choices and DON'T answer (5 min — do this one last / over coffee).
+   The final answer must plainly say the question went unanswered —
+   it must NOT invent a choice for you.
+5. **Dropdown highlight**: hover any dropdown header → it visibly
+   highlights; open one → it keeps a quiet wash while open.
+6. **Diff rows**: sign before number (`+ 1`, `- 1`), tight gutters,
+   no green/red edge line on Edit/Write diffs.
