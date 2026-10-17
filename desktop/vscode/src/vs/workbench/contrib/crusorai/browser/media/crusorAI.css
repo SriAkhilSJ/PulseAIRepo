@@ -1475,7 +1475,6 @@
 .crusorai-tool-run-summary:hover { background: transparent; color: var(--vscode-foreground); }
 .crusorai-tool-run.is-live .crusorai-tool-run-summary { color: var(--vscode-foreground); }
 .crusorai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crusorai-tool-run-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
 .crusorai-tool-run-count {
 	margin-left: auto;
 	flex-shrink: 0;

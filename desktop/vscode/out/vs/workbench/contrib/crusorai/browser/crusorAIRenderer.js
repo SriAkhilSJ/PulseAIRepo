@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-6';
+const CRUSORAI_UI_STAMP = '2026-10-17-7';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2077,25 +2077,19 @@ function activityGroupKey(tool) {
     }
     return `name:${name}`;
 }
-/** The dropdown's one-line header: verb + the thing it covers. */
+/** The dropdown's one-line header: the folded action only. The
+ *  filenames and targets live inside the dropdown, where opening it
+ *  reveals them (founder 2026-10-17: header filenames "are not
+ *  needed — we will get to know by opening dropdown"). */
 function activityGroupHeader(groupKey, members, live) {
-    const baseName = (target) => target.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? target;
     if (groupKey === 'explore') {
-        // Upstream's read group lists the filenames on the line itself.
-        const targets = members
-            .map(tool => compactTarget(displayTarget(tool)))
-            .filter((target) => !!target)
-            .map(baseName);
-        const shown = targets.slice(0, 3).join(', ');
-        const rest = targets.length > 3 ? ` +${targets.length - 3} more` : '';
-        return { label: live ? 'Exploring' : 'Explored', target: shown ? `${shown}${rest}` : undefined };
+        return live ? 'Exploring' : 'Explored';
     }
     if (groupKey.startsWith('edit:')) {
         const names = new Set(members.map(tool => tool.name));
-        const label = names.size === 1 ? crusorAIToolPresentation(members[0]?.name ?? '').title : 'Edit';
-        return { label, target: baseName(groupKey.slice('edit:'.length)) };
+        return names.size === 1 ? crusorAIToolPresentation(members[0]?.name ?? '').title : 'Edit';
     }
-    return { label: crusorAIToolPresentation(groupKey.slice('name:'.length)).title };
+    return crusorAIToolPresentation(groupKey.slice('name:'.length)).title;
 }
 /**
  * Cards and runs, in order -- the same split the CopilotKit webview renders.
@@ -2143,7 +2137,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
             }
         });
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
-        const summary = element('summary', 'crusorai-tool-run-summary', runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'), element('span', 'crusorai-tool-run-text', header.label), header.target ? element('span', 'crusorai-tool-run-target', header.target) : undefined, element('span', 'crusorai-tool-run-count', String(runTools.length)));
+        const summary = element('summary', 'crusorai-tool-run-summary', runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'), element('span', 'crusorai-tool-run-text', header), element('span', 'crusorai-tool-run-count', String(runTools.length)));
         details.append(summary);
         const body = element('div', 'crusorai-tool-run-body');
         for (const tool of runTools) {
