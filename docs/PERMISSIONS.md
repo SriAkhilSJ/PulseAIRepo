@@ -13,7 +13,7 @@ Every guarded call resolves to one of:
 - **ask** — the permission dock appears: **Deny · Allow always · Allow once**
 - **deny** — refused outright; the call never runs and never asks
 
-"Allow always" remembers that exact file/command for the session.
+"Allow always" remembers that exact file/command **per project** (upstream's PermissionSaved: `<workspace>/.crusorai/permissions-saved.json`), so later sessions do not re-ask it either. Saved patterns release a config **ask**, never a config **deny**; secrets, credentials and git-ignored paths are never remembered and re-ask every time.
 Secrets (`.env`, credentials) and git-ignored files are re-asked
 **every** time — no grant can silence them.
 

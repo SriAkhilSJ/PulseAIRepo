@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-20';
+const CRUSORAI_UI_STAMP = '2026-10-17-21';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2857,7 +2857,7 @@ function approvalDock(model, host) {
     // the grant is session-scoped in our backend) | Allow once (white
     // pill). Keyboard contract printed on the buttons.
     const alwaysButton = button('Allow always', 'crusorai-permission-always', () => overlay.classList.add('is-open'), 'shield');
-    hinted(alwaysButton, 'Stop asking before this file or command for the rest of the session.');
+    hinted(alwaysButton, 'Stop asking before this file or command in this project.');
     const reject = hinted(button('Deny', 'crusorai-permission-deny', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
     reject.dataset.deny = '';
     reject.append(element('span', 'crusorai-approval-kbd', 'esc'));
@@ -2871,8 +2871,8 @@ function approvalDock(model, host) {
     const overlay = element('div', 'crusorai-dialog-overlay');
     const dialog = element('div', 'crusorai-dialog');
     dialog.append(element('h3', undefined, 'Always allow this?'), element('p', 'crusorai-dialog-copy', commandText
-        ? `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} on ${commandText} for the rest of this session. Secret paths and git-ignored files are still asked every time.`
-        : `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} for the rest of this session. Secret paths and git-ignored files are still asked every time.`));
+        ? `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} on ${commandText} in this project from now on. Secret paths and git-ignored files are still asked every time.`
+        : `Crusor will stop asking before running ${crusorAIToolPresentation(approval.name).title} in this project from now on. Secret paths and git-ignored files are still asked every time.`));
     // append() takes (string | Node)[] \u2014 a ternary undefined arg is a type
     // error, so the optional command preview appends conditionally.
     if (commandText) {
