@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-1';
+const CRUSORAI_UI_STAMP = '2026-10-17-2';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -860,66 +860,71 @@ function terminalBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEle
 	return body;
 }
 
-/** The OpenCode bash-output box in its static form: command block,
- * then output block split by the hairline — same classes the live
- * terminal body paints, minus the streaming patch target. */
-function processOutputBox(command: string, output: string, running: boolean): HTMLElement {
-	const outputBox = element('div', 'crusorai-bash-output');
-	outputBox.dataset.component = 'bash-output';
-	outputBox.dataset.variant = 'shell';
-	const scroll = element('div', 'crusorai-bash-scroll');
-	scroll.dataset.slot = 'bash-scroll';
-	scroll.dataset.scrollable = '';
-	scroll.tabIndex = 0;
-	scroll.setAttribute('role', 'region');
-	scroll.setAttribute('aria-label', 'Process output');
-	const pre = element('pre', 'crusorai-bash-pre');
-	pre.dataset.slot = 'bash-pre';
-	const codeEl = element('code');
-	if (command) {
-		const commandSpan = element('span', 'crusorai-bash-command', command);
-		commandSpan.dataset.slot = 'bash-command';
-		codeEl.append(commandSpan);
-	}
-	if (output.trim()) {
-		const resultSpan = element('span', 'crusorai-bash-result');
-		resultSpan.dataset.slot = 'bash-result';
-		resultSpan.append(terminalOutputContent(output, running));
-		codeEl.append(resultSpan);
-	}
-	pre.append(codeEl);
-	scroll.append(pre);
-	outputBox.append(scroll);
-	return outputBox;
-}
-
-function processBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
-	// The process family used to borrow the terminal body, which
-	// reads a STDOUT/Exit-code envelope these tools never produce —
-	// a started process painted its whole receipt as "output" and a
-	// process list painted as one text blob. Their real receipts are
-	// field lines (Status:/Process ID:/Command:); the card shows the
-	// earned fields and the process's own output, nothing invented.
+function processLine(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+	// Founder 2026-10-17, over the first process cards: "processes
+	// don't need a dropdown menu — single line" and "don't keep
+	// name as dropdown menu, keep something different". So no card,
+	// no chevron, and the line does not lead with the tool's name:
+	// it leads with the thing itself — the command (start), the
+	// process id (check/read/stop) — and the earned state rides as
+	// the inline chip, exactly the Read row's shape. A list paints
+	// one line per process with no header line at all. Bulk output
+	// stays one call away (check_terminal's new-output, the bash
+	// box on the terminal card); the receipt facts are never lost,
+	// only the menu is.
+	void host;
 	const args = record(tool.arguments);
 	const raw = typeof tool.result === 'string' ? tool.result : '';
-	const body = element('div', 'crusorai-tool-body crusorai-family-process');
-	body.dataset.rendererFamily = 'process';
+	const presentation = crusorAIToolPresentation(tool.name);
 	const fieldLine = (label: string): string | undefined => {
 		const match = new RegExp(`^${label}:\\s*(.+)$`, 'm').exec(raw);
 		return match?.[1]?.trim();
 	};
+	const shellLine = (main: string, info?: string): HTMLElement => {
+		const row = element('div', `crusorai-tool-row crusorai-tool-inline is-${tool.state}`);
+		row.dataset.component = 'tool-trigger';
+		row.dataset.conversationScaffold = '';
+		row.dataset.toolId = tool.id;
+		row.dataset.toolName = tool.name;
+		row.title = presentation.title;
+		const mainSpan = element('span', 'crusorai-tool-target crusorai-process-main', main);
+		const titleMain = element('span', undefined, mainSpan, info ? toolInfoChip(info) : undefined);
+		titleMain.dataset.slot = 'basic-tool-tool-info-main';
+		const titleStructured = element('span', undefined, titleMain);
+		titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
+		const toolInfo = element('span', undefined, titleStructured);
+		toolInfo.dataset.slot = 'basic-tool-tool-info';
+		const isPending = tool.state === 'running' || tool.state === 'queued';
+		const triggerContent = element('span', undefined,
+			isPending ? element('span', 'crusorai-mini-spinner') : undefined,
+			toolInfo,
+			element('span', undefined));
+		triggerContent.dataset.slot = 'basic-tool-tool-trigger-content';
+		const trigger = element('span', 'crusorai-tool-trigger', triggerContent);
+		trigger.dataset.component = 'tool-trigger';
+		row.append(trigger);
+		if (tool.duration) {
+			const meta = element('span', 'crusorai-tool-duration', tool.duration);
+			meta.dataset.slot = 'basic-tool-tool-arg';
+			trigger.append(meta);
+		}
+		return row;
+	};
 	if (tool.name === 'list_terminal_processes') {
+		const wrap = element('div', 'crusorai-process-lines');
+		wrap.dataset.toolId = tool.id;
+		wrap.dataset.toolName = tool.name;
+		wrap.title = presentation.title;
 		const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
 		if (!lines.length || lines[0].startsWith('No terminal processes')) {
-			body.append(element('div', 'crusorai-process-line', lines[0] ?? 'No terminal processes found.'));
-			return body;
+			wrap.append(element('div', 'crusorai-process-line', lines[0] ?? 'No terminal processes found.'));
+			return wrap;
 		}
-		const list = element('div', 'crusorai-process-list');
 		for (const line of lines) {
 			const firstBar = line.indexOf(' | ');
 			const secondBar = firstBar < 0 ? -1 : line.indexOf(' | ', firstBar + 3);
 			if (firstBar < 0 || secondBar < 0) {
-				list.append(element('div', 'crusorai-process-line', line));
+				wrap.append(element('div', 'crusorai-process-line', line));
 				continue;
 			}
 			const running = /^running/i.test(line.slice(firstBar + 3, secondBar));
@@ -928,52 +933,58 @@ function processBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElem
 				element('span', 'crusorai-process-id', line.slice(0, firstBar)),
 				element('span', 'crusorai-process-command', line.slice(secondBar + 3)));
 			row.title = line;
-			list.append(row);
+			wrap.append(row);
 		}
-		body.append(list);
-		return body;
+		return wrap;
 	}
 	if (tool.name === 'start_terminal') {
-		const command = firstString(args, ['command']) ?? fieldLine('Command') ?? '';
-		const startup = raw.split('Initial startup output:\n')[1]?.trim() ?? '';
-		if (command || startup) { body.append(processOutputBox(command, startup, tool.state === 'running')); }
-		const id = fieldLine('Process ID');
-		if (id) {
-			body.append(element('div', 'crusorai-tool-actions', copyButton(id, host)));
-		}
-		return body;
+		const command = (firstString(args, ['command']) ?? fieldLine('Command') ?? '').split('\n')[0];
+		return shellLine(command || presentation.title, fieldLine('Process ID'));
 	}
 	if (tool.name === 'check_terminal') {
-		const running = (fieldLine('Status') ?? '').toUpperCase() === 'RUNNING';
-		const exitMatch = /\nExit code: (-?\d+)\s*$/.exec(raw);
-		let output = '';
-		const marker = 'New output:\n';
-		const at = raw.indexOf(marker);
-		if (at >= 0) {
-			output = raw.slice(at + marker.length);
-			if (exitMatch && output.endsWith(exitMatch[0])) { output = output.slice(0, -exitMatch[0].length); }
-			output = output.trim();
-		}
-		if (output) { body.append(processOutputBox('', output, running)); }
+		const id = firstString(args, ['process_id']) ?? fieldLine('Process ID') ?? '';
+		let info: string | undefined;
 		if (raw.trim()) {
-			const statusText = running ? 'Still running' : exitMatch ? `Completed · exit ${exitMatch[1]}` : 'Completed';
-			body.append(element('div', `crusorai-process-status is-${running ? 'running' : 'completed'}`, statusText));
+			if (/^Unknown process/.test(raw.trim())) { info = 'Unknown process'; }
+			else if ((fieldLine('Status') ?? '').toUpperCase() === 'RUNNING') { info = 'Still running'; }
+			else {
+				// Silent on success (the shell rule): only a non-zero
+				// exit earns its number on the line.
+				const exit = /\nExit code: (-?\d+)\s*$/.exec(raw)?.[1];
+				info = exit !== undefined && exit !== '0' ? `Completed · Exit code ${exit}` : 'Completed';
+			}
 		}
-		return body;
+		return shellLine(id || presentation.title, info);
 	}
 	if (tool.name === 'read_terminal_output') {
-		const lines = raw.split('\n');
-		while (lines.length && /^(Process ID|Total lines):/.test(lines[0])) { lines.shift(); }
-		const text = lines.join('\n').trim();
-		if (text) { body.append(toolOutputBox(text.slice(0, 8000))); }
-		return body;
+		const id = firstString(args, ['process_id']) ?? fieldLine('Process ID') ?? '';
+		const startLine = typeof args?.start_line === 'number' ? args.start_line : undefined;
+		const endLine = typeof args?.end_line === 'number' ? args.end_line : undefined;
+		const info = startLine !== undefined || endLine !== undefined
+			? `#L${startLine ?? 1}-${endLine ?? startLine ?? 1}`
+			: undefined;
+		return shellLine(id || presentation.title, info);
 	}
-	// stop_terminal / cleanup_terminal_processes / unknown-process
-	// replies: the receipt sentence IS the content — one quiet line.
-	if (raw.trim()) {
-		body.append(element('div', 'crusorai-process-line', raw.trim().split('\n')[0]));
+	if (tool.name === 'stop_terminal') {
+		const id = firstString(args, ['process_id']) ?? '';
+		let info: string | undefined;
+		if (raw.trim()) {
+			const exit = /[Ee]xit code: (-?\d+)/.exec(raw)?.[1];
+			const failed = exit !== undefined && exit !== '0';
+			if (/^Unknown process/.test(raw.trim())) { info = 'Unknown process'; }
+			else if (raw.includes('already completed')) { info = failed ? `Already done · Exit code ${exit}` : 'Already done'; }
+			else { info = failed ? `Stopped · Exit code ${exit}` : 'Stopped'; }
+		}
+		return shellLine(id || presentation.title, info);
 	}
-	return body;
+	if (tool.name === 'cleanup_terminal_processes') {
+		let info: string | undefined;
+		const removed = /Removed completed processes: (.+)/.exec(raw)?.[1];
+		if (removed) { info = `${removed.split(',').filter(part => part.trim()).length} removed`; }
+		else if (raw.trim()) { info = 'None completed'; }
+		return shellLine(presentation.title, info);
+	}
+	return shellLine(presentation.title);
 }
 
 function codeBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
@@ -1636,9 +1647,6 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents:
 	if (presentation.family === 'terminal') {
 		return terminalBody(tool, host);
 	}
-	if (presentation.family === 'process') {
-		return processBody(tool, host);
-	}
 	const args = record(tool.arguments);
 	const result = resultRecord(tool.result);
 	const body = element('div', `crusorai-tool-body crusorai-family-${presentation.family}`);
@@ -1912,6 +1920,12 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	// "not nice" triple-decker the founder flagged 2026-10-15.
 	if (presentation.family === 'subagent') {
 		return taskToolCard(tool, host, subAgents);
+	}
+	// Processes are single lines, not dropdown cards (founder
+	// 2026-10-17): the line carries the command/id and the earned
+	// state; there is no body to open.
+	if (presentation.family === 'process') {
+		return processLine(tool, host);
 	}
 	const isPending = tool.state === 'running' || tool.state === 'queued';
 	// Read + Glob/Grep rows are single-line (no dropdown, no caret): the

@@ -329,9 +329,14 @@ def test_process_code_and_preview_families_have_designed_bodies():
     open_preview fell into the generic dump too. Each now has a
     body built from the tool's real receipt fields and output."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "function processBody(tool: CrusorAIToolView, host: CrusorAIRenderHost)" in renderer
+    # Founder 2026-10-17, over the first version: processes are
+    # single lines, not dropdown cards, and the line leads with the
+    # thing itself (command / process id), never the tool name as a
+    # menu. toolRow returns the line before any card is built.
+    assert "function processLine(tool: CrusorAIToolView, host: CrusorAIRenderHost)" in renderer
+    assert "return processLine(tool, host);" in renderer
+    assert "function processBody" not in renderer
     assert "function codeBody(tool: CrusorAIToolView, host: CrusorAIRenderHost)" in renderer
-    assert "return processBody(tool, host);" in renderer
     assert "return codeBody(tool, host);" in renderer
     family_section = renderer.split("function familyBody", 1)[1].split("function toolRow", 1)[0]
     assert "presentation.family === 'process') {\n\t\treturn terminalBody" not in family_section
@@ -965,7 +970,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-1';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-2';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1105,7 +1110,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-1'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-2'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

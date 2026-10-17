@@ -1341,10 +1341,8 @@
 .crusorai-process-state.is-completed { color: var(--crusorai-verified); }
 .crusorai-process-id { flex: none; font-family: var(--crusorai-font-mono); color: var(--vscode-descriptionForeground); }
 .crusorai-process-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crusorai-process-status { padding-top: 4px; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); }
-.crusorai-process-status.is-running { color: var(--crusorai-running); }
-.crusorai-process-status.is-completed { color: var(--crusorai-verified); }
 .crusorai-process-line { font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); padding: 2px 0; }
+.crusorai-process-main { font-family: var(--crusorai-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-subagent-result {
 	grid-column: 1 / -1;
 	margin-top: 4px;
