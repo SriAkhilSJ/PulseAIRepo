@@ -4187,6 +4187,7 @@
 .crusorai-render-root .crusorai-tool-trigger { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 .crusorai-render-root [data-slot="collapsible-arrow"] { display: inline-flex; flex-shrink: 0; opacity: 0.7; transform: rotate(-90deg); transition: transform 150ms ease, opacity 150ms ease; }
 .crusorai-render-root .crusorai-tool-row[open] > .crusorai-tool-summary [data-slot="collapsible-arrow"] { transform: none; opacity: 1; }
+.crusorai-render-root .crusorai-tool-run[open] > .crusorai-tool-run-summary [data-slot="collapsible-arrow"] { transform: none; opacity: 1; }
 .crusorai-render-root .crusorai-activity-row { border-left-color: transparent; }
 .crusorai-render-root .crusorai-text-part { width: 100%; }
 

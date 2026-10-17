@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-7';
+const CRUSORAI_UI_STAMP = '2026-10-17-8';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -2230,10 +2230,13 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 			else { openTools.delete(key); closedTools.add(key); }
 		});
 		const header = activityGroupHeader(group.groupKey, runTools, runLive);
+		const groupArrow = element('span', undefined, icon('chevron-down'));
+		groupArrow.dataset.slot = 'collapsible-arrow';
 		const summary = element('summary', 'crusorai-tool-run-summary',
 			runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'),
 			element('span', 'crusorai-tool-run-text', header),
 			element('span', 'crusorai-tool-run-count', String(runTools.length)),
+			groupArrow,
 		);
 		details.append(summary);
 		const body = element('div', 'crusorai-tool-run-body');
