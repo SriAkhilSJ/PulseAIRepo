@@ -25,6 +25,8 @@ import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.j
 import { URI } from '../../../../base/common/uri.js';
 import { TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { MultiDiffEditorInput } from '../../../multiDiffEditor/browser/multiDiffEditorInput.js';
+import { EditorActivation } from '../../../../platform/editor/common/editor.js';
 import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IMarkerService, MarkerSeverity } from '../../../../platform/markers/common/markers.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
@@ -111,6 +113,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         this.languageService = languageService;
         this.modelService = modelService;
         this.textModelService = textModelService;
+        this.instantiationService = instantiationService;
         this.workspaceContextService = workspaceContextService;
         this.searchService = searchService;
         this.scmService = scmService;
@@ -135,7 +138,7 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
         this.inlineDiffOrder = [];
         this.activeDiffs = new Map();
         this.hasActiveDiffKey = new RawContextKey('crusorai.hasActiveDiff', false).bindTo(this.contextKeyService);
-        this.queryBuilder = instantiationService.createInstance(QueryBuilder);
+        this.queryBuilder = this.instantiationService.createInstance(QueryBuilder);
         this._register(this.editorService.onDidActiveEditorChange(() => this.updateActiveDiffContext()));
         this._register(this.textModelService.registerTextModelContentProvider(CRUSOR_AI_DIFF_SCHEME, {
             provideTextContent: async (resource) => {
@@ -316,7 +319,25 @@ let CrusorAIWorkbenchService = class CrusorAIWorkbenchService extends Disposable
             modifiedUri: modified,
             label: request.label,
         });
-        await this.openNativeDiff(original.toString(), modified.toString(), request.label);
+        // Review opens the way Copilot's chat editing opens its
+        // "Suggested Edits" (chatEditingSession.show): a
+        // MultiDiffEditorInput over text models -- ours ride the
+        // crusorai-diff content provider above -- opened pinned and
+        // active. The multi-diff surface is the review surface: a
+        // file header per resource with the real diff editor's
+        // green/red inside, instead of a naked two-model diff tab.
+        try {
+            const input = MultiDiffEditorInput.fromResourceMultiDiffEditorInput({
+                label: request.label,
+                resources: [{ original: { resource: original }, modified: { resource: modified } }],
+            }, this.instantiationService);
+            await this.editorService.openEditor(input, { pinned: true, activation: EditorActivation.ACTIVATE });
+        }
+        catch {
+            // A build without the multi-diff editor must not break
+            // review: the plain diff editor is the same two models.
+            await this.openNativeDiff(original.toString(), modified.toString(), request.label);
+        }
         this.updateActiveDiffContext();
     }
     acceptActiveDiff() {

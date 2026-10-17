@@ -47,6 +47,16 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "CrusorClientMethod" in service
     assert "openNativeDiff" in service
     assert "openInlineDiff" in service
+    # Review changes opens the way Copilot's chat editing opens its
+    # "Suggested Edits" (chatEditingSession.show): a
+    # MultiDiffEditorInput over provider-backed text models, pinned
+    # + active -- the multi-diff surface (file header + the diff
+    # editor's green/red) is VS Code's review surface, not a naked
+    # two-model diff tab. Plain-diff fallback stays for builds
+    # without the multi-diff editor.
+    workbench = _text("browser", "crusorAIWorkbenchService.ts")
+    assert "MultiDiffEditorInput.fromResourceMultiDiffEditorInput" in workbench
+    assert "activation: EditorActivation.ACTIVATE" in workbench
     assert "old_text" in service and "new_text" in service
     assert "session_resume" in service
     assert "events_replay" in service
@@ -1025,7 +1035,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-22';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-23';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1165,7 +1175,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-22'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-23'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
