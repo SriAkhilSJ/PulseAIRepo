@@ -1476,7 +1476,7 @@
 .crusorai-tool-run.is-live .crusorai-tool-run-summary { color: var(--vscode-foreground); }
 .crusorai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-tool-run-count {
-	margin-left: auto;
+	margin-left: 0;
 	flex-shrink: 0;
 	padding: 0;
 	background: transparent;
