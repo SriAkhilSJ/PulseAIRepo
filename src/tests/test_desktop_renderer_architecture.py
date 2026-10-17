@@ -363,11 +363,18 @@ def test_activity_grouping_follows_opencode_law():
     assert "splitActivityGroups(tools, activityGroupKey)" in renderer
     assert "function activityGroupHeader" in renderer
     assert "'Exploring' : 'Explored'" in renderer
+    assert "return 'Editing';" in renderer, "edit groups speak the present tense while live"
     assert "crusorai-tool-run-target" not in renderer, "group headers do not preview member filenames or targets"
+    summary_src = renderer.split("const summary = element('summary', 'crusorai-tool-run-summary'", 1)[1].split("details.append(summary)", 1)[0]
+    assert summary_src.index("groupArrow,") < summary_src.index("crusorai-tool-run-text") < summary_src.index("crusorai-tool-run-count"), (
+        "the arrow LEADS the group header, then the word, then the count (founder 2026-10-17)")
+    assert "runLive ? 'crusorai-tool-run-text crusorai-shimmer' : 'crusorai-tool-run-text'" in renderer, (
+        "every live group header carries the streaming shimmer")
     assert "groupArrow.dataset.slot = 'collapsible-arrow'" in renderer, "groups carry the side disclosure arrow"
     assert "icon('tools')" not in renderer, "no nut/wrench glyph leads a dropdown header (founder 2026-10-17)"
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-tool-run-target" not in css
+    assert ".crusorai-tool-run-summary .crusorai-shimmer" in css, "the live group word's shimmer keeps transparent text"
     assert ".crusorai-tool-run-count {\n\tmargin-left: 0;" in css, "the group count hugs the label instead of floating across the row"
     assert ".crusorai-tool-run[open] > .crusorai-tool-run-summary [data-slot=\"collapsible-arrow\"]" in css, "the group arrow points down when open"
 
@@ -996,7 +1003,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-12';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-13';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1136,7 +1143,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-12'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-13'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1803,7 +1810,10 @@ def test_read_and_search_rows_are_single_line_info_rows():
     append_at = renderer.index("if (body && bodyHasContent) { details.append(body); }")
     assert inline_at < append_at, "inline rows must return before a body can be appended"
     assert "crusorai-tool-inline" in renderer and ".crusorai-tool-inline {" in css
-    assert "(!isPending || allowOpenWhilePending)" in renderer, "the BasicTool arrow/lock rule"
+    assert "!isInline && bodyHasContent ? icon('chevron-down') : undefined" in renderer, (
+        "chevron whenever there is content to open — even mid-run, now "
+        "that the founder's closed-until-clicked law lets the hand in")
+    assert "allowOpenWhilePending" not in renderer, "the pending lock is retired"
 
 
 def test_read_row_filename_is_a_clickable_file_chip():
@@ -1912,7 +1922,10 @@ def test_user_close_sticks_and_scrolling_is_free():
     a running turn every streaming repaint forced 'always'/'running'
     rows back open; the user's click was never recorded as a close.
     A mount-level closedTools memory now outranks every default in
-    tool rows, run groups, and thought blocks. (2) 'write file is not
+    tool rows, run groups, and thought blocks — and since the
+    founder's later closed-until-clicked law (2026-10-17), tool rows
+    have no default-open at all: openTools (the user's hand) is the
+    only opener. (2) 'write file is not
     like opencode, worst look': a write's all-'+' receipt diff painted
     as a solid green wall; OpenCode's write render shows the written
     content as a text view, never a diff. (3) 'i can't scroll freely':
@@ -1923,7 +1936,8 @@ def test_user_close_sticks_and_scrolling_is_free():
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "const closedTools = new Set<string>();" in renderer
-    assert "details.open = !closedTools.has(tool.id) && (openTools.has(tool.id) || shouldDefaultOpen)" in renderer
+    assert "details.open = !closedTools.has(tool.id) && openTools.has(tool.id)" in renderer
+    assert "shouldDefaultOpen" not in renderer, "tool cards stay closed until the user clicks"
     assert "details.open = !closedTools.has(key) && (runLive || openTools.has(key))" in renderer
     assert "closedTools.add(tool.id)" in renderer and "closedTools.delete(tool.id)" in renderer
     # Write = content text view; edits keep the diff.

@@ -4204,6 +4204,7 @@
    the verbatim block. Plus the composer frame breathing while a turn
    runs: no glow card, no orb — a frame that inhales, nothing more. */
 .crusorai-render-root .crusorai-tool-summary .crusorai-shimmer,
+.crusorai-render-root .crusorai-tool-run-summary .crusorai-shimmer,
 .crusorai-render-root .crusorai-disclosure-row .crusorai-shimmer,
 .crusorai-render-root .crusorai-activity-row .crusorai-shimmer { color: transparent; }
 

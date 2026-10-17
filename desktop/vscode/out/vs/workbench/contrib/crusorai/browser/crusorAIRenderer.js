@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-12';
+const CRUSORAI_UI_STAMP = '2026-10-17-13';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -1851,21 +1851,15 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     details.dataset.conversationScaffold = '';
     details.dataset.toolId = tool.id;
     details.dataset.toolName = tool.name;
-    const shouldDefaultOpen = presentation.defaultOpen === 'always' || (presentation.defaultOpen === 'running' && (tool.state === 'running' || tool.state === 'approval'));
-    // The user's own hand outranks every default (founder 2026-10-15:
-    // 'why i can't close the dropdown — if did, reopens'): an explicitly
-    // closed row stays closed across streaming repaints even when its
-    // family defaults open ('always'/'running'); defaults only govern
-    // rows the user never touched.
-    details.open = !closedTools.has(tool.id) && (openTools.has(tool.id) || shouldDefaultOpen);
-    // OpenCode BasicTool, exactly (founder 2026-10-17: read the
-    // folder, implement the same — processes carved out above):
-    // the chevron exists ONLY when the call actually produced
-    // content, and while a call runs the row is locked shut/open
-    // as-is — except the shell family (terminal/code), which may
-    // be opened mid-run to watch. So the body is built first and
-    // measured: no content, no chevron, no toggle, no body node.
-    const allowOpenWhilePending = presentation.family === 'terminal' || presentation.family === 'code';
+    // Founder 2026-10-17 (later): while output is being rendered
+    // inside a tool card, the card stays CLOSED until the user's
+    // own click opens it. No family auto-opens anymore — not
+    // 'always', not 'running'; the remembered user hand
+    // (openTools) is the only opener, closedTools the only closer.
+    details.open = !closedTools.has(tool.id) && openTools.has(tool.id);
+    // The body is built first and measured: no content, no
+    // chevron, no toggle, no body node (upstream renders no
+    // collapsible content for such tools; the row stays a line).
     let body;
     let bodyHasContent = false;
     if (!isInline) {
@@ -1982,9 +1976,10 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
     const toolInfo = element('span', undefined, titleStructured);
     toolInfo.dataset.slot = 'basic-tool-tool-info';
-    // The BasicTool arrow rule: painted only when there is content
-    // to open, and while a call runs only the shell family keeps it.
-    const arrow = element('span', undefined, !isInline && bodyHasContent && (!isPending || allowOpenWhilePending) ? icon('chevron-down') : undefined);
+    // The arrow rule: painted whenever there is content to open —
+    // including while it is still rendering, so the user's hand can
+    // open the card mid-run (founder's closed-until-clicked law).
+    const arrow = element('span', undefined, !isInline && bodyHasContent ? icon('chevron-down') : undefined);
     arrow.dataset.slot = 'collapsible-arrow';
     const triggerContent = element('span', undefined, isPending ? element('span', 'crusorai-mini-spinner') : undefined, toolInfo, arrow);
     triggerContent.dataset.slot = 'basic-tool-tool-trigger-content';
@@ -2018,17 +2013,14 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     if (body && bodyHasContent) {
         details.append(body);
     }
-    // Persist ONLY user-driven disclosure. A 'toggle' listener also fires
-    // for the programmatic `details.open = true` a running row gets on
-    // every streaming repaint — that latched every live "Thinking" row
-    // into openTools, so settled "Thought" rows stayed expanded and
-    // painted the model's inner monologue full-size (field 2026-10-15).
-    // A summary click is always the user's own hand (mouse or keyboard).
+    // Persist ONLY user-driven disclosure. A 'toggle' listener also
+    // fires for programmatic `details.open` changes on repaint; a
+    // summary click is always the user's own hand (mouse or keyboard).
     summary.addEventListener('click', (event) => {
-        // BasicTool's handleOpenChange, exactly: a content-less row
-        // has nothing to open, and a running row (shell family
-        // excepted) ignores the hand until it settles.
-        if (!bodyHasContent || (isPending && !allowOpenWhilePending)) {
+        // A content-less row has nothing to open. Every other row
+        // answers the hand immediately — even mid-run: the card is
+        // closed until clicked, and the click is what opens it.
+        if (!bodyHasContent) {
             event.preventDefault();
             return;
         }
@@ -2086,9 +2078,28 @@ function activityGroupHeader(groupKey, members, live) {
         return live ? 'Exploring' : 'Explored';
     }
     if (groupKey.startsWith('edit:')) {
+        // Live groups speak in the present tense and settle into the
+        // past (founder 2026-10-17: "Editing → Edit"; explore above
+        // already does "Exploring → Explored").
+        if (live) {
+            const names = new Set(members.map(tool => tool.name));
+            if (names.size === 1) {
+                const name = members[0]?.name ?? '';
+                if (name === 'write_file') {
+                    return 'Writing';
+                }
+                if (name === 'copy_file') {
+                    return 'Copying';
+                }
+            }
+            return 'Editing';
+        }
         const names = new Set(members.map(tool => tool.name));
         return names.size === 1 ? crusorAIToolPresentation(members[0]?.name ?? '').title : 'Edit';
     }
+    // Name groups keep one label live and settled (Terminal stays
+    // Terminal); the streaming effect on the header carries the
+    // liveness instead of a tense swap.
     return crusorAIToolPresentation(groupKey.slice('name:'.length)).title;
 }
 /**
@@ -2140,11 +2151,14 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
         const summary = element('summary', 'crusorai-tool-run-summary', 
-        // No leading nut/wrench glyph (founder 2026-10-17:
-        // 'remove that Nut icon in the dropdown menu'). A live
-        // group still earns its spinner; settled headers are
-        // just the word, the count and the arrow.
-        runLive ? element('span', 'crusorai-mini-spinner') : undefined, element('span', 'crusorai-tool-run-text', header), element('span', 'crusorai-tool-run-count', String(runTools.length)), groupArrow);
+        // The disclosure arrow LEADS the header (founder
+        // 2026-10-17: arrow marks at the start — "⌄ Terminal
+        // 3", not "Terminal 3 ⌄"); the global collapsible-arrow
+        // rule points it right while closed, down once open.
+        // A live group's word shimmers (the streaming effect on
+        // every live group header); settled headers are just
+        // the arrow, the word and the count.
+        groupArrow, element('span', runLive ? 'crusorai-tool-run-text crusorai-shimmer' : 'crusorai-tool-run-text', header), element('span', 'crusorai-tool-run-count', String(runTools.length)));
         details.append(summary);
         const body = element('div', 'crusorai-tool-run-body');
         for (const tool of runTools) {
