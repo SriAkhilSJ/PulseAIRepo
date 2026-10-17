@@ -1025,7 +1025,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-19';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-20';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1165,7 +1165,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-19'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-20'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -2453,7 +2453,7 @@ def test_approval_dock_is_style1_slim_bar():
     assert ".crusorai-permission-dot {" in css
     assert "background: var(--crusorai-approval)" in css
     once = css[css.index(".crusorai-permission-once {"):css.index(".crusorai-permission-once {") + 300]
-    assert "background: var(--vscode-foreground)" in once, "white Allow-once pill"
+    assert "background: #fff; color: #000;" in once, "white Allow-once pill, hardcoded pair (never theme vars)"
     assert "border-radius: 999px" in once, "pill verdicts"
     assert ".crusorai-approval-body {" not in css, "OpenCode shell retired"
     assert ".crusorai-permission-footer {" not in css, "OpenCode tray retired"
