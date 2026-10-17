@@ -344,32 +344,45 @@
 .crusorai-error-card-body { white-space: pre-wrap; word-break: break-word; }
 .crusorai-plan-list.crusorai-todos { padding: 10px 0 24px 0; gap: 8px; }
 
-/* OpenCode permission dock (session-permission-dock.tsx + DockPrompt
-   kind=permission + message-part.css), founder theme: a raised shell
-   (warning icon, "Permission required", hint + pattern rows aligned to
-   the 20px icon column) over a base tray that slides underneath it —
-   Deny ghost | Allow always neutral | Allow once primary. Surfaces and
-   text come from the editor tokens; amber lives ONLY on the icon. */
-.crusorai-approval-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 16px; padding: 14px 14px 12px; background: #000; border-radius: 12px; box-shadow: 0 0 0 1px var(--vscode-panel-border), 0 10px 30px rgba(0, 0, 0, .35); }
-.crusorai-permission-header { display: grid; grid-template-columns: 20px 1fr auto; column-gap: 8px; align-items: center; }
-.crusorai-permission-tool-chip { font-size: var(--crusorai-text-micro); color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-panel-border); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
-.crusorai-permission-icon { color: var(--crusorai-approval); display: inline-flex; align-items: center; justify-content: center; }
-.crusorai-permission-title { font-size: var(--crusorai-text-title); font-weight: 500; color: var(--vscode-foreground); min-width: 0; }
-.crusorai-permission-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; }
-.crusorai-permission-row { display: grid; grid-template-columns: 20px 1fr; column-gap: 8px; align-items: start; min-width: 0; }
-.crusorai-permission-spacer { display: block; }
-.crusorai-permission-hint { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-title); line-height: 1.45; overflow-wrap: anywhere; min-width: 0; }
-.crusorai-permission-patterns { display: flex; flex-direction: column; gap: 6px; min-width: 0; background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); border-radius: 8px; padding: 8px 10px; }
-.crusorai-permission-patterns code { font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-title); line-height: 1.45; word-break: break-all; color: var(--vscode-foreground); }
-.crusorai-permission-footer { position: relative; z-index: 0; display: flex; gap: 8px; justify-content: space-between; align-items: center; padding: 24px 8px 8px; margin-top: -16px; background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-panel-border); border-radius: var(--crusorai-radius-turn); }
-.crusorai-permission-actions { display: flex; gap: 8px; align-items: center; }
+/* Permission Style 1 — the slim bar (founder wireframe pick
+   2026-10-17, over the OpenCode dock and the headline sheet): ONE
+   strip in the transcript flow, no card/tray/icon column. Line one:
+   the approval dot (the only amber — approval is the earned amber),
+   the question, the pill verdicts (Deny ghost | Allow always
+   outline | Allow once white). Line two: the plain hint, the shell
+   command, file +/- counts + Review change. Black stays black;
+   colour only where earned. */
+.crusorai-permission-bar {
+	display: flex; flex-direction: column; gap: 8px;
+	padding: 10px 12px;
+	background: #000;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 10px;
+}
+.crusorai-permission-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.crusorai-permission-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--crusorai-approval); }
+.crusorai-permission-question {
+	flex: 1 1 auto; min-width: 0;
+	font-size: var(--crusorai-text-title); font-weight: 600;
+	color: var(--vscode-foreground); overflow-wrap: anywhere;
+}
+.crusorai-permission-actions { display: flex; gap: 8px; align-items: center; flex: none; }
 .crusorai-permission-deny { background: transparent; border: 1px solid transparent; color: var(--vscode-descriptionForeground); border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 7px; align-items: center; }
 .crusorai-permission-deny:hover { color: var(--vscode-foreground); background: var(--vscode-list-hoverBackground); }
 .crusorai-permission-always { background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 999px; padding: 6px 12px; cursor: pointer; font: inherit; display: inline-flex; gap: 6px; align-items: center; }
-.crusorai-permission-always:hover { background: color-mix(in srgb, var(--vscode-button-secondaryBackground) 88%, var(--vscode-foreground)); }
+.crusorai-permission-always:hover { background: var(--vscode-list-hoverBackground); }
 .crusorai-permission-once { background: var(--vscode-foreground); color: var(--vscode-editor-background, #000); border: 1px solid transparent; border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; display: inline-flex; gap: 7px; align-items: center; font-weight: 600; }
 .crusorai-permission-once:hover { opacity: .88; }
 .crusorai-permission-once .crusorai-approval-kbd, .crusorai-permission-deny .crusorai-approval-kbd { opacity: .55; }
+.crusorai-permission-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 17px; min-width: 0; }
+.crusorai-permission-hint { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body-lg); line-height: 1.45; overflow-wrap: anywhere; min-width: 0; }
+.crusorai-permission-hint.is-risk { color: var(--vscode-foreground); }
+.crusorai-permission-command {
+	font-family: var(--vscode-editor-font-family, monospace); font-size: var(--crusorai-text-body-lg);
+	color: var(--vscode-foreground); word-break: break-all;
+	background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+	border-radius: 6px; padding: 2px 7px;
+}
 
 /* OpenCode question-option mark: radio dot / checkbox beside each choice. */
 .crusorai-question-mark { flex: none; width: 14px; height: 14px; margin-top: 2px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
@@ -725,39 +738,10 @@
 /* The change under review sits flat inside the shell (the shell is the
    surface; a second framed box inside it was Crusor chrome OpenCode
    does not have). */
-.crusorai-approval-diff-preview {
-	width: 100%;
-	margin-top: 6px;
-	overflow: hidden;
-	background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
-	border-radius: 8px;
-	padding: 8px 10px 4px;
-}
-.crusorai-approval-diff-header {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 2px 0 6px;
-	border-bottom: 1px solid var(--vscode-panel-border);
-	font-size: var(--crusorai-text-meta);
-}
-.crusorai-approval-action-badge {
-	padding: 1px 5px;
-	border-radius: 3px;
-	background: color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent);
-	color: var(--vscode-focusBorder);
-	font-size: var(--crusorai-text-micro);
-	font-weight: 600;
-	text-transform: uppercase;
-}
-.crusorai-approval-file-path {
-	font-family: var(--crusorai-font-mono);
-	color: var(--vscode-foreground);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	flex: 1 1 auto;
-}
+
+
+
+
 
 .crusorai-approval-review {
 	display: inline-flex; align-items: center; gap: 4px;

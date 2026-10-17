@@ -185,20 +185,20 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	assert "crusorai-clarify-form" in css and ".crusorai-key-badge" in css
 	assert "todoStack(" in renderer and ".crusorai-todo-row" in css
 	assert "crusorai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
-	# The approval dock is OpenCode's permission dock (captured
-	# session-permission-dock) with founder polish (2026-10-17):
-	# header "Permission required" + the asked tool in a chip, the
-	# resource patterns as code rows, verdict row Deny | Allow always
-	# | Allow once, Always behind the confirm dialog.
-	for piece in ("crusorai-permission-footer", "crusorai-permission-once", "Permission required", "crusorai-permission-tool-chip", "Allow once", "crusorai-dialog-overlay"):
+	# The approval bar is Style 1 (founder wireframe pick 2026-10-17):
+	# one slim strip -- dot, question, pill verdicts on line one; the
+	# hint / command / counts on line two. Always behind the confirm
+	# dialog.
+	for piece in ("crusorai-permission-bar", "crusorai-permission-once", "function approvalQuestion", "Allow once", "crusorai-dialog-overlay"):
 		assert piece in renderer, piece
-	assert "crusorai-permission-patterns" in renderer and "crusorai-permission-footer" in css
+	assert "Permission required" not in renderer, "Style 1 asks the question directly"
+	assert "permission-patterns" in renderer and ".crusorai-permission-bar" in css
 	# Field 2026-10-17: the dock's hint is one plain restated sentence
 	# (OpenCode's per-tool permission description) — the guard's chat
 	# markdown ("**Safety Check:** … Reply with: 'yes'…") never paints
 	# raw, and no surface shows a JSON dump of the approval payload.
 	assert "function approvalHintText" in renderer
-	assert "element('div', 'crusorai-permission-hint', approvalHintText(approval))" in renderer, (
+	assert "element('span', 'crusorai-permission-hint', hintText)" in renderer and "const hintText = approvalHintText(approval);" in renderer, (
 		"the hint line is the restated sentence, never the raw warning")
 	assert "This file already exists. Running this will overwrite it." in renderer
 	assert "git-ignored, so nothing can restore it" in renderer
@@ -1025,7 +1025,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-18';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-19';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1165,7 +1165,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-18'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-19'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -2431,33 +2431,33 @@ def test_engine_registry_resume_model_and_spawn_policy():
     assert "Available agents: {_listing}" in chat_graph
     assert "_DELEGATE_BASE_DESCRIPTIONS" in chat_graph
 
-def test_approval_dock_is_opencode_polished():
-    """The approval UI is OpenCode's DockPrompt (kind=permission) --
-    raised shell (permission-body) with warning icon + 'Permission
-    required', hint and pattern rows on the 20px icon column, base
-    tray (permission-footer) underneath carrying Deny | Allow always
-    | Allow once -- with the founder's polish over the clone
-    (2026-10-17: "opencode UI, change some things should looks
-    nice"): the asked tool named in a chip on the title row, pattern
-    and diff rows inset on a faint panel, pill verdicts with a WHITE
-    Allow-once, blacker surfaces. The tint era stays gone: no amber
-    border/wash, no warning box, no Hermes approval-bar CSS; amber
-    lives only on the icon (approval is the earned amber)."""
+def test_approval_dock_is_style1_slim_bar():
+    """Founder 2026-10-17 picked Style 1 from wireframes over the
+    OpenCode dock and the headline sheet: ONE slim strip in the
+    transcript flow. Line one: the approval dot (the only amber),
+    the question ("Overwrite notes.py?" / "Run this command?"), the
+    pill verdicts (Deny ghost | Allow always outline | Allow once
+    white). Line two: the plain hint, the shell command, file +/-
+    counts + Review change. No card, no sliding tray, no 20px icon
+    column, no "Permission required" title; the tint era stays gone
+    and amber lives only on the dot."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "body.dataset.slot = 'permission-body'" in renderer
-    assert "permissionFooter.dataset.slot = 'permission-footer'" in renderer
+    assert "bar.dataset.slot = 'permission-body'" in renderer
+    assert "question.dataset.slot = 'permission-header-title'" in renderer
     assert "footerActions.dataset.slot = 'permission-footer-actions'" in renderer
-    assert "icon('warning')" in renderer
-    assert "crusorai-permission-tool-chip" in renderer and "crusorai-permission-tool-chip" in css
-    assert ".crusorai-approval-body {" in css
-    assert "background: #000" in css
-    assert ".crusorai-permission-footer {" in css
-    assert "margin-top: -16px" in css  # tray slides under the shell
-    assert ".crusorai-permission-icon { color: var(--crusorai-approval);" in css
+    assert "function approvalQuestion" in renderer
+    assert "Overwrite ${fileName}?" in renderer
+    assert "Permission required" not in renderer
+    assert ".crusorai-permission-bar {" in css
+    assert ".crusorai-permission-dot {" in css
+    assert "background: var(--crusorai-approval)" in css
     once = css[css.index(".crusorai-permission-once {"):css.index(".crusorai-permission-once {") + 300]
     assert "background: var(--vscode-foreground)" in once, "white Allow-once pill"
     assert "border-radius: 999px" in once, "pill verdicts"
+    assert ".crusorai-approval-body {" not in css, "OpenCode shell retired"
+    assert ".crusorai-permission-footer {" not in css, "OpenCode tray retired"
+    assert "margin-top: -16px" not in css, "the sliding tray is retired"
     assert "border-top: 1px solid var(--crusorai-approval)" not in css
     assert "var(--crusorai-approval) 9%" not in css
     assert "crusorai-approval-warning" not in renderer and "crusorai-approval-warning" not in css
@@ -2476,4 +2476,4 @@ def test_diff_preview_failure_never_paints_the_error_lane():
     assert "does not include inline text" not in service
     open_diff = service[service.index("private async openDiff"):service.index("private readonly syntaxColorCache")]
     assert "this.error" not in open_diff, "preview failures never reach the error lane"
-    assert "approval.diff && !isShell" in renderer, "Review change is offered only for file diffs"
+    assert "const reviewButton = hasFileDiff ? button('Review change'" in renderer, "Review change is offered only for file diffs"

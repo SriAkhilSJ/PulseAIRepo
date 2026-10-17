@@ -5,7 +5,7 @@
 1. Pull `arena/0d4596c3-pulseairepo`.
 2. Fully quit and reopen the agent (a running workbench keeps the old
    compiled panel — that is what the freshness stamp exists to catch).
-3. The status chip must read **`593b9aa1` · `ui 2026-10-17-18`**.
+3. The status chip must read **`593b9aa1` · `ui 2026-10-17-19`**.
    Anything older = you are not testing this code; stop and tell me.
 
 Run each check in the **desktop agent**. Mark ✅ / ❌ and send me the
