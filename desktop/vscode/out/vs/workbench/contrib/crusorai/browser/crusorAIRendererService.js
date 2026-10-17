@@ -2606,13 +2606,19 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             modified ??= resource;
             if (!original || !modified) {
-                throw new Error('This tool receipt does not include inline text or native original/modified diff resources.');
+                // No preview exists for this approval (shell commands,
+                // repeat/external asks carry no diff). The preview is
+                // best-effort decoration — the dock itself is the ask.
+                // Silently skip: field 2026-10-17, this threw into the
+                // engine-error lane and painted a red "receipt" box
+                // with a Retry button mid-run.
+                return;
             }
             await this.workbenchService.openNativeDiff(this.resourceUri(original).toString(), this.resourceUri(modified).toString(), label);
         }
-        catch (error) {
-            this.error = error instanceof Error ? error.message : String(error);
-            this.render();
+        catch {
+            // Best-effort preview: a failed editor diff must never
+            // masquerade as an engine error (see above).
         }
     }
     /**

@@ -185,12 +185,14 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	assert "crusorai-clarify-form" in css and ".crusorai-key-badge" in css
 	assert "todoStack(" in renderer and ".crusorai-todo-row" in css
 	assert "crusorai-todo-ring" in renderer, "pending items speak dashed ring, not spinner-and-dot"
-	# The approval dock is OpenCode's permission dock (founder 2026-10-15,
-	# captured session-permission-dock): header "Permission required", the
-	# resource patterns as code rows, footer Deny | Allow always | Allow once,
-	# with Always behind the confirm dialog.
-	for piece in ("crusorai-permission-footer", "crusorai-permission-once", "Permission required", "Allow once", "crusorai-dialog-overlay"):
+	# The approval surface is the Crusor permission sheet (founder
+	# 2026-10-17, original design -- explicitly NOT OpenCode's dock):
+	# eyebrow + one headline question, the resource as a code row,
+	# verdict row Deny | Allow always | Allow once, Always behind the
+	# confirm dialog.
+	for piece in ("crusorai-permission-footer", "crusorai-permission-once", "crusorai-permission-sheet", "function approvalQuestion", "Allow once", "crusorai-dialog-overlay"):
 		assert piece in renderer, piece
+	assert "Permission required" not in renderer, "the generic OpenCode title is retired"
 	assert "crusorai-permission-patterns" in renderer and "crusorai-permission-footer" in css
 	# Field 2026-10-17: the dock's hint is one plain restated sentence
 	# (OpenCode's per-tool permission description) — the guard's chat
@@ -1024,7 +1026,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-16';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-17';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1164,7 +1166,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-16'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-17'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -2430,30 +2432,50 @@ def test_engine_registry_resume_model_and_spawn_policy():
     assert "Available agents: {_listing}" in chat_graph
     assert "_DELEGATE_BASE_DESCRIPTIONS" in chat_graph
 
-def test_approval_dock_is_opencode_dockprompt_in_founder_theme():
-    """The approval UI is OpenCode's DockPrompt (kind=permission) wearing
-    the founder's theme — verified against the captured
-    session-permission-dock.tsx / message-part.css: raised shell
-    (permission-body) with warning icon + 'Permission required', hint
-    and plain-code pattern rows on the 20px icon column, and a base
-    tray (permission-footer) underneath carrying Deny | Allow always |
-    Allow once. The amber approval colour lives ONLY on the icon: the
-    earlier tinted card (amber top border + 9% amber wash + warning
-    box) matched neither OpenCode nor 'black stays black'."""
+def test_approval_dock_is_the_crusor_permission_sheet():
+    """Founder 2026-10-17: the permission UI gets an original look --
+    "should not look like opencode completely", "change layouts or
+    designing so it looks nice". The sheet: one black card, hairline
+    border; an eyebrow rail (pulsing approval dot = the ONLY amber,
+    PERMISSION in tracked micro caps, the tool as a quiet chip); ONE
+    headline question naming the act + target ("Overwrite notes.py?",
+    "Run this command?"); the plain hint beneath; the resource
+    itself; and a single verdict row. OpenCode's dock (warning icon +
+    "Permission required" header on a 20px icon column over a tray
+    sliding underneath) is retired, as is the tint era before it."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "body.dataset.slot = 'permission-body'" in renderer
+    assert "sheet.dataset.slot = 'permission-body'" in renderer
     assert "permissionFooter.dataset.slot = 'permission-footer'" in renderer
     assert "footerActions.dataset.slot = 'permission-footer-actions'" in renderer
-    assert "icon('warning')" in renderer
-    assert ".crusorai-approval-body {" in css
-    assert "background: var(--vscode-editorWidget-background)" in css
-    assert ".crusorai-permission-footer {" in css
-    assert "margin-top: -16px" in css  # tray slides under the shell
-    assert ".crusorai-permission-icon { color: var(--crusorai-approval);" in css
-    # The tint era is gone: no amber border/wash, no warning box, no
-    # boxed pattern code, no leftover Hermes approval-bar CSS.
+    assert "question.dataset.slot = 'permission-header-title'" in renderer
+    assert "function approvalQuestion" in renderer
+    assert "Overwrite ${fileName}?" in renderer
+    assert "Permission required" not in renderer
+    assert ".crusorai-permission-sheet {" in css
+    assert "border-radius: 14px" in css
+    assert ".crusorai-permission-dot {" in css
+    assert "background: var(--crusorai-approval)" in css
+    assert ".crusorai-approval-body {" not in css, "OpenCode shell retired"
+    assert "margin-top: -16px" not in css, "the sliding tray is retired"
+    # The tint era stays gone: no amber border/wash, no warning box,
+    # no leftover Hermes approval-bar CSS.
     assert "border-top: 1px solid var(--crusorai-approval)" not in css
     assert "var(--crusorai-approval) 9%" not in css
     assert "crusorai-approval-warning" not in renderer and "crusorai-approval-warning" not in css
     assert "crusorai-approval-bar" not in css and "crusorai-approval-pill" not in css
+
+
+def test_diff_preview_failure_never_paints_the_error_lane():
+    """Field 2026-10-17: every safety_request auto-tried to open an
+    editor diff; approvals with no diff (shell commands, repeat and
+    external asks) threw 'This tool receipt does not include...' into
+    the service error field, painting a red box + Retry mid-run. The
+    preview is best-effort decoration -- the sheet itself is the ask:
+    a missing or failed preview must be a silent no-op."""
+    service = _text("browser", "crusorAIRendererService.ts")
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "does not include inline text" not in service
+    open_diff = service[service.index("private async openDiff"):service.index("private readonly syntaxColorCache")]
+    assert "this.error" not in open_diff, "preview failures never reach the error lane"
+    assert "approval.diff && !isShell" in renderer, "Review change is offered only for file diffs"

@@ -242,6 +242,30 @@ def test_env_read_is_denied_by_default(tmp_path):
     assert message.status == "error" and "Permission denied" in message.content
 
 
+def test_env_via_shell_is_still_denied(tmp_path):
+    """Field 2026-10-17: the model reached the secret with
+    `(test -f .env && cat .env ...)` through the shell — the read
+    deny follows the file, not the tool."""
+    (tmp_path / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    asked, message = _drive_tool(
+        tmp_path, "cfg-env-shell", "c-30", "run_terminal",
+        {"command": "test -f .env && cat .env || echo missing"},
+    )
+    assert not asked, "a config deny must never reach the dock"
+    assert message.status == "error" and "Permission denied" in message.content
+
+
+def test_home_relative_shell_path_asks(tmp_path):
+    """Field 2026-10-17: `cat ~/.bashrc` must ask (home is outside
+    the project) — previously only absolute paths were mined."""
+    asked, message = _drive_tool(
+        tmp_path, "cfg-home-shell", "c-31", "run_terminal",
+        {"command": "cat ~/.bashrc"},
+    )
+    assert asked, "home-relative shell paths must hit the outside-project ask"
+    assert message.status != "error"
+
+
 def test_external_directory_asks_by_default(tmp_path):
     outside = tmp_path.parent / "outside-cfg-test.txt"
     outside.write_text("outside\n", encoding="utf-8")
