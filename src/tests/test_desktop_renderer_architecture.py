@@ -206,6 +206,14 @@ def test_hermes_task_and_ask_pipeline_is_wired_end_to_end():
 	# "always" verdict grants (session, tool, resource) and the veto
 	# classes re-ask forever (executed in test_permission_grants).
 	assert "session_grant_vetoed" in (ROOT / "src" / "context" / "safety_guard.py").read_text(encoding="utf-8")
+	# Full OpenCode permission config (founder 2026-10-17): ask/allow/
+	# deny rule table in src/context/permission_config.py, evaluated
+	# in SafeToolNode over the guard; the two guard actions get their
+	# own plain hint lines.
+	assert "def effect_for" in (ROOT / "src" / "context" / "permission_config.py").read_text(encoding="utf-8")
+	assert "This touches files outside the project directory." in renderer
+	assert "The same call has repeated 3 times with identical input." in renderer
+	assert "perm_decisions = _permission_decisions(" in (ROOT / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
 	# A pending call's missing result is not "{}" — nothing arrived,
 	# so nothing paints (field 2026-10-17: List files showing {}).
 	assert "No output yet is NOT" in renderer
@@ -1021,7 +1029,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-14';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-15';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1161,7 +1169,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-14'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-15'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

@@ -10,6 +10,7 @@ files, git-ignored paths) are re-asked every time.
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -154,3 +155,166 @@ def test_veto_class_reasks_even_after_allow_always(tmp_path):
     assert asked, "a sensitive file must ask"
     asked, _ = _drive_write(tmp_path, session, "v-2", args, always=True)
     assert asked, "secrets are re-asked every time — no grant can silence them"
+
+
+# ── OpenCode permission config (ask / allow / deny rule table) ──────
+
+def _write_settings(tmp_path, payload: dict) -> None:
+    folder = tmp_path / ".crusorai"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "settings.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRUSORAI_HOME", str(tmp_path / "no-home"))
+
+
+def _drive_tool(tmp_path, session, tool_id, name, args, *, state=None, always=False):
+    """One call through SafeToolNode; answer the dock if it asks."""
+    from src.dashboard.event_bus import approval_queue
+    from src.graphs.chat_graph import SafeToolNode, tools
+    from src.context.safety_guard import SafetyGuard
+
+    node = SafeToolNode(tools, SafetyGuard(str(tmp_path)))
+    thread, box = _run_node(
+        node, state or _state(tool_id, name, args), _config(session, str(tmp_path))
+    )
+    item = _await_pending(session, tool_id, timeout=3.0)
+    asked = item is not None
+    if asked:
+        approval_queue.resolve(tool_id, True, always_allow=always, session_id=session)
+    thread.join(timeout=15)
+    assert not thread.is_alive()
+    if "error" in box:
+        raise box["error"]
+    return asked, box["result"]["messages"][0]
+
+
+def test_rule_evaluation_is_upstreams():
+    from src.context.permission_config import effect_for, evaluate, load_permission_rules
+
+    rules = load_permission_rules("", "")
+    assert evaluate("bash", "git status", rules) == "allow", "defaults allow"
+    assert evaluate("doom_loop", "*", rules) == "ask"
+    assert evaluate("external_directory", "/etc/passwd", rules) == "ask"
+    assert evaluate("read", "app.env", rules) == "deny"
+    assert evaluate("read", "app.env.local", rules) == "deny"
+    assert evaluate("read", "app.env.example", rules) == "allow", "later rule wins"
+
+    custom = rules + [
+        ("bash", "*", "ask"),
+        ("bash", "git *", "allow"),
+        ("bash", "rm *", "deny"),
+    ]
+    assert effect_for("bash", ["git status"], custom) == "allow"
+    assert effect_for("bash", ["npm test"], custom) == "ask"
+    assert effect_for("bash", ["rm -rf x"], custom) == "deny"
+    assert effect_for("edit", ["a.py", "b.py"], custom + [("edit", "b.py", "deny")]) == "deny", (
+        "any resource denying denies the call"
+    )
+
+
+def test_config_ask_routes_bash_to_the_dock(tmp_path):
+    _write_settings(tmp_path, {"permission": {"bash": "ask"}})
+    asked, message = _drive_tool(
+        tmp_path, "cfg-ask", "c-1", "run_terminal", {"command": "echo hi"}
+    )
+    assert asked, "a config ask must reach the human"
+    assert message.status != "error"
+
+
+def test_config_deny_blocks_without_asking(tmp_path):
+    _write_settings(tmp_path, {"permission": {"edit": "deny"}})
+    asked, message = _drive_tool(
+        tmp_path, "cfg-deny", "c-2", "write_file",
+        {"path": "new_file.py", "content": "x = 1\n"},
+    )
+    assert not asked, "a denial is refused outright, never asked about"
+    assert message.status == "error" and "Permission denied" in message.content
+    assert not (tmp_path / "new_file.py").exists(), "denied means NOT executed"
+
+
+def test_env_read_is_denied_by_default(tmp_path):
+    (tmp_path / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    asked, message = _drive_tool(tmp_path, "cfg-env", "c-3", "read_file", {"path": ".env"})
+    assert not asked
+    assert message.status == "error" and "Permission denied" in message.content
+
+
+def test_external_directory_asks_by_default(tmp_path):
+    outside = tmp_path.parent / "outside-cfg-test.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    try:
+        asked, message = _drive_tool(
+            tmp_path, "cfg-ext", "c-4", "run_terminal",
+            {"command": f"cat {outside}"},
+        )
+        assert asked, "a shell reaching outside the project asks first"
+        assert message.status != "error" and "outside" in message.content
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_per_agent_rules_override_for_the_main_agent(tmp_path):
+    _write_settings(tmp_path, {"agent": {"build": {"permission": {"bash": "deny"}}}})
+    asked, message = _drive_tool(
+        tmp_path, "cfg-agent", "c-5", "run_terminal", {"command": "echo hi"}
+    )
+    assert not asked and message.status == "error", "agent.build rules govern the main agent"
+
+
+def test_doom_loop_asks_on_the_third_identical_call(tmp_path):
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
+
+    def _turn(call_id):
+        return AIMessage(
+            content="",
+            tool_calls=[{"id": call_id, "name": "read_file", "args": {"path": "a.txt"}}],
+        )
+
+    state = {
+        "messages": [
+            HumanMessage(content="read it"),
+            _turn("d-1"),
+            ToolMessage(content="hello", tool_call_id="d-1", name="read_file"),
+            _turn("d-2"),
+            ToolMessage(content="hello", tool_call_id="d-2", name="read_file"),
+            _turn("d-3"),
+        ]
+    }
+    asked, message = _drive_tool(
+        tmp_path, "cfg-doom", "d-3", "read_file", {"path": "a.txt"}, state=state
+    )
+    assert asked, "the third identical call in a row asks (doom_loop)"
+    assert message.status != "error", "approved, the call runs"
+
+
+def test_doom_loop_allow_in_config_runs_silently(tmp_path):
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    _write_settings(tmp_path, {"permission": {"doom_loop": "allow"}})
+    (tmp_path / "a.txt").write_text("hello\n", encoding="utf-8")
+
+    def _turn(call_id):
+        return AIMessage(
+            content="",
+            tool_calls=[{"id": call_id, "name": "read_file", "args": {"path": "a.txt"}}],
+        )
+
+    state = {
+        "messages": [
+            HumanMessage(content="read it"),
+            _turn("e-1"),
+            ToolMessage(content="hello", tool_call_id="e-1", name="read_file"),
+            _turn("e-2"),
+            ToolMessage(content="hello", tool_call_id="e-2", name="read_file"),
+            _turn("e-3"),
+        ]
+    }
+    asked, message = _drive_tool(
+        tmp_path, "cfg-doom-allow", "e-3", "read_file", {"path": "a.txt"}, state=state
+    )
+    assert not asked and message.status != "error"

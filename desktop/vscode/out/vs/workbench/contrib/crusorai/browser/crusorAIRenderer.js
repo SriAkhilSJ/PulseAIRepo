@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-14';
+const CRUSORAI_UI_STAMP = '2026-10-17-15';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2778,6 +2778,12 @@ function approvalHintText(approval) {
     }
     if (/git-ignored/.test(lower)) {
         return 'This file is git-ignored, so nothing can restore it if this goes wrong.';
+    }
+    if (/outside the project/.test(lower)) {
+        return 'This touches files outside the project directory.';
+    }
+    if (/repeated 3 times/.test(lower)) {
+        return 'The same call has repeated 3 times with identical input.';
     }
     if (approval.name === 'run_terminal' || approval.name === 'start_terminal' || approval.name === 'terminal' || approval.name === 'execute_code') {
         return 'Run shell commands';

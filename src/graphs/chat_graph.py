@@ -226,6 +226,119 @@ def _tool_call_key(tc: dict) -> str:
     return f"{tc.get('name', '')}:{args}"
 
 
+def _doom_repeats(tc: dict, state: dict | None) -> int:
+    """Consecutive identical calls already ANSWERED this turn
+    (OpenCode's doom_loop: the same tool call repeats with
+    identical input). Trailing run only — a different call in
+    between (a write between two reads) breaks the loop."""
+    key = _tool_call_key(tc)
+    messages = list((state or {}).get("messages") or [])
+    start = 0
+    for i, m in enumerate(messages):
+        if getattr(m, "type", "") == "human":
+            start = i + 1
+    answered = {
+        str(getattr(m, "tool_call_id", "") or "")
+        for m in messages
+        if getattr(m, "type", "") == "tool"
+    }
+    executed: list[str] = []
+    for m in messages[start:]:
+        for prior in (getattr(m, "tool_calls", None) or []):
+            if str(prior.get("id") or "") in answered:
+                executed.append(_tool_call_key(prior))
+    count = 0
+    for prior_key in reversed(executed):
+        if prior_key != key:
+            break
+        count += 1
+    return count
+
+
+def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, guard) -> dict[str, dict]:
+    """OpenCode permission evaluation for one batch, over the guard.
+
+    Returns {tool_call_id: {"effect", "warning", "action"}} for every
+    call the config does NOT simply allow. Deny is final; ask routes
+    to the approval dock on the desktop channel and auto-denies where
+    no human can answer (sub-agents, autonomous runs). The guard's
+    own verdicts are computed separately by the caller and always
+    outrank an "allow" here.
+    """
+    from src.context.permission_config import (
+        effect_for, load_permission_rules, tool_action_resources,
+    )
+
+    agent_key = "build"
+    if thread_id.startswith("sub-"):
+        agent_key = ""
+        try:
+            from src.runtime.subagent_store import get_store
+            row = get_store().get_by_child(thread_id)
+            agent_key = str(getattr(row, "mode", "") or "") if row else ""
+        except Exception:
+            agent_key = ""
+    rules = load_permission_rules(workspace, agent_key)
+    workspace_root = guard.workspace
+    decisions: dict[str, dict] = {}
+    for tc in tool_calls:
+        tc_id = str(tc.get("id") or "")
+        args = tc.get("args", {}) or {}
+        action, resources = tool_action_resources(tc.get("name", ""), args)
+        effect = effect_for(action, resources, rules)
+        warning = ""
+        # Guard action: touching paths outside the project directory.
+        # The file tools resolve through the workspace clamp and
+        # physically cannot leave it, so asking there would promise
+        # access the tools refuse anyway; the real escape is the
+        # shell (absolute paths in the command text) and any other
+        # tool carrying an unclamped path arg.
+        clamped = {
+            "read_file", "write_file", "edit_file", "copy_file",
+            "list_files", "search_files", "search_code",
+            "delete_file", "move_file",
+        }
+        candidates: list[str] = []
+        if tc.get("name", "") in ("run_terminal", "start_terminal", "terminal"):
+            import re as _re
+            candidates = _re.findall(
+                r"(?:[A-Za-z]:\\[^\s'\";|]+|/[^\s'\";|]+)", resources[0] if resources else ""
+            )
+        elif tc.get("name", "") not in clamped:
+            for arg_key in ("path", "file_path", "dst", "src", "cwd"):
+                raw = args.get(arg_key)
+                if isinstance(raw, str) and raw.strip():
+                    candidates.append(raw)
+        external_paths = []
+        for raw in candidates:
+            resolved = guard._resolve_path(raw)
+            if resolved != workspace_root and workspace_root not in resolved.parents:
+                external_paths.append(str(resolved))
+        if external_paths:
+            external_effect = effect_for("external_directory", external_paths, rules)
+            if external_effect == "deny":
+                effect = "deny"
+            elif external_effect == "ask" and effect != "deny":
+                effect = "ask"
+                warning = "🌐 **Outside the project:** this call touches paths outside the project directory."
+        # Guard action: the same call repeating with identical input.
+        if _doom_repeats(tc, state) >= 2:
+            doom_effect = effect_for("doom_loop", ["*"], rules)
+            if doom_effect == "deny":
+                effect = "deny"
+            elif doom_effect == "ask" and effect != "deny":
+                effect = "ask"
+                warning = "🌀 **Doom loop:** the same call has repeated 3 times with identical input."
+        if effect == "deny":
+            decisions[tc_id] = {
+                "effect": "deny", "action": action,
+                "warning": f"⛔ Permission denied: {action} blocked by the permission config.",
+            }
+        elif effect == "ask":
+            decisions[tc_id] = {"effect": "ask", "action": action, "warning": warning}
+    return decisions
+
+
 def _drop_repeated_read_calls(result: Any, state: dict) -> Any:
     """Strip read-only tool calls that already ran identically this turn."""
     calls = list(getattr(result, "tool_calls", None) or [])
@@ -5312,6 +5425,16 @@ class SafeToolNode:
             guard = SafetyGuard(workspace)
             self._guards_by_workspace[ws_key] = guard
 
+        # OpenCode permission config (ask/allow/deny rule table) over
+        # the guard: {tool_call_id: {effect, warning, action}} for
+        # every call the config does not simply allow. Each channel
+        # below consumes it its own way — the dock asks, deny-only
+        # channels (sub-agents, autonomous runs) refuse.
+        perm_decisions = _permission_decisions(
+            tool_calls, workspace=workspace, thread_id=thread_id,
+            state=state, guard=guard,
+        )
+
         # --- D20: sub-agent threads auto-deny instead of prompting -------
         if thread_id.startswith("sub-") and os.environ.get(
             "CRUSORAI_SUBAGENT_AUTO_APPROVE", ""
@@ -5321,6 +5444,14 @@ class SafeToolNode:
                 for tc in tool_calls
             ]
             unsafe = [v for v in verdicts if not v[1]]
+            # Permission config: a child cannot ask, so an ask is a
+            # denial here too (per-agent rules govern children).
+            unsafe_ids_here = {str(v[0].get("id") or "") for v in unsafe}
+            for tc in tool_calls:
+                decision = perm_decisions.get(str(tc.get("id") or ""))
+                if decision and str(tc.get("id") or "") not in unsafe_ids_here:
+                    verdicts.append((tc, False, decision["warning"] or "Permission required by the permission config."))
+                    unsafe.append(verdicts[-1])
             if not unsafe:
                 return _with_repaired(self._execute_durable(tool_calls, config))
 
@@ -5368,6 +5499,15 @@ class SafeToolNode:
         ]
         unsafe = [v for v in verdicts if not v[1]]
         autonomous = os.environ.get("CRUSORAI_AUTO_APPROVE_WRITES", "").strip() == "1"
+        if autonomous:
+            # No human can answer on this path: config asks and
+            # denials refuse alongside guard-unsafe calls.
+            unsafe_ids_here = {str(v[0].get("id") or "") for v in unsafe}
+            for tc in tool_calls:
+                decision = perm_decisions.get(str(tc.get("id") or ""))
+                if decision and str(tc.get("id") or "") not in unsafe_ids_here:
+                    verdicts.append((tc, False, decision["warning"] or "Permission required by the permission config."))
+                    unsafe.append(verdicts[-1])
         if unsafe and autonomous:
             # D11: per-call DENIAL instead of a fabricated AIMessage — the
             # AUTONOMOUS path (no human to answer). The old main-thread
@@ -5437,6 +5577,9 @@ class SafeToolNode:
 
         approval_candidates = []
         preapproved_ids: set[str] = set()
+        denied_ids = {
+            tc_id for tc_id, d in perm_decisions.items() if d["effect"] == "deny"
+        }
         if approval_channel:
             # A prior "Allow always" verdict for this exact tool +
             # resource skips the queue (OpenCode's session ruleset).
@@ -5451,17 +5594,25 @@ class SafeToolNode:
                     and approval_policy in {"workspace_session", "session"}
                     and tc.get("id") not in unsafe_by_id
                 )
-                if tc.get("id") in unsafe_by_id or (is_mutation and not auto_safe_mutation):
+                decision = perm_decisions.get(str(tc.get("id") or ""))
+                if decision and decision["effect"] == "deny":
+                    # A config denial never reaches the dock — it is
+                    # refused outright (upstream's BlockedError).
+                    denied_ids.add(str(tc.get("id") or ""))
+                    continue
+                config_ask = bool(decision and decision["effect"] == "ask")
+                if tc.get("id") in unsafe_by_id or (is_mutation and not auto_safe_mutation) or config_ask:
+                    ask_warning = warning or (decision["warning"] if decision else "")
                     if (
-                        not session_grant_vetoed(warning)
+                        not session_grant_vetoed(ask_warning)
                         and _queue_peek.is_granted(
                             thread_id or "default", _approval_grant_key(tc)
                         )
                     ):
                         preapproved_ids.add(str(tc.get("id") or ""))
                         continue
-                    approval_candidates.append((tc, False, warning))
-        if approval_channel and (approval_candidates or preapproved_ids):
+                    approval_candidates.append((tc, False, ask_warning))
+        if approval_channel and (approval_candidates or preapproved_ids or denied_ids):
             # Real pre-execution UI approval: publish the proposed diff, wait
             # on this session's request, deny on timeout/failure, then execute
             # only approved + originally-safe calls through the durable path.
@@ -5472,6 +5623,12 @@ class SafeToolNode:
             unsafe_ids = {tc.get("id") for tc, _, _ in approval_candidates}
             approved_ids: set[str] = set(preapproved_ids)
             denials: dict[str, ToolMessage] = {}
+            for tc in tool_calls:
+                tc_id_str = str(tc.get("id") or "")
+                if tc_id_str in denied_ids:
+                    denials[tc_id_str] = self._durable_denial(
+                        tc, perm_decisions[tc_id_str]["warning"], config,
+                    )
             for tc, _, warning in approval_candidates:
                 tool_id = str(tc.get("id") or "")
                 request_item = approval_queue.request(
@@ -5526,10 +5683,27 @@ class SafeToolNode:
                     )
             runnable = [
                 tc for tc in tool_calls
-                if tc.get("id") not in unsafe_ids or tc.get("id") in approved_ids
+                if str(tc.get("id") or "") not in denied_ids
+                and (tc.get("id") not in unsafe_ids or tc.get("id") in approved_ids)
             ]
             results = {m.tool_call_id: m for m in self._execute_durable(runnable, config)}
             results.update(denials)
+            ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
+            return _with_repaired(ordered)
+
+        if denied_ids and not unsafe:
+            # Permission-config denials on a channel with no dock to
+            # ask through: refuse those calls, execute the rest.
+            runnable = [
+                tc for tc in tool_calls if str(tc.get("id") or "") not in denied_ids
+            ]
+            results = {m.tool_call_id: m for m in self._execute_durable(runnable, config)}
+            for tc in tool_calls:
+                tc_id_str = str(tc.get("id") or "")
+                if tc_id_str in denied_ids:
+                    results[tc_id_str] = self._durable_denial(
+                        tc, perm_decisions[tc_id_str]["warning"], config,
+                    )
             ordered = [results[tc["id"]] for tc in tool_calls if tc.get("id") in results]
             return _with_repaired(ordered)
 
