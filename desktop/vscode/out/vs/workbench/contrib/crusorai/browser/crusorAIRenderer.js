@@ -7,7 +7,7 @@ import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { openHubDialog } from './crusorAIHubDialog.js';
 import { crusorSessionIdFromUri } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
-import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
+import { hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, isCardTool, isFileEditTool, isSilentTool, splitActivityGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-15';
+const CRUSORAI_UI_STAMP = '2026-10-17-16';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -2597,23 +2597,10 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             }
             lane.append(row);
         }
-        // same closing rollup for past turns (first-touched order, +/- summed)
-        const turnFiles = deriveChangedFiles(turn.tools);
-        if (turnFiles.length) {
-            const card = element('div', 'crusorai-changed-files');
-            card.dataset.component = 'changed-files';
-            card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${turnFiles.length} file${turnFiles.length === 1 ? '' : 's'} changed`)));
-            const rows = element('div', 'crusorai-changed-files-rows');
-            for (const file of turnFiles) {
-                const row = element('div', 'crusorai-changed-file-row is-activatable show-file-icons', fileIcon(host, file.path), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
-                row.title = file.path;
-                const target = file.path;
-                row.addEventListener('click', () => host.revealFile(target));
-                rows.append(row);
-            }
-            card.append(rows);
-            lane.append(card);
-        }
+        // No per-turn rollup box (founder 2026-10-17: "what is
+        // the use of box?? why spawning now itself"): it repeated the
+        // file + counts every Write/Edit card already carries, live
+        // from the first landed edit.
     }
     // Current turn (breathing when running)
     if (model.userMessage) {
@@ -2659,11 +2646,6 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
         }
         lane.append(row);
-    }
-    // hermes changed-files-card: the turn-closing "N files changed" rollup.
-    const changed = changedFilesCard(model, host);
-    if (changed) {
-        lane.append(changed);
     }
     if (model.voiceHeard) {
         const heard = model.voiceHeard;
@@ -3707,29 +3689,9 @@ function terminalOutputContent(output, running) {
     }
     return pre;
 }
-// hermes changed-files-card.tsx: the turn-closing "N files changed" rollup —
-// one row per LANDED file edit, +/- summed, click opens the file. Wears the
-// shared widget chrome so it reads as the transcript's other inline widgets.
-function changedFilesCard(model, host) {
-    const files = deriveChangedFiles(model.tools);
-    if (!files.length) {
-        return undefined;
-    }
-    const card = element('div', 'crusorai-changed-files');
-    card.dataset.component = 'changed-files';
-    card.append(element('div', 'crusorai-changed-files-head', element('span', undefined, `${files.length} file${files.length === 1 ? '' : 's'} changed`)));
-    const rows = element('div', 'crusorai-changed-files-rows');
-    for (const file of files) {
-        const row = element('div', 'crusorai-changed-file-row show-file-icons');
-        row.append(fileIcon(host, file.path), element('span', 'crusorai-changed-file-name', file.name), element('span', 'crusorai-diff-count', element('span', 'is-added', `+${file.added}`), element('span', 'is-removed', `−${file.removed}`)));
-        row.title = file.path;
-        row.classList.add('is-activatable');
-        row.addEventListener('click', () => host.revealFile(file.path));
-        rows.append(row);
-    }
-    card.append(rows);
-    return card;
-}
+// (The per-turn rollup box lived here until 2026-10-17 —
+// removed as duplication: each Write/Edit card already shows its
+// file and +/− counts.)
 const executionModes = [
     { id: 'agent', label: 'Agent', description: 'Build, change, and verify', icon: 'infinity' },
     { id: 'plan', label: 'Plan', description: 'Design before execution', icon: 'list-ordered' },

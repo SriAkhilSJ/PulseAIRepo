@@ -339,8 +339,19 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
     return decisions
 
 
-def _drop_repeated_read_calls(result: Any, state: dict) -> Any:
-    """Strip read-only tool calls that already ran identically this turn."""
+def _drop_repeated_read_calls(result: Any, state: dict, *, doom_defers: bool = False) -> Any:
+    """Strip read-only tool calls that already ran identically this turn.
+
+    Doom-loop hand-off (field 2026-10-17): when the permission rules
+    would ASK (or deny) about a repeated loop, dropping silently
+    swallows the human's decision — the founder's run showed three
+    dropped reads and no dock. With `doom_defers`, repeats pass
+    through untouched and SafeToolNode's doom counter owns them
+    (2nd executes, 3rd asks). Under doom_loop="allow" the old silent
+    drop stands, which is what that policy means.
+    """
+    if doom_defers:
+        return result
     calls = list(getattr(result, "tool_calls", None) or [])
     if not calls:
         return result
@@ -2549,7 +2560,26 @@ def ai_node(
         )
     )
 
-    result = _drop_repeated_read_calls(result, state)
+    # Doom-loop hand-off: if the permission rules would ask (or deny)
+    # about a repeated loop, the drop above must not eat the repeats.
+    _doom_defers = False
+    try:
+        from src.context.permission_config import effect_for, load_permission_rules
+        _agent = "build"
+        if session_id.startswith("sub-"):
+            try:
+                from src.runtime.subagent_store import get_store
+                _row = get_store().get_by_child(session_id)
+                _agent = str(getattr(_row, "mode", "") or "") if _row else ""
+            except Exception:
+                _agent = ""
+        _doom_defers = effect_for(
+            "doom_loop", ["*"],
+            load_permission_rules(str(configurable.get("workspace") or "."), _agent),
+        ) != "allow"
+    except Exception:
+        _doom_defers = False
+    result = _drop_repeated_read_calls(result, state, doom_defers=_doom_defers)
     # The kept attempt's held head paints now (answers under the hold cap
     # arrive whole; longer ones already went live mid-generation).
     _release_held_answer(session_id)

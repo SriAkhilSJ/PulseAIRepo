@@ -1884,32 +1884,9 @@
 .crusorai-ansi-bright-white { color: var(--vscode-editor-foreground); }
 .crusorai-ansi-line .is-bold { font-weight: 700; }
 
-/* ── hermes changed-files-card.tsx (ported 2026-09-09) ──
-   The turn-closing "N files changed" rollup: widget chrome shared with the
-   transcript's other inline cards, ~5 rows tall before it scrolls. */
-.crusorai-changed-files {
-	margin-top: 6px;
-	padding: 6px 8px;
-	border: 1px solid var(--vscode-widget-border, #4444);
-	border-radius: 8px;
-	background: var(--vscode-sideBar-background);
-}
-.crusorai-changed-files-head {
-	display: flex; align-items: center; gap: 8px;
-	color: var(--vscode-foreground); font-size: var(--crusorai-text-body);
-}
-.crusorai-changed-files-rows {
-	display: flex; flex-direction: column;
-	max-height: 9.375rem; overflow: auto; margin-top: 4px;
-}
-.crusorai-changed-file-row {
-	display: flex; align-items: center; gap: 8px;
-	padding: 2px 6px; border-radius: 6px;
-	color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body);
-}
-.crusorai-changed-file-row.is-activatable { cursor: pointer; }
-.crusorai-changed-file-row.is-activatable:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
-.crusorai-changed-file-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The "N files changed" rollup chrome was removed 2026-10-17
+   (duplication of the Write/Edit cards). Only the shared diff
+   count survives -- the approval dock's diff header wears it. */
 .crusorai-diff-count { display: inline-flex; gap: 6px; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-text-micro); }
 .crusorai-diff-count .is-added { color: var(--vscode-diffEditor-insertedTextForeground, #3fb950); }
 .crusorai-diff-count .is-removed { color: var(--vscode-diffEditor-removedTextForeground, #f85149); }

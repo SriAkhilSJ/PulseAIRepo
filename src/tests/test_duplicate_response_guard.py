@@ -38,6 +38,20 @@ def test_identical_read_call_is_dropped():
     assert (out.tool_calls or []) == [], "the 3x list_files loop dies at ai_node"
 
 
+def test_doom_ask_means_repeats_pass_through():
+    """Field 2026-10-17: this guard silently ate three identical
+    reads, so the doom_loop permission ask never fired. When the
+    permission layer would ask/deny about the loop, repeats must
+    survive to SafeToolNode's doom counter."""
+    state = {"messages": _turn_with_executed(call_id="c1", name="read_file",
+                                            args={"path": "notes.py"}, result="x=1")}
+    result = _result_with(name="read_file", args={"path": "notes.py"})
+    out = cg._drop_repeated_read_calls(result, state, doom_defers=True)
+    assert len(out.tool_calls or []) == 1, "the repeat is the permission layer's business now"
+    out = cg._drop_repeated_read_calls(result, state, doom_defers=False)
+    assert (out.tool_calls or []) == [], "under doom_loop=allow the silent drop stands"
+
+
 def test_read_after_intervening_write_is_kept():
     messages = _turn_with_executed()
     messages += [

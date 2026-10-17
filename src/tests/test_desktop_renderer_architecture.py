@@ -975,24 +975,19 @@ def test_hermes_diff_grammar_ported():
     assert ".crusorai-diff-body" in css and "overflow: visible" in css
 
 
-def test_changed_files_rollup_ported():
-    """hermes changed-files.ts + changed-files-card.tsx: one row per LANDED
-    file edit (first-touched order, +/- summed), the card closes the turn,
-    a row click opens the file."""
+def test_changed_files_rollup_removed():
+    """Founder 2026-10-17: "what is the use of box?? why spanning now
+    itself" -- the turn-closing "N files changed" rollup duplicated
+    every Write/Edit card's file + counts and rendered live from the
+    first landed edit. Removed everywhere; the derivation helper may
+    stay as a pure function, but no card may wear it."""
     module = _text("browser", "crusoraiCardFormat.ts")
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
+    assert "changedFilesCard" not in renderer
+    assert "changed-files" not in renderer
+    assert ".crusorai-changed-files" not in css
     assert "export function deriveChangedFiles" in module
-    assert "['write_file', 'edit_file', 'copy_file']" in module
-    assert "tool.state !== 'passed' && tool.state !== 'completed'" in module, (
-        "running/failed edits changed nothing and must not count"
-    )
-    assert "changedFilesCard(" in renderer
-    assert "lane.append(changed);" in renderer, "the rollup closes the CURRENT turn"
-    assert "turnFiles.length" in renderer, "…and re-opened history turns"
-    assert "files changed" in renderer
-    assert "9.375rem" in css  # hermes MAX_ROWS_HEIGHT (~5 rows)
-    assert "crusorai-diff-count" in css
 
 
 def test_markdown_block_grammar_ported():
@@ -1029,7 +1024,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-15';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-16';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1101,7 +1096,7 @@ def test_compiled_crusorai_panel_ships_in_git_and_carries_the_stamp():
     bundle = (browser / "crusorAIRenderer.js").read_text(encoding="utf-8")
     assert "2026-09-10" in bundle, "bundle predates the current UI round"
     assert "stripTerminalEnvelope" in bundle
-    assert "crusorai-changed-files-head" in bundle
+    assert "crusorai-changed-files-head" not in bundle, "rollup box removed 2026-10-17"
     info = (browser / "BUILD_INFO.json").read_text(encoding="utf-8")
     assert '"commit"' in info
     emitter = (FORK / "scripts" / "emit-crusorai-bundle.mjs").read_text(encoding="utf-8")
@@ -1169,7 +1164,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-15'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-16'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
