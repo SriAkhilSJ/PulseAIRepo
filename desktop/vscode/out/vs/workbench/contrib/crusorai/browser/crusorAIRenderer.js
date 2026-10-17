@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-4';
+const CRUSORAI_UI_STAMP = '2026-10-17-5';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -1218,7 +1218,7 @@ function toolArgsChips(tool) {
  * read, the match count found — computed from what the tool actually
  * delivered, never invented.
  */
-const INLINE_INFO_TOOLS = new Set(['read_file', 'search_files', 'search_code', 'web_fetch', 'web_extract']);
+const INLINE_INFO_TOOLS = new Set(['read_file', 'web_fetch', 'web_extract']);
 /** OpenCode webfetch: the URL is a LINK in the header, no body. */
 const WEB_LINK_TOOLS = new Set(['web_fetch', 'web_extract']);
 function toolInlineInfo(tool) {
@@ -1256,23 +1256,7 @@ function toolInlineInfo(tool) {
         }
         return undefined;
     }
-    // Glob/Grep: the pattern rides the args chips; here the count.
-    const matches = result?.matches ?? result?.results;
-    if (Array.isArray(matches)) {
-        return `${matches.length} match${matches.length === 1 ? '' : 'es'}`;
-    }
-    const text = (typeof tool.result === 'string' ? tool.result : undefined) ?? firstString(result, ['content', 'output', 'text']);
-    if (!text) {
-        return undefined;
-    }
-    if (/^No results found/.test(text)) {
-        return 'No matches';
-    }
-    if (/^(Error:|Path does not exist|⛔)/.test(text)) {
-        return undefined;
-    }
-    const count = text.split('\n').filter(line => line.trim() && !line.startsWith('...')).length;
-    return count > 0 ? `${count} match${count === 1 ? '' : 'es'}` : undefined;
+    return undefined;
 }
 /** A muted `key=value`-slot chip (OpenCode basic-tool-tool-arg). */
 function toolInfoChip(text) {
@@ -1874,6 +1858,24 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // family defaults open ('always'/'running'); defaults only govern
     // rows the user never touched.
     details.open = !closedTools.has(tool.id) && (openTools.has(tool.id) || shouldDefaultOpen);
+    // OpenCode BasicTool, exactly (founder 2026-10-17: read the
+    // folder, implement the same — processes carved out above):
+    // the chevron exists ONLY when the call actually produced
+    // content, and while a call runs the row is locked shut/open
+    // as-is — except the shell family (terminal/code), which may
+    // be opened mid-run to watch. So the body is built first and
+    // measured: no content, no chevron, no toggle, no body node.
+    const allowOpenWhilePending = presentation.family === 'terminal' || presentation.family === 'code';
+    let body;
+    let bodyHasContent = false;
+    if (!isInline) {
+        body = familyBody(tool, host, subAgents);
+        body.dataset.slot = 'collapsible-content';
+        if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) {
+            body.append(errorCard(tool));
+        }
+        bodyHasContent = (body.textContent ?? '').trim().length > 0 || !!body.querySelector('img, svg, canvas');
+    }
     // Hermes wording (ThinkingDisclosure): a live block says "Thinking", a
     // settled one says "Thought" — the tool catalog title stays canonical for
     // other surfaces; the transcript row speaks hermes.
@@ -1943,7 +1945,7 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
         else {
             subtitle = element('span', 'crusorai-tool-target', targetText);
         }
-        if (presentation.family === 'terminal' || presentation.family === 'process') {
+        if (presentation.family === 'terminal' || presentation.family === 'code') {
             // OpenCode shell trigger (tool-renderer.tsx): the command rides
             // the header ONLY while collapsed — once the card opens, the
             // bash-output box carries it and the header goes bare. First
@@ -1952,6 +1954,16 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
             subtitle.textContent = targetText.split('\n')[0];
         }
         subtitle.dataset.slot = 'basic-tool-tool-subtitle';
+    }
+    if (!subtitle && tool.name === 'execute_code') {
+        // OpenCode execute trigger: the script's first line rides
+        // the header while collapsed (their ShellSubmessage); the
+        // code view inside carries the whole script when open.
+        const code = firstString(record(tool.arguments), ['code']);
+        if (code) {
+            subtitle = element('span', 'crusorai-tool-target crusorai-shell-command', code.split('\n')[0]);
+            subtitle.dataset.slot = 'basic-tool-tool-subtitle';
+        }
     }
     // OpenCode DiffChanges rides the header (their file-accordion actions):
     // counted +a −r next to the filename — earned from the result, so it
@@ -1970,7 +1982,9 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     titleStructured.dataset.slot = 'basic-tool-tool-info-structured';
     const toolInfo = element('span', undefined, titleStructured);
     toolInfo.dataset.slot = 'basic-tool-tool-info';
-    const arrow = element('span', undefined, isPending || isInline ? undefined : icon('chevron-down'));
+    // The BasicTool arrow rule: painted only when there is content
+    // to open, and while a call runs only the shell family keeps it.
+    const arrow = element('span', undefined, !isInline && bodyHasContent && (!isPending || allowOpenWhilePending) ? icon('chevron-down') : undefined);
     arrow.dataset.slot = 'collapsible-arrow';
     const triggerContent = element('span', undefined, isPending ? element('span', 'crusorai-mini-spinner') : undefined, toolInfo, arrow);
     triggerContent.dataset.slot = 'basic-tool-tool-trigger-content';
@@ -1998,19 +2012,26 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
         }
         return row;
     }
-    const body = familyBody(tool, host, subAgents);
-    body.dataset.slot = 'collapsible-content';
-    if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) {
-        body.append(errorCard(tool));
+    // No content → no body node at all (upstream renders no
+    // collapsible content for such tools; the row stays a line).
+    details.append(summary);
+    if (body && bodyHasContent) {
+        details.append(body);
     }
-    details.append(summary, body);
     // Persist ONLY user-driven disclosure. A 'toggle' listener also fires
     // for the programmatic `details.open = true` a running row gets on
     // every streaming repaint — that latched every live "Thinking" row
     // into openTools, so settled "Thought" rows stayed expanded and
     // painted the model's inner monologue full-size (field 2026-10-15).
     // A summary click is always the user's own hand (mouse or keyboard).
-    summary.addEventListener('click', () => {
+    summary.addEventListener('click', (event) => {
+        // BasicTool's handleOpenChange, exactly: a content-less row
+        // has nothing to open, and a running row (shell family
+        // excepted) ignores the hand until it settles.
+        if (!bodyHasContent || (isPending && !allowOpenWhilePending)) {
+            event.preventDefault();
+            return;
+        }
         if (details.open) {
             openTools.delete(tool.id);
             closedTools.add(tool.id);
