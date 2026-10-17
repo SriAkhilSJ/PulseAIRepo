@@ -346,6 +346,25 @@ def test_process_code_and_preview_families_have_designed_bodies():
         assert selector in css, selector
 
 
+def test_activity_grouping_follows_opencode_law():
+    """Founder 2026-10-17: 'continous same commands should be
+    registered as a dropdown'. Consecutive reads/searches fold
+    under one Explored dropdown, file edits fold PER FILE
+    ('Edit x2 <same>'), other tools fold only on exact back-to-back
+    repeats ('Terminal x3'); cards and process lines never fold.
+    The merge engine is executed in test_hermes_run_summary_parity;
+    here the renderer's key assignment is pinned."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "function activityGroupKey(tool: CrusorAIToolView): string | null" in renderer
+    assert "if (crusorAIToolPresentation(name).family === 'process') { return null; }" in renderer, "processes never fold"
+    assert "return target ? `edit:${target}` : `edit:${name}`;" in renderer, "edits key per file"
+    assert "'list_files', 'read_file', 'search_files', 'search_code', 'session_search'" in renderer
+    assert "return `name:${name}`;" in renderer, "only true repeats fold"
+    assert "splitActivityGroups(tools, activityGroupKey)" in renderer
+    assert "function activityGroupHeader" in renderer
+    assert "'Exploring' : 'Explored'" in renderer
+
+
 def test_delegate_card_chevron_slot_never_animates_layout():
 	"""Founder 2026-10-16 (build -8): hovering the running delegate
 	card shook it right-left. Upstream's chevron slot animates width
@@ -970,7 +989,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-5';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-6';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1110,7 +1129,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-5'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-6'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

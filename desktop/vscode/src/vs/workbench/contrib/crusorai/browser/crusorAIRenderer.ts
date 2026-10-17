@@ -13,7 +13,7 @@ import type { CrusorAISurface } from '../common/crusorAIRendererService.js';
 import { crusorSessionIdFromUri, type CrusorAISessionRow } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { deriveChangedFiles, hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
-import { compactTarget, splitRunGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
+import { compactTarget, isCardTool, isFileEditTool, isSilentTool, splitActivityGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
 import {
@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-5';
+const CRUSORAI_UI_STAMP = '2026-10-17-6';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -2143,6 +2143,55 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	return details;
 }
 
+/** Consecutive reads/searches fold under one "Explored" dropdown
+ *  (OpenCode's read group); web, browser and verification calls keep
+ *  their own rows unless the same tool repeats back-to-back. */
+const EXPLORE_GROUP_TOOLS = new Set(['list_files', 'read_file', 'search_files', 'search_code', 'session_search']);
+
+/**
+ * The group key a call carries into splitActivityGroups (OpenCode's
+ * grouping law, founder 2026-10-17: "continous same commands should
+ * be registered as a dropdown"): explore stretches share one key;
+ * file edits key PER FILE, so "Edit x2 <same>" is one dropdown;
+ * any other tool keys by its own name, so only true repeats fold
+ * ("Terminal x3"). Null = draws its own surface and never folds:
+ * sub-agent/question cards, silent thoughts, and — the founder's
+ * standing carve-out — processes, which stay single lines in place.
+ */
+function activityGroupKey(tool: CrusorAIToolView): string | null {
+	const name = tool.name;
+	if (!name) { return null; }
+	if (crusorAIToolPresentation(name).family === 'process') { return null; }
+	if (isFileEditTool(name)) {
+		const target = displayTarget(tool);
+		return target ? `edit:${target}` : `edit:${name}`;
+	}
+	if (isCardTool(name) || isSilentTool(name)) { return null; }
+	if (EXPLORE_GROUP_TOOLS.has(name)) { return 'explore'; }
+	return `name:${name}`;
+}
+
+/** The dropdown's one-line header: verb + the thing it covers. */
+function activityGroupHeader(groupKey: string, members: readonly CrusorAIToolView[], live: boolean): { label: string; target?: string } {
+	const baseName = (target: string): string => target.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? target;
+	if (groupKey === 'explore') {
+		// Upstream's read group lists the filenames on the line itself.
+		const targets = members
+			.map(tool => compactTarget(displayTarget(tool)))
+			.filter((target): target is string => !!target)
+			.map(baseName);
+		const shown = targets.slice(0, 3).join(', ');
+		const rest = targets.length > 3 ? ` +${targets.length - 3} more` : '';
+		return { label: live ? 'Exploring' : 'Explored', target: shown ? `${shown}${rest}` : undefined };
+	}
+	if (groupKey.startsWith('edit:')) {
+		const names = new Set(members.map(tool => tool.name));
+		const label = names.size === 1 ? crusorAIToolPresentation(members[0]?.name ?? '').title : 'Edit';
+		return { label, target: baseName(groupKey.slice('edit:'.length)) };
+	}
+	return { label: crusorAIToolPresentation(groupKey.slice('name:'.length)).title };
+}
+
 /**
  * Cards and runs, in order -- the same split the CopilotKit webview renders.
  *
@@ -2163,35 +2212,34 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 		));
 	}
 
-	const groups = splitRunGroups(tools);
-	// Hermes: a SINGLE action is one bare row — never a collapsible run group
-	// with a "(1)" count bubble wrapping its own duplicate header (owner
-	// screenshot 2026-09-04: "Running dir /b (1)" over a "Terminal dir /b"
-	// card said the same thing twice). Only 2+ calls earn a run summary.
-	if (groups.length === 1 && groups[0].kind === 'run' && groups[0].tools.length === 1) {
-		section.append(toolRow(groups[0].tools[0], host, openTools, closedTools, pendingClarify, subAgents));
-		return section;
-	}
+	const groups = splitActivityGroups(tools, activityGroupKey);
+	// A SINGLE action is one bare row — never a collapsible group wrapping
+	// its own duplicate header (founder screenshot 2026-09-04: "Running
+	// dir /b (1)" over a "Terminal dir /b" card said the same thing
+	// twice). Only 2+ same-kind consecutive calls earn a dropdown.
 	for (const group of groups) {
-		if (group.kind === 'card') {
+		if (group.kind === 'single') {
 			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify, subAgents));
 			continue;
 		}
 		const runTools = group.tools;
-		const key = runTools[0]?.id ?? `run-${group.start}`;
+		const key = runTools[0]?.id ?? `run-${group.groupKey}`;
 		const runLive = live && runTools.some(tool => tool.state === 'running' || tool.state === 'queued');
 		const details = element('details', `crusorai-tool-run${runLive ? ' is-live' : ''}`) as HTMLDetailsElement;
 		details.dataset.component = 'tool-run';
 		details.dataset.conversationScaffold = '';
 		details.dataset.runKey = key;
+		details.dataset.groupKind = group.groupKey === 'explore' ? 'explore' : group.groupKey.startsWith('edit:') ? 'edit' : 'name';
 		details.open = !closedTools.has(key) && (runLive || openTools.has(key));
 		details.addEventListener('toggle', () => {
 			if (details.open) { openTools.add(key); closedTools.delete(key); }
 			else { openTools.delete(key); closedTools.add(key); }
 		});
+		const header = activityGroupHeader(group.groupKey, runTools, runLive);
 		const summary = element('summary', 'crusorai-tool-run-summary',
 			runLive ? element('span', 'crusorai-mini-spinner') : icon('tools'),
-			element('span', 'crusorai-tool-run-text', summarizeToolRun(runTools, runLive, tool => compactTarget(displayTarget(tool)) ?? tool.name)),
+			element('span', 'crusorai-tool-run-text', header.label),
+			header.target ? element('span', 'crusorai-tool-run-target', header.target) : undefined,
 			element('span', 'crusorai-tool-run-count', String(runTools.length)),
 		);
 		details.append(summary);

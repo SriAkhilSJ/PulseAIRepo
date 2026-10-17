@@ -1,13 +1,12 @@
 /*---------------------------------------------------------------------------------------------
- * Activity runs: the grouping rule and the summary clause machinery, mirrored from the
- * CopilotKit webview's `hermes-ui/model/run-summary.ts` and `components/tool-run.tsx`
- * (themselves ports of hermes-agent @ a9c783f2). Kept in its own module with no DOM
- * imports so the rule can be executed by a test instead of only grep-checked -- see
- * src/tests/test_hermes_run_summary_parity.py.
- *
- * Why the native right-panel view needs it at all: it used to render every tool call as
- * a flat "Actions" list, so the same turn read as a dense one-line summary in the
- * CopilotKit surface and as a dozen rows here. Two surfaces, one agent, two stories.
+ * Activity grouping + the summary clause machinery. The clause machinery (verbs,
+ * counting) is mirrored from the CopilotKit webview's `hermes-ui/model/run-summary.ts`
+ * and still narrates the session list; the GROUPING law changed on founder order
+ * 2026-10-17 to OpenCode's: consecutive same-kind calls register as one dropdown
+ * (their CurrentReadToolGroup / CurrentFileToolGroup / same-name repeats in
+ * third-party/opencode/session-ui), never one mixed sentence. Kept in its own
+ * module with no DOM imports so the rule can be executed by a test instead of
+ * only grep-checked — see src/tests/test_hermes_run_summary_parity.py.
  *--------------------------------------------------------------------------------------------*/
 /** Clause order is fixed so the same run always reads the same way. */
 const CATEGORY_ORDER = ['edit', 'explore', 'run', 'delegate', 'other'];
@@ -84,31 +83,48 @@ function lowerFirst(text) {
     return text.charAt(0).toLowerCase() + text.slice(1);
 }
 /**
- * Split a range of calls into cards and the runs of activity between them.
- *
- * Order is preserved rather than sorted: a turn that reads, edits, then reads again
- * shows a summary, the diff, then a second summary, in the sequence it happened. A
- * name that is empty is not a tool call at all and passes through as its own card.
+ * The grouping law (OpenCode's, founder 2026-10-17, replacing the
+ * hermes mixed-run fold for the transcript): consecutive calls
+ * carrying the same group key register as ONE dropdown; different
+ * kinds never mix; a lone call stands alone as a bare row. The
+ * key is the caller's to assign — explore reads/searches, one key
+ * per edited file, one per repeated tool name — exactly like
+ * summarizeToolRun's injected targetOf. A null key means "draws
+ * its own surface" (a diff card, a question, a process line): it
+ * renders singly and breaks any group in progress. Order is
+ * preserved rather than sorted: read, edit, read again shows the
+ * sequence it happened in.
  */
-export function splitRunGroups(tools) {
+export function splitActivityGroups(tools, keyOf) {
     const items = [];
-    let run = null;
-    tools.forEach((tool, index) => {
-        const name = tool.name ?? '';
-        if (!name || isCardTool(name)) {
-            run = null;
-            items.push({ kind: 'card', tool });
+    let current = null;
+    const flush = () => {
+        if (!current) {
             return;
         }
-        if (run) {
-            run.end = index;
-            run.tools.push(tool);
+        if (current.tools.length === 1) {
+            items.push({ kind: 'single', tool: current.tools[0] });
         }
         else {
-            run = { kind: 'run', start: index, end: index, tools: [tool] };
-            items.push(run);
+            items.push(current);
         }
-    });
+        current = null;
+    };
+    for (const tool of tools) {
+        const key = tool.name ? keyOf(tool) : null;
+        if (key === null) {
+            flush();
+            items.push({ kind: 'single', tool });
+            continue;
+        }
+        if (current && current.groupKey === key) {
+            current.tools.push(tool);
+            continue;
+        }
+        flush();
+        current = { kind: 'group', groupKey: key, tools: [tool] };
+    }
+    flush();
     return items;
 }
 function clause(category, tools, live, target) {
