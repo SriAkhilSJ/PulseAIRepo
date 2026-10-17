@@ -995,7 +995,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-9';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-10';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1135,7 +1135,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-9'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-10'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1970,9 +1970,13 @@ def test_file_accordion_matches_the_opencode_reference_render():
     assert "group.dataset.scope = 'apply-patch'" in renderer
     assert "name.dataset.slot = 'apply-patch-filename'" in renderer
     assert "body.append(fileAccordion(tool, host, view));" in renderer
-    # One gutter, old number for removals, new for the rest.
+    # One gutter, old number for removals, new for the rest. Founder
+    # 2026-10-17: the sign LEADS the number ('+ 1', '- 1').
     assert "const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);" in renderer
     assert "element('span', 'crusorai-diff-sign', sign)" in renderer
+    sign_at = renderer.index("element('span', 'crusorai-diff-sign', sign)")
+    gutter_at = renderer.index("element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : '')")
+    assert sign_at < gutter_at, "diff rows read '+ 1 code', never '1 + code'"
     assert "line.kind === 'add' ? '+' : line.kind === 'remove' ? '-'" in renderer
     assert ".crusorai-diff-row.is-add .crusorai-diff-sign { color: var(--crusorai-diff-add-foreground); }" in css
     assert ".crusorai-diff-row.is-remove .crusorai-diff-sign { color: var(--crusorai-diff-remove-foreground); }" in css
@@ -1981,6 +1985,15 @@ def test_file_accordion_matches_the_opencode_reference_render():
     assert ".crusorai-file-scroll { max-height: 300px" in css
     assert ".crusorai-scroll-down {" in css and ".crusorai-scroll-down.is-hidden" in css
     assert ".crusorai-file-view {" in css
+    # Founder 2026-10-17: 'dropdown menu is not highlighted' — the
+    # headers of all three dropdown layers (group, card, file
+    # accordion) carry a hover + open highlight.
+    assert ".crusorai-tool-summary:hover { background: var(--vscode-list-hoverBackground)" in css
+    assert ".crusorai-tool-row[open] > .crusorai-tool-summary" in css
+    assert ".crusorai-tool-run-summary:hover { background: var(--vscode-list-hoverBackground)" in css
+    assert ".crusorai-tool-run[open] > .crusorai-tool-run-summary" in css
+    assert ".crusorai-file-view-trigger:hover { background: var(--vscode-list-hoverBackground); }" in css
+    assert ".crusorai-file-view-item:not(.is-closed) .crusorai-file-view-trigger" in css
 
 
 def test_tool_cards_stream_from_tool_call_args():

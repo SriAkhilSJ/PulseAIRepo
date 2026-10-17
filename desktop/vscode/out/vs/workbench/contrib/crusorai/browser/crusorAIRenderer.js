@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-9';
+const CRUSORAI_UI_STAMP = '2026-10-17-10';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -3387,11 +3387,13 @@ function diffPreview(diff, path = '', colors) {
         // removed rows carry their OLD number, added/context their NEW
         // number, the number itself coloured by kind. Founder
         // 2026-10-15: 'also add diff view +,- -->green,red color' — an
-        // explicit sign column rides beside the gutter: '+' green on
-        // additions, '-' red on removals, blank on context.
+        // explicit sign rides beside the gutter: '+' green on
+        // additions, '-' red on removals, blank on context. Founder
+        // 2026-10-17: the sign LEADS the number ('+ 1', '- 1'), never
+        // trails it ('1 +').
         const no = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
         const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '-' : '';
-        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''), element('span', 'crusorai-diff-sign', sign), element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
+        wrap.append(element('span', `crusorai-diff-row is-${line.kind}`, element('span', 'crusorai-diff-sign', sign), element('span', 'crusorai-diff-gutter', no !== undefined ? String(no) : ''), element('span', 'crusorai-diff-text', syntaxText(line.text, language, state))));
     }
     if (parsed.length > DIFF_PREVIEW_LINE_LIMIT) {
         wrap.append(element('div', 'crusorai-diff-row is-truncated', `… ${parsed.length - DIFF_PREVIEW_LINE_LIMIT} more line(s)`));

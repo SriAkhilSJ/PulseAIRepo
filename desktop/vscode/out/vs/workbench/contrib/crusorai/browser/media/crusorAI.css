@@ -273,7 +273,11 @@
 }
 
 .crusorai-tool-summary::-webkit-details-marker { display: none; }
-.crusorai-tool-summary:hover { background: transparent; color: var(--vscode-foreground); }
+/* Dropdown headers are highlighted: hovered or open, the row
+   wears a quiet neutral wash so the menu reads as a menu
+   (founder 2026-10-17: 'dropdown menu is not highlighted'). */
+.crusorai-tool-summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); border-radius: 6px; }
+.crusorai-tool-row[open] > .crusorai-tool-summary { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); border-radius: 6px; }
 .crusorai-tool-summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .crusorai-tool-row[open] .crusorai-tool-summary > .codicon-chevron-right { transform: rotate(90deg); }
 .crusorai-tool-row.is-passed .crusorai-tool-summary > :first-child { color: var(--crusorai-verified); }
@@ -320,8 +324,9 @@
    box, the capped scroll frame, and the floating scroll-down button. */
 .crusorai-file-view { border: 0.5px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; margin-top: 6px; }
 .crusorai-file-view-header { margin: 0; font: inherit; }
-.crusorai-file-view-trigger { display: block; width: 100%; padding: 6px 10px; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.crusorai-file-view-item:not(.is-closed) .crusorai-file-view-trigger { border-bottom: 0.5px solid var(--vscode-panel-border); }
+.crusorai-file-view-trigger { display: block; width: 100%; padding: 6px 10px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.crusorai-file-view-trigger:hover { background: var(--vscode-list-hoverBackground); }
+.crusorai-file-view-item:not(.is-closed) .crusorai-file-view-trigger { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); border-bottom: 0.5px solid var(--vscode-panel-border); }
 .crusorai-file-view-chevron { display: inline-flex; transition: transform 120ms ease; }
 .crusorai-file-view-item.is-closed .crusorai-file-view-chevron { transform: rotate(-90deg); }
 .crusorai-file-view .crusorai-edit-content, .crusorai-file-view .crusorai-code-view { border: 0; border-radius: 0; margin-top: 0; }
@@ -1472,7 +1477,8 @@
 	color: var(--crusorai-scaffold-text);
 }
 .crusorai-tool-run-summary::-webkit-details-marker { display: none; }
-.crusorai-tool-run-summary:hover { background: transparent; color: var(--vscode-foreground); }
+.crusorai-tool-run-summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); border-radius: 6px; }
+.crusorai-tool-run[open] > .crusorai-tool-run-summary { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); border-radius: 6px; }
 .crusorai-tool-run.is-live .crusorai-tool-run-summary { color: var(--vscode-foreground); }
 .crusorai-tool-run-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-tool-run-count {
