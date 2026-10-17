@@ -304,8 +304,8 @@
    prose, never diff green). */
 .crusorai-write-content { margin-top: 6px; }
 .crusorai-code-view { border: 0.5px solid var(--vscode-panel-border); border-radius: 6px; overflow: hidden; padding: 8px 0; font-family: var(--crusorai-font-mono); font-size: var(--crusorai-conv-code-size); line-height: 1.5; color: var(--vscode-editor-foreground); tab-size: 4; }
-.crusorai-code-row { display: flex; align-items: baseline; gap: 12px; padding: 0 12px 0 0; white-space: pre; }
-.crusorai-code-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.crusorai-code-row { display: flex; align-items: baseline; gap: 8px; padding: 0 12px 0 0; white-space: pre; }
+.crusorai-code-gutter { flex: none; width: var(--crusorai-code-gutter-width, 3ch); text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
 .crusorai-code-text { white-space: pre; }
 
 /* Syntax token colours for the file viewers — the workbench theme's
@@ -1842,18 +1842,19 @@
 .crusorai-diff-row {
 	display: flex;
 	align-items: baseline;
-	gap: 10px;
+	gap: 6px;
 	white-space: pre;
-	border-left: 2px solid transparent;
 	padding: 0 12px 0 0;
 }
-.crusorai-diff-gutter { flex: none; width: 34px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
+.crusorai-diff-gutter { flex: none; width: var(--crusorai-diff-gutter-width, 3ch); text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
 .crusorai-diff-sign { flex: none; width: 10px; text-align: center; user-select: none; font-weight: 600; }
 .crusorai-diff-row.is-add .crusorai-diff-sign { color: var(--crusorai-diff-add-foreground); }
 .crusorai-diff-row.is-remove .crusorai-diff-sign { color: var(--crusorai-diff-remove-foreground); }
 .crusorai-diff-text { white-space: pre; }
-.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); border-left-color: var(--crusorai-diff-add-foreground); color: var(--vscode-editor-foreground); }
-.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); border-left-color: var(--crusorai-diff-remove-foreground); color: var(--vscode-editor-foreground); }
+/* No green/red edge line (founder 2026-10-17): the tint, the
+   coloured sign and the coloured number carry the change. */
+.crusorai-diff-row.is-add { background: var(--crusorai-diff-add-background); color: var(--vscode-editor-foreground); }
+.crusorai-diff-row.is-remove { background: var(--crusorai-diff-remove-background); color: var(--vscode-editor-foreground); }
 .crusorai-diff-row.is-add .crusorai-diff-gutter { color: var(--crusorai-diff-add-foreground); }
 .crusorai-diff-row.is-remove .crusorai-diff-gutter { color: var(--crusorai-diff-remove-foreground); }
 .crusorai-diff-row.is-context { color: var(--vscode-editor-foreground); }

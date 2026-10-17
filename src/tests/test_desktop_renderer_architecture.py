@@ -995,7 +995,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-10';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-11';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1135,7 +1135,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-10'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-11'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1994,6 +1994,18 @@ def test_file_accordion_matches_the_opencode_reference_render():
     assert ".crusorai-tool-run[open] > .crusorai-tool-run-summary" in css
     assert ".crusorai-file-view-trigger:hover { background: var(--vscode-list-hoverBackground); }" in css
     assert ".crusorai-file-view-item:not(.is-closed) .crusorai-file-view-trigger" in css
+    # Founder 2026-10-17 (later): 'gap is more' + 'remove that green
+    # line/red line — both in edit, write also streamed'. The gutter
+    # is computed from the widest number shown (no fixed 34px), the
+    # row gap is tight, and no diff row carries a coloured edge line
+    # (tint + coloured sign/number carry the change). diffPreview is
+    # the single painter for edit, settled write and streamed write.
+    assert "wrap.style.setProperty('--crusorai-diff-gutter-width', `${widestNo}ch`);" in renderer
+    assert ".crusorai-diff-gutter { flex: none; width: var(--crusorai-diff-gutter-width, 3ch);" in css
+    assert "border-left-color: var(--crusorai-diff-add-foreground)" not in css
+    assert "border-left-color: var(--crusorai-diff-remove-foreground)" not in css
+    diff_row_block = css.split(".crusorai-diff-row {", 1)[1].split("}", 1)[0]
+    assert "border-left" not in diff_row_block, "diff rows carry no edge line"
 
 
 def test_tool_cards_stream_from_tool_call_args():

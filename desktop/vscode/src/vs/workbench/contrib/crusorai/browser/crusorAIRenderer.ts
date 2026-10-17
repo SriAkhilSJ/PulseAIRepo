@@ -361,7 +361,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-10';
+const CRUSORAI_UI_STAMP = '2026-10-17-11';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -3452,6 +3452,15 @@ function diffPreview(diff: string, path = '', colors?: CrusorAISyntaxColors): HT
 	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const parsed = parseDiff(diff || '');
 	const shown = parsed.slice(0, DIFF_PREVIEW_LINE_LIMIT);
+	// The gutter is only as wide as the widest number actually shown
+	// (founder 2026-10-17: 'gap is more' — a fixed 34px gutter pushed
+	// '+ 1' apart into '+     1'); rows stay aligned because every
+	// gutter in this view shares the computed width.
+	const widestNo = shown.reduce((widest, line) => {
+		const candidate = line.kind === 'remove' ? line.oldNo : (line.newNo ?? line.oldNo);
+		return Math.max(widest, candidate !== undefined ? String(candidate).length : 0);
+	}, 1);
+	wrap.style.setProperty('--crusorai-diff-gutter-width', `${widestNo}ch`);
 	for (const line of shown) {
 		// OpenCode's diff viewer (their reference render): ONE gutter —
 		// removed rows carry their OLD number, added/context their NEW
@@ -3620,6 +3629,9 @@ function codeView(text: string, path = '', colors?: CrusorAISyntaxColors): HTMLE
 	const state: SyntaxState = { blockComment: false, triple: undefined };
 	const lines = text.split('\n');
 	const shown = lines.slice(0, CODE_VIEW_LINE_LIMIT);
+	// Same compact-gutter law as the diff view: the number column is
+	// only as wide as the widest number shown.
+	view.style.setProperty('--crusorai-code-gutter-width', `${String(shown.length).length}ch`);
 	shown.forEach((line, index) => {
 		view.append(element('span', 'crusorai-code-row',
 			element('span', 'crusorai-code-gutter', String(index + 1)),
