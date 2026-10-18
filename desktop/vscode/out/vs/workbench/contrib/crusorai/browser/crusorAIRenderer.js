@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-31';
+const CRUSORAI_UI_STAMP = '2026-10-18-32';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -4529,16 +4529,82 @@ export function mountCrusorAIRenderer(root, surface, host) {
         }
         return patched;
     };
+    // The install loader's in-place patch (founder 2026-10-18 field:
+    // "dropdown was also not working, cancel worked after multiple
+    // clicks"). Progress frames arrive up to 4x/second; a full
+    // repaint per frame replaced the very elements being clicked —
+    // a mousedown on the card, a rebuild, a mouseup on nothing.
+    // Like patchLiveToolOutputs above: touch text/width/class on the
+    // nodes that already exist, never the nodes themselves, so the
+    // card, its disclosure state, and its Cancel buttons ride
+    // through every progress frame untouched.
+    let lastInstallSig = '';
+    const patchInstallProgress = (model) => {
+        const sig = model.tools
+            .filter(t => t.name === 'install_toolchain')
+            .map(t => `${t.id}:${t.state}:${t.progressPercent ?? ''}:${t.progressLabel ?? ''}`)
+            .join('|');
+        if (sig === lastInstallSig) {
+            return;
+        }
+        lastInstallSig = sig;
+        for (const tool of model.tools) {
+            if (tool.name !== 'install_toolchain' || tool.state !== 'running') {
+                continue;
+            }
+            const details = root.querySelector(`details[data-tool-id="${tool.id}"]`);
+            if (!details) {
+                continue;
+            }
+            const percent = typeof tool.progressPercent === 'number'
+                ? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
+            const label = details.querySelector('.crusorai-install-progress-label');
+            if (label && tool.progressLabel) {
+                label.textContent = tool.progressLabel;
+            }
+            let percentEl = details.querySelector('.crusorai-install-progress-percent');
+            if (percent === undefined) {
+                percentEl?.remove();
+            }
+            else if (percentEl) {
+                percentEl.textContent = `${Math.round(percent)}%`;
+            }
+            else {
+                // First measured step after an unmeasured one: the
+                // box was built without a percent slot — add it
+                // beside the Cancel, where the full paint puts it.
+                percentEl = element('span', 'crusorai-install-progress-percent', `${Math.round(percent)}%`);
+                const cancel = details.querySelector('.crusorai-install-progress .crusorai-install-cancel');
+                if (cancel) {
+                    cancel.before(percentEl);
+                }
+                else {
+                    label?.after(percentEl);
+                }
+            }
+            details.querySelectorAll('.crusorai-install-progress-fill').forEach(fill => {
+                fill.classList.toggle('is-indeterminate', percent === undefined);
+                fill.style.width = percent === undefined ? '' : `${percent}%`;
+            });
+            const mini = details.querySelector('.crusorai-install-progress-mini');
+            if (mini && percent !== undefined) {
+                mini.title = `${tool.progressLabel || 'Installing'} — ${Math.round(percent)}%`;
+            }
+        }
+    };
     // Stable shape for the tool-output patch: everything the full signature
     // covers EXCEPT tool results (their growth is the patch's whole point).
     let lastStableSig = '';
     const stableSignature = (model) => {
-        // The install loader's fields ride the strip: a percent/label
-        // change MUST break stability and take the full paint, or the
-        // 0→100 loader freezes between tool-state changes (the engine
-        // already throttles to ~4 updates/sec, so repaints stay rare
-        // and happen only while an install runs).
-        const strip = (t) => ({ id: t.id, name: t.name, state: t.state, pct: t.progressPercent, lbl: t.progressLabel });
+        // The install loader's fields deliberately stay OUT of the
+        // strip: progress changes are patched in place
+        // (patchInstallProgress), never rebuilt. A full repaint here
+        // tore the card down up to 4x/second, and any click landing
+        // mid-rebuild died with its element — the founder's field
+        // report (2026-10-18: "dropdown was also not working, cancel
+        // worked after multiple clicks") was that race, not the
+        // buttons.
+        const strip = (t) => ({ id: t.id, name: t.name, state: t.state });
         return JSON.stringify({
             ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined,
             tools: model.tools.map(strip),
@@ -4552,6 +4618,7 @@ export function mountCrusorAIRenderer(root, surface, host) {
             lastPaint = undefined;
             lastStableSig = '';
             lastToolOutputSig = '';
+            lastInstallSig = '';
         }
         const signature = paintSignature(model);
         const stableSig = stableSignature(model);
@@ -4584,6 +4651,7 @@ export function mountCrusorAIRenderer(root, surface, host) {
             // snapshot polls of a watched child, overlay ticks — and
             // the lane read as unscrollable (field 2026-10-15).
             patchLiveToolOutputs(model);
+            patchInstallProgress(model);
             return;
         }
         const previousScroll = root.querySelector('.crusorai-transcript-scroll');

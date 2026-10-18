@@ -189,7 +189,10 @@ fake Flutter project. Now it must install the real SDK first.
    approval waits) → the
    download stops within a second, the partial file is removed,
    the turn ends, and no extra model call is spent on cancelling;
-   ask again and the install restarts cleanly.
+   ask again and the install restarts cleanly. Clicks land the
+   FIRST time at any point in the install (the loader paints in
+   place — if a click ever needs a second try during an install,
+   that is a bug to report, with the % you saw).
    It settles with a ✅ receipt naming the Flutter version (plus the
    UI-testing materials — scrcpy/Maestro — the same approval
    brought), and only THEN does `flutter create skydemo` run and the

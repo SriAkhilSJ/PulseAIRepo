@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-31';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-32';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-31'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-32'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1540,6 +1540,13 @@ def test_install_toolchain_card_and_dock_wiring():
     assert "turn_controls.cancelled" in engine
     assert "_size_label(total / 1_000_000)" in engine  # "199 MB of 1.49 GB"
     assert "_CANCEL_KEY" in engine  # config thread_id, never a thread-local
+    # Founder field (same day, second report): progress frames must
+    # patch the loader in place — full repaints tore the card down
+    # mid-click ("dropdown not working, cancel after multiple
+    # clicks"). The stability strip therefore carries NO progress
+    # fields; patchInstallProgress is the only progress painter.
+    assert "function patchInstallProgress" in renderer or "patchInstallProgress" in renderer
+    assert "({ id: t.id, name: t.name, state: t.state })" in renderer
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():

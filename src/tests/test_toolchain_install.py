@@ -412,6 +412,49 @@ def test_streaming_step_dies_fast_on_cancel(monkeypatch):
     assert subprocess.run  # (sanity: stdlib present; kill asserted by elapsed time)
 
 
+def test_live_cancel_kills_a_running_step_end_to_end(monkeypatch):
+    """The full Cancel chain with the REAL turn registry (founder
+    field: "cancel worked after multiple clicks" — the fix makes the
+    first one land): begin the session like the bridge does, run an
+    install whose step streams forever, cancel from another thread
+    like the bridge socket does, and the install must die fast."""
+    import sys
+    import threading
+    import time
+
+    from src.runtime.turn_control import turn_controls
+
+    state = {"flutter": False, "dart": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    def recipe(host, log, report):
+        ti._run_stream(
+            [sys.executable, "-c",
+             "import time\nfor i in range(600):\n print(i, flush=True); time.sleep(0.05)"],
+            timeout=120, on_line=lambda line: None,
+        )
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", recipe)
+    turn_controls.begin("sess-live")
+    outcome: dict[str, str] = {}
+    started = time.monotonic()
+    worker = threading.Thread(
+        target=lambda: outcome.setdefault(
+            "receipt", ti._install("flutter", session_id="sess-live")),
+        daemon=True,
+    )
+    try:
+        worker.start()
+        time.sleep(0.6)
+        assert turn_controls.cancel("sess-live") is True
+        worker.join(timeout=5)
+    finally:
+        turn_controls.end("sess-live")
+    assert not worker.is_alive(), "install ignored the session cancel"
+    assert time.monotonic() - started < 5
+    assert outcome["receipt"].startswith("⏹")
+
+
 def test_toolchain_check_points_at_the_installer(monkeypatch):
     from src.tools import target_tools
 
