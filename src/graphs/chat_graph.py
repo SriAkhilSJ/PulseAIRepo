@@ -266,7 +266,7 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
     outrank an "allow" here.
     """
     from src.context.permission_config import (
-        effect_for, load_permission_rules, saved_rules, tool_action_resources,
+        effect_for, load_permission_rules, tool_action_resources,
     )
 
     agent_key = "build"
@@ -286,13 +286,12 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
         args = tc.get("args", {}) or {}
         action, resources = tool_action_resources(tc.get("name", ""), args)
         effect = effect_for(action, resources, rules)
-        if effect == "ask":
-            # Upstream PermissionSaved: a persisted "always" pattern
-            # releases a config ask. It never releases a deny — the
-            # line above settled deny on the config rules alone.
-            from src.context.permission_config import saved_allows
-            if saved_allows(action, resources, saved_rules(workspace)):
-                effect = "allow"
+        # An "always" verdict releases later asks only inside its
+        # own session: SafeToolNode checks the ApprovalQueue grant
+        # store before queueing. Nothing is persisted across
+        # sessions (founder 2026-10-17: session-only permissions;
+        # upstream's PermissionSaved file layer was removed), so a
+        # config ask always reaches that session check unchanged.
         warning = ""
         # Guard action: touching paths outside the project directory.
         # The file tools resolve through the workspace clamp and
@@ -5663,16 +5662,10 @@ class SafeToolNode:
                 config_ask = bool(decision and decision["effect"] == "ask")
                 if tc.get("id") in unsafe_by_id or (is_mutation and not auto_safe_mutation) or config_ask:
                     ask_warning = warning or (decision["warning"] if decision else "")
-                    from src.context.permission_config import saved_releases
                     if (
                         not session_grant_vetoed(ask_warning)
-                        and (
-                            _queue_peek.is_granted(
-                                thread_id or "default", _approval_grant_key(tc)
-                            )
-                            or saved_releases(
-                                workspace, tc.get("name", ""), tc.get("args", {}) or {}
-                            )
+                        and _queue_peek.is_granted(
+                            thread_id or "default", _approval_grant_key(tc)
                         )
                     ):
                         preapproved_ids.add(str(tc.get("id") or ""))
@@ -5727,22 +5720,16 @@ class SafeToolNode:
                 if decision and decision.get("decision") is True:
                     approved_ids.add(tool_id)
                     # "Allow always": remember (session, tool, resource)
-                    # so the same ask is not repeated this session —
-                    # OpenCode's session ruleset. Veto classes (secrets,
-                    # git-ignored paths) are never remembered.
+                    # so the same ask is not repeated THIS session —
+                    # and only this session. Nothing is written to
+                    # disk; a fresh session asks again (founder
+                    # 2026-10-17: permission handling is session-only).
+                    # Veto classes (secrets, git-ignored paths) are
+                    # never remembered.
                     if decision.get("always_allow") and not session_grant_vetoed(warning):
                         approval_queue.grant(
                             thread_id or "default", _approval_grant_key(tc)
                         )
-                        # Upstream PermissionSaved: the verdict also
-                        # persists per project, so the resource is not
-                        # re-asked in the next session either. Veto
-                        # classes never persist (the check above).
-                        from src.context.permission_config import (
-                            save_grant, tool_action_resources as _tar,
-                        )
-                        _act, _res = _tar(tc.get("name", ""), tc.get("args", {}) or {})
-                        save_grant(workspace, _act, _res)
                 else:
                     reason = (
                         "cancelled"

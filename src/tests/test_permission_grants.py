@@ -344,42 +344,51 @@ def test_doom_loop_allow_in_config_runs_silently(tmp_path):
     assert not asked and message.status != "error"
 
 
-def test_always_verdict_persists_per_project(tmp_path):
-    """Upstream PermissionSaved: an "always" verdict is stored per
-    project and releases the same ask in a NEW session — not just
-    the session that granted it."""
+def test_always_verdict_is_session_only_and_writes_nothing(tmp_path):
+    """Founder 2026-10-17: permission handling supports only its own
+    session. An "always" verdict grants (session, tool, resource)
+    in memory; nothing is written to the workspace, and a fresh
+    session asks again for the very same file."""
     target = tmp_path / "keep.py"
     target.write_text("x = 1\n", encoding="utf-8")
-    asked1, _ = _drive_write(tmp_path, "p-1", "w1", {"path": "keep.py", "content": "x = 2\n"}, always=True)
-    assert asked1
-    saved = tmp_path / ".crusorai" / "permissions-saved.json"
-    assert saved.is_file(), "the verdict must persist per project"
-    asked2, message = _drive_write(tmp_path, "p-2-fresh-session", "w2", {"path": "keep.py", "content": "x = 3\n"}, always=False)
-    assert not asked2, "a fresh session must not re-ask a saved resource"
-    assert message.status != "error"
-
-
-def test_saved_pattern_never_releases_a_config_deny(tmp_path):
-    """Upstream precedence: saved allows join AFTER config rules;
-    a config deny on the resource still refuses outright."""
-    _write_settings(tmp_path, {"permission": {"bash": "deny"}})
-    folder = tmp_path / ".crusorai"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "permissions-saved.json").write_text(
-        json.dumps([{"action": "bash", "resource": "echo hi"}]), encoding="utf-8"
+    asked1, _ = _drive_write(
+        tmp_path, "p-1", "w1", {"path": "keep.py", "content": "x = 2\n"}, always=True
     )
-    asked, message = _drive_tool(tmp_path, "p-3", "c-9", "run_terminal", {"command": "echo hi"})
-    assert not asked and message.status == "error", "config deny beats a saved allow"
+    assert asked1
+    assert not (tmp_path / ".crusorai" / "permissions-saved.json").exists(), (
+        "an always verdict must not persist anything to disk"
+    )
+    # The granting session stays granted (also covered above, kept
+    # here so this test reads whole on its own).
+    asked_same, _ = _drive_write(
+        tmp_path, "p-1", "w1b", {"path": "keep.py", "content": "x = 3\n"}, always=False
+    )
+    assert not asked_same, "the granting session must not re-ask"
+    asked2, _ = _drive_write(
+        tmp_path, "p-2-fresh-session", "w2",
+        {"path": "keep.py", "content": "x = 4\n"}, always=False,
+    )
+    assert asked2, "a fresh session must re-ask: grants die with their session"
 
 
-def test_saved_pattern_releases_a_config_ask(tmp_path):
-    """Config asks, saved allows: the saved pattern answers first."""
+def test_legacy_saved_patterns_file_is_ignored(tmp_path):
+    """A permissions-saved.json left behind by the persisted-grant
+    builds is never read: it must not release a config ask."""
     _write_settings(tmp_path, {"permission": {"bash": "ask"}})
     folder = tmp_path / ".crusorai"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "permissions-saved.json").write_text(
         json.dumps([{"action": "bash", "resource": "echo hi"}]), encoding="utf-8"
     )
-    asked, message = _drive_tool(tmp_path, "p-4", "c-10", "run_terminal", {"command": "echo hi"})
-    assert not asked, "the saved pattern must release the config ask"
-    assert message.status != "error"
+    asked, _ = _drive_tool(tmp_path, "p-4", "c-10", "run_terminal", {"command": "echo hi"})
+    assert asked, "a leftover saved-patterns file must not release the ask"
+
+
+def test_no_persistence_layer_remains():
+    """The write/read side of the per-project layer is gone, so a
+    future change cannot quietly re-persist verdicts."""
+    import src.context.permission_config as pc
+
+    assert not hasattr(pc, "save_grant")
+    assert not hasattr(pc, "saved_rules")
+    assert not hasattr(pc, "saved_releases")

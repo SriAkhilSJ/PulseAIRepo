@@ -156,99 +156,12 @@ def load_permission_rules(workspace: str, agent: str = "") -> list[Rule]:
     return rules
 
 
-_SAVED_FILE = "permissions-saved.json"
-
-
-def _saved_path(workspace: str) -> Path | None:
-    if not workspace:
-        return None
-    return Path(workspace) / ".crusorai" / _SAVED_FILE
-
-
-def _read_saved(path: Path) -> list[dict]:
-    """The saved file is a JSON list; shares the mtime cache."""
-    try:
-        stat = path.stat()
-    except OSError:
-        return []
-    key = str(path)
-    cached = _SETTINGS_CACHE.get(key)
-    if cached and cached[0] == stat.st_mtime_ns:
-        data = cached[1]
-    else:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            data = []
-        _SETTINGS_CACHE[key] = (stat.st_mtime_ns, data)  # type: ignore[assignment]
-    if not isinstance(data, list):
-        return []
-    return [row for row in data if isinstance(row, dict)]
-
-
-def saved_rules(workspace: str) -> list[Rule]:
-    """Upstream PermissionSaved: "always" verdicts persist PER
-    PROJECT as allow rules, evaluated after the config rules. They
-    release a config ASK; they never release a config DENY (the
-    caller checks config deny first, upstream's denied())."""
-    path = _saved_path(workspace)
-    if path is None:
-        return []
-    rules: list[Rule] = []
-    for row in _read_saved(path):
-        action = str(row.get("action") or "")
-        resource = str(row.get("resource") or "")
-        if action and resource:
-            rules.append((action, resource, "allow"))
-    return rules
-
-
-def save_grant(workspace: str, action: str, resources: list[str]) -> None:
-    """Persist an "always" verdict (upstream PermissionSaved.add)."""
-    path = _saved_path(workspace)
-    if path is None or not action:
-        return
-    rows = _read_saved(path)
-    have = {
-        (str(r.get("action") or ""), str(r.get("resource") or "")) for r in rows
-    }
-    changed = False
-    for resource in resources or ["*"]:
-        key = (action, str(resource or "*"))
-        if key not in have:
-            rows.append({"action": key[0], "resource": key[1]})
-            have.add(key)
-            changed = True
-    if not changed:
-        return
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
-        _SETTINGS_CACHE.pop(str(path), None)
-    except OSError:
-        pass
-
-
-def saved_allows(action: str, resources: list[str], saved: list[Rule]) -> bool:
-    """Does a saved pattern actually MATCH this call? (evaluate()'s
-    default is allow, so "allowed with saved appended" would wave
-    through everything — a match must exist, the field-caught class
-    where a grant for notes.py waved through other.py.)"""
-    return any(
-        wildcard_match(rule_action, action) and wildcard_match(rule_resource, resource or "*")
-        for rule_action, rule_resource, _effect in saved
-        for resource in (resources or ["*"])
-    )
-
-
-def saved_releases(workspace: str, tool_name: str, args: dict) -> bool:
-    """Would a persisted "always" pattern allow this call? Config deny
-    on the same (action, resources) still wins (upstream precedence)."""
-    action, resources = tool_action_resources(tool_name, args or {})
-    rules = load_permission_rules(workspace, "")
-    if effect_for(action, resources, rules) == "deny":
-        return False
-    return saved_allows(action, resources, saved_rules(workspace))
+# NOTE: there is deliberately NO persisted "always" layer.
+# Permission verdicts live only in the session grant store
+# (ApprovalQueue in src/dashboard/event_bus.py): "Allow always"
+# covers the rest of its session and is never written to disk
+# (founder 2026-10-17: permission handling is session-only;
+# upstream's PermissionSaved per-project file was removed).
 
 
 def _first_str(args: dict, *keys: str) -> str:

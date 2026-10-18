@@ -13,7 +13,7 @@ Every guarded call resolves to one of:
 - **ask** — the permission dock appears: **Deny · Allow always · Allow once**
 - **deny** — refused outright; the call never runs and never asks
 
-"Allow always" remembers that exact file/command **per project** (upstream's PermissionSaved: `<workspace>/.crusorai/permissions-saved.json`), so later sessions do not re-ask it either. Saved patterns release a config **ask**, never a config **deny**; secrets, credentials and git-ignored paths are never remembered and re-ask every time.
+"Allow always" remembers that exact file/command **for the rest of this session only**. Nothing is written to disk — the grant lives in the session's memory and dies with it, so a new session asks again. (Upstream OpenCode also persists "always" verdicts per project; Crusor deliberately does not — founder 2026-10-17: permission handling is session-only.) Rules you write yourself in config (below) are separate: they are your standing settings, not remembered verdicts.
 Secrets (`.env`, credentials) and git-ignored files are re-asked
 **every** time — no grant can silence them.
 

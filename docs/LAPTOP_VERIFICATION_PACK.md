@@ -89,6 +89,20 @@ other file does NOT ask.
 
 Fail if: the second .env write runs without asking.
 
+### B3. Grants die with the session (session-only permissions)
+
+> After B1, start a NEW session (or restart the app) and rewrite
+> notes-check.py again.
+
+- The dock **asks again** — last session's Allow always is gone.
+- The confirm dialog says *"for the rest of this session"*
+  (never "in this project").
+- No `.crusorai/permissions-saved.json` exists in the workspace
+  afterwards — verdicts are never written to disk.
+
+Fail if: the new session writes without asking, or the dialog
+promises the project.
+
 ## C. The dock's look (`4449c5f9`)
 
 During any ask above, check with your eyes:

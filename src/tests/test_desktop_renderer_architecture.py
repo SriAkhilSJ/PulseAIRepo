@@ -585,6 +585,11 @@ def test_approval_dock_offers_every_scope_the_protocol_carries():
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
     assert "host.replyToSafety(approval.toolId, true, true)" in renderer
+    # Session-only grants (founder 2026-10-17): the confirm dialog
+    # must promise THIS session, never the project -- the backend
+    # writes nothing to disk and a fresh session asks again.
+    assert "for the rest of this session" in renderer
+    assert "in this project" not in renderer
     # OpenCode permission dock: Deny | Allow always | Allow once in the
     # footer; Allow always goes through the confirm dialog (our backend
     # grant is session-scoped), and Allow once is the footer primary.
@@ -1066,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-25';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-26';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1206,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-25'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-26'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
