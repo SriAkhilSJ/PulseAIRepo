@@ -212,8 +212,6 @@ _MUTATING_CALLS = {
     "write_file", "edit_file", "copy_file", "delete_file", "move_file",
     "run_terminal", "start_terminal", "terminal", "execute_code",
     "apply_patch", "generate_image", "media_download",
-    "scaffold_nextjs", "scaffold_flutter", "scaffold_react_native",
-    "scaffold_tauri",
 }
 
 
@@ -557,12 +555,6 @@ except Exception as _browser_mcp_exc:  # ImportError + any transitive boot failu
         flush=True,
     )
 from src.tools.code_exec_tool import execute_code
-from src.tools.scaffold_tools import scaffold_nextjs
-from src.tools.target_scaffold import (
-    scaffold_flutter,
-    scaffold_react_native,
-    scaffold_tauri,
-)
 from src.tools.target_tools import (
     build_target,
     check_target_toolchains,
@@ -1344,17 +1336,6 @@ tools = [
     # above and return only printed output (D18, hermes PTC pattern).
     execute_code,
 
-    # Deterministic UI-project setup that preserves _provided inputs and
-    # prevents create-next-app workspace/workspace nesting.
-    scaffold_nextjs,
-
-    # The same transition for the non-web targets: flutter create /
-    # create-expo-app / create-tauri-app generated in a temp sibling, merged
-    # into the real workspace, installed once at the root.
-    scaffold_flutter,
-    scaffold_react_native,
-    scaffold_tauri,
-
     # Zero-LLM recall of past sessions (D16, hermes session-search shape).
     session_search,
 
@@ -1408,8 +1389,7 @@ _DELEGATE_BASE_DESCRIPTIONS: dict[str, str] = {}
 _TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
 
 _FILE_DELIVERY_TOOLS = frozenset({
-    "write_file", "edit_file", "copy_file", "scaffold_nextjs",
-    "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
+    "write_file", "edit_file", "copy_file",
 })
 _FILE_DELIVERY_WORDS = frozenset({
     "build", "create", "implement", "write", "fix", "edit", "modify",
@@ -5615,8 +5595,7 @@ class SafeToolNode:
         )
         unsafe_by_id = {tc.get("id"): warning for tc, _, warning in unsafe}
         mutation_names = {
-            "write_file", "edit_file", "copy_file", "scaffold_nextjs",
-            "scaffold_flutter", "scaffold_react_native", "scaffold_tauri",
+            "write_file", "edit_file", "copy_file",
         }
 
         def _approval_grant_key(tc) -> str:

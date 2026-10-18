@@ -2317,10 +2317,13 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                 "- When the user requires byte-for-byte copying, do NOT read the full source "
                 "contents first. Confirm the names with list_files and use copy_file directly; "
                 "reading large verbatim inputs only wastes context and cannot improve the copy.\n"
-                "- If a new Next.js project is required, use scaffold_nextjs(packages=[...]). "
-                "Do NOT run create-next-app at `.` (it conflicts with _provided) and do NOT "
-                "create a child named after the workspace (workspace/workspace nesting).\n"
-                "- After scaffolding, continue immediately to copy_file; never re-run the scaffold.\n"
+                "- If a new Next.js project is required, create it through the terminal "
+                "(`npx create-next-app@latest <name>` with every flag explicit, `--yes` "
+                "included, so nothing prompts). Do NOT run create-next-app at `.` "
+                "(it conflicts with _provided) and do NOT create a child named after "
+                "the workspace (workspace/workspace nesting).\n"
+                "- After creating the project, continue immediately to copy_file; "
+                "never re-create it.\n"
             )
 
         return SystemMessage(content=content)

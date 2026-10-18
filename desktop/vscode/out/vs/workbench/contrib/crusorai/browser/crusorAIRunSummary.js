@@ -18,7 +18,7 @@ const CATEGORY_COPY = {
     run: { noun: ['command', 'commands'], past: 'Ran', present: 'Running' },
 };
 /** The webview's tables, copied rather than re-derived: names Crusor actually registers. */
-const FILE_EDIT_TOOL_NAMES = new Set(['write_file', 'edit_file', 'copy_file', 'scaffold_nextjs']);
+const FILE_EDIT_TOOL_NAMES = new Set(['write_file', 'edit_file', 'copy_file']);
 const CARD_TOOL_NAMES = new Set(['ask_user', 'display_crusor_task', 'invoke_host_capability', 'delegate_to_subagent', 'delegate_to_subagent_batch']);
 const SILENT_TOOL_NAMES = new Set(['think']);
 const EXPLORE_TOOLS = new Set([

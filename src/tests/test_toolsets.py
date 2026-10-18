@@ -106,7 +106,10 @@ def test_ui_engineering_is_a_compound_profile(with_browser):
     assert profile.has(CAP_BROWSER)
     assert profile.has(CAP_VERIFICATION)
     assert resolved & with_browser
-    assert {"write_file", "run_terminal", "typecheck_workspace", "scaffold_nextjs"}.issubset(resolved)
+    # No scaffold tools exist (founder 2026-10-18: the terminal does the
+    # job) — a UI child creates projects with the terminal + write tools,
+    # and keeps the verify receipts.
+    assert {"write_file", "run_terminal", "typecheck_workspace", "verify_ui_workspace"}.issubset(resolved)
 
 
 def test_browser_navigation_does_not_imply_code_mutation(with_browser):
@@ -128,7 +131,8 @@ def test_native_mobile_ui_resolves_native_tools_without_browser_tools():
     assert not profile.has(CAP_BROWSER)
     assert {"detect_targets", "check_target_toolchains", "build_target", "verify_target_app"}.issubset(resolved)
     assert {"device_action", "device_screenshot", "device_ui", "device_logs"}.issubset(resolved)
-    assert {"scaffold_flutter", "scaffold_react_native"}.issubset(resolved)
+    # App creation rides the terminal now (flutter create / create-expo-app).
+    assert {"write_file", "run_terminal"}.issubset(resolved)
     assert not (resolved & _BROWSER_NAMES)
 
 
@@ -140,7 +144,8 @@ def test_desktop_ui_resolves_desktop_receipt_tools_without_browser_tools():
     assert profile.has(CAP_DESKTOP_APP)
     assert not profile.has(CAP_BROWSER)
     assert {"detect_targets", "check_target_toolchains", "build_target", "verify_target_app"}.issubset(resolved)
-    assert "scaffold_tauri" in resolved
+    # Tauri apps are created through the terminal too (create-tauri-app).
+    assert {"write_file", "run_terminal"}.issubset(resolved)
     assert not (resolved & _BROWSER_NAMES)
 
 

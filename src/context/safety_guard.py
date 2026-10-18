@@ -103,11 +103,6 @@ class SafetyGuard:
         "copy_file": ("src", "dst"),
     }
 
-    # `scaffold_nextjs` is deliberately absent: it takes only `packages` and acts on
-    # the whole workspace, so there is no path to grant consent over. Its own guard is
-    # "refuse a non-empty existing project", and a `("path",)` entry here would read a
-    # key that never exists -- coverage that only looks like coverage.
-
     def __init__(self, workspace: str = "."):
         self.workspace = Path(workspace).resolve()
         self._repo_root = _UNSET

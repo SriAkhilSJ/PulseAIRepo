@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-27';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-28';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-27'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-28'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1481,25 +1481,22 @@ def test_todo_items_require_hermes_fields_and_rows_fall_back_to_ids():
     assert '(no description)' not in code_only.split("function planStepsFrom")[1].split("function terminalBody")[0]
 
 
-def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
-    """Field 2026-09-10: the scaffold/code family body hardcoded
-    RUNTIME "Python 3.14" on a Next.js scaffolding call — invented text.
-    The card shows the call's own location/template fields plus the honest
-    state, nothing else."""
+def test_scaffold_tools_are_deleted_everywhere():
+    """Founder 2026-10-18: the scaffold tools are deleted ("terminal does
+    the job") — engine registry, catalog, renderer, and CSS must not keep
+    a family nothing can produce. Field 2026-09-10's ban on the invented
+    RUNTIME table stays pinned."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "Python 3.14" not in renderer
-    assert "scaffoldFields" not in renderer
-    # The settled body is the engine's own receipt, parsed
-    # presentation-only (crusoraiCardFormat.parseScaffoldReceipt):
-    # verdict glyph + raw tool name + model-directed trailers are
-    # envelope, the headline and any embedded command output are the
-    # tool's own words. Behaviour pinned in test_scaffold_receipt_parse.
-    assert "function scaffoldBody" in renderer
+    assert "scaffoldBody" not in renderer
     card_format = _text("browser", "crusoraiCardFormat.ts")
-    assert "export function parseScaffoldReceipt" in card_format
+    assert "parseScaffoldReceipt" not in card_format
+    catalog = _text("common", "crusorAIToolCatalog.ts")
+    assert "scaffold_nextjs" not in catalog
+    assert "'scaffold'" not in catalog
     css = _text("browser", "media", "crusorAI.css")
-    assert ".crusorai-scaffold-summary" in css
-    assert ".crusorai-scaffold-field" in css
+    assert ".crusorai-scaffold-summary" not in css
+    assert ".crusorai-scaffold-field" not in css
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():
@@ -1672,19 +1669,18 @@ def test_whole_ui_layer_boxes_are_present_and_data_driven():
     assert "crusorai-todos" in renderer
 
 
-def test_more_boxes_cover_skills_hub_scaffolds_and_targets():
+def test_more_boxes_cover_skills_hub_and_targets():
     """More boxes (founder 2026-10-15, OpenCode path): the canonical tools
-    that still fell through to generic cards — skills/hub, the non-web
-    scaffolds, and the target/device surface — resolve named families with
-    OpenCode-anatomy bodies (loaded-item rows for skills, receipt + inline
-    evidence for targets), and the boxes adapt to the RIGHT PANEL via
-    container queries on the render root, not viewport media queries."""
+    that still fell through to generic cards — skills/hub and the
+    target/device surface — resolve named families with OpenCode-anatomy
+    bodies (loaded-item rows for skills, receipt + inline evidence for
+    targets), and the boxes adapt to the RIGHT PANEL via container queries
+    on the render root, not viewport media queries. (The non-web scaffold
+    boxes left with the tools, founder 2026-10-18.)"""
     catalog = _text("common", "crusorAIToolCatalog.ts")
     for name in ("skills_list", "skill_view", "skill_manage", "hub_search",
                  "hub_install", "hub_update", "hub_list", "hub_remove"):
         assert f"{name}: tool(" in catalog and "'skill'" in catalog, name
-    for name in ("scaffold_flutter", "scaffold_react_native", "scaffold_tauri"):
-        assert f"{name}: tool(" in catalog, name
     for name in ("detect_targets", "check_target_toolchains", "build_target",
                  "verify_target_app", "device_action", "device_screenshot",
                  "device_ui", "device_logs", "device_preview"):

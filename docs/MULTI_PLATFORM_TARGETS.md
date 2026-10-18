@@ -50,7 +50,7 @@ Two rules are enforced by tests (`src/tests/test_target_pipeline.py`, 45 tests):
 
 | Capability | Website (before) | Multi-platform (now) |
 |---|---|---|
-| Scaffold | `scaffold_nextjs` | `scaffold_flutter`, `scaffold_react_native`, `scaffold_tauri` |
+| Create | terminal create commands (`create-next-app` / `flutter create` / `create-expo-app` / `create-tauri-app`) — scaffold tools deleted 2026-10-18 |
 | Build | `run_terminal` + `npm run build` | `build_target` (per-target argv, timeout multiplier) |
 | Prove render | `verify_ui_workspace` / `verify_ui_routes` (browser receipt) | `verify_target_app` (device/window receipt) |
 | Interact | browser tools (CDP) | `device_action`, `device_screenshot`, `device_ui`, `device_logs` |
@@ -261,18 +261,15 @@ specific one, `CRUSORAI_EMULATOR_HEADLESS=1` for CI, `CRUSORAI_EMULATOR_EPHEMERA
 to discard it afterwards). The real device receipt is the required checkpoint
 before UI-flow automation is enabled.
 
-### 3.4 New-project scaffolding
+### 3.4 New-project creation
 
-`scaffold_flutter`, `scaffold_react_native`, `scaffold_tauri` mirror
-`scaffold_nextjs`: generate into a temp sibling, merge into the real workspace
-(never `<workspace>/<workspace>/`), preserve `_provided/`, install once at the
-root, refuse to merge over an existing project.
-
-```text
-scaffold_flutter(project_name="tasks", org="com.acme", platforms="android,ios", packages=["http"])
-scaffold_react_native(project_name="tasks", template="blank-typescript", packages=["axios"])
-scaffold_tauri(project_name="tasks", identifier="com.acme.tasks", frontend="react-ts")
-```
+There are no scaffold tools (deleted 2026-10-18 — founder: "the terminal
+does the job", field-proven by a full `create-next-app` run under the
+approval dock). The agent creates projects through the terminal with
+explicit flags (`npx create-next-app@latest <name> --yes ...`,
+`flutter create`, `create-expo-app`, `create-tauri-app`); the normal
+permission rules ask before the command runs, and `detect_targets` /
+`verify_target_app` work on the result unchanged.
 
 ---
 

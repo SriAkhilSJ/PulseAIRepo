@@ -7,7 +7,7 @@ import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { openHubDialog } from './crusorAIHubDialog.js';
 import { crusorSessionIdFromUri } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
-import { hasAnsiCodes, parseAnsi, parseDiff, parseScaffoldReceipt, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
+import { hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
 import { compactTarget, isCardTool, isFileEditTool, isSilentTool, splitActivityGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-17-27';
+const CRUSORAI_UI_STAMP = '2026-10-18-28';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -391,9 +391,7 @@ function resultRecord(value) {
     return record(value);
 }
 function displayTarget(tool) {
-    // project_name rides last: only the scaffold tools carry it, and
-    // for them the project being created IS the header target.
-    return firstString(tool.arguments, ['path', 'file_path', 'resource', 'command', 'query', 'url', 'goal', 'target', 'project_name']) ?? tool.name;
+    return firstString(tool.arguments, ['path', 'file_path', 'resource', 'command', 'query', 'url', 'goal', 'target']) ?? tool.name;
 }
 function boundedText(value, max = 12_000) {
     let text;
@@ -1182,55 +1180,6 @@ function targetBody(tool, host, result, args) {
     }
     return wrap;
 }
-// Scaffold family (src/tools/scaffold_tools.py, target_scaffold.py):
-// the engine answers with a prose receipt whose leading glyph is its
-// verdict. The body is that receipt parsed presentation-only
-// (crusoraiCardFormat.parseScaffoldReceipt): the headline in the
-// receipt's own words — earned failure colour on the failed/partial
-// tones only — plus any embedded command output verbatim. Before the
-// receipt lands, the call's OWN fields are the honest content (field
-// 2026-09-10: own fields plus the honest state, nothing invented —
-// the fake RUNTIME table stays banned).
-const SCAFFOLD_FIELD_LABELS = [
-    ['template', 'Template'],
-    ['frontend', 'Frontend'],
-    ['platforms', 'Platforms'],
-    ['org', 'Org'],
-    ['identifier', 'Identifier'],
-];
-function scaffoldBody(tool, result, args) {
-    const wrap = element('div', 'crusorai-scaffold');
-    wrap.dataset.component = 'scaffold';
-    const raw = typeof tool.result === 'string' ? tool.result : boundedText(result ?? tool.result ?? '', 4000);
-    const receipt = parseScaffoldReceipt(raw);
-    if (receipt) {
-        wrap.append(element('div', `crusorai-scaffold-summary is-${receipt.tone}`, receipt.headline));
-        if (receipt.tail) {
-            wrap.append(toolOutputBox(boundedText(receipt.tail, 4000)));
-        }
-        return wrap;
-    }
-    if (raw.trim()) {
-        wrap.append(toolOutputBox(boundedText(raw, 4000)));
-        return wrap;
-    }
-    // Still running (installs take minutes): what was asked, field by
-    // field — the only honest content before the receipt exists.
-    for (const [key, label] of SCAFFOLD_FIELD_LABELS) {
-        const value = firstString(args, [key]);
-        if (value) {
-            wrap.append(element('div', 'crusorai-scaffold-field', element('span', 'crusorai-scaffold-field-label', label), element('span', 'crusorai-scaffold-field-value', value)));
-        }
-    }
-    const packages = args?.packages;
-    if (Array.isArray(packages) && packages.length) {
-        const names = packages.filter(p => typeof p === 'string').join(', ');
-        if (names) {
-            wrap.append(element('div', 'crusorai-scaffold-field', element('span', 'crusorai-scaffold-field-label', 'Packages'), element('span', 'crusorai-scaffold-field-value', names)));
-        }
-    }
-    return wrap;
-}
 /**
  * OpenCode tool-output surface (tool-renderer.tsx list/glob/grep): the
  * tool's own output in a scrollable region -- no meta table, no invented
@@ -1251,7 +1200,7 @@ function toolArgsChips(tool) {
         return [];
     }
     const isSearch = crusorAIToolPresentation(tool.name).family === 'search';
-    const skip = new Set(['description', 'query', 'url', 'path', 'name', 'project_name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
+    const skip = new Set(['description', 'query', 'url', 'path', 'name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
     const chips = [];
     for (const [key, value] of Object.entries(args)) {
         // OpenCode glob/grep: the pattern IS the info on the line (their
@@ -1818,9 +1767,6 @@ function familyBody(tool, host, subAgents = []) {
     }
     else if (presentation.family === 'code') {
         return codeBody(tool, host);
-    }
-    else if (presentation.family === 'scaffold') {
-        body.append(scaffoldBody(tool, result, args));
     }
     else {
         // Generic families: a STRING result is model prose (think reasoning,

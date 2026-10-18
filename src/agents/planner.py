@@ -514,7 +514,10 @@ def required_tool_receipts(description: str) -> dict[str, int]:
     if "typecheck" in d or "tsc" in d or "type check" in d:
         need("typecheck_workspace")
     if "scaffold" in d:
-        need("scaffold_nextjs")
+        # No scaffold tools exist (founder 2026-10-18: the terminal does
+        # the job). A scaffold step is an install-family step: a terminal
+        # create/install receipt satisfies it via _receipt_name.
+        need("__install__")
     if "copy" in d:
         # A single plan step that explicitly joins two copy deliverables must
         # receive two copy receipts. Repeated source markers are the strongest
@@ -540,7 +543,7 @@ def required_tool_receipts(description: str) -> dict[str, int]:
     if any(word in d for word in ("inspect", "read", "find", "search", "identify", "review")) \
             and not required:
         need("__read__")
-    if "install" in d and "scaffold_nextjs" not in required:
+    if "install" in d and "__install__" not in required:
         need("__install__")
     return required
 
@@ -556,7 +559,7 @@ def _receipt_name(tool_name: str) -> tuple[str, ...]:
         names.append("__read__")
     if tool_name in _WRITE_TOOLS:
         names.append("__file_mutation__")
-    if tool_name in {"terminal", "run_terminal", "scaffold_nextjs"}:
+    if tool_name in {"terminal", "run_terminal"}:
         names.append("__install__")
     return tuple(names)
 

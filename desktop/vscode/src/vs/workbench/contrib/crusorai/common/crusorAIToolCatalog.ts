@@ -17,7 +17,6 @@ export type CrusorAIToolRendererFamily =
 	| 'browser'
 	| 'session'
 	| 'subagent'
-	| 'scaffold'
 	| 'skill'
 	| 'target'
 	| 'generic';
@@ -81,10 +80,6 @@ export const CRUSOR_AI_TOOL_CATALOG: Readonly<Record<string, CrusorAIToolPresent
 	typecheck_workspace: tool('Typecheck', 'verification', 'check', 'running'),
 	verify_ui_workspace: tool('Verify UI', 'verification', 'check', 'running'),
 	verify_ui_routes: tool('Verify routes', 'verification', 'check', 'running'),
-	scaffold_nextjs: tool('Scaffold Next.js', 'scaffold', 'add', 'running'),
-	scaffold_flutter: tool('Scaffold Flutter', 'scaffold', 'add', 'running'),
-	scaffold_react_native: tool('Scaffold React Native', 'scaffold', 'add', 'running'),
-	scaffold_tauri: tool('Scaffold Tauri', 'scaffold', 'add', 'running'),
 
 	// Agent Skills + Skills Hub (src/tools/skill_tools.py, skill_hub_tools.py).
 	// OpenCode's `skill` tool renders as a loaded-item row, not a collapsible
