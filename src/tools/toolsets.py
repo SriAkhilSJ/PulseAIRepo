@@ -53,7 +53,8 @@ _UI_SCAFFOLD_TOOLS: tuple[str, ...] = (
 # `verify_target_app` is the composite receipt — the multi-platform peer of
 # verify_ui_workspace — so it is bound in one call, not as a chain of steps.
 _TARGET_TOOLS: tuple[str, ...] = (
-    "detect_targets", "check_target_toolchains", "build_target", "verify_target_app",
+    "detect_targets", "check_target_toolchains", "install_toolchain",
+    "build_target", "verify_target_app",
 )
 _MOBILE_DEVICE_TOOLS: tuple[str, ...] = (
     "device_action", "device_screenshot", "device_ui", "device_logs",

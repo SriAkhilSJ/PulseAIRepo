@@ -269,7 +269,11 @@ approval dock). The agent creates projects through the terminal with
 explicit flags (`npx create-next-app@latest <name> --yes ...`,
 `flutter create`, `create-expo-app`, `create-tauri-app`); the normal
 permission rules ask before the command runs, and `detect_targets` /
-`verify_target_app` work on the result unchanged.
+`verify_target_app` work on the result unchanged. When the SDK itself is
+missing, `install_toolchain` (src/tools/toolchain_install.py) installs it
+first — Flutter into `~/.crusorai/sdks/flutter`, Android cmdline-tools + JDK
+into the standard SDK root, Node/JDK/Rust via winget/brew, Xcode macOS-only —
+behind the same approval ask, probe-verified before creation continues.
 
 ---
 

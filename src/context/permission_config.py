@@ -59,6 +59,10 @@ _BASE_RULES: tuple[Rule, ...] = (
     ("read", "*.env.example", "allow"),
     ("doom_loop", "*", "ask"),
     ("external_directory", "*", "ask"),
+    # Installing software on the machine always asks (founder
+    # 2026-10-18); the resource is the SDK, so a session grant covers
+    # re-installs of the same SDK only.
+    ("install_toolchain", "*", "ask"),
 )
 
 _SETTINGS_CACHE: dict[str, tuple[int, dict]] = {}
@@ -208,4 +212,6 @@ def tool_action_resources(tool_name: str, args: dict | None) -> tuple[str, list[
         return "skill", [_first_str(args, "name", "skill", "query")]
     if name in ("clarify", "ask_user"):
         return "question", []
+    if name == "install_toolchain":
+        return "install_toolchain", [_first_str(args, "sdk", "target")]
     return name, [_first_str(args, "path", "file_path", "command", "query", "url", "target")]

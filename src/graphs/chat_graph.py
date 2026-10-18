@@ -212,6 +212,8 @@ _MUTATING_CALLS = {
     "write_file", "edit_file", "copy_file", "delete_file", "move_file",
     "run_terminal", "start_terminal", "terminal", "execute_code",
     "apply_patch", "generate_image", "media_download",
+    # Installing an SDK changes what later probes/creations observe.
+    "install_toolchain",
 }
 
 
@@ -566,6 +568,7 @@ from src.tools.target_tools import (
     device_ui,
     verify_target_app,
 )
+from src.tools.toolchain_install import install_toolchain
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
 from src.tools.host_tools import HOST_TOOLS
@@ -1355,6 +1358,7 @@ tools = [
     # flows and the toolchain doctor for actionable refusals.
     detect_targets,
     check_target_toolchains,
+    install_toolchain,
     build_target,
     verify_target_app,
     device_action,

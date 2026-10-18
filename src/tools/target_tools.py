@@ -49,6 +49,7 @@ from src.targets.registry import (
 )
 from src.targets.runner import TargetRequest
 from src.targets.toolchain import doctor_report, target_readiness
+from src.tools.toolchain_install import canonical_sdk
 
 
 def _workspace(config: RunnableConfig) -> Path:
@@ -141,7 +142,28 @@ def check_target_toolchains(target: str, config: RunnableConfig) -> str:
             )
         resolved = get_provider(requested)
         targets = [resolved.id] if resolved else None
-    return doctor_report(targets=targets)
+    report = doctor_report(targets=targets)
+    # Missing SDKs are installable, not a dead end (founder 2026-10-18):
+    # name the tool so the model offers the install instead of faking a
+    # generated project by hand.
+    readiness = target_readiness(targets=targets)
+    installable: list[str] = []
+    for info in readiness.values():
+        for tool_id in info.get("missing", []):
+            bundle = canonical_sdk(str(tool_id))
+            if bundle in ("flutter", "android", "node", "java", "rust", "xcode") \
+                    and bundle not in installable:
+                installable.append(bundle)
+    if installable:
+        calls = ", ".join(f'install_toolchain(sdk="{name}")' for name in installable)
+        report += (
+            f"\n\nMissing SDKs can be installed automatically (asks the "
+            f"user first): {calls}. Do NOT hand-author a project "
+            f"generator's files (pubspec.yaml, package.json scaffolds) "
+            f"as a substitute for a missing SDK — offer the install, "
+            f"then create the project with the real generator."
+        )
+    return report
 
 
 @tool

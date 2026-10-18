@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-28';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-29';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-28'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-29'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1497,6 +1497,18 @@ def test_scaffold_tools_are_deleted_everywhere():
     css = _text("browser", "media", "crusorAI.css")
     assert ".crusorai-scaffold-summary" not in css
     assert ".crusorai-scaffold-field" not in css
+
+
+def test_install_toolchain_card_and_dock_wiring():
+    """Founder 2026-10-18: a missing SDK installs through one card
+    (Install SDK · flutter) instead of the agent faking a generated
+    project by hand. The dock names the SDK in its question and the
+    permission engine pins the ask (test_toolchain_install)."""
+    catalog = _text("common", "crusorAIToolCatalog.ts")
+    assert "install_toolchain: tool('Install SDK'" in catalog
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "approval.name === 'install_toolchain'" in renderer
+    assert "Install ${labels[sdk] ?? 'SDK'}?" in renderer
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():

@@ -318,6 +318,29 @@ def sdk_candidates(spec: ToolSpec, host: str | None = None) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def managed_sdk_root() -> Path:
+    """Where `install_toolchain` lays SDKs it manages (~/.crusorai/sdks)."""
+    return Path.home() / ".crusorai" / "sdks"
+
+
+def managed_candidates(spec: ToolSpec, host: str | None = None) -> list[str]:
+    """Absolute paths this tool occupies inside a Crusor-managed SDK
+    (``~/.crusorai/sdks/<sdk>/bin/<command>`` — the Flutter archive shape,
+    and the layout future managed installs follow)."""
+    root = managed_sdk_root()
+    try:
+        dirs = [entry for entry in root.iterdir() if entry.is_dir()] if root.is_dir() else []
+    except OSError:
+        dirs = []
+    found: list[str] = []
+    for sdk_dir in sorted(dirs):
+        for command in spec.commands:
+            candidate = sdk_dir / "bin" / command
+            if candidate.is_file():
+                found.append(str(candidate))
+    return found
+
+
 def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
     """Locate the executable (env override → PATH → SDK root) and read its version."""
     if host not in spec.hosts:
@@ -327,6 +350,8 @@ def _probe_binary(spec: ToolSpec, host: str) -> tuple[str, str]:
     if override:
         candidates.append(override)
     candidates.extend(spec.commands)
+    # Crusor-managed SDKs rank after the user's own PATH install.
+    candidates.extend(managed_candidates(spec, host))
     for candidate in candidates:
         path = candidate if os.path.isabs(candidate) and os.path.exists(candidate) else shutil.which(candidate)
         if not path:
@@ -541,3 +566,27 @@ def doctor_report(host: str | None = None, *, targets: Iterable[str] | None = No
         if info.get("host_reason"):
             lines.append(f"      NOTE: {info['host_reason']}")
     return "\n".join(lines)
+
+
+def _activate_managed_sdks() -> None:
+    """Put already-installed managed SDK ``bin`` dirs on this process's
+    PATH once, at import: the probe finds them file-wise regardless, but
+    terminal children inherit this environment — ``flutter create`` must
+    resolve in a fresh session too, not only right after installing."""
+    try:
+        root = managed_sdk_root()
+        if not root.is_dir():
+            return
+        current = os.environ.get("PATH", "")
+        known = current.split(os.pathsep)
+        for sdk_dir in sorted(root.iterdir()):
+            bin_dir = sdk_dir / "bin"
+            if bin_dir.is_dir() and str(bin_dir) not in known:
+                current = str(bin_dir) + os.pathsep + current
+                known.append(str(bin_dir))
+        os.environ["PATH"] = current
+    except Exception:  # noqa: BLE001 - activation must never break import
+        pass
+
+
+_activate_managed_sdks()

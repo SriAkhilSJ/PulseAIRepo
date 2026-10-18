@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-28';
+const CRUSORAI_UI_STAMP = '2026-10-18-29';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -391,7 +391,9 @@ function resultRecord(value) {
     return record(value);
 }
 function displayTarget(tool) {
-    return firstString(tool.arguments, ['path', 'file_path', 'resource', 'command', 'query', 'url', 'goal', 'target']) ?? tool.name;
+    // 'sdk' rides last: only install_toolchain carries it, and the SDK
+    // being installed IS that card's target.
+    return firstString(tool.arguments, ['path', 'file_path', 'resource', 'command', 'query', 'url', 'goal', 'target', 'sdk']) ?? tool.name;
 }
 function boundedText(value, max = 12_000) {
     let text;
@@ -1200,7 +1202,7 @@ function toolArgsChips(tool) {
         return [];
     }
     const isSearch = crusorAIToolPresentation(tool.name).family === 'search';
-    const skip = new Set(['description', 'query', 'url', 'path', 'name', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
+    const skip = new Set(['description', 'query', 'url', 'path', 'name', 'sdk', 'content', 'old_text', 'new_text', 'command', 'code', 'text', 'prompt']);
     const chips = [];
     for (const [key, value] of Object.entries(args)) {
         // OpenCode glob/grep: the pattern IS the info on the line (their
@@ -2761,6 +2763,9 @@ function approvalHintText(approval) {
     if (approval.name === 'run_terminal' || approval.name === 'start_terminal' || approval.name === 'terminal' || approval.name === 'execute_code') {
         return 'Run shell commands';
     }
+    if (approval.name === 'install_toolchain') {
+        return 'Downloads the official SDK (can be ~1 GB) and installs it on this machine, outside the project.';
+    }
     if (approval.name === 'write_file' || approval.name === 'edit_file' || approval.name === 'copy_file') {
         return 'Modify files, including edits, writes, and patches';
     }
@@ -2800,6 +2805,16 @@ function approvalQuestion(approval, diffRecord, isShell) {
     }
     if (isShell) {
         return 'Run this command?';
+    }
+    if (approval.name === 'install_toolchain') {
+        const sdk = typeof diffRecord?.sdk === 'string' ? diffRecord.sdk.toLowerCase() : '';
+        const labels = {
+            flutter: 'Flutter SDK', dart: 'Flutter SDK',
+            android: 'Android SDK', 'android-sdk': 'Android SDK', adb: 'Android SDK', sdkmanager: 'Android SDK',
+            node: 'Node.js', npm: 'Node.js', java: 'JDK 21', jdk: 'JDK 21',
+            rust: 'Rust', cargo: 'Rust', xcode: 'Xcode', xcodebuild: 'Xcode',
+        };
+        return `Install ${labels[sdk] ?? 'SDK'}?`;
     }
     const rawPath = typeof diffRecord?.relative_path === 'string'
         ? diffRecord.relative_path

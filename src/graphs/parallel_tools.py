@@ -73,6 +73,7 @@ WILDCARD_TOOLS = frozenset({
     "execute_code", "run_terminal", "start_terminal", "check_terminal",
     "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
     "read_terminal_output", "clarify", "todo_list",
+    "install_toolchain",
     "delegate_to_subagent", "delegate_to_subagent_batch",
     # A target plan owns one machine, one device and one evidence directory:
     # never batch these (two parallel Gradle builds or two emulator boots on the

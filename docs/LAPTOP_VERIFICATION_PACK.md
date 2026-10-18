@@ -1,11 +1,12 @@
-# Laptop verification pack — engine + UI through `01bb6fd0` (UI stamp `2026-10-17-26`)
+# Laptop verification pack — engine + UI through the SDK-installer round (UI stamp `2026-10-18-29`)
 
 ## Setup (every round)
 
 1. Pull `arena/0d4596c3-pulseairepo`.
 2. Fully quit and reopen the agent (a running workbench keeps the old
    compiled panel — that is what the freshness stamp exists to catch).
-3. The status chip must read **`593b9aa1` · `ui 2026-10-17-19`**.
+3. The status chip must read **`ui 2026-10-18-29`** (engine build =
+   your latest pull, after `8177c94e`).
    Anything older = you are not testing this code; stop and tell me.
 
 Run each check in the **desktop agent**. Mark ✅ / ❌ and send me the
@@ -159,3 +160,30 @@ then read the top two matches"):
    highlights; open one → it keeps a quiet wash while open.
 6. **Diff rows**: sign before number (`+ 1`, `- 1`), tight gutters,
    no green/red edge line on Edit/Write diffs.
+
+---
+
+## F. SDK installer — no more fake projects (founder request 2026-10-18)
+
+Context: with no Flutter SDK on the machine, the agent hand-wrote a
+fake Flutter project. Now it must install the real SDK first.
+
+1. **Flutter install** (SDK absent, as on the test machine): ask
+   `Create a Flutter app called skydemo`.
+   ✅ The agent checks toolchains, finds Flutter missing, and an
+   **Install SDK · flutter** card appears; the dock asks
+   **"Install Flutter SDK?"** (hint: downloads ~1 GB, outside the
+   project). **Allow once** → the card settles with a ✅ receipt
+   naming the Flutter version, and only THEN does `flutter create
+   skydemo` run in the terminal and produce a REAL generated project
+   (android/, ios/, lib/, pubspec.yaml from the generator — not
+   hand-written files).
+   ❌ The agent hand-writes pubspec.yaml/main.dart as the "project",
+   or creates anything before the install is approved.
+2. **Second run needs no install**: ask for another Flutter app.
+   ✅ No install card — straight to `flutter create` (the SDK is
+   found at `~/.crusorai/sdks/flutter`).
+3. **Session-only grant check (B3 tie-in)**: in a NEW session, trigger
+   any install again (or fake it: `Install the Flutter SDK` after
+   deleting nothing) — the dock must ASK again; "Allow always" from
+   the earlier session must not carry over.

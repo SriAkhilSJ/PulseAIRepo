@@ -100,6 +100,7 @@ export const CRUSOR_AI_TOOL_CATALOG: Readonly<Record<string, CrusorAIToolPresent
 	// fields + the tool's own receipt text, screenshot evidence inline.
 	detect_targets: tool('Detect targets', 'target', 'device-mobile', 'running'),
 	check_target_toolchains: tool('Toolchains', 'target', 'tools', 'running'),
+	install_toolchain: tool('Install SDK', 'verification', 'cloud-download', 'running'),
 	build_target: tool('Build target', 'target', 'gear', 'running'),
 	verify_target_app: tool('Verify app', 'target', 'check', 'running'),
 	device_action: tool('Device action', 'target', 'device-mobile', 'running'),
