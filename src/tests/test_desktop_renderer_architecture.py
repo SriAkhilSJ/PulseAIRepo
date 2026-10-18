@@ -68,7 +68,24 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "authority: `original-${stamp}`" in workbench
     assert "authority: `modified-${stamp}`" in workbench
     assert "label: fileLabel" in workbench
-    assert "goToFile: { resource: languageResource }" in workbench
+    # goToFile is a URI field (IMultiDiffEditorResource.
+    # goToFileResource) -- and the caller must hand over a real
+    # URI: a raw Windows `C:\...` fed to the old `scheme:` sniff
+    # parsed as scheme `c` and mangled into `\Users\...`, which is
+    # what printed the truncated paths in the review header. The
+    # resource now routes through the pane's resourceUri rules.
+    assert "goToFileResource: languageResource" in workbench
+    assert "goToFile: { resource" not in workbench
+    assert "resource: this.resourceUri(resource).toString()" in service
+    assert "? /^[a-z][a-z0-9+.-]*:/i.test(request.resource)" not in workbench
+    # Review tabs are transient (the platform serializer skips
+    # them): a review belongs to a pending approval in this
+    # window and must never resurrect after a restart pointing
+    # at content that no longer exists -- and if one ever does
+    # resolve, the provider serves an empty model rather than
+    # throwing "Unable to resolve text model content".
+    assert "isTransient: true" in workbench
+    assert "createModel('', language, resource)" in workbench
     assert "`/${key}/before/${fileName}`" not in workbench
     assert "`/${key}/after/${fileName}`" not in workbench
     assert "old_text" in service and "new_text" in service
@@ -1049,7 +1066,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-24';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-25';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1189,7 +1206,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-24'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-25'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

@@ -2600,7 +2600,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (originalText !== undefined && modifiedText !== undefined) {
                 await this.workbenchService.openInlineDiff({
                     toolId, label, original: originalText, modified: modifiedText,
-                    ...(resource ? { resource } : {}),
+                    // Normalize through the pane's battle-tested path
+                    // rules (resourceUri): a raw `C:\...`/git-bash/
+                    // relative path must reach the workbench as a real
+                    // file URI, or the review's URIs get built on a
+                    // mangled path (field 2026-10-17 header bug).
+                    ...(resource ? { resource: this.resourceUri(resource).toString() } : {}),
                 });
                 return;
             }

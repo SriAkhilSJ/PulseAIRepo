@@ -2509,13 +2509,18 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			if (originalText === undefined && modifiedText !== undefined && resource) {
 				originalText = '';
 			}
-			if (originalText !== undefined && modifiedText !== undefined) {
-				await this.workbenchService.openInlineDiff({
-					toolId, label, original: originalText, modified: modifiedText,
-					...(resource ? { resource } : {}),
-				});
-				return;
-			}
+		if (originalText !== undefined && modifiedText !== undefined) {
+			await this.workbenchService.openInlineDiff({
+				toolId, label, original: originalText, modified: modifiedText,
+				// Normalize through the pane's battle-tested path
+				// rules (resourceUri): a raw `C:\...`/git-bash/
+				// relative path must reach the workbench as a real
+				// file URI, or the review's URIs get built on a
+				// mangled path (field 2026-10-17 header bug).
+				...(resource ? { resource: this.resourceUri(resource).toString() } : {}),
+			});
+			return;
+		}
 			modified ??= resource;
 			if (!original || !modified) {
 				// No preview exists for this approval (shell commands,

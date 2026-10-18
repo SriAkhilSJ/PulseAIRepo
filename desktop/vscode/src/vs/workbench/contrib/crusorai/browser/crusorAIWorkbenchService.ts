@@ -173,7 +173,18 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 				const existing = this.modelService.getModel(resource);
 				if (existing) { return existing; }
 				const entry = this.inlineDiffModels.get(resource.toString());
-				if (!entry) { return null; }
+				if (!entry) {
+					// A tab restored from an older window (or whose
+					// content aged out) has nothing behind it: the
+					// approval it belonged to is gone. Serve an
+					// empty model so the tab renders its file header
+					// instead of throwing "Unable to resolve text
+					// model content" at startup (field 2026-10-17).
+					// Live reviews always register content before
+					// opening (openInlineDiff below).
+					const language = this.languageService.createByFilepathOrFirstLine(resource, '');
+					return this.modelService.createModel('', language, resource);
+				}
 				const firstLine = entry.content.split(/\r?\n/, 1)[0];
 				const language = this.languageService.createByFilepathOrFirstLine(entry.languageResource ?? resource, firstLine);
 				return this.modelService.createModel(entry.content, language, resource);
@@ -333,8 +344,16 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		if (request.original.length > MAX_INLINE_DIFF_CHARS || request.modified.length > MAX_INLINE_DIFF_CHARS) {
 			throw new Error(`Crusor inline diff exceeds ${MAX_INLINE_DIFF_CHARS.toLocaleString()} characters per side`);
 		}
+		// The caller normalizes `resource` to a real URI string
+		// (resourceUri in the renderer service: drive letters and
+		// git-bash forms are filesystem paths, never schemes).
+		// Parse defensively anyway: only a `scheme://` string is
+		// URI-parsed here -- the naive `scheme:` sniff this replaces
+		// read `C:\Users\...` as scheme `c` and mangled the path
+		// into `\Users\...`, which is what printed the truncated
+		// synthetic paths in the review header (field 2026-10-17).
 		const languageResource = request.resource
-			? /^[a-z][a-z0-9+.-]*:/i.test(request.resource) ? URI.parse(request.resource) : URI.file(request.resource)
+			? /^[a-z][a-z0-9+.-]*:\/\//i.test(request.resource) ? URI.parse(request.resource) : URI.file(request.resource)
 			: undefined;
 		// The review must read as THE FILE being edited, the way
 		// Copilot's does: its original/modified text models carry
@@ -367,15 +386,24 @@ export class CrusorAIWorkbenchService extends Disposable implements ICrusorAIWor
 		// green/red inside, instead of a naked two-model diff tab.
 		try {
 			// The tab names the file under review, not the tool
-			// that proposed it; goToFile aims the header's open
+			// that proposed it; goToFileResource (a URI, per
+			// IMultiDiffEditorResource) aims the header's open
 			// affordance at the real file, as Copilot's does.
+			// isTransient: the review belongs to a pending approval
+			// in THIS window -- the platform serializer skips
+			// transient inputs, so the tab is never resurrected
+			// after a restart pointing at content that no longer
+			// exists (field 2026-10-17: two zombie storys.txt tabs
+			// restored at startup and threw "Unable to resolve
+			// text model content").
 			const fileLabel = filePath.split('/').filter(Boolean).pop() || 'proposed-change.txt';
 			const input = MultiDiffEditorInput.fromResourceMultiDiffEditorInput({
 				label: fileLabel,
+				isTransient: true,
 				resources: [{
 					original: { resource: original },
 					modified: { resource: modified },
-					...(languageResource ? { goToFile: { resource: languageResource } } : {}),
+					...(languageResource ? { goToFileResource: languageResource } : {}),
 				}],
 			}, this.instantiationService);
 			await this.editorService.openEditor(input, { pinned: true, activation: EditorActivation.ACTIVATE });
