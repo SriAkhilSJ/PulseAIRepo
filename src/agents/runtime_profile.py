@@ -127,20 +127,6 @@ _COMPLEX_PATTERNS = (
     r"\bmulti[- ]step\b", r"\barchitecture\b", r"\baudit\b", r"\bcomprehensive\b",
     r"\bend[- ]to[- ]end\b", r"\bseveral\b", r"\bmultiple\b", r"\bparallel\b",
 )
-# Naming the mechanism IS the signal: a user who says "subagent" or
-# "delegate" wants delegation even when the job itself is small. The
-# complex-task heuristic above cannot hear that, and an unbound
-# delegate tool makes the flagship feature silently unavailable.
-_DELEGATION_PATTERNS = (
-    r"\bsub-?agents?\b", r"\bdelegat\w*\b", r"\bmulti-?agent\b",
-)
-# Media search/download/generation ride the research capability in
-# the tool waist (tools/toolsets.py groups them there): an ask that
-# names media is an external-content ask.
-_MEDIA_PATTERNS = (
-    r"\bimage\b", r"\bpicture\b", r"\bphoto\b", r"\billustration\b",
-    r"\bvideo\b", r"\baudio\b", r"\bmedia\b",
-)
 
 
 def _matches(text: str, patterns: Iterable[str]) -> bool:
@@ -290,12 +276,6 @@ def resolve_runtime_profile(task: str, config: Any = None) -> RuntimeProfile:
     if complex_task:
         capabilities.add(CAP_DELEGATION)
         reasons.append("complex")
-    if _matches(text, _DELEGATION_PATTERNS):
-        capabilities.add(CAP_DELEGATION)
-        reasons.append("delegation")
-    if _matches(text, _MEDIA_PATTERNS):
-        capabilities.add(CAP_RESEARCH)
-        reasons.append("media")
 
     # Preserve explicit client additions in the reason trail without allowing
     # their input order to affect the capability order/cache key.

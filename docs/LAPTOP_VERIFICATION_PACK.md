@@ -1,4 +1,4 @@
-# Laptop verification pack — engine through `01bb6fd0` + parent waist (UI stamp `2026-10-17-26`)
+# Laptop verification pack — through `593b9aa1` (UI stamp `2026-10-17-15`)
 
 ## Setup (every round)
 
@@ -159,30 +159,3 @@ then read the top two matches"):
    highlights; open one → it keeps a quiet wash while open.
 6. **Diff rows**: sign before number (`+ 1`, `- 1`), tight gutters,
    no green/red edge line on Edit/Write diffs.
-
-## F. Parent tool waist (engine, this round)
-
-The main agent no longer sends all 68 tool schemas on every model
-call. It binds the everyday kit always (files, shell, verify, plan,
-clarify) and adds browser / device / web / delegation tools only
-when the task names them. Measured in the sandbox: everyday turns
-35 tools (~29k schema chars) vs 68 (~59k) before — roughly half
-the per-call schema tokens; research 41, web+browser 48, mobile 47.
-
-Check with your eyes (Output → CrusorAI Engine, once per app run):
-
-> `[tools] parent waist 'coding': binding 35 of 68 tools (everyday
-> kit floored; task signals add the rest)`
-
-- Ask for ordinary coding work → profile `coding` (or similar),
-  count in the mid-30s, and the work just happens (files, shell,
-  tests all work — nothing the agent used to do is missing).
-- Ask ordinary chat first, then something with the browser
-  ("…now check it in the browser") → the follow-up simply works;
-  the browser tools arrive with their task.
-- Fail if: any everyday action (read/write/edit/run/test) is
-  suddenly impossible, or the log line never appears.
-
-Instant off-switch (if anything feels missing): set
-`CRUSORAI_PARENT_WAIST=off` in the engine env and restart — the
-full 68-tool bind returns exactly as before.

@@ -117,60 +117,43 @@ def test_state_driven_forced_delivery_phase_keeps_its_allowlist(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Binding surface: hermes availability discipline (check_fn strips) plus the
-# parent waist (founder 2026-10-17, superseding the registry-snapshot
-# doctrine this section used to pin). The everyday surface is wording-
-# independent; exotic families follow the task signal; phases STILL never
-# derive from words. CRUSORAI_PARENT_WAIST=off restores the full snapshot
-# (pinned in test_parent_waist.py).
+# Hermes registry binding (agent_init._load_tools): full registry every turn,
+# availability check_fn, operator/state narrows only — NO task-text matching
 # ---------------------------------------------------------------------------
 
-def test_everyday_surface_is_wording_independent_exotics_follow_the_signal(tmp_path):
-    """Any phrasing gets the build agent's everyday kit (the floor is
-    unconditional — the 2026-09-07 amputation class cannot recur);
-    web/browser/delegation ride only on their task signals. Phases
-    still never leak from task WORDS."""
+def test_binding_is_the_registry_snapshot_regardless_of_task_wording(tmp_path):
+    """hermes binds the same registry for 'hi' and for a build task. Crusor's
+    former task-keyword waist (runtime_profile regexes over current_task) is
+    retired from binding: any phrasing gets the full surface."""
     from src.graphs.chat_graph import _resolve_bound_tools
 
     for task in ("hi", "test my app works", "fix the bug", "写一个网站"):
         config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
         names = {t.name for t in _resolve_bound_tools({"current_task": task}, config)}
         assert "run_terminal" in names, task
+        assert "web_search" in names, task
         assert "todo_list" in names, task
         assert "write_file" in names, task
         # no per-task phase/guidance leaked from task WORDS
         assert config["configurable"]["execution_phase"] == "general", task
         assert config["configurable"]["phase_allowed_tools"] is None, task
 
-    config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
-    names = {t.name for t in _resolve_bound_tools({"current_task": "hi"}, config)}
-    assert "web_search" not in names
-    assert "delegate_to_subagent" not in names
-    config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
-    names = {t.name for t in _resolve_bound_tools(
-        {"current_task": "research the latest AI news"}, config)}
-    assert "web_search" in names
-
 
 def test_browser_tools_bound_when_cli_resolves_hidden_when_it_doesnt(tmp_path, monkeypatch):
     """hermes check_fn: a tool whose deps are missing is not registered. The
-    CLI resolution is cached — the check costs one fast raise when missing.
-    (Since the 2026-10-17 parent waist, browser tools ALSO need the
-    task's browser signal; availability and waist compose — either
-    one alone hides the family.)"""
+    CLI resolution is cached — the check costs one fast raise when missing."""
     from src.graphs.chat_graph import _resolve_bound_tools
     import src.tools.browser_tools as bt
 
-    task = {"current_task": "open the website and take a screenshot"}
     config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
     monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
-    names = {t.name for t in _resolve_bound_tools(task, config)}
+    names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
     assert "browser_navigate" in names  # real resolution succeeds in CI (npx sentinel)
 
     bt.invalidate_cli_cache()
     monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(tmp_path / "no-such-browser"))
     bt.invalidate_cli_cache()
-    names = {t.name for t in _resolve_bound_tools(task, config)}
+    names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
     assert not any(name.startswith("browser_") for name in names)
     assert "run_terminal" in names  # everything else survives
     bt.invalidate_cli_cache()
@@ -222,15 +205,13 @@ def test_availability_receipt_names_the_install_fix_once(tmp_path, monkeypatch, 
                              {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})
         assert capsys.readouterr().out.count("[tools] binding") == 0
         # available stack binds without the receipt (nothing hidden: the
-        # workspace gets a tsconfig so typecheck_workspace binds too;
-        # the task carries the browser signal the parent waist needs)
+        # workspace gets a tsconfig so typecheck_workspace binds too)
         bt.invalidate_cli_cache()
         monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
         (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
         cg._TOOL_AVAILABILITY_REPORTED = False
-        names = {t.name for t in _resolve_bound_tools(
-            {"current_task": "open the website and take a screenshot"},
-            {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})}
+        names = {t.name for t in _resolve_bound_tools({"current_task": "x"},
+                                                      {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})}
         assert "browser_navigate" in names
         assert capsys.readouterr().out.count("[tools] binding") == 0
     finally:
