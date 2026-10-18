@@ -300,7 +300,46 @@ def test_download_label_names_the_total(tmp_path, monkeypatch):
     monkeypatch.setattr(ti, "_extract", lambda step, archive, dest, on_file=None: None)
     monkeypatch.setattr(ti, "_sh", lambda step, argv, **kw: "Flutter 9.9.9")
     ti._install_flutter("linux", [], lambda pct, label: labels.append(label))
-    assert any("50 of 100 MB" in label for label in labels), labels
+    assert any("50 MB of 100 MB" in label for label in labels), labels
+
+
+def test_size_labels_use_natural_units():
+    """Founder 2026-10-18: "1,486 --> GB"."""
+    assert ti._size_label(199) == "199 MB"
+    assert ti._size_label(999) == "999 MB"
+    assert ti._size_label(1000) == "1 GB"
+    assert ti._size_label(1486) == "1.49 GB"
+    assert ti._size_label(2500) == "2.5 GB"
+
+
+def test_install_stops_when_the_session_cancel_lands(monkeypatch):
+    """Cancel identity rides the graph config's thread_id (== the
+    panel session id), not a thread-local: tool threads may hop, the
+    key must not. The fake recipe polls like the real loops do."""
+    state = {"flutter": False, "dart": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    class _Controls:
+        @staticmethod
+        def cancelled(session_id):
+            return session_id == "sess-9"
+
+    monkeypatch.setattr(ti, "turn_controls", _Controls)
+
+    def recipe(host, log, report):
+        ti._check_cancel()  # the poll every long wait performs
+        raise AssertionError("install continued after Cancel")
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", recipe)
+    receipt = ti._install("flutter", session_id="sess-9")
+    assert receipt.startswith("⏹")
+    # A different session's cancel must not stop this install.
+    def recipe_ok(host, log, report):
+        ti._check_cancel()
+        state["flutter"] = state["dart"] = True
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", recipe_ok)
+    assert ti._install("flutter", session_id="sess-1").startswith("✅")
 
 
 def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):

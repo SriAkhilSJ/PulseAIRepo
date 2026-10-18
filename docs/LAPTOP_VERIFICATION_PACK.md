@@ -178,13 +178,15 @@ fake Flutter project. Now it must install the real SDK first.
    is the founder's one-click surface, the dock is the fallback for
    child sessions). Click **Install** ON THE CARD → the card becomes
    a live **0→100 loader**: real % while the SDK downloads (the
-   label reads downloaded-of-total, e.g. "199 of 1,486 MB"), % while
+   label reads downloaded-of-total, e.g. "199 MB of 1.49 GB"), % while
    it extracts, then step labels for first-run/verify; a thin bar
    also shows on the card header even if you close it. Under the
    bar: "the agent is resting (no AI calls) until this finishes" —
    true by construction: the install is one local tool run and the
    model is only called again after it completes. **Cancel test**:
-   mid-download press **Cancel** (card body or header bar) → the
+   mid-download press **Cancel** (card body or header bar) or hit
+   **Esc** (Esc = Stop while anything runs; Esc = Deny while an
+   approval waits) → the
    download stops within a second, the partial file is removed,
    the turn ends, and no extra model call is spent on cancelling;
    ask again and the install restarts cleanly.

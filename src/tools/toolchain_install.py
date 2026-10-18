@@ -31,12 +31,15 @@ missing), ⛔ refused/failed with the failing step and the manual route.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import tarfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -136,12 +139,30 @@ class _InstallCancelled(Exception):
     agent rests — no model call is spent on the cancellation."""
 
 
+#: Session whose Cancel aborts the running install. A ContextVar, not
+#: a thread-local: tool execution may hop threads (async executors
+#: copy context, never thread-locals), while the call stack that
+#: matters — tool → recipe → download/stream loop — always carries
+#: it. Set by _install from the graph config's thread_id, which the
+#: bridge guarantees equals the panel's session id.
+_CANCEL_KEY: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "crusorai_install_cancel_key", default="")
+
+
 def _cancelled() -> bool:
     try:
-        session = active_session()
-        return bool(session) and turn_controls.cancelled(session)
+        key = _CANCEL_KEY.get("") or active_session() or ""
+        return bool(key) and turn_controls.cancelled(key)
     except Exception:  # noqa: BLE001 - cancellation must never break installs
         return False
+
+
+def _size_label(megabytes: float) -> str:
+    """Founder 2026-10-18: "1,486 --> GB". Natural units per side:
+    199 MB of 1.49 GB, never a four-digit MB wall."""
+    if megabytes >= 1000:
+        return f"{megabytes / 1000:.2f}".rstrip("0").rstrip(".") + " GB"
+    return f"{megabytes:.0f} MB"
 
 
 def _check_cancel() -> None:
@@ -213,13 +234,35 @@ def _run_stream(argv: list[str], *, timeout: int = 900, input_text: str | None =
     tail: deque[str] = deque(maxlen=120)
     started = time.monotonic()
     assert proc.stdout is not None
-    for line in proc.stdout:
-        tail.append(line)
-        if on_line is not None:
-            try:
-                on_line(line)
-            except Exception:  # noqa: BLE001 - progress must never break installs
-                pass
+    # A pump thread feeds a queue so the loop polls Cancel every
+    # 250 ms even when the child says nothing for minutes (a silent
+    # `cargo install` compile must still die on Cancel).
+    lines: queue.SimpleQueue = queue.SimpleQueue()
+    no_line = object()
+
+    def _pump() -> None:
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except Exception:  # noqa: BLE001 - EOF/kill both end the pump
+            pass
+        lines.put(None)
+
+    threading.Thread(target=_pump, daemon=True).start()
+    while True:
+        try:
+            line = lines.get(timeout=0.25)
+        except queue.Empty:
+            line = no_line  # no output this slice; polls below still run
+        if line is None:
+            break
+        if line is not no_line:
+            tail.append(line)
+            if on_line is not None:
+                try:
+                    on_line(line)
+                except Exception:  # noqa: BLE001 - progress must never break installs
+                    pass
         if _cancelled():
             proc.kill()
             proc.wait()
@@ -373,14 +416,13 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
         archive = MANAGED_ROOT / Path(archive_name).name
 
         def on_bytes(done: int, total: int | None) -> None:
-            mb = done / 1_000_000
             if total:
                 # Founder 2026-10-18: "total mb size not specified" —
                 # the denominator is what makes the wait feel finite.
                 report(2 + 63 * (done / total),
-                       f"Downloading Flutter SDK… {mb:.0f} of {total / 1_000_000:.0f} MB")
+                       f"Downloading Flutter SDK… {_size_label(done / 1_000_000)} of {_size_label(total / 1_000_000)}")
             else:
-                report(None, f"Downloading Flutter SDK… {mb:.0f} MB")
+                report(None, f"Downloading Flutter SDK… {_size_label(done / 1_000_000)}")
 
         tree_existed = dest.exists()
         try:
@@ -476,9 +518,9 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
         def on_bytes(done: int, total: int | None) -> None:
             if total:
                 report(12 + 20 * (done / total),
-                       f"Downloading Android command-line tools… {done / 1_000_000:.0f} of {total / 1_000_000:.0f} MB")
+                       f"Downloading Android command-line tools… {_size_label(done / 1_000_000)} of {_size_label(total / 1_000_000)}")
             else:
-                report(None, f"Downloading Android command-line tools… {done / 1_000_000:.0f} MB")
+                report(None, f"Downloading Android command-line tools… {_size_label(done / 1_000_000)}")
 
         tools_tree_existed = (root / "cmdline-tools").exists()
         try:
@@ -654,7 +696,18 @@ def _install_kit(bundle: str, host: str, report: ProgressFn) -> list[str]:
 
 
 def _install(sdk: str, host: str | None = None, progress: ProgressFn | None = None,
-             ui_test_kit: bool = False) -> str:
+             ui_test_kit: bool = False, session_id: str = "") -> str:
+    """Public entry: binds the run's cancel key (see _CANCEL_KEY) for
+    the whole install, however deep the recipes nest."""
+    token = _CANCEL_KEY.set(session_id or (active_session() or ""))
+    try:
+        return _install_body(sdk, host=host, progress=progress, ui_test_kit=ui_test_kit)
+    finally:
+        _CANCEL_KEY.reset(token)
+
+
+def _install_body(sdk: str, host: str | None = None, progress: ProgressFn | None = None,
+                  ui_test_kit: bool = False) -> str:
     report: ProgressFn = progress or (lambda _pct, _label: None)
     resolved_host = host_platform(host)
     canonical = canonical_sdk(sdk)
@@ -783,4 +836,5 @@ def install_toolchain(sdk: str, config: RunnableConfig, ui_test_kit: bool = Fals
     """
     configurable = (config or {}).get("configurable", {}) if isinstance(config, dict) else {}
     thread_id = str(configurable.get("thread_id") or "")
-    return _install(sdk, progress=_bus_progress(thread_id), ui_test_kit=ui_test_kit)
+    return _install(sdk, progress=_bus_progress(thread_id), ui_test_kit=ui_test_kit,
+                    session_id=thread_id)

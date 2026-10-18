@@ -1538,7 +1538,8 @@ def test_install_toolchain_card_and_dock_wiring():
     engine = (ROOT / "src" / "tools" / "toolchain_install.py").read_text(encoding="utf-8")
     assert "class _InstallCancelled" in engine
     assert "turn_controls.cancelled" in engine
-    assert "of {total / 1_000_000:.0f} MB" in engine  # "199 of 1,486 MB"
+    assert "_size_label(total / 1_000_000)" in engine  # "199 MB of 1.49 GB"
+    assert "_CANCEL_KEY" in engine  # config thread_id, never a thread-local
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():
