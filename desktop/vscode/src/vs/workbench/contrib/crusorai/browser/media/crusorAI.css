@@ -450,10 +450,35 @@
    keeps the loader visible while the card is closed. */
 .crusorai-render-root .crusorai-install-progress {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto;
+	grid-template-columns: minmax(0, 1fr) auto auto;
 	align-items: center;
 	gap: 6px 12px;
 	padding: 10px 12px;
+}
+.crusorai-render-root .crusorai-install-rest {
+	grid-column: 1 / -1;
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+}
+.crusorai-render-root .crusorai-install-cancel {
+	background: transparent;
+	color: var(--vscode-foreground);
+	border: 1px solid color-mix(in srgb, var(--vscode-foreground) 28%, transparent);
+	border-radius: 999px;
+	padding: 3px 12px;
+	cursor: pointer;
+	font: inherit;
+	font-size: var(--crusorai-text-meta);
+	white-space: nowrap;
+}
+.crusorai-render-root .crusorai-install-cancel:hover { background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+.crusorai-render-root .crusorai-install-cancel.is-mini { padding: 1px 9px; }
+.crusorai-render-root .crusorai-install-progress-minirow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: min(360px, 72%);
+	margin: 6px 0 2px 18px;
 }
 .crusorai-render-root .crusorai-install-progress-label { color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crusorai-render-root .crusorai-install-progress-percent { color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -465,7 +490,7 @@
 	background: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
 	overflow: hidden;
 }
-.crusorai-render-root .crusorai-install-progress-mini { grid-column: auto; width: min(280px, 60%); margin: 6px 0 2px 18px; }
+.crusorai-render-root .crusorai-install-progress-mini { grid-column: auto; flex: 1; width: auto; margin: 0; }
 .crusorai-render-root .crusorai-install-progress-fill {
 	display: block;
 	height: 100%;

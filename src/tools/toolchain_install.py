@@ -49,6 +49,7 @@ from langchain_core.tools import tool
 
 from src.targets import toolchain
 from src.targets.toolchain import HOST_MACOS, HOST_WINDOWS, host_platform
+from src.runtime.turn_control import active_session, turn_controls
 
 #: (percent 0..100, or None while a step has no honest measure, label)
 ProgressFn = Callable[[float | None, str], None]
@@ -128,24 +129,63 @@ class _StepFailed(Exception):
         self.tail = (tail or "")[-1500:]
 
 
+class _InstallCancelled(Exception):
+    """The user pressed Cancel on the install card: stop now, clean up,
+    and say so honestly. Raised only from explicit poll points; the
+    turn-level cancel the bridge already issued ends the turn, so the
+    agent rests — no model call is spent on the cancellation."""
+
+
+def _cancelled() -> bool:
+    try:
+        session = active_session()
+        return bool(session) and turn_controls.cancelled(session)
+    except Exception:  # noqa: BLE001 - cancellation must never break installs
+        return False
+
+
+def _check_cancel() -> None:
+    if _cancelled():
+        raise _InstallCancelled()
+
+
 # --------------------------------------------------------------------- #
 # step executors (fixed commands only — nothing here is model-composed)
 # --------------------------------------------------------------------- #
 
 def _run(argv: list[str], *, timeout: int = 900, input_text: str | None = None) -> tuple[int, str]:
+    """Bounded-wait subprocess returning (returncode, tail). The wait is
+    a poll loop, not one blocking call, so the card's Cancel lands
+    within a quarter second even inside a 20-minute first run; output
+    streams merge into one tail (only failure tails consume it)."""
     argv = [str(a) for a in argv]
     if os.name == "nt" and argv and argv[0].lower().endswith((".bat", ".cmd")):
         argv = ["cmd", "/c", *argv]
     try:
-        proc = subprocess.run(
-            argv, capture_output=True, text=True, timeout=timeout,
-            input=input_text, stdin=subprocess.DEVNULL if input_text is None else None,
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
-    except subprocess.TimeoutExpired:
-        return 124, f"timed out after {timeout}s"
     except OSError as exc:
         return 127, f"could not start: {exc}"
-    return proc.returncode, ((proc.stdout or "") + (proc.stderr or ""))[-3000:]
+    deadline = time.monotonic() + timeout
+    sent_input = False
+    while True:
+        try:
+            out, _ = proc.communicate(
+                input=None if sent_input else input_text, timeout=0.25)
+            return proc.returncode, (out or "")[-3000:]
+        except subprocess.TimeoutExpired:
+            sent_input = True
+            if _cancelled():
+                proc.kill()
+                proc.wait()
+                raise _InstallCancelled()
+            if time.monotonic() > deadline:
+                proc.kill()
+                out, _ = proc.communicate()
+                return 124, ((out or "")[-3000:] + f"\n(timed out after {timeout}s)")
 
 
 def _run_stream(argv: list[str], *, timeout: int = 900, input_text: str | None = None,
@@ -180,6 +220,10 @@ def _run_stream(argv: list[str], *, timeout: int = 900, input_text: str | None =
                 on_line(line)
             except Exception:  # noqa: BLE001 - progress must never break installs
                 pass
+        if _cancelled():
+            proc.kill()
+            proc.wait()
+            raise _InstallCancelled()
         if time.monotonic() - started > timeout:
             proc.kill()
             return 124, "".join(tail) + f"\n(timed out after {timeout}s)"
@@ -231,6 +275,11 @@ def _download(step: str, url: str, dest: Path,
                 done += len(chunk)
                 if on_bytes is not None:
                     on_bytes(done, total)
+                if _cancelled():
+                    raise _InstallCancelled()
+    except _InstallCancelled:
+        part.unlink(missing_ok=True)  # a half download is never kept
+        raise
     except Exception as exc:  # noqa: BLE001 - one honest step failure
         raise _StepFailed(step, f"{type(exc).__name__}: {exc} ({url})") from exc
     part.replace(dest)
@@ -248,6 +297,7 @@ def _extract(step: str, archive: Path, dest: Path,
                     if not (root / name).resolve().is_relative_to(root):
                         raise _StepFailed(step, f"unsafe path in archive: {name}")
                 for index, name in enumerate(names):
+                    _check_cancel()
                     bundle.extract(name, dest)
                     if on_file is not None:
                         on_file((index + 1) / max(1, len(names)))
@@ -258,11 +308,12 @@ def _extract(step: str, archive: Path, dest: Path,
                     if not (root / member.name).resolve().is_relative_to(root):
                         raise _StepFailed(step, f"unsafe path in archive: {member.name}")
                 for index, member in enumerate(members):
+                    _check_cancel()
                     if not (member.islnk() or member.issym()):
                         bundle.extract(member, dest)
                     if on_file is not None:
                         on_file((index + 1) / max(1, len(members)))
-    except _StepFailed:
+    except (_StepFailed, _InstallCancelled):
         raise
     except Exception as exc:  # noqa: BLE001
         raise _StepFailed(step, f"{type(exc).__name__}: {exc}") from exc
@@ -324,14 +375,26 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
         def on_bytes(done: int, total: int | None) -> None:
             mb = done / 1_000_000
             if total:
-                report(2 + 63 * (done / total), f"Downloading Flutter SDK… {mb:.0f} MB")
+                # Founder 2026-10-18: "total mb size not specified" —
+                # the denominator is what makes the wait feel finite.
+                report(2 + 63 * (done / total),
+                       f"Downloading Flutter SDK… {mb:.0f} of {total / 1_000_000:.0f} MB")
             else:
                 report(None, f"Downloading Flutter SDK… {mb:.0f} MB")
 
-        _download("download", f"{manifest['base_url']}/{archive_name}", archive, on_bytes=on_bytes)
-        log.append(f"downloaded Flutter {release.get('version', '?')} ({archive.name})")
-        _extract("extract", archive, MANAGED_ROOT,
-                 on_file=_band(report, 65, 82, "Extracting Flutter SDK…"))
+        tree_existed = dest.exists()
+        try:
+            _download("download", f"{manifest['base_url']}/{archive_name}", archive, on_bytes=on_bytes)
+            log.append(f"downloaded Flutter {release.get('version', '?')} ({archive.name})")
+            _extract("extract", archive, MANAGED_ROOT,
+                     on_file=_band(report, 65, 82, "Extracting Flutter SDK…"))
+        except _InstallCancelled:
+            # Never leave a half SDK tree behind for the next attempt
+            # to trip over (a partial tree reads as "installed").
+            archive.unlink(missing_ok=True)
+            if not tree_existed:
+                shutil.rmtree(dest, ignore_errors=True)
+            raise
         archive.unlink(missing_ok=True)
         if host != HOST_WINDOWS:
             _run(["chmod", "-R", "+x", str(dest / "bin")], timeout=300)
@@ -412,13 +475,21 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
 
         def on_bytes(done: int, total: int | None) -> None:
             if total:
-                report(12 + 20 * (done / total), "Downloading Android command-line tools…")
+                report(12 + 20 * (done / total),
+                       f"Downloading Android command-line tools… {done / 1_000_000:.0f} of {total / 1_000_000:.0f} MB")
             else:
                 report(None, f"Downloading Android command-line tools… {done / 1_000_000:.0f} MB")
 
-        _download("download", url, archive, on_bytes=on_bytes)
-        _extract("extract", archive, root / "cmdline-tools",
-                 on_file=_band(report, 32, 38, "Extracting Android command-line tools…"))
+        tools_tree_existed = (root / "cmdline-tools").exists()
+        try:
+            _download("download", url, archive, on_bytes=on_bytes)
+            _extract("extract", archive, root / "cmdline-tools",
+                     on_file=_band(report, 32, 38, "Extracting Android command-line tools…"))
+        except _InstallCancelled:
+            archive.unlink(missing_ok=True)
+            if not tools_tree_existed:
+                shutil.rmtree(root / "cmdline-tools", ignore_errors=True)
+            raise
         archive.unlink(missing_ok=True)
         inner = root / "cmdline-tools" / "cmdline-tools"
         if inner.is_dir() and not latest.exists():
@@ -567,6 +638,9 @@ def _install_kit(bundle: str, host: str, report: ProgressFn) -> list[str]:
         report(None, f"UI test kit: installing {name}…")
         try:
             landed = installer(host)
+        except _InstallCancelled:
+            notes.append(f"{name} stopped (cancelled by you)")
+            break
         except _StepFailed as failure:
             reason = (failure.tail or failure.step).strip().splitlines()
             notes.append(f"{name} skipped ({reason[-1][:90] if reason else failure.step})")
@@ -605,7 +679,15 @@ def _install(sdk: str, host: str | None = None, progress: ProgressFn | None = No
     log: list[str] = []
     report(0, f"Installing {label}…")
     try:
+        _check_cancel()
         _INSTALLERS[canonical](resolved_host, log, report)
+    except _InstallCancelled:
+        return (
+            f"⏹ {label} installation cancelled — the install stopped "
+            f"where it was and partial downloads were removed. Run "
+            f"check_target_toolchains to see the machine's state, and "
+            f"ask again whenever you're ready."
+        )
     except _StepFailed as failure:
         return (
             f"⛔ {label} install failed at step '{failure.step}':\n{failure.tail}\n"

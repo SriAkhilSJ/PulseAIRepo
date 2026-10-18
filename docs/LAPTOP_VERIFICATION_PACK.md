@@ -177,9 +177,17 @@ fake Flutter project. Now it must install the real SDK first.
    always" — installing software is a once-per-time grant; the card
    is the founder's one-click surface, the dock is the fallback for
    child sessions). Click **Install** ON THE CARD → the card becomes
-   a live **0→100 loader**: real % while the SDK downloads (with MB),
-   % while it extracts, then step labels for first-run/verify; a
-   thin bar also shows on the card header even if you close it.
+   a live **0→100 loader**: real % while the SDK downloads (the
+   label reads downloaded-of-total, e.g. "199 of 1,486 MB"), % while
+   it extracts, then step labels for first-run/verify; a thin bar
+   also shows on the card header even if you close it. Under the
+   bar: "the agent is resting (no AI calls) until this finishes" —
+   true by construction: the install is one local tool run and the
+   model is only called again after it completes. **Cancel test**:
+   mid-download press **Cancel** (card body or header bar) → the
+   download stops within a second, the partial file is removed,
+   the turn ends, and no extra model call is spent on cancelling;
+   ask again and the install restarts cleanly.
    It settles with a ✅ receipt naming the Flutter version (plus the
    UI-testing materials — scrcpy/Maestro — the same approval
    brought), and only THEN does `flutter create skydemo` run and the

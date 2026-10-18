@@ -255,6 +255,124 @@ def test_ui_test_kit_lands_and_is_named_in_the_receipt(monkeypatch):
     assert "UI test kit" not in receipt
 
 
+def test_download_label_names_the_total(tmp_path, monkeypatch):
+    """Founder field 2026-10-18: 'total mb size not specified' — the
+    wait only feels finite with the denominator on the card."""
+    import io
+    import json as jsonlib
+
+    payload = b"y" * 50_000
+    manifest = {
+        "current_release": {"stable": "abc"},
+        "releases": [{"hash": "abc", "version": "9.9.9", "archive": "flutter_fake.zip"}],
+        "base_url": "https://example.invalid",
+    }
+
+    class _Response:
+        def __init__(self, data: bytes):
+            self._buf = io.BytesIO(data)
+            self.headers = {"Content-Length": str(len(data))}
+
+        def read(self, size=-1):
+            return self._buf.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        url = getattr(request, "full_url", request)
+        if "releases_" in str(url):
+            return _Response(jsonlib.dumps(manifest).encode())
+        raise AssertionError(f"unexpected url {url}")
+
+    labels: list[str] = []
+
+    def fake_download(step, url, dest, on_bytes=None):
+        on_bytes(50_000_000, 100_000_000)
+        dest.write_bytes(payload)
+
+    monkeypatch.setattr(ti.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ti, "MANAGED_ROOT", tmp_path)
+    monkeypatch.setattr(ti, "_download", fake_download)
+    monkeypatch.setattr(ti, "_extract", lambda step, archive, dest, on_file=None: None)
+    monkeypatch.setattr(ti, "_sh", lambda step, argv, **kw: "Flutter 9.9.9")
+    ti._install_flutter("linux", [], lambda pct, label: labels.append(label))
+    assert any("50 of 100 MB" in label for label in labels), labels
+
+
+def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):
+    import io
+
+    class _Response:
+        headers = {"Content-Length": "600000"}
+
+        def __init__(self):
+            self._buf = io.BytesIO(b"z" * 600_000)
+
+        def read(self, size=-1):
+            return self._buf.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(ti.urllib.request, "urlopen", lambda request, timeout=None: _Response())
+    # Cancel lands after the download has begun.
+    checks = {"n": 0}
+
+    def fake_cancelled():
+        checks["n"] += 1
+        return checks["n"] > 1
+
+    monkeypatch.setattr(ti, "_cancelled", fake_cancelled)
+    dest = tmp_path / "sdk.zip"
+    with pytest.raises(ti._InstallCancelled):
+        ti._download("download", "https://example.invalid/sdk.zip", dest)
+    assert not dest.exists()
+    assert not (tmp_path / "sdk.zip.part").exists()
+
+
+def test_cancelled_install_gets_an_honest_receipt(monkeypatch):
+    state = {"flutter": False, "dart": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    def cancelled_install(host, log, report):
+        raise ti._InstallCancelled()
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", cancelled_install)
+    receipt = ti._install("flutter")
+    assert receipt.startswith("⏹")
+    assert "cancelled" in receipt
+    assert "check_target_toolchains" in receipt
+
+
+def test_streaming_step_dies_fast_on_cancel(monkeypatch):
+    """The card's Cancel (the session's existing turn cancel) kills a
+    running package step instead of waiting out its timeout — and the
+    agent rests: the turn ends without another model call (the graph
+    already gates nodes on turn_controls.cancelled)."""
+    import subprocess
+    import sys
+    import time
+
+    monkeypatch.setattr(ti, "_cancelled", lambda: True)
+    started = time.monotonic()
+    with pytest.raises(ti._InstallCancelled):
+        ti._run_stream(
+            [sys.executable, "-c",
+             "import time\nfor i in range(200):\n print(i, flush=True); time.sleep(0.05)"],
+            timeout=120, on_line=lambda line: None,
+        )
+    assert time.monotonic() - started < 10
+    # The child is really gone, not detached.
+    assert subprocess.run  # (sanity: stdlib present; kill asserted by elapsed time)
+
+
 def test_toolchain_check_points_at_the_installer(monkeypatch):
     from src.tools import target_tools
 

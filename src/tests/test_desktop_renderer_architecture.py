@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-30';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-31';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-30'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-31'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1528,6 +1528,17 @@ def test_install_toolchain_card_and_dock_wiring():
     assert ".crusorai-install-actions" in css
     bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert '"tool.progress": "tool_call_progress"' in bridge
+    # Founder field round on the loader (same day): the running card
+    # carries a labelled Cancel (rides the existing turn cancel; the
+    # installer polls it inside its download/extract/subprocess loops)
+    # and says the agent is resting — no AI calls during an install.
+    assert "function installCancelButton" in renderer
+    assert "agent is resting (no AI calls)" in renderer
+    assert ".crusorai-install-cancel" in css
+    engine = (ROOT / "src" / "tools" / "toolchain_install.py").read_text(encoding="utf-8")
+    assert "class _InstallCancelled" in engine
+    assert "turn_controls.cancelled" in engine
+    assert "of {total / 1_000_000:.0f} MB" in engine  # "199 of 1,486 MB"
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():

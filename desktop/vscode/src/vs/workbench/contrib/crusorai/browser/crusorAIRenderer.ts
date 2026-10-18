@@ -366,7 +366,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-30';
+const CRUSORAI_UI_STAMP = '2026-10-18-31';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -1804,7 +1804,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents:
 			// becoz, i know its a instalation, i wait") — real
 			// percentages where the engine measured them, an honest
 			// moving band + the step label where it could not.
-			body.append(installProgressBox(tool));
+			body.append(installProgressBox(tool, host));
 		}
 		// NO invented checklist (the old body hardcoded three check rows
 		// and a dead evidence button): the tool's own output — tsc
@@ -1954,30 +1954,49 @@ function installSdkLabel(tool: CrusorAIToolView): string {
 	return (sdk && INSTALL_SDK_LABELS[sdk.toLowerCase()]) || 'SDK';
 }
 
+/** Cancel for a running install (founder 2026-10-18: "cancel button
+ * not specified"). Rides the existing turn cancel: the bridge sets
+ * the session's cancel event, the installer polls it inside its
+ * download/extract/subprocess loops and stops within a second, and
+ * the graph ends the turn — the agent rests, and no model call is
+ * spent on the cancellation. stopPropagation keeps a click on the
+ * summary copy from also toggling the card. */
+function installCancelButton(host: CrusorAIRenderHost, mini = false): HTMLButtonElement {
+	const node = button('Cancel', 'crusorai-install-cancel' + (mini ? ' is-mini' : ''), () => host.cancel());
+	node.addEventListener('click', (event) => { event.stopPropagation(); event.preventDefault(); });
+	return node;
+}
+
 /** The running install's 0→100 loader (body form): step label, bar,
- * percent. Honest by construction — the engine only sends a percent
- * it measured (download bytes, extracted files, package-manager
- * output); otherwise the bar moves without a number. */
-function installProgressBox(tool: CrusorAIToolView): HTMLElement {
+ * percent, Cancel. Honest by construction — the engine only sends
+ * a percent it measured (download bytes vs total, extracted files,
+ * package-manager output); otherwise the bar moves without a number.
+ * The resting line is founder's rule made visible (2026-10-18): the
+ * agent makes no AI calls while an install runs. */
+function installProgressBox(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
 	const box = element('div', 'crusorai-install-progress');
 	box.dataset.component = 'install-progress';
 	const percent = typeof tool.progressPercent === 'number'
 		? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
 	box.append(element('span', 'crusorai-install-progress-label', tool.progressLabel || 'Installing…'));
+	if (percent !== undefined) {
+		box.append(element('span', 'crusorai-install-progress-percent', `${Math.round(percent)}%`));
+	}
+	box.append(installCancelButton(host));
 	const track = element('span', 'crusorai-install-progress-track');
 	const fill = element('span', 'crusorai-install-progress-fill' + (percent === undefined ? ' is-indeterminate' : ''));
 	if (percent !== undefined) { fill.style.width = `${percent}%`; }
 	track.append(fill);
 	box.append(track);
-	if (percent !== undefined) {
-		box.append(element('span', 'crusorai-install-progress-percent', `${Math.round(percent)}%`));
-	}
+	box.append(element('span', 'crusorai-install-rest',
+		'Installing on this machine — the agent is resting (no AI calls) until this finishes.'));
 	return box;
 }
 
 /** The loader's summary form: a thin track that stays visible while
- * the card is closed (a <details> hides everything but its summary). */
-function installProgressTrack(tool: CrusorAIToolView): HTMLElement {
+ * the card is closed (a <details> hides everything but its summary),
+ * with its own Cancel — reachable without opening the card. */
+function installProgressTrack(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
 	const percent = typeof tool.progressPercent === 'number'
 		? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
 	const track = element('span', 'crusorai-install-progress-track crusorai-install-progress-mini');
@@ -1987,7 +2006,7 @@ function installProgressTrack(tool: CrusorAIToolView): HTMLElement {
 		track.title = `${tool.progressLabel || 'Installing'} — ${Math.round(percent)}%`;
 	}
 	track.append(fill);
-	return track;
+	return element('span', 'crusorai-install-progress-minirow', track, installCancelButton(host, true));
 }
 
 /** The approval-state install card's one action (founder 2026-10-18:
@@ -2224,7 +2243,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		// The loader also lives in the summary: a closed <details>
 		// hides everything but its summary, and a multi-minute
 		// install must never look frozen.
-		summary.append(installProgressTrack(tool));
+		summary.append(installProgressTrack(tool, host));
 	}
 	// Persist ONLY user-driven disclosure. A 'toggle' listener also
 	// fires for programmatic `details.open` changes on repaint; a
