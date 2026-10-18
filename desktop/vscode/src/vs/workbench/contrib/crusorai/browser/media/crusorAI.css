@@ -463,7 +463,13 @@
 .crusorai-tool-field-key { color: var(--vscode-descriptionForeground); text-transform: uppercase; font-size: var(--crusorai-text-micro); letter-spacing: var(--crusorai-track-caps); }
 .crusorai-tool-field-val { color: var(--vscode-foreground); font-family: var(--crusorai-font-mono); font-size: var(--crusorai-text-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ---- Skill / target boxes (OpenCode tool-loaded-item anatomy) ---- */
-.crusorai-skill, .crusorai-target { display: grid; gap: 4px; min-width: 0; }
+.crusorai-skill, .crusorai-target, .crusorai-scaffold { display: grid; gap: 4px; min-width: 0; }
+.crusorai-scaffold-summary { color: var(--vscode-foreground); font-size: var(--crusorai-text-body); line-height: 1.45; overflow-wrap: anywhere; }
+.crusorai-scaffold-summary.is-failed, .crusorai-scaffold-summary.is-partial { color: var(--vscode-testing-iconFailed, #f85149); }
+.crusorai-scaffold-summary.is-skipped { color: var(--vscode-descriptionForeground); }
+.crusorai-scaffold-field { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: var(--crusorai-text-meta); }
+.crusorai-scaffold-field-label { flex-shrink: 0; color: var(--vscode-descriptionForeground); }
+.crusorai-scaffold-field-value { color: var(--vscode-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crusorai-loaded-item { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 6px; border: 1px solid var(--vscode-panel-border, transparent); background: var(--vscode-textCodeBlock-background); font-size: var(--crusorai-text-meta); }
 .crusorai-loaded-item > .codicon, .crusorai-loaded-item svg { flex-shrink: 0; color: var(--crusorai-verified, var(--vscode-foreground)); }
 .crusorai-loaded-item-label { color: var(--vscode-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

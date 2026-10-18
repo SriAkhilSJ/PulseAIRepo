@@ -306,3 +306,61 @@ export function stripTerminalEnvelope(text: string): string {
 	});
 	return keep.join('\n');
 }
+
+// ── scaffold receipts: the engine's prose verdict vs the card ───────────────
+// src/tools/scaffold_tools.py + target_scaffold.py answer with a prose
+// receipt whose LEADING GLYPH is the verdict (✅ completed / ⚠️ created
+// but a step failed / ⛔ refused-or-failed / ℹ️ skipped), followed by the
+// raw tool name and, on failures, `:\n` + the embedded command output.
+// Same law as the terminal envelope above (field 2026-09-09): the glyph
+// and the tool name are engine envelope — the card title already names
+// the tool — so they never surface as body text; the receipt's own
+// words and output do. The two model-directed trailers (instructions
+// TO the agent: "Continue with the named copy_file deliverables.",
+// "Next: build and prove it with `verify_target_app`...") are stripped
+// presentation-only, like the think boilerplate trailer — the factual
+// receipt stays verbatim.
+
+export interface CrusorScaffoldReceipt {
+	readonly tone: 'completed' | 'partial' | 'failed' | 'skipped';
+	/** The receipt's own headline, envelope and trailers removed. */
+	readonly headline: string;
+	/** Embedded command output after the headline, verbatim. */
+	readonly tail?: string;
+}
+
+const SCAFFOLD_GLYPHS: Readonly<Record<string, CrusorScaffoldReceipt['tone']>> = {
+	'✅': 'completed',
+	'⚠️': 'partial',
+	'⚠': 'partial',
+	'⛔': 'failed',
+	'ℹ️': 'skipped',
+	'ℹ': 'skipped',
+};
+
+/** Parse a scaffold tool's prose receipt; undefined when it isn't one. */
+export function parseScaffoldReceipt(text: string): CrusorScaffoldReceipt | undefined {
+	const trimmed = (text ?? '').trim();
+	if (!trimmed) { return undefined; }
+	const glyph = /^(✅|⚠️|⚠|⛔|ℹ️|ℹ)\s+/.exec(trimmed);
+	if (!glyph) { return undefined; }
+	const tone = SCAFFOLD_GLYPHS[glyph[1]];
+	if (!tone) { return undefined; }
+	// Drop the raw tool name ("scaffold_nextjs completed ...") — the
+	// card's title already says it.
+	let rest = trimmed.slice(glyph[0].length).replace(/^scaffold_[a-z_]+\s+/, '');
+	// Embedded command output rides after the headline's closing colon.
+	let headline = rest;
+	let tail: string | undefined;
+	const split = rest.indexOf(':\n');
+	if (split >= 0) {
+		headline = rest.slice(0, split);
+		tail = rest.slice(split + 2);
+	}
+	headline = headline
+		.replace(/\s*Continue with the named copy_file deliverables\.?\s*$/, '')
+		.replace(/\s*Next: build and prove it with `verify_target_app` instead of only compiling\.?\s*$/, '')
+		.trim();
+	if (!headline) { return undefined; }
+	return { tone, headline, ...(tail && tail.trim() ? { tail } : {}) };
+}

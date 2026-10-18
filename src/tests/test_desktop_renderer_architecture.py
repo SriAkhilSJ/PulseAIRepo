@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-17-26';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-17-27';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-17-26'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-17-27'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1488,8 +1488,18 @@ def test_scaffold_card_shows_the_calls_own_fields_not_inventions():
     state, nothing else."""
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "Python 3.14" not in renderer
-    assert "toolOutputBox(boundedText(detail, 4000))" in renderer
     assert "scaffoldFields" not in renderer
+    # The settled body is the engine's own receipt, parsed
+    # presentation-only (crusoraiCardFormat.parseScaffoldReceipt):
+    # verdict glyph + raw tool name + model-directed trailers are
+    # envelope, the headline and any embedded command output are the
+    # tool's own words. Behaviour pinned in test_scaffold_receipt_parse.
+    assert "function scaffoldBody" in renderer
+    card_format = _text("browser", "crusoraiCardFormat.ts")
+    assert "export function parseScaffoldReceipt" in card_format
+    css = _text("browser", "media", "crusorAI.css")
+    assert ".crusorai-scaffold-summary" in css
+    assert ".crusorai-scaffold-field" in css
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():

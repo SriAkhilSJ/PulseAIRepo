@@ -305,3 +305,45 @@ export function stripTerminalEnvelope(text) {
     });
     return keep.join('\n');
 }
+const SCAFFOLD_GLYPHS = {
+    '✅': 'completed',
+    '⚠️': 'partial',
+    '⚠': 'partial',
+    '⛔': 'failed',
+    'ℹ️': 'skipped',
+    'ℹ': 'skipped',
+};
+/** Parse a scaffold tool's prose receipt; undefined when it isn't one. */
+export function parseScaffoldReceipt(text) {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    const glyph = /^(✅|⚠️|⚠|⛔|ℹ️|ℹ)\s+/.exec(trimmed);
+    if (!glyph) {
+        return undefined;
+    }
+    const tone = SCAFFOLD_GLYPHS[glyph[1]];
+    if (!tone) {
+        return undefined;
+    }
+    // Drop the raw tool name ("scaffold_nextjs completed ...") — the
+    // card's title already says it.
+    let rest = trimmed.slice(glyph[0].length).replace(/^scaffold_[a-z_]+\s+/, '');
+    // Embedded command output rides after the headline's closing colon.
+    let headline = rest;
+    let tail;
+    const split = rest.indexOf(':\n');
+    if (split >= 0) {
+        headline = rest.slice(0, split);
+        tail = rest.slice(split + 2);
+    }
+    headline = headline
+        .replace(/\s*Continue with the named copy_file deliverables\.?\s*$/, '')
+        .replace(/\s*Next: build and prove it with `verify_target_app` instead of only compiling\.?\s*$/, '')
+        .trim();
+    if (!headline) {
+        return undefined;
+    }
+    return { tone, headline, ...(tail && tail.trim() ? { tail } : {}) };
+}
