@@ -1992,7 +1992,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.syncStashFrame(foreignId, frame);
 			switch (frame.type) {
 				case 'turn_started': case 'token': case 'token_retract': case 'reasoning': case 'plan_updated':
-				case 'tool_call_start': case 'tool_call_args': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
+				case 'tool_call_start': case 'tool_call_args': case 'tool_call_progress': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
 				case 'todo_updated': case 'verification_updated': case 'telemetry': case 'turn_done':
 				case 'turn_failed': case 'voice_text': case 'llm.request': case 'llm.response':
 				case 'context_status': case 'runtime_degraded':
@@ -2171,6 +2171,23 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				}
 				this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
 				this.pushToolPart(frame.tool_id);
+			}
+		} else if (frame.type === 'tool_call_progress') {
+			// Live install loader (founder 2026-10-18: "0 to 100 — I know
+			// it's an installation, I wait"). The emitting tool cannot know
+			// its call id, so the frame names the tool; SDK installs are
+			// serialized engine-side, so this session's running card with
+			// that name is unambiguously the one. Progress is ephemeral:
+			// the durable tool_call_end settles the card afterwards.
+			for (const [id, existing] of this.tools) {
+				if (existing.name === frame.name && (existing.state === 'running' || existing.state === 'queued')) {
+					this.tools.set(id, {
+						...existing,
+						progressPercent: typeof frame.percent === 'number' ? frame.percent : undefined,
+						progressLabel: frame.label || existing.progressLabel,
+					});
+					break;
+				}
 			}
 		} else if (frame.type === 'tool_output') {
 			// Live shell output (OpenCode cursor-tail discipline): append to

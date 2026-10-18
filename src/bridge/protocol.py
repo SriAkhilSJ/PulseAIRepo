@@ -27,7 +27,7 @@ CLIENT_METHODS = frozenset({
 SERVER_EVENTS = frozenset({
     "hello", "session_info", "session_messages", "session_deleted",
     "token", "token_retract", "reasoning", "plan_updated",
-    "tool_call_start", "tool_call_args", "tool_call_end", "tool_output", "safety_request",
+    "tool_call_start", "tool_call_args", "tool_call_progress", "tool_call_end", "tool_output", "safety_request",
     "clarify_request", "todo_updated",
     "verification_updated", "subagent_updated", "subagent_list", "subagent_background_completed", "telemetry",
     "skills_hub_result",

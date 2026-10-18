@@ -145,6 +145,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'tool_call_args'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_end'; readonly tool_id: string; readonly status: string; readonly result?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_output'; readonly tool_id: string; readonly name: string; readonly text: string } & CrusorIdentity)
+	| ({ readonly type: 'tool_call_progress'; readonly tool_id: string; readonly name: string; readonly percent?: number; readonly label?: string } & CrusorIdentity)
 	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown; readonly diff?: unknown; readonly warning?: string } & CrusorIdentity)
 	| ({ readonly type: 'clarify_request'; readonly tool_id?: string; readonly request_id: string; readonly title?: string; readonly questions: readonly CrusorClarifyQuestion[] } & CrusorIdentity)
 	| ({ readonly type: 'todo_updated'; readonly todos: readonly CrusorTodoItem[]; readonly revision: number; readonly summary?: Readonly<Record<string, number>> } & CrusorIdentity)

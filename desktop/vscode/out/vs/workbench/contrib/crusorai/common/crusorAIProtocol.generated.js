@@ -75,6 +75,7 @@ export const CRUSOR_AI_SERVER_EVENTS = [
     'token_retract',
     'tool_call_args',
     'tool_call_end',
+    'tool_call_progress',
     'tool_call_start',
     'tool_output',
     'turn_done',

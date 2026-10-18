@@ -451,6 +451,7 @@ class BridgeServer:
             "reasoning.update": "reasoning",
             "tool.call": "tool_call_start",
             "tool.args": "tool_call_args",
+            "tool.progress": "tool_call_progress",
             "tool.result": "tool_call_end",
             "tool.output": "tool_output",
             "tool.approval.request": "safety_request",
@@ -521,6 +522,16 @@ class BridgeServer:
             return {
                 **base, "tool_id": tool_id, "name": name,
                 "arguments": payload.get("arguments", payload.get("tool_args")),
+            }
+        if target == "tool_call_progress":
+            # Live install loader (founder 2026-10-18). The emitting
+            # tool cannot know its call id; the frame names the tool
+            # and the viewed session matches its running card (installs
+            # are serialized engine-side, so this is unambiguous).
+            return {
+                **base, "tool_id": tool_id, "name": name,
+                "percent": payload.get("percent"),
+                "label": str(payload.get("label") or ""),
             }
         if target == "tool_call_args":
             # Streamed arguments snapshot (ephemeral; the durable

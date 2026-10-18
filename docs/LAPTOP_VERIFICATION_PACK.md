@@ -169,17 +169,27 @@ Context: with no Flutter SDK on the machine, the agent hand-wrote a
 fake Flutter project. Now it must install the real SDK first.
 
 1. **Flutter install** (SDK absent, as on the test machine): ask
-   `Create a Flutter app called skydemo`.
+   `Create a Flutter app called skydemo and verify the UI`.
    ✅ The agent checks toolchains, finds Flutter missing, and an
-   **Install SDK · flutter** card appears; the dock asks
-   **"Install Flutter SDK?"** (hint: downloads ~1 GB, outside the
-   project). **Allow once** → the card settles with a ✅ receipt
-   naming the Flutter version, and only THEN does `flutter create
-   skydemo` run in the terminal and produce a REAL generated project
-   (android/, ios/, lib/, pubspec.yaml from the generator — not
-   hand-written files).
+   **Install SDK · flutter** card appears OPEN with **[Install
+   Flutter SDK]** and **[Not now]** buttons on the card itself; the
+   dock asks the same question with an **Install** button (no "Allow
+   always" — installing software is a once-per-time grant; the card
+   is the founder's one-click surface, the dock is the fallback for
+   child sessions). Click **Install** ON THE CARD → the card becomes
+   a live **0→100 loader**: real % while the SDK downloads (with MB),
+   % while it extracts, then step labels for first-run/verify; a
+   thin bar also shows on the card header even if you close it.
+   It settles with a ✅ receipt naming the Flutter version (plus the
+   UI-testing materials — scrcpy/Maestro — the same approval
+   brought), and only THEN does `flutter create skydemo` run and the
+   agent CONTINUE the original task in the same turn.
    ❌ The agent hand-writes pubspec.yaml/main.dart as the "project",
-   or creates anything before the install is approved.
+   creates anything before the install is approved, stops after the
+   install without creating the app, or the loader sits at a fake
+   unmoving percentage (numbers only ever come from real download
+   bytes / file counts / installer output; unmeasurable steps show
+   the step label with a moving band and NO number).
 2. **Second run needs no install**: ask for another Flutter app.
    ✅ No install card — straight to `flutter create` (the SDK is
    found at `~/.crusorai/sdks/flutter`).

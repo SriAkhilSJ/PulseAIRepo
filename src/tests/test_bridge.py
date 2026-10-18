@@ -245,6 +245,27 @@ def test_no_workspace_bound_without_workspace(sidecar):
     assert listed["type"] == "session_info"
 
 
+def test_project_event_forwards_tool_progress():
+    """The install loader's wire hop (founder 2026-10-18): the engine's
+    tool.progress event projects to a tool_call_progress frame that
+    names the tool (the emitter cannot know its call id)."""
+    from src.bridge.__main__ import BridgeServer
+    from src.runtime.identity import TurnIdentity
+
+    identity = TurnIdentity.create(session_id="proj-3", workspace="/tmp/pbr-ws")
+    frame = BridgeServer._project_event({
+        "type": "tool.progress",
+        "payload": {"thread_id": "proj-3", "tool_name": "install_toolchain",
+                    "percent": 42.5, "label": "Downloading Flutter SDK… 420 MB"},
+    }, identity)
+    assert frame is not None
+    assert frame["type"] == "tool_call_progress"
+    assert frame["name"] == "install_toolchain"
+    assert frame["percent"] == 42.5
+    assert frame["label"] == "Downloading Flutter SDK… 420 MB"
+    assert frame["session_id"] == "proj-3"
+
+
 def test_project_event_forwards_llm_request():
     from src.bridge.__main__ import BridgeServer
     from src.runtime.identity import TurnIdentity

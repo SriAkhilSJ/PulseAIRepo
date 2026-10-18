@@ -46,7 +46,7 @@ def test_already_installed_is_a_no_op(monkeypatch):
     state = {"flutter": True, "dart": True}
     monkeypatch.setattr(toolchain, "probe", _probe_with(state))
     called = []
-    monkeypatch.setitem(ti._INSTALLERS, "flutter", lambda host, log: called.append(host))
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", lambda host, log, report: called.append(host))
     receipt = ti._install("flutter")
     assert receipt.startswith("ℹ️")
     assert called == []
@@ -64,7 +64,7 @@ def test_successful_install_verifies_with_a_fresh_probe(monkeypatch):
     state = {"flutter": False, "dart": False}
     monkeypatch.setattr(toolchain, "probe", _probe_with(state))
 
-    def fake_install(host, log):
+    def fake_install(host, log, report):
         state["flutter"] = state["dart"] = True
         log.append("fake steps")
 
@@ -78,7 +78,7 @@ def test_failed_step_names_the_step_and_the_manual_route(monkeypatch):
     state = {"flutter": False, "dart": False}
     monkeypatch.setattr(toolchain, "probe", _probe_with(state))
 
-    def broken(host, log):
+    def broken(host, log, report):
         raise ti._StepFailed("download", "network gone")
 
     monkeypatch.setitem(ti._INSTALLERS, "flutter", broken)
@@ -92,7 +92,7 @@ def test_partial_install_uses_the_warning_tone(monkeypatch):
     state = {"java": False, "sdkmanager": False, "adb": False}
     monkeypatch.setattr(toolchain, "probe", _probe_with(state))
 
-    def half(host, log):
+    def half(host, log, report):
         state["java"] = True
 
     monkeypatch.setitem(ti._INSTALLERS, "android", half)
@@ -130,6 +130,129 @@ def test_target_children_receive_the_installer():
 
     resolved = set(resolve_toolset_names("Build a React Native app and verify its UI on an Android emulator"))
     assert "install_toolchain" in resolved
+
+
+def test_progress_starts_at_zero_and_finishes_at_100(monkeypatch):
+    """The card's loader (founder 2026-10-18: "0 to 100 — i know its a
+    instalation, i wait"): the run opens at 0 with a label and the
+    verified success closes at 100."""
+    state = {"flutter": False, "dart": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    def fake_install(host, log, report):
+        report(42, "Downloading Flutter SDK… 420 MB")
+        state["flutter"] = state["dart"] = True
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", fake_install)
+    seen: list[tuple[float | None, str]] = []
+    receipt = ti._install("flutter", progress=lambda pct, label: seen.append((pct, label)))
+    assert receipt.startswith("✅")
+    assert seen[0] == (0, "Installing Flutter SDK…") or seen[0][0] == 0
+    assert (42, "Downloading Flutter SDK… 420 MB") in seen
+    assert seen[-1] == (100, "Flutter SDK ready")
+
+
+def test_percent_scraper_reads_package_manager_output():
+    assert ti._frac_from_line("Installing Android SDK Platform 35  42%") == 0.42
+    assert ti._frac_from_line("downloading... 7.5% done") == 0.075
+    assert ti._frac_from_line("no measure on this line") is None
+    assert ti._frac_from_line("over 250%?!") == 1.0
+
+
+def test_band_maps_step_progress_into_its_slice():
+    seen: list[tuple[float | None, str]] = []
+    band = ti._band(lambda pct, label: seen.append((pct, label)), 40, 90, "Installing…")
+    band(0.5)
+    band(None)
+    assert seen == [(65.0, "Installing…"), (None, "Installing…")]
+
+
+def test_download_reports_real_byte_progress(tmp_path, monkeypatch):
+    import io
+
+    payload = b"x" * 100_000
+
+    class _Response:
+        headers = {"Content-Length": str(len(payload))}
+
+        def __init__(self):
+            self._buf = io.BytesIO(payload)
+
+        def read(self, size=-1):
+            return self._buf.read(size)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(ti.urllib.request, "urlopen", lambda request, timeout=None: _Response())
+    seen: list[tuple[int, int | None]] = []
+    dest = tmp_path / "sdk.zip"
+    ti._download("download", "https://example.invalid/sdk.zip", dest,
+                 on_bytes=lambda done, total: seen.append((done, total)))
+    assert dest.read_bytes() == payload
+    assert seen[-1] == (len(payload), len(payload))
+    assert all(total == len(payload) for _, total in seen)
+
+
+def test_bus_progress_throttles_clamps_and_never_raises(monkeypatch):
+    from src.dashboard import event_bus as bus_module
+
+    seen: list[dict] = []
+    monkeypatch.setattr(bus_module.event_bus, "emit",
+                        lambda kind, payload: seen.append(payload))
+    report = ti._bus_progress("thread-1")
+    report(10, "Downloading…")
+    report(10.4, "Downloading…")   # <1% and instant: throttled away
+    report(50, "Downloading…")
+    report(250, "Downloading…")    # clamped to 100
+    report(None, "Verifying…")     # label change always lands
+    assert [payload["percent"] for payload in seen] == [10.0, 50.0, 100.0, None]
+    assert seen[0]["tool_name"] == "install_toolchain"
+    assert seen[0]["thread_id"] == "thread-1"
+
+
+def test_ui_test_kit_failure_never_fails_the_sdk_install(monkeypatch):
+    """Founder 2026-10-18: installs bring the UI-testing raw materials
+    too — best-effort, so a skipped extra is a receipt note, never a
+    failed install."""
+    state = {"node": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    def fake_install(host, log, report):
+        state["node"] = True
+
+    def broken_kit(host):
+        raise ti._StepFailed("cdn", "network gone")
+
+    monkeypatch.setitem(ti._INSTALLERS, "node", fake_install)
+    monkeypatch.setitem(ti._KIT_STEPS, "node", (("playwright", broken_kit, "playwright"),))
+    receipt = ti._install("node", ui_test_kit=True)
+    assert receipt.startswith("✅")
+    assert "UI test kit: playwright skipped (network gone)." in receipt
+
+
+def test_ui_test_kit_lands_and_is_named_in_the_receipt(monkeypatch):
+    state = {"node": False, "playwright": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+
+    def fake_install(host, log, report):
+        state["node"] = True
+
+    def kit(host):
+        state["playwright"] = True
+        return "Playwright Chromium (browser UI tests)"
+
+    monkeypatch.setitem(ti._INSTALLERS, "node", fake_install)
+    monkeypatch.setitem(ti._KIT_STEPS, "node", (("playwright", kit, "playwright"),))
+    receipt = ti._install("node", ui_test_kit=True)
+    assert "UI test kit: Playwright Chromium (browser UI tests)." in receipt
+    # And without the flag the kit stays out of the run entirely.
+    state["node"] = False
+    receipt = ti._install("node")
+    assert "UI test kit" not in receipt
 
 
 def test_toolchain_check_points_at_the_installer(monkeypatch):

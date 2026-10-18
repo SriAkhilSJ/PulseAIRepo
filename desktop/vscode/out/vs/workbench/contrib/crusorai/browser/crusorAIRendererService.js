@@ -1998,6 +1998,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'plan_updated':
                 case 'tool_call_start':
                 case 'tool_call_args':
+                case 'tool_call_progress':
                 case 'tool_call_end':
                 case 'tool_output':
                 case 'safety_request':
@@ -2214,6 +2215,24 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 }
                 this.tools.set(frame.tool_id, { id: frame.tool_id, name: frame.name, arguments: frame.arguments, state: 'running' });
                 this.pushToolPart(frame.tool_id);
+            }
+        }
+        else if (frame.type === 'tool_call_progress') {
+            // Live install loader (founder 2026-10-18: "0 to 100 — I know
+            // it's an installation, I wait"). The emitting tool cannot know
+            // its call id, so the frame names the tool; SDK installs are
+            // serialized engine-side, so this session's running card with
+            // that name is unambiguously the one. Progress is ephemeral:
+            // the durable tool_call_end settles the card afterwards.
+            for (const [id, existing] of this.tools) {
+                if (existing.name === frame.name && (existing.state === 'running' || existing.state === 'queued')) {
+                    this.tools.set(id, {
+                        ...existing,
+                        progressPercent: typeof frame.percent === 'number' ? frame.percent : undefined,
+                        progressLabel: frame.label || existing.progressLabel,
+                    });
+                    break;
+                }
             }
         }
         else if (frame.type === 'tool_output') {

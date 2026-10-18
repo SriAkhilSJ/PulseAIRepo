@@ -33,18 +33,35 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
+import time
 import urllib.request
 import zipfile
+from collections import deque
 from pathlib import Path
+from typing import Callable
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from src.targets import toolchain
 from src.targets.toolchain import HOST_MACOS, HOST_WINDOWS, host_platform
+
+#: (percent 0..100, or None while a step has no honest measure, label)
+ProgressFn = Callable[[float | None, str], None]
+
+_PERCENT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+
+
+def _frac_from_line(line: str) -> float | None:
+    """Last percentage a package manager printed on this line, as 0..1."""
+    found = _PERCENT_RE.findall(line or "")
+    if not found:
+        return None
+    return max(0.0, min(1.0, float(found[-1]) / 100.0))
 
 #: Where Crusor-managed SDKs live (the probe's managed-candidates root).
 MANAGED_ROOT = Path.home() / ".crusorai" / "sdks"
@@ -131,43 +148,120 @@ def _run(argv: list[str], *, timeout: int = 900, input_text: str | None = None) 
     return proc.returncode, ((proc.stdout or "") + (proc.stderr or ""))[-3000:]
 
 
-def _sh(step: str, argv: list[str], *, timeout: int = 900, input_text: str | None = None) -> str:
-    code, out = _run(argv, timeout=timeout, input_text=input_text)
+def _run_stream(argv: list[str], *, timeout: int = 900, input_text: str | None = None,
+                on_line: Callable[[str], None] | None = None) -> tuple[int, str]:
+    """Streaming twin of _run: output lines flow to on_line as they land
+    (package managers print their real percentages there — the loader's
+    honest numbers). Bounded tail, bounded wait, like _run."""
+    argv = [str(a) for a in argv]
+    if os.name == "nt" and argv and argv[0].lower().endswith((".bat", ".cmd")):
+        argv = ["cmd", "/c", *argv]
+    try:
+        proc = subprocess.Popen(
+            argv,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+    except OSError as exc:
+        return 127, f"could not start: {exc}"
+    if input_text is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(input_text)
+            proc.stdin.close()
+        except OSError:
+            pass
+    tail: deque[str] = deque(maxlen=120)
+    started = time.monotonic()
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        tail.append(line)
+        if on_line is not None:
+            try:
+                on_line(line)
+            except Exception:  # noqa: BLE001 - progress must never break installs
+                pass
+        if time.monotonic() - started > timeout:
+            proc.kill()
+            return 124, "".join(tail) + f"\n(timed out after {timeout}s)"
+    return proc.wait(), "".join(tail)
+
+
+def _sh(step: str, argv: list[str], *, timeout: int = 900, input_text: str | None = None,
+        on_line: Callable[[str], None] | None = None) -> str:
+    if on_line is None:
+        code, out = _run(argv, timeout=timeout, input_text=input_text)
+    else:
+        code, out = _run_stream(argv, timeout=timeout, input_text=input_text, on_line=on_line)
     if code != 0:
         raise _StepFailed(step, out or f"exit {code}")
     return out
 
 
-def _download(step: str, url: str, dest: Path) -> None:
+def _band(report: ProgressFn, lo: float, hi: float, label: str) -> Callable[[float | None], None]:
+    """Map one step's own 0..1 onto its slice of the 0..100 loader."""
+    def emit(frac: float | None) -> None:
+        if frac is None:
+            report(None, label)
+        else:
+            report(lo + (hi - lo) * max(0.0, min(1.0, frac)), label)
+    return emit
+
+
+def _line_progress(emit: Callable[[float | None], None]) -> Callable[[str], None]:
+    def on_line(line: str) -> None:
+        emit(_frac_from_line(line))
+    return on_line
+
+
+def _download(step: str, url: str, dest: Path,
+              on_bytes: Callable[[int, int | None], None] | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_suffix(dest.suffix + ".part")
     request = urllib.request.Request(url, headers={"User-Agent": "CrusorAI"})
     try:
         with urllib.request.urlopen(request, timeout=180) as response, open(part, "wb") as handle:
-            shutil.copyfileobj(response, handle, 1024 * 256)
+            total = response.headers.get("Content-Length")
+            total = int(total) if total and total.isdigit() else None
+            done = 0
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                done += len(chunk)
+                if on_bytes is not None:
+                    on_bytes(done, total)
     except Exception as exc:  # noqa: BLE001 - one honest step failure
         raise _StepFailed(step, f"{type(exc).__name__}: {exc} ({url})") from exc
     part.replace(dest)
 
 
-def _extract(step: str, archive: Path, dest: Path) -> None:
+def _extract(step: str, archive: Path, dest: Path,
+             on_file: Callable[[float], None] | None = None) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     root = dest.resolve()
     try:
         if zipfile.is_zipfile(archive):
             with zipfile.ZipFile(archive) as bundle:
-                for name in bundle.namelist():
+                names = bundle.namelist()
+                for name in names:
                     if not (root / name).resolve().is_relative_to(root):
                         raise _StepFailed(step, f"unsafe path in archive: {name}")
-                bundle.extractall(dest)
+                for index, name in enumerate(names):
+                    bundle.extract(name, dest)
+                    if on_file is not None:
+                        on_file((index + 1) / max(1, len(names)))
         else:
             with tarfile.open(archive, "r:*") as bundle:
-                for member in bundle.getmembers():
+                members = bundle.getmembers()
+                for member in members:
                     if not (root / member.name).resolve().is_relative_to(root):
                         raise _StepFailed(step, f"unsafe path in archive: {member.name}")
-                    if member.islnk() or member.issym():
-                        continue
-                    bundle.extract(member, dest)
+                for index, member in enumerate(members):
+                    if not (member.islnk() or member.issym()):
+                        bundle.extract(member, dest)
+                    if on_file is not None:
+                        on_file((index + 1) / max(1, len(members)))
     except _StepFailed:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -183,26 +277,27 @@ def _activate(bin_dir: Path) -> None:
         os.environ["PATH"] = entry + os.pathsep + os.environ.get("PATH", "")
 
 
-def _winget(step: str, package_id: str) -> str:
+def _winget(step: str, package_id: str, emit: Callable[[float | None], None] | None = None) -> str:
     if not shutil.which("winget"):
         raise _StepFailed(step, "winget is not available on this machine")
     return _sh(step, [
         "winget", "install", "-e", "--id", package_id,
         "--accept-package-agreements", "--accept-source-agreements",
-    ], timeout=1800)
+    ], timeout=1800, on_line=_line_progress(emit) if emit else None)
 
 
-def _brew(step: str, formula: str) -> str:
+def _brew(step: str, formula: str, emit: Callable[[float | None], None] | None = None) -> str:
     if not shutil.which("brew"):
         raise _StepFailed(step, "Homebrew is not available on this machine")
-    return _sh(step, ["brew", "install", formula], timeout=1800)
+    return _sh(step, ["brew", "install", formula], timeout=1800,
+               on_line=_line_progress(emit) if emit else None)
 
 
 # --------------------------------------------------------------------- #
 # recipes
 # --------------------------------------------------------------------- #
 
-def _install_flutter(host: str, log: list[str]) -> None:
+def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
     dest = MANAGED_ROOT / "flutter"
     if not (dest / "bin").is_dir():
         os_name = {"windows": "windows", "macos": "macos"}.get(host, "linux")
@@ -210,6 +305,7 @@ def _install_flutter(host: str, log: list[str]) -> None:
             "https://storage.googleapis.com/flutter_infra_release"
             f"/releases/releases_{os_name}.json"
         )
+        report(1, "Checking the latest Flutter release…")
         try:
             with urllib.request.urlopen(manifest_url, timeout=60) as response:
                 manifest = json.loads(response.read().decode("utf-8"))
@@ -224,16 +320,27 @@ def _install_flutter(host: str, log: list[str]) -> None:
             raise _StepFailed("release lookup", "no stable release in the Flutter manifest")
         archive_name = str(release["archive"])
         archive = MANAGED_ROOT / Path(archive_name).name
-        _download("download", f"{manifest['base_url']}/{archive_name}", archive)
+
+        def on_bytes(done: int, total: int | None) -> None:
+            mb = done / 1_000_000
+            if total:
+                report(2 + 63 * (done / total), f"Downloading Flutter SDK… {mb:.0f} MB")
+            else:
+                report(None, f"Downloading Flutter SDK… {mb:.0f} MB")
+
+        _download("download", f"{manifest['base_url']}/{archive_name}", archive, on_bytes=on_bytes)
         log.append(f"downloaded Flutter {release.get('version', '?')} ({archive.name})")
-        _extract("extract", archive, MANAGED_ROOT)
+        _extract("extract", archive, MANAGED_ROOT,
+                 on_file=_band(report, 65, 82, "Extracting Flutter SDK…"))
         archive.unlink(missing_ok=True)
         if host != HOST_WINDOWS:
             _run(["chmod", "-R", "+x", str(dest / "bin")], timeout=300)
     _activate(dest / "bin")
+    report(84, "First run — building the Flutter tool (a minute or two)…")
     binary = dest / "bin" / ("flutter.bat" if host == HOST_WINDOWS else "flutter")
     out = _sh("first run", [str(binary), "--version"], timeout=1200)
     log.append(out.splitlines()[0] if out.splitlines() else "flutter --version ok")
+    report(95, "Verifying the installation…")
 
 
 def _ensure_java_env(host: str) -> None:
@@ -264,11 +371,13 @@ def _ensure_java_env(host: str) -> None:
         _activate(java_bin.parent)
 
 
-def _install_java(host: str, log: list[str]) -> None:
+def _install_java(host: str, log: list[str], report: ProgressFn,
+                  band: tuple[float, float] = (0, 90)) -> None:
+    emit = _band(report, band[0], band[1], "Installing JDK 21…")
     if host == HOST_WINDOWS:
-        _winget("winget", "Microsoft.OpenJDK.21")
+        _winget("winget", "Microsoft.OpenJDK.21", emit)
     elif host == HOST_MACOS:
-        _brew("brew", "openjdk@21")
+        _brew("brew", "openjdk@21", emit)
     else:
         raise _StepFailed(
             "package manager",
@@ -287,9 +396,9 @@ def _android_root(host: str) -> Path:
     return roots[0] if roots else Path.home() / "Android" / "Sdk"
 
 
-def _install_android(host: str, log: list[str]) -> None:
+def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
     if not toolchain.probe(fresh=True)["java"].available:
-        _install_java(host, log)
+        _install_java(host, log, report, band=(0, 12))
     _ensure_java_env(host)
     root = _android_root(host)
     latest = root / "cmdline-tools" / "latest"
@@ -300,8 +409,16 @@ def _install_android(host: str, log: list[str]) -> None:
             f"commandlinetools-{flavour}-{_CMDLINE_TOOLS_BUILD}_latest.zip"
         )
         archive = root / "commandlinetools.zip"
-        _download("download", url, archive)
-        _extract("extract", archive, root / "cmdline-tools")
+
+        def on_bytes(done: int, total: int | None) -> None:
+            if total:
+                report(12 + 20 * (done / total), "Downloading Android command-line tools…")
+            else:
+                report(None, f"Downloading Android command-line tools… {done / 1_000_000:.0f} MB")
+
+        _download("download", url, archive, on_bytes=on_bytes)
+        _extract("extract", archive, root / "cmdline-tools",
+                 on_file=_band(report, 32, 38, "Extracting Android command-line tools…"))
         archive.unlink(missing_ok=True)
         inner = root / "cmdline-tools" / "cmdline-tools"
         if inner.is_dir() and not latest.exists():
@@ -310,21 +427,25 @@ def _install_android(host: str, log: list[str]) -> None:
     manager = latest / "bin" / ("sdkmanager.bat" if host == HOST_WINDOWS else "sdkmanager")
     if not manager.exists():
         raise _StepFailed("sdkmanager", f"not found at {manager}")
+    report(40, "Accepting Android SDK licenses…")
     _sh("licenses", [str(manager), f"--sdk_root={root}", "--licenses"],
         timeout=600, input_text="y\n" * 24)
     _sh("sdk packages", [str(manager), f"--sdk_root={root}", *_ANDROID_PACKAGES],
-        timeout=1800)
+        timeout=1800,
+        on_line=_line_progress(_band(report, 42, 96, "Installing Android SDK packages (platform-tools, android-35, emulator)…")))
     log.append("installed " + ", ".join(_ANDROID_PACKAGES))
+    report(97, "Verifying the installation…")
 
 
-def _install_node(host: str, log: list[str]) -> None:
+def _install_node(host: str, log: list[str], report: ProgressFn) -> None:
+    emit = _band(report, 0, 90, "Installing Node.js…")
     if host == HOST_WINDOWS:
-        _winget("winget", "OpenJS.NodeJS.LTS")
+        _winget("winget", "OpenJS.NodeJS.LTS", emit)
         node_dir = Path("C:/Program Files/nodejs")
         if node_dir.is_dir():
             _activate(node_dir)
     elif host == HOST_MACOS:
-        _brew("brew", "node@22")
+        _brew("brew", "node@22", emit)
         for candidate in (Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
             if (candidate / "node").exists():
                 _activate(candidate)
@@ -337,12 +458,13 @@ def _install_node(host: str, log: list[str]) -> None:
     log.append("Node.js installed")
 
 
-def _install_rust(host: str, log: list[str]) -> None:
+def _install_rust(host: str, log: list[str], report: ProgressFn) -> None:
     cargo_bin = Path.home() / ".cargo" / "bin"
+    emit = _band(report, 0, 90, "Installing Rust…")
     if host == HOST_WINDOWS:
-        _winget("winget", "Rustlang.Rustup")
+        _winget("winget", "Rustlang.Rustup", emit)
     elif host == HOST_MACOS and shutil.which("brew"):
-        _brew("brew", "rustup")
+        _brew("brew", "rustup", emit)
         init = shutil.which("rustup-init") or "/opt/homebrew/bin/rustup-init"
         _sh("rustup-init", [init, "-y"], timeout=1200)
     else:
@@ -354,7 +476,7 @@ def _install_rust(host: str, log: list[str]) -> None:
     log.append("Rust toolchain installed")
 
 
-def _install_xcode(host: str, log: list[str]) -> None:
+def _install_xcode(host: str, log: list[str], report: ProgressFn) -> None:
     if host != HOST_MACOS:
         raise _StepFailed(
             "host",
@@ -390,7 +512,76 @@ _MANUAL_HINTS = {
 }
 
 
-def _install(sdk: str, host: str | None = None) -> str:
+# --------------------------------------------------------------------- #
+# UI-test kit: the raw materials UI verification drives with (founder
+# 2026-10-18: "not only SDKs — raw materials which help for UI Testing
+# also"). Best-effort by design: a skipped extra never fails the SDK
+# install it rode along with; the receipt says what landed.
+# --------------------------------------------------------------------- #
+
+def _kit_scrcpy(host: str) -> str:
+    if host == HOST_WINDOWS:
+        _winget("winget", "Genymobile.scrcpy")
+    elif shutil.which("brew"):
+        _brew("brew", "scrcpy")
+    else:
+        raise _StepFailed("package manager", "install scrcpy with your OS package manager")
+    return "scrcpy (device mirroring)"
+
+
+def _kit_maestro(host: str) -> str:
+    if host == HOST_WINDOWS:
+        raise _StepFailed(
+            "host", "Maestro ships a Windows zip: https://docs.maestro.dev/get-started/installing-maestro/windows")
+    _sh("maestro", ["sh", "-c", "curl -fsSL https://get.maestro.mobile.dev | bash"], timeout=900)
+    return "Maestro (UI flows)"
+
+
+def _kit_playwright(host: str) -> str:
+    if not toolchain.probe(fresh=True)["node"].available:
+        raise _StepFailed("node", "Playwright browsers need Node.js first")
+    _sh("playwright", ["npx", "-y", "playwright@latest", "install", "chromium"],
+        timeout=1500)
+    return "Playwright Chromium (browser UI tests)"
+
+
+def _kit_tauri_driver(host: str) -> str:
+    if not toolchain.probe(fresh=True)["cargo"].available:
+        raise _StepFailed("cargo", "tauri-driver builds with cargo — install Rust first")
+    _sh("tauri-driver", ["cargo", "install", "tauri-driver", "--locked"], timeout=1800)
+    return "tauri-driver (desktop UI tests)"
+
+
+#: bundle -> [(receipt name, installer, probe id that proves it)]
+_KIT_STEPS: dict[str, tuple[tuple[str, Callable[[str], str], str], ...]] = {
+    "flutter": (("scrcpy", _kit_scrcpy, "scrcpy"), ("maestro", _kit_maestro, "maestro")),
+    "android": (("scrcpy", _kit_scrcpy, "scrcpy"), ("maestro", _kit_maestro, "maestro")),
+    "node": (("playwright", _kit_playwright, "playwright"),),
+    "rust": (("tauri-driver", _kit_tauri_driver, "tauri-driver"),),
+}
+
+
+def _install_kit(bundle: str, host: str, report: ProgressFn) -> list[str]:
+    notes: list[str] = []
+    for name, installer, probe_id in _KIT_STEPS.get(bundle, ()):
+        report(None, f"UI test kit: installing {name}…")
+        try:
+            landed = installer(host)
+        except _StepFailed as failure:
+            reason = (failure.tail or failure.step).strip().splitlines()
+            notes.append(f"{name} skipped ({reason[-1][:90] if reason else failure.step})")
+            continue
+        except Exception as exc:  # noqa: BLE001 - extras never fail the install
+            notes.append(f"{name} skipped ({type(exc).__name__})")
+            continue
+        status = toolchain.probe(fresh=True).get(probe_id)
+        notes.append(landed if status and status.available else f"{landed} — installed, resolves next session")
+    return notes
+
+
+def _install(sdk: str, host: str | None = None, progress: ProgressFn | None = None,
+             ui_test_kit: bool = False) -> str:
+    report: ProgressFn = progress or (lambda _pct, _label: None)
     resolved_host = host_platform(host)
     canonical = canonical_sdk(sdk)
     label = _LABELS.get(canonical)
@@ -399,15 +590,22 @@ def _install(sdk: str, host: str | None = None) -> str:
         return f"⛔ unknown SDK {sdk!r}. Installable: {choices}."
     wanted = _BUNDLE_TOOLS[canonical]
     before = toolchain.probe(resolved_host, fresh=True)
+    kit_notes: list[str] = []
     if all(before[tool_id].available for tool_id in wanted):
         found = "; ".join(
             f"{tool_id} {(before[tool_id].version or before[tool_id].path)[:60]}".strip()
             for tool_id in wanted
         )
-        return f"ℹ️ {label} already installed ({found}). Nothing to do."
+        if ui_test_kit:
+            kit_notes = _install_kit(canonical, resolved_host, report)
+        receipt = f"ℹ️ {label} already installed ({found}). Nothing to do."
+        if kit_notes:
+            receipt += " UI test kit: " + " · ".join(kit_notes) + "."
+        return receipt
     log: list[str] = []
+    report(0, f"Installing {label}…")
     try:
-        _INSTALLERS[canonical](resolved_host, log)
+        _INSTALLERS[canonical](resolved_host, log, report)
     except _StepFailed as failure:
         return (
             f"⛔ {label} install failed at step '{failure.step}':\n{failure.tail}\n"
@@ -420,18 +618,24 @@ def _install(sdk: str, host: str | None = None) -> str:
         f"{t} {(after[t].version or after[t].path)[:60]}".strip() for t in ready
     )
     steps = " · ".join(log)
+    if ready and ui_test_kit:
+        kit_notes = _install_kit(canonical, resolved_host, report)
+    kit_text = (" UI test kit: " + " · ".join(kit_notes) + ".") if kit_notes else ""
     if not missing:
+        report(100, f"{label} ready")
         return (
             f"✅ {label} installed and verified ({detail})."
             + (f" Steps: {steps}." if steps else "")
             + " The SDK resolves in this session now — create/build with "
             "the terminal (e.g. `flutter create <name>`)."
+            + kit_text
         )
     if ready:
         return (
             f"⚠️ {label} partially installed ({detail}); still missing: "
             f"{', '.join(missing)}. Re-run check_target_toolchains for the "
             f"remaining pieces. Steps: {steps}."
+            + kit_text
         )
     return (
         f"⛔ {label} install ran but the toolchain probe still cannot find "
@@ -440,8 +644,39 @@ def _install(sdk: str, host: str | None = None) -> str:
     )
 
 
+def _bus_progress(thread_id: str) -> ProgressFn:
+    """Throttled `tool.progress` events for the card's 0→100 loader
+    (founder 2026-10-18: a visible loader is what makes a user wait
+    instead of closing the app). Emits on label change, on ≥1% steps,
+    and never more than ~4/second; progress plumbing must never break
+    the install itself, so every emit is best-effort."""
+    state = {"pct": None, "label": "", "at": 0.0}
+
+    def report(percent: float | None, label: str) -> None:
+        pct = None if percent is None else round(max(0.0, min(100.0, float(percent))), 1)
+        now = time.monotonic()
+        if pct == state["pct"] and label == state["label"]:
+            return
+        if pct is not None and state["pct"] is not None and label == state["label"] \
+                and abs(pct - state["pct"]) < 1.0 and now - state["at"] < 0.25:
+            return
+        state.update(pct=pct, label=label, at=now)
+        try:
+            from src.dashboard.event_bus import event_bus
+            event_bus.emit("tool.progress", {
+                "thread_id": thread_id,
+                "tool_name": "install_toolchain",
+                "percent": pct,
+                "label": label,
+            })
+        except Exception:  # noqa: BLE001
+            pass
+
+    return report
+
+
 @tool
-def install_toolchain(sdk: str, config: RunnableConfig) -> str:
+def install_toolchain(sdk: str, config: RunnableConfig, ui_test_kit: bool = False) -> str:
     """Install a missing SDK/toolchain on this machine (Flutter, Android
     SDK, Node.js, JDK 21, Rust, Xcode command-line tools).
 
@@ -453,11 +688,17 @@ def install_toolchain(sdk: str, config: RunnableConfig) -> str:
 
     Downloads official packages (up to ~1 GB) and installs OUTSIDE the
     workspace, so the user is asked for approval first; an install can
-    take several minutes. Afterwards the SDK resolves immediately —
-    create and build through the terminal (`flutter create <name>`).
+    take several minutes (the card shows live 0→100 progress). Set
+    `ui_test_kit` when the task will also verify UI: the same approval
+    then also lands the testing raw materials for the platform
+    (device mirroring + Maestro for mobile, Playwright Chromium for
+    web, tauri-driver for Tauri). Afterwards the SDK resolves
+    immediately — create and build through the terminal
+    (`flutter create <name>`), then CONTINUE the original task.
     Never hand-author a project generator's files (pubspec.yaml,
     package.json scaffolds) as a substitute for a missing SDK: offer
     this install instead.
     """
-    del config  # host-scoped, no workspace state involved
-    return _install(sdk)
+    configurable = (config or {}).get("configurable", {}) if isinstance(config, dict) else {}
+    thread_id = str(configurable.get("thread_id") or "")
+    return _install(sdk, progress=_bus_progress(thread_id), ui_test_kit=ui_test_kit)

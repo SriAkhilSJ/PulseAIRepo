@@ -442,6 +442,59 @@
 }
 @keyframes crusorai-spin { to { transform: rotate(360deg); } }
 
+/* ---- Install loader + card action (founder 2026-10-18: "0 to 100 —
+   i don't delete becoz, i know its a instalation, i wait") ----
+   Real percentages come from the engine (download bytes, extracted
+   files, package-manager output); a step with no honest measure
+   slides the band without inventing a number. The summary track
+   keeps the loader visible while the card is closed. */
+.crusorai-render-root .crusorai-install-progress {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 6px 12px;
+	padding: 10px 12px;
+}
+.crusorai-render-root .crusorai-install-progress-label { color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crusorai-render-root .crusorai-install-progress-percent { color: var(--vscode-foreground); font-size: var(--crusorai-text-meta); font-weight: 600; font-variant-numeric: tabular-nums; }
+.crusorai-render-root .crusorai-install-progress-track {
+	grid-column: 1 / -1;
+	display: block;
+	height: 4px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+	overflow: hidden;
+}
+.crusorai-render-root .crusorai-install-progress-mini { grid-column: auto; width: min(280px, 60%); margin: 6px 0 2px 18px; }
+.crusorai-render-root .crusorai-install-progress-fill {
+	display: block;
+	height: 100%;
+	border-radius: inherit;
+	background: #fff;
+	transition: width 300ms ease;
+}
+.crusorai-render-root .crusorai-install-progress-fill.is-indeterminate {
+	width: 33%;
+	animation: crusorai-install-slide 1.4s ease-in-out infinite;
+}
+@keyframes crusorai-install-slide {
+	0% { transform: translateX(-110%); }
+	100% { transform: translateX(320%); }
+}
+.crusorai-render-root .crusorai-install-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	padding: 10px 12px 12px;
+}
+.crusorai-render-root .crusorai-install-note {
+	color: var(--vscode-descriptionForeground);
+	font-size: var(--crusorai-text-meta);
+	flex: 1 1 220px;
+	min-width: 0;
+}
+
 /* ---- Pending label sweep (`crusor-shimmer`, hermes-agent thread) ----
    Hermes sweeps the GLYPHS with a clipped gradient at 2.4s linear; the fork used to slide a
    translucent bar over the text, which reads as a loading bar rather than a live label. Same
@@ -1255,6 +1308,8 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.crusorai-mini-spinner { animation: none; }
+	.crusorai-install-progress-fill { transition: none; }
+	.crusorai-install-progress-fill.is-indeterminate { animation: none; }
 	.crusorai-plan-strip-summary > .codicon-chevron-down,
 	.crusorai-composer-box { transition: none; }
 }

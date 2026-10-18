@@ -161,7 +161,10 @@ def check_target_toolchains(target: str, config: RunnableConfig) -> str:
             f"user first): {calls}. Do NOT hand-author a project "
             f"generator's files (pubspec.yaml, package.json scaffolds) "
             f"as a substitute for a missing SDK — offer the install, "
-            f"then create the project with the real generator."
+            f"then create the project with the real generator. When "
+            f"the task will also verify UI, pass ui_test_kit=true so "
+            f"the testing raw materials (device mirroring, Maestro, "
+            f"Playwright browsers) land in the same approval."
         )
     return report
 

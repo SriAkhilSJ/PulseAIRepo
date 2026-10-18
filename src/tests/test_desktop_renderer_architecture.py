@@ -348,7 +348,7 @@ def test_foreign_tool_call_args_never_paint_in_the_viewed_lane():
 	must route foreign; args frames join the drop list, and a viewed
 	child adopts its tail on an args frame like on a start frame."""
 	service = _text("browser", "crusorAIRendererService.ts")
-	assert "case 'tool_call_start': case 'tool_call_args': case 'tool_call_end'" in service
+	assert "case 'tool_call_start': case 'tool_call_args': case 'tool_call_progress': case 'tool_call_end'" in service
 	assert "frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output'" in service
 
 
@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-29';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-30';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-29'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-30'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1508,7 +1508,26 @@ def test_install_toolchain_card_and_dock_wiring():
     assert "install_toolchain: tool('Install SDK'" in catalog
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "approval.name === 'install_toolchain'" in renderer
-    assert "Install ${labels[sdk] ?? 'SDK'}?" in renderer
+    assert "Install ${INSTALL_SDK_LABELS[sdk] ?? 'SDK'}?" in renderer
+    # Founder 2026-10-18 (two refinements): the install action lives ON
+    # the approval card (one click installs, then the agent continues),
+    # and the running card carries a real 0→100 loader so the user
+    # waits instead of killing the app mid-install.
+    assert "function installApprovalActions" in renderer
+    assert "host.replyToSafety(tool.id, true)" in renderer
+    assert "function installProgressBox" in renderer
+    assert "function installProgressTrack" in renderer
+    assert "tool.state === 'approval'" in renderer  # grouping guard
+    assert "isInstallApproval" in renderer          # dock: Install, no always
+    service = _text("browser", "crusorAIRendererService.ts")
+    assert "frame.type === 'tool_call_progress'" in service
+    protocol = _text("common", "crusorAIProtocol.ts")
+    assert "'tool_call_progress'" in protocol
+    css = _text("browser", "media/crusorAI.css")
+    assert ".crusorai-install-progress-fill" in css
+    assert ".crusorai-install-actions" in css
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert '"tool.progress": "tool_call_progress"' in bridge
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():

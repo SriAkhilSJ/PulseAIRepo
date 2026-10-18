@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-29';
+const CRUSORAI_UI_STAMP = '2026-10-18-30';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -1661,6 +1661,13 @@ function familyBody(tool, host, subAgents = []) {
         }
     }
     else if (presentation.family === 'verification') {
+        if (tool.name === 'install_toolchain' && tool.state === 'running') {
+            // The 0→100 loader (founder 2026-10-18: "i don't delete
+            // becoz, i know its a instalation, i wait") — real
+            // percentages where the engine measured them, an honest
+            // moving band + the step label where it could not.
+            body.append(installProgressBox(tool));
+        }
         // NO invented checklist (the old body hardcoded three check rows
         // and a dead evidence button): the tool's own output — tsc
         // lines, the verify report — is the body. State rides the header.
@@ -1817,6 +1824,68 @@ function familyBody(tool, host, subAgents = []) {
         }
     }
     return body;
+}
+/** SDK display names for install cards/dock (aliases included: the
+ * model's ask may carry any tool id the checker reported). */
+const INSTALL_SDK_LABELS = {
+    flutter: 'Flutter SDK', dart: 'Flutter SDK',
+    android: 'Android SDK', 'android-sdk': 'Android SDK', adb: 'Android SDK', sdkmanager: 'Android SDK',
+    node: 'Node.js', npm: 'Node.js', java: 'JDK 21', jdk: 'JDK 21',
+    rust: 'Rust', cargo: 'Rust', xcode: 'Xcode', xcodebuild: 'Xcode',
+};
+function installSdkLabel(tool) {
+    const sdk = firstString(record(tool.arguments), ['sdk', 'name']);
+    return (sdk && INSTALL_SDK_LABELS[sdk.toLowerCase()]) || 'SDK';
+}
+/** The running install's 0→100 loader (body form): step label, bar,
+ * percent. Honest by construction — the engine only sends a percent
+ * it measured (download bytes, extracted files, package-manager
+ * output); otherwise the bar moves without a number. */
+function installProgressBox(tool) {
+    const box = element('div', 'crusorai-install-progress');
+    box.dataset.component = 'install-progress';
+    const percent = typeof tool.progressPercent === 'number'
+        ? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
+    box.append(element('span', 'crusorai-install-progress-label', tool.progressLabel || 'Installing…'));
+    const track = element('span', 'crusorai-install-progress-track');
+    const fill = element('span', 'crusorai-install-progress-fill' + (percent === undefined ? ' is-indeterminate' : ''));
+    if (percent !== undefined) {
+        fill.style.width = `${percent}%`;
+    }
+    track.append(fill);
+    box.append(track);
+    if (percent !== undefined) {
+        box.append(element('span', 'crusorai-install-progress-percent', `${Math.round(percent)}%`));
+    }
+    return box;
+}
+/** The loader's summary form: a thin track that stays visible while
+ * the card is closed (a <details> hides everything but its summary). */
+function installProgressTrack(tool) {
+    const percent = typeof tool.progressPercent === 'number'
+        ? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
+    const track = element('span', 'crusorai-install-progress-track crusorai-install-progress-mini');
+    const fill = element('span', 'crusorai-install-progress-fill' + (percent === undefined ? ' is-indeterminate' : ''));
+    if (percent !== undefined) {
+        fill.style.width = `${percent}%`;
+        track.title = `${tool.progressLabel || 'Installing'} — ${Math.round(percent)}%`;
+    }
+    track.append(fill);
+    return track;
+}
+/** The approval-state install card's one action (founder 2026-10-18:
+ * "just add install button, clicking it will install the SDK — after
+ * that agent continues the task"). The verdict rides the same rail
+ * as the approval dock (replyToSafety by tool id — the card IS the
+ * approval's tool), so engine flow after the click is untouched:
+ * install runs, then the agent continues the original task in the
+ * same turn. */
+function installApprovalActions(tool, host) {
+    const wrap = element('div', 'crusorai-install-actions');
+    wrap.dataset.component = 'install-actions';
+    wrap.append(button(`Install ${installSdkLabel(tool)}`, 'crusorai-permission-once crusorai-install-now', () => host.replyToSafety(tool.id, true), 'cloud-download'), button('Not now', 'crusorai-permission-deny', () => host.replyToSafety(tool.id, false), 'close'), element('span', 'crusorai-install-note', 'Downloads the official SDK (up to ~1 GB) and installs it on this machine, outside the project. '
+        + 'Afterwards the agent continues your task — and this card shows live progress while it installs.'));
+    return wrap;
 }
 function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents = []) {
     // Hermes (message-parts ChainToolFallback): a clarify call renders its own
@@ -2016,6 +2085,25 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     if (body && bodyHasContent) {
         details.append(body);
     }
+    if (tool.name === 'install_toolchain' && tool.state === 'approval') {
+        // The one action of this card is the install itself (founder
+        // 2026-10-18: "just add install button, clicking it will
+        // install the SDK — after that agent continues the task").
+        // The card opens itself so the button is right there; the
+        // dock's slim bar still answers too — child approvals surface
+        // in the viewed parent's dock while this card lives in the
+        // child's transcript, so that path must not disappear.
+        if (!closedTools.has(tool.id)) {
+            details.open = true;
+        }
+        details.append(installApprovalActions(tool, host));
+    }
+    if (tool.name === 'install_toolchain' && tool.state === 'running') {
+        // The loader also lives in the summary: a closed <details>
+        // hides everything but its summary, and a multi-minute
+        // install must never look frozen.
+        summary.append(installProgressTrack(tool));
+    }
     // Persist ONLY user-driven disclosure. A 'toggle' listener also
     // fires for programmatic `details.open` changes on repaint; a
     // summary click is always the user's own hand (mouse or keyboard).
@@ -2055,6 +2143,12 @@ const EXPLORE_GROUP_TOOLS = new Set(['list_files', 'read_file', 'search_files', 
 function activityGroupKey(tool) {
     const name = tool.name;
     if (!name) {
+        return null;
+    }
+    // An approval awaiting its verdict — and the install it gates —
+    // never folds into a group: its buttons and the 0→100 loader must
+    // stay visible (founder 2026-10-18).
+    if (tool.state === 'approval') {
         return null;
     }
     if (crusorAIToolPresentation(name).family === 'process') {
@@ -2808,13 +2902,7 @@ function approvalQuestion(approval, diffRecord, isShell) {
     }
     if (approval.name === 'install_toolchain') {
         const sdk = typeof diffRecord?.sdk === 'string' ? diffRecord.sdk.toLowerCase() : '';
-        const labels = {
-            flutter: 'Flutter SDK', dart: 'Flutter SDK',
-            android: 'Android SDK', 'android-sdk': 'Android SDK', adb: 'Android SDK', sdkmanager: 'Android SDK',
-            node: 'Node.js', npm: 'Node.js', java: 'JDK 21', jdk: 'JDK 21',
-            rust: 'Rust', cargo: 'Rust', xcode: 'Xcode', xcodebuild: 'Xcode',
-        };
-        return `Install ${labels[sdk] ?? 'SDK'}?`;
+        return `Install ${INSTALL_SDK_LABELS[sdk] ?? 'SDK'}?`;
     }
     const rawPath = typeof diffRecord?.relative_path === 'string'
         ? diffRecord.relative_path
@@ -2854,9 +2942,15 @@ function approvalDock(model, host) {
     const isShell = approval.name === 'run_terminal' || approval.name === 'start_terminal' || approval.name === 'terminal' || approval.name === 'execute_code' || diffRecord?.kind === 'shell';
     const riskText = isShell && typeof diffRecord?.risk === 'string' ? diffRecord.risk : undefined;
     const hasFileDiff = !isShell && (!!diffString || !!approval.diff);
-    const runButton = button('Allow once', 'crusorai-permission-once', () => host.replyToSafety(approval.toolId, true), 'check');
+    // Install approvals answer with ONE verb (founder 2026-10-18:
+    // "just add install button"): the tool card carries the same
+    // action; this dock keeps it reachable for child transcripts
+    // and keyboard answers. No Allow-always — installing software
+    // on the machine is granted once, every time.
+    const isInstallApproval = approval.name === 'install_toolchain';
+    const runButton = button(isInstallApproval ? 'Install' : 'Allow once', 'crusorai-permission-once', () => host.replyToSafety(approval.toolId, true), isInstallApproval ? 'cloud-download' : 'check');
     runButton.dataset.approveOnce = '';
-    hinted(runButton, 'Allow this call only.');
+    hinted(runButton, isInstallApproval ? 'Download and install the SDK, then continue the task.' : 'Allow this call only.');
     runButton.append(element('span', 'crusorai-approval-kbd', 'ctrl \u23ce'));
     // Style 1's verdicts (founder wireframe pick 2026-10-17): Deny
     // (ghost) | Allow always (outline, behind the confirm dialog --
@@ -2867,7 +2961,7 @@ function approvalDock(model, host) {
     const reject = hinted(button('Deny', 'crusorai-permission-deny', () => host.replyToSafety(approval.toolId, false), 'close'), 'Deny this call. The next write is asked about again.');
     reject.dataset.deny = '';
     reject.append(element('span', 'crusorai-approval-kbd', 'esc'));
-    const footerActions = element('div', 'crusorai-permission-actions', reject, alwaysButton, runButton);
+    const footerActions = element('div', 'crusorai-permission-actions', reject, ...(isInstallApproval ? [] : [alwaysButton]), runButton);
     footerActions.dataset.slot = 'permission-footer-actions';
     // Review change only for file diffs: a shell ask has no diff to
     // open (clicking it used to throw the red receipt error).
@@ -2937,7 +3031,9 @@ function approvalDock(model, host) {
     }
     bar.append(sub);
     dock.append(bar);
-    dock.append(overlay);
+    if (!isInstallApproval) {
+        dock.append(overlay);
+    }
     return dock;
 }
 function approvalCommandText(name, diff) {
@@ -4420,7 +4516,12 @@ export function mountCrusorAIRenderer(root, surface, host) {
     // covers EXCEPT tool results (their growth is the patch's whole point).
     let lastStableSig = '';
     const stableSignature = (model) => {
-        const strip = (t) => ({ id: t.id, name: t.name, state: t.state });
+        // The install loader's fields ride the strip: a percent/label
+        // change MUST break stability and take the full paint, or the
+        // 0→100 loader freezes between tool-state changes (the engine
+        // already throttles to ~4 updates/sec, so repaints stay rare
+        // and happen only while an install runs).
+        const strip = (t) => ({ id: t.id, name: t.name, state: t.state, pct: t.progressPercent, lbl: t.progressLabel });
         return JSON.stringify({
             ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined,
             tools: model.tools.map(strip),
