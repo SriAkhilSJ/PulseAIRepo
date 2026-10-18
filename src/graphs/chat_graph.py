@@ -1400,12 +1400,23 @@ tools = [
 # failure generator ("browser testing" lost its tools to the word "build";    #
 # a differently-worded ask would never bind them at all). `tools` IS the      #
 # bound list; the SafeToolNode executes whatever the model calls.             #
+#                                                                             #
+# Parent-waist rider (2026-10-17, founder's core-cost round): the            #
+# interactive parent now binds the capability waist the prompt already       #
+# advertised, floored with the everyday kit — see the Parent waist block     #
+# in _resolve_bound_tools. The availability discipline above is unchanged    #
+# (check_fn strips; CRUSORAI_PARENT_WAIST=off restores this snapshot);       #
+# what changed is only that task-signalled exotic families no longer         #
+# ride every parent call. The 2026-09-07 lesson is preserved structurally:   #
+# the floor is unconditional, so wording can never again REMOVE an           #
+# everyday tool — it can only add an exotic family.                          #
 # --------------------------------------------------------------------------- #
 _TOOLS_BY_NAME: dict[str, Any] = {t.name: t for t in tools}
 # Base descriptions of the delegate tools, captured before the binder
 # starts refreshing them with the live agent registry listing.
 _DELEGATE_BASE_DESCRIPTIONS: dict[str, str] = {}
 _TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
+_PARENT_WAIST_REPORTED = False  # parent-waist load-line: once per process
 
 _FILE_DELIVERY_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file", "scaffold_nextjs",
@@ -1554,6 +1565,81 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
                 resolved_names = _scoped
     except Exception:
         pass  # scoping must never break binding; worst case = today's surface
+
+    # Parent waist (founder's core-cost round, 2026-10-17): the
+    # non-strict parent previously bound every registered schema on
+    # every model call (68 tools, ~59k schema chars) while the prompt
+    # engine already gated its guidance on this same capability waist
+    # (prompts/hermes/view.resolve_valid_tool_names) — the model paid
+    # for tools the prompt never advertised. Bind what the prompt
+    # advertises: resolve the SAME profile from the SAME task text
+    # (current task + latest instruction + plan, the text the prompt
+    # view classifies), floor it with the build agent's everyday kit,
+    # and let the profile add the exotic families (browser, targets/
+    # devices, web/media, delegation) only when the task signals
+    # them. The 2026-09-07 amputation failures were keyword gates
+    # REMOVING everyday tools (todo_list, browser) mid-turn; this
+    # waist cannot do that — the floor is unconditional, only exotic
+    # families are gated, and the classification text only grows
+    # within a turn, so a bound family never disappears mid-turn.
+    # Children keep their strict scope above (never widened by the
+    # floor); explicit client scopes and sub-* threads keep today's
+    # full surface. CRUSORAI_PARENT_WAIST=off restores the full bind.
+    try:
+        _pcfg = config.get("configurable", {}) if isinstance(config, dict) else {}
+        _thread = str(_pcfg.get("thread_id") or "")
+        if (
+            os.getenv("CRUSORAI_PARENT_WAIST", "").strip().lower()
+            not in {"off", "0", "false", "no"}
+            and not _pcfg.get("scope_capabilities_strict")
+            and not _pcfg.get("scope_capabilities")
+            and not _thread.startswith("sub-")
+        ):
+            from src.agents.runtime_profile import (
+                CAP_EXECUTION, CAP_VERIFICATION, CAP_WORKSPACE_READ,
+                CAP_WORKSPACE_WRITE, CAPABILITY_ORDER, RuntimeProfile,
+                resolve_runtime_profile,
+            )
+            from src.tools.toolsets import resolve_runtime_tool_names
+
+            _task_text = " ".join([
+                str(state.get("current_task", "") or ""),
+                str(state.get("latest_instruction", "") or ""),
+                *(
+                    str(step.get("description", ""))
+                    for step in state.get("plan", []) or []
+                ),
+            ])
+            _profile = resolve_runtime_profile(_task_text, config)
+            _caps = set(_profile.capabilities) | {
+                CAP_WORKSPACE_READ, CAP_WORKSPACE_WRITE,
+                CAP_EXECUTION, CAP_VERIFICATION,
+            }
+            _floored = RuntimeProfile(
+                name=_profile.name,
+                capabilities=tuple(
+                    cap for cap in CAPABILITY_ORDER if cap in _caps
+                ),
+                reasons=_profile.reasons,
+            )
+            _waist_names = set(resolve_runtime_tool_names(_floored, config))
+            # Orchestration plumbing no toolset carries: the parent
+            # always owns the plan and the task display.
+            _waist_names |= {"display_crusor_task", "plan_update"}
+            _parent_scoped = [n for n in resolved_names if n in _waist_names]
+            if _parent_scoped:
+                resolved_names = _parent_scoped
+                global _PARENT_WAIST_REPORTED
+                if not _PARENT_WAIST_REPORTED:
+                    _PARENT_WAIST_REPORTED = True
+                    print(
+                        f"[tools] parent waist '{_profile.name}': binding "
+                        f"{len(resolved_names)} of {len(names)} tools "
+                        "(everyday kit floored; task signals add the rest)",
+                        flush=True,
+                    )
+    except Exception:
+        pass  # the waist must never break binding; worst case = full surface
 
     # Tool cap: some models (notably DeepSeek) return empty tool_calls when
     # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.
