@@ -1,4 +1,4 @@
-# Laptop verification pack — through `593b9aa1` (UI stamp `2026-10-17-15`)
+# Laptop verification pack — engine + UI through `01bb6fd0` (UI stamp `2026-10-17-26`)
 
 ## Setup (every round)
 
