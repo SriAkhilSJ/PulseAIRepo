@@ -247,3 +247,23 @@ fake Flutter project. Now it must install the real SDK first.
    process was stale. After pulling, fully quit and relaunch the
    app; the log's engine-build line must match the header commit
    before judging behaviour.
+6. **Manual browser proof counts** (field 2026-10-19 run 3, `636db4f5`
+   live: `skyapp` created with no reinstall, one-shot
+   `verify_ui_workspace` failed fast at the server stage, agent
+   recovered by hand — started the server, navigated, screenshotted,
+   pixel-checked). The failed one-shot used to zero the STATIC
+   evidence domain its own call had passed, and `.dart` was not a
+   recognized code extension, so that genuinely-verified turn
+   stamped "unverified". Both fixed: stage-correct domain
+   attribution (only an "at static source checks" failure condemns
+   static) and native-stack extensions (.dart/.kt/.kts/.swift/
+   .java/.rs) in the code markers.
+   ✅ A run that proves the app in a live browser — by the one-shot
+   tool OR by manual browser steps after it — ends completed;
+   a run whose only verification failed ends unverified.
+   ❌ A completed turn with no passing proof anywhere, or an
+   unverified stamp after a visible successful browser proof.
+   (The dev server the agent leaves running for you on purpose —
+   "left running for you to interact with" — is intentional; it
+   dies with the app. The verifier's own servers are always
+   stopped, pass or fail.)

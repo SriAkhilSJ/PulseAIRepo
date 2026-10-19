@@ -372,3 +372,102 @@ def test_pdf_artifact_without_verification_still_completes(_no_memory, tmp_path)
     out = finalize_node(state, {"configurable": {}})
     assert out["task_completed"] is True
     assert out["task_status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# 6. Run-3 shapes (field 2026-10-19): the one-shot verifier failed at the
+# server stage, the agent then proved the app MANUALLY in a live browser.
+# Two attribution gaps stamped that genuinely-verified turn "unverified":
+# the failed receipt zeroed the static domain its own call had passed,
+# and .dart was not a recognized code extension at all.
+# ---------------------------------------------------------------------------
+
+def _skyapp_run_state(tmp_path, verify_text: str) -> dict:
+    (tmp_path / "skyapp").mkdir()
+    return {
+        "messages": [
+            HumanMessage("Create a Flutter app called skyapp"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "write_file", "args": {"path": "skyapp/lib/main.dart"}, "id": "w1"}],
+            ),
+            ToolMessage(content="File written: skyapp/lib/main.dart", tool_call_id="w1", name="write_file"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "verify_ui_workspace", "args": {"command": "flutter run -d chrome", "url": "http://127.0.0.1:8090"}, "id": "v1"}],
+            ),
+            ToolMessage(content=verify_text, tool_call_id="v1", name="verify_ui_workspace"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "browser_navigate", "args": {"url": "http://127.0.0.1:8090"}, "id": "b1"}],
+            ),
+            ToolMessage(content="Navigated to http://127.0.0.1:8090 successfully.", tool_call_id="b1", name="browser_navigate"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "browser_snapshot", "args": {}, "id": "b2"}],
+            ),
+            ToolMessage(
+                content='{"title":"Sky App","text":"You have pushed the button this many times:"}',
+                tool_call_id="b2",
+                name="browser_snapshot",
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "browser_screenshot", "args": {"name": "skyapp_live_home"}, "id": "b3"}],
+            ),
+            ToolMessage(
+                content="Screenshot saved to screenshots/skyapp_live_home.png",
+                tool_call_id="b3",
+                name="browser_screenshot",
+            ),
+            AIMessage(content="Verified in the live browser — the app renders."),
+        ],
+        "current_task": "Create a Flutter app called skyapp",
+        "workspace": str(tmp_path),
+        "steps_completed": ["Wrote file: skyapp/lib/main.dart"],
+        "failed_steps": [],
+        "plan": [],
+    }
+
+
+_SERVER_STAGE_FAILURE = (
+    "❌ UI VERIFICATION FAILED: server never became ready "
+    "(waited 300s; the started process was stopped, so nothing is "
+    "left listening):\nStatus: COMPLETED"
+)
+
+
+def test_failed_oneshot_plus_manual_browser_proof_completes(_no_memory, tmp_path):
+    from src.graphs.chat_graph import finalize_node
+
+    state = _skyapp_run_state(tmp_path, _SERVER_STAGE_FAILURE)
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+
+
+def test_static_stage_failure_still_condemns_the_turn(_no_memory, tmp_path):
+    from src.graphs.chat_graph import finalize_node
+    from src.graphs.gates import _verification_ran_and_passed
+
+    state = _skyapp_run_state(
+        tmp_path,
+        "❌ UI VERIFICATION FAILED at static source checks:\n3 type errors",
+    )
+    assert _verification_ran_and_passed(state) is False
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is False
+
+
+def test_wrote_code_files_recognizes_native_stacks():
+    from src.graphs.gates import _wrote_code_files
+
+    for step in (
+        "Wrote file: lib/main.dart",
+        "Wrote file: app/src/main/java/com/example/Main.kt",
+        "Edited file: ios/Runner/AppDelegate.swift",
+        "Wrote file: src/main.rs",
+    ):
+        assert _wrote_code_files({"steps_completed": [step]}) is True, step
+    # Docs remain outside the runtime-verify contract.
+    assert _wrote_code_files({"steps_completed": ["Wrote file: docs/hero.md"]}) is False

@@ -273,7 +273,14 @@ _BROWSER_FAIL_MARKERS = (
     "error occurred", "server responded with a status of 500",
 )
 
-_CODE_EXT_MARKERS = (".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".html")
+_CODE_EXT_MARKERS = (
+    ".tsx", ".ts", ".jsx", ".js", ".py", ".json", ".css", ".html",
+    # Native/mobile stacks the targets system ships (Flutter/Android/
+    # iOS/Rust): a written .dart file is authored code exactly like
+    # .ts — before this, `flutter create` + a hand-written main.dart
+    # registered as "no code written" in every verify gate.
+    ".dart", ".kt", ".kts", ".swift", ".java", ".rs",
+)
 
 
 def _looks_like_execution_task(task: str) -> bool:
@@ -868,8 +875,17 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             passed = content.startswith((
                 "✅ UI VERIFICATION PASSED", "✅ UI ROUTE VERIFICATION PASSED"
             ))
-            status["static"] = passed
-            status["typecheck"] = passed
+            # The pipeline's stages are sequential: a failure AT the
+            # static stage condemns static, but a failure AFTER it
+            # (server never ready, screenshot quality) must not zero
+            # the static proof that same call already earned — zeroing
+            # it made a later manual browser proof unable to pass
+            # (field 2026-10-19 run 3: one-shot verify failed at the
+            # server stage, agent then proved the app in a live
+            # browser, turn still stamped unverified).
+            static_ok = passed or "at static source checks" not in content
+            status["static"] = static_ok
+            status["typecheck"] = static_ok
             status["navigate"] = passed
             status["snapshot"] = passed
             status["screenshot"] = passed
