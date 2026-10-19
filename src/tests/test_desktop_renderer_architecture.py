@@ -1071,11 +1071,9 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-19-34';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-19-35';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
-
-
 def test_install_cancel_flip_rides_the_patch_signature():
     """Field 2026-10-19 ('inside drop down menu cancel button not
     working', header 1f417a3d): patchInstallProgress early-returns on
@@ -1088,6 +1086,17 @@ def test_install_cancel_flip_rides_the_patch_signature():
     renderer = _text("browser", "crusorAIRenderer.ts")
     assert "model.cancelRequested ? ':cancelling' : ''" in renderer
     assert "if (b.disabled && b.textContent === 'Cancelling…')" in renderer
+    # The self-proving pair (field 2026-10-19, second report): every
+    # Cancel click logs one line in the pane funnel, and the bridge
+    # logs its verdict — a future "not working" report shows its own
+    # broken hop instead of starting another archaeology round.
+    service = _text("browser", "crusorAIRendererService.ts")
+    assert "[crusorai] cancel click sent for session" in service
+    assert "[crusorai] cancel click ignored" in service
+    bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
+    assert "[bridge] cancel for {sid}: accepted={active}" in bridge
+    installer = (ROOT / "src" / "tools" / "toolchain_install.py").read_text(encoding="utf-8")
+    assert "_read_body_cancellable(response" in installer
 
 
 def test_terminal_envelope_never_surfaces_in_the_card():
@@ -1225,7 +1234,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-19-34'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-19-35'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

@@ -1699,6 +1699,14 @@ class BridgeServer:
             from src.runtime.turn_control import turn_controls
             # cancel() owns both the event transition and one-shot abort firing.
             active = turn_controls.cancel(sid)
+            # One line per user click, forever: two field rounds
+            # (2026-10-19) burned on "the Cancel button does nothing"
+            # with no record of whether the frame arrived or the
+            # registry accepted it. This line IS that record — its
+            # absence proves the click never left the window; its
+            # verdict proves what the engine did with it.
+            print(f"[bridge] cancel for {sid}: accepted={active}",
+                  file=sys.stderr, flush=True)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})
         elif kind == "steer":
             from src.runtime.turn_control import turn_controls

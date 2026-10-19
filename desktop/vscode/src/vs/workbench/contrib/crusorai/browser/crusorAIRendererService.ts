@@ -402,7 +402,16 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		},
 		submitPrompt: text => { void this.submitPrompt(text); },
 		cancel: () => {
-			if (!this.running || this.cancelRequested) { return; }
+			// One console line per click, forever (field 2026-10-19,
+			// twice: "cancel button not working" with no way to tell a
+			// click that never reached this funnel from one the engine
+			// rejected). The bridge prints its own receipt line; the
+			// pair makes every future report self-proving.
+			if (!this.running || this.cancelRequested) {
+				console.info(`[crusorai] cancel click ignored (running=${this.running}, alreadyRequested=${this.cancelRequested})`);
+				return;
+			}
+			console.info(`[crusorai] cancel click sent for session ${this.sessionId ?? '(none)'}`);
 			this.cancelRequested = true;
 			this.send({ type: 'cancel', session_id: this.sessionId });
 			this.render();

@@ -390,6 +390,35 @@ def test_bridge_style_cancel_stops_a_real_install(monkeypatch):
     assert receipts and receipts[0].startswith("⏹"), receipts
 
 
+def test_manifest_body_read_polls_cancel_between_chunks(monkeypatch):
+    """Field 2026-10-19 (second report): a read-to-EOF of the Flutter
+    release manifest is a blind spot — on a slow drip the socket
+    stays 'active' and can hold the install past the user's Cancel
+    for the whole transfer. The body read must poll between chunks
+    and abort the moment the session's Cancel lands."""
+    import io
+
+    class _Response:
+        def __init__(self):
+            self._buf = io.BytesIO(b"x" * (64 * 1024 * 5))
+
+        def read(self, size=-1):
+            return self._buf.read(size)
+
+    checks = {"n": 0}
+
+    def fake_cancelled():
+        checks["n"] += 1
+        return checks["n"] > 2
+
+    monkeypatch.setattr(ti, "_cancelled", fake_cancelled)
+    with pytest.raises(ti._InstallCancelled):
+        ti._read_body_cancellable(_Response(), "release lookup")
+    # And without a cancel, the whole body still arrives intact.
+    monkeypatch.setattr(ti, "_cancelled", lambda: False)
+    assert ti._read_body_cancellable(_Response(), "release lookup") == b"x" * (64 * 1024 * 5)
+
+
 def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):
     import io
 

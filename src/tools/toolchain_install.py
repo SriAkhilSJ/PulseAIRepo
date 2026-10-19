@@ -300,6 +300,22 @@ def _line_progress(emit: Callable[[float | None], None]) -> Callable[[str], None
     return on_line
 
 
+def _read_body_cancellable(response, step: str) -> bytes:
+    """Read a (small) HTTP body in chunks, polling Cancel between
+    chunks. One read-to-EOF is a blind spot: on a slow drip the
+    socket stays 'active' and can hold the install past the user's
+    Cancel for the whole transfer (field 2026-10-19 — the Flutter
+    release-manifest fetch ignored a Cancel click for most of a
+    minute while every other phase polled)."""
+    chunks: list[bytes] = []
+    while True:
+        _check_cancel()
+        chunk = response.read(64 * 1024)
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+
+
 def _download(step: str, url: str, dest: Path,
               on_bytes: Callable[[int, int | None], None] | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -311,7 +327,7 @@ def _download(step: str, url: str, dest: Path,
             total = int(total) if total and total.isdigit() else None
             done = 0
             while True:
-                chunk = response.read(1024 * 256)
+                chunk = response.read(1024 * 64)
                 if not chunk:
                     break
                 handle.write(chunk)
@@ -402,7 +418,10 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
         report(0, "Checking the latest Flutter release…")
         try:
             with urllib.request.urlopen(manifest_url, timeout=60) as response:
-                manifest = json.loads(response.read().decode("utf-8"))
+                manifest = json.loads(
+                    _read_body_cancellable(response, "release lookup").decode("utf-8"))
+        except _InstallCancelled:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise _StepFailed("release lookup", f"{type(exc).__name__}: {exc}") from exc
         stable_hash = manifest.get("current_release", {}).get("stable", "")
