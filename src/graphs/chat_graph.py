@@ -2719,6 +2719,22 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # (unrecovered — the model's final act was the failure) or D9-unverified
     # code marks the turn incomplete.
     trailing_failed = trailing_batch_failed(state.get("messages") or [])
+    # Nudged-but-never-acted (field 2026-10-19): the finish gate judged an
+    # early finish premature and re-prompted for work; every work-demanding
+    # nudge records len(messages) at nudge time. If the transcript since
+    # the last nudge contains no tool call at all, the announced next step
+    # never happened — stamping "completed" lies (Flutter installed and
+    # verified, model said "Creating the project now:", turn completed,
+    # no project exists). Any tool executed after the nudge — a terminal
+    # generator run counts, not just file writes — clears it.
+    ended_mid_task = False
+    _nudged_at = state.get("nudged_at_msg_count")
+    if isinstance(_nudged_at, int) and _nudged_at >= 0:
+        _msgs = state.get("messages") or []
+        _acted_after_nudge = any(
+            getattr(m, "tool_calls", None) for m in _msgs[_nudged_at:]
+        )
+        ended_mid_task = not _acted_after_nudge
     # Audit 2026-10-12: the verdict is computed ONCE and used for both the
     # returned task_status and the console line. They used to disagree —
     # `no_work_done` flipped task_completed to False while the print still
@@ -2727,7 +2743,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     verdict = (
         "budget_exhausted" if budget_cut
         else "unverified" if unverified
-        else "failed" if (trailing_failed or no_work_done)
+        else "failed" if (trailing_failed or no_work_done or ended_mid_task)
         else "completed"
     )
     task_succeeded = verdict == "completed"
@@ -2748,7 +2764,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         )
     try:
         engine = get_context_engine(config)
-        if trailing_failed or unverified or budget_cut:
+        if trailing_failed or unverified or budget_cut or ended_mid_task:
             engine.record_feedback(success=False, task=current_task)
         else:
             engine.record_feedback(success=True, task=current_task)
@@ -2782,7 +2798,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     print(
         "[turn] finalize entered: "
         f"steps={len(steps_completed)} failed={len(failed_steps)} "
-        f"unverified={unverified}",
+        f"unverified={unverified} ended_mid_task={ended_mid_task}",
         flush=True,
     )
     if budget_cut:
@@ -6403,6 +6419,7 @@ def stream_agent(
             "budget_warning_done": 0,
             "incomplete_response_retries": 0,
             "plan_wrap_nudges": 0,
+            "nudged_at_msg_count": -1,
                 "wrap_summary": 0,
             "turn_token_usage": _zero_token_usage(),
         }

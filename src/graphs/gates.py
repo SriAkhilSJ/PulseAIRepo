@@ -147,6 +147,27 @@ _NAMED_DELIVERABLE_RE = re.compile(
     r"[A-Za-z0-9_./\\-]+\.(?:" + "|".join(_NAMED_DELIVERABLE_EXTENSIONS) + r")\b",
     re.IGNORECASE,
 )
+
+_NAMED_APP_RE = re.compile(
+    r"\b(?:app|application|project|package|folder|directory|module|service"
+    r"|website|site)\s+(?:called|named)\s+([A-Za-z][A-Za-z0-9_-]{1,63})",
+    re.IGNORECASE,
+)
+
+
+def _app_named_targets(task: str) -> list[str]:
+    """'Create a Flutter app called flutterdemo' names a deliverable
+    DIRECTORY — the generated project folder. The extension-based regex
+    above cannot see it (no dot), so the finish gate used to be blind to
+    the one artifact app-creation tasks exist to produce (field
+    2026-10-19: SDK install verified, model announced 'Creating the
+    project now:', turn stamped completed, no folder ever created)."""
+    out: list[str] = []
+    for m in _NAMED_APP_RE.finditer(task or ""):
+        name = m.group(1)
+        if name not in out:
+            out.append(name)
+    return out
 _NON_CODE_ARTIFACT_EXTENSIONS = frozenset({
     ".txt", ".csv", ".tsv", ".svg", ".png", ".jpg", ".jpeg", ".webp",
     ".pdf", ".docx", ".xlsx", ".pptx", ".mp3", ".wav", ".mp4",
@@ -428,8 +449,13 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     """
     task = state.get("current_task", "")
     is_copy = _looks_like_copy_task(task)
+    app_named = _app_named_targets(task)
+    targets = _deliverable_targets(task)
+    for name in app_named:
+        if name not in targets:
+            targets.append(name)
     missing: list[str] = []
-    for target in _deliverable_targets(task):
+    for target in targets:
         if not target:
             continue
         if not is_copy and "/" not in target and "\\" not in target:
@@ -437,13 +463,18 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
             # (the historical `Next.js` false positive), so keep requiring a
             # path for code. A requested non-code artifact such as report.pdf,
             # analysis.xlsx, or slides.pptx is unambiguously a deliverable and
-            # should be protected even at the workspace root.
-            if Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS:
+            # should be protected even at the workspace root. An app-named
+            # target ("app called flutterdemo") is a project DIRECTORY the
+            # task exists to generate — equally unambiguous.
+            if (
+                Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS
+                and target not in app_named
+            ):
                 continue
         exists = False
         for cand in _deliverable_candidates(workspace, target):
             try:
-                if cand.is_file():
+                if cand.is_file() or (target in app_named and cand.is_dir()):
                     exists = True
                     break
             except OSError:
@@ -930,7 +961,7 @@ def finish_gate_node(state: AgentState) -> dict:
     if bool(getattr(last, "additional_kwargs", {}).get("crusor_repetition_dominated")):
         return {}
     if bool(getattr(last, "additional_kwargs", {}).get("crusor_incomplete_response")):
-        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE, additional_kwargs={"crusor_nudge": True})]}
+        return {"messages": [SystemMessage(content=_INCOMPLETE_RESPONSE_NUDGE, additional_kwargs={"crusor_nudge": True})], "nudged_at_msg_count": len(state.get("messages") or [])}
 
     # Hermes stall guard (turn_final_response.py): the toolless reply ended on
     # an announced next action. The assistant reply already sits in the
@@ -952,6 +983,7 @@ def finish_gate_node(state: AgentState) -> dict:
         return {
             "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE, additional_kwargs={"crusor_nudge": True})],
             "stall_continuations": state.get("stall_continuations", 0) + 1,
+            "nudged_at_msg_count": len(state.get("messages") or []),
         }
 
     # E2-1 first: a named deliverable missing on disk is the dominant
@@ -964,9 +996,21 @@ def finish_gate_node(state: AgentState) -> dict:
             for path in missing
         )
         nudge = _ARTIFACT_NUDGE if artifact_only else _COPY_NUDGE
+        # Name the missing deliverables: the gate KNOWS what does not
+        # exist, and a generic "produce the file" does not move a model
+        # that believes it already did (field 2026-10-19: two unnamed
+        # nudges answered with words, zero tool calls).
+        nudge += (
+            "\n\n[Missing deliverable(s): " + ", ".join(missing[:5])
+            + " — these do not exist on disk yet. Create exactly these now "
+            "with the appropriate tool or generator command, then confirm "
+            "each one exists before finishing. A text-only reply does not "
+            "count as progress.]"
+        )
         return {
             "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],
             "finish_nudges": state.get("finish_nudges", 0) + 1,
+            "nudged_at_msg_count": len(state.get("messages") or []),
         }
     if _wrote_code_files(state) and (
         not _ran_verification(state) or _verification_failed(state)
@@ -1012,4 +1056,5 @@ def finish_gate_node(state: AgentState) -> dict:
     return {
         "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],
         "finish_nudges": state.get("finish_nudges", 0) + 1,
+        "nudged_at_msg_count": len(state.get("messages") or []),
     }

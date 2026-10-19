@@ -180,3 +180,74 @@ def test_failure_bullets_are_one_tight_line(_no_memory):
     bullet = [line for line in text.splitlines() if line.startswith("- ")][0]
     assert len(bullet) <= 165, f"bullet too long ({len(bullet)}): {bullet[:80]}..."
     assert "Actual tool output" not in text
+
+
+def _install_then_promise_state() -> dict:
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    return {
+        "messages": [
+            HumanMessage("Create a Flutter app called flutterdemo"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "install_toolchain",
+                        "args": {"sdk": "flutter"},
+                        "id": "c1",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content=(
+                    "Flutter SDK installed and verified "
+                    "(Flutter 3.47.7, channel stable)."
+                ),
+                tool_call_id="c1",
+            ),
+            AIMessage(content="Flutter 3.47.7 is installed. Creating the project now:"),
+        ],
+        "current_task": "Create a Flutter app called flutterdemo",
+        "steps_completed": ["Install Flutter toolchain"],
+        "failed_steps": [],
+        "plan": [],
+        "nudged_at_msg_count": 4,
+    }
+
+
+def test_nudged_but_never_acted_is_not_completed(_no_memory):
+    """Field 2026-10-19: the SDK install succeeded, the model announced
+    'Creating the project now:' and kept answering text-only until the
+    nudge budget ran out. The verdict must not stamp that completed."""
+    from src.graphs.chat_graph import finalize_node
+
+    out = finalize_node(_install_then_promise_state(), {"configurable": {}})
+    assert out["task_completed"] is False
+    assert out["task_status"] == "failed"
+
+
+def test_acting_after_the_nudge_still_completes(_no_memory):
+    """The marker only fails turns where NO work followed the last nudge;
+    a model that acts and then summarizes stays completed."""
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from src.graphs.chat_graph import finalize_node
+
+    state = _install_then_promise_state()
+    state["messages"] += [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "run_terminal",
+                    "args": {"command": "flutter create flutterdemo"},
+                    "id": "c2",
+                }
+            ],
+        ),
+        ToolMessage(content="Creating project flutterdemo... All done!", tool_call_id="c2"),
+        AIMessage(content="Created flutterdemo and verified it runs."),
+    ]
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"

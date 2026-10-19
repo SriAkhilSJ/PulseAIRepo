@@ -212,3 +212,17 @@ fake Flutter project. Now it must install the real SDK first.
    any install again (or fake it: `Install the Flutter SDK` after
    deleting nothing) — the dock must ASK again; "Allow always" from
    the earlier session must not carry over.
+4. **The turn must not fake-complete after the install** (field
+   2026-10-19: install verified, agent said "Creating the project
+   now:" and the turn ended ✅ with no project created). The engine
+   now tracks "app called <name>" as a deliverable folder, the
+   re-prompts name the missing folder explicitly, and a turn that
+   ends after being re-prompted without issuing any tool call
+   reports INCOMPLETE — never completed.
+   ✅ After the install receipt, `flutter create flutterdemo` (or
+   the equivalent generator) runs in the SAME turn and the folder
+   exists on disk.
+   ❌ The turn ends ✅ while the promised project folder was never
+   created. (If the model stalls again, an honest incomplete ending
+   is the correct behaviour — report it, with the last lines it
+   printed.)
