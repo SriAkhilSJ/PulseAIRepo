@@ -1705,7 +1705,8 @@ class BridgeServer:
             # registry accepted it. This line IS that record — its
             # absence proves the click never left the window; its
             # verdict proves what the engine did with it.
-            print(f"[bridge] cancel for {sid}: accepted={active}",
+            print(f"[bridge] cancel for {sid}: accepted={active} "
+                  f"turn_elapsed={turn_controls.turn_elapsed(sid)}",
                   file=sys.stderr, flush=True)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})
         elif kind == "steer":

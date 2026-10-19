@@ -38,6 +38,7 @@ import queue
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -300,20 +301,57 @@ def _line_progress(emit: Callable[[float | None], None]) -> Callable[[str], None
     return on_line
 
 
+def _iter_body_cancellable(response, step: str, size: int = 64 * 1024):
+    """Yield a response body in chunks, polling Cancel every quarter
+    second NO MATTER how the bytes arrive. A bare response.read(n)
+    blocks until n bytes have accumulated (or EOF): on a slow drip
+    that one call hides the user's Cancel for minutes — field
+    2026-10-19, third report: the console showed the click, the
+    flip, and 'accepted=True', yet the install ran on ~90s inside
+    its reads. Reads therefore pump on a daemon thread; this loop
+    never waits longer than 0.25s without re-checking Cancel, so a
+    click stops the transfer within a quarter second even if the
+    server never sends another byte."""
+    chunks_q: queue.Queue = queue.Queue(maxsize=32)
+
+    def _pump() -> None:
+        try:
+            while True:
+                chunk = response.read(size)
+                if not chunk:
+                    chunks_q.put(None)
+                    return
+                chunks_q.put(chunk)
+        except Exception as exc:  # noqa: BLE001 - delivered to the consumer
+            chunks_q.put(exc)
+
+    threading.Thread(target=_pump, daemon=True,
+                     name="crusorai-body-pump").start()
+    try:
+        while True:
+            _check_cancel()
+            try:
+                item = chunks_q.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if item is None:
+                return
+            if isinstance(item, Exception):
+                raise item
+            yield item
+    finally:
+        # Best effort: closing our side lets the pump thread die with
+        # the request instead of lingering on a dead socket.
+        try:
+            response.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _read_body_cancellable(response, step: str) -> bytes:
-    """Read a (small) HTTP body in chunks, polling Cancel between
-    chunks. One read-to-EOF is a blind spot: on a slow drip the
-    socket stays 'active' and can hold the install past the user's
-    Cancel for the whole transfer (field 2026-10-19 — the Flutter
-    release-manifest fetch ignored a Cancel click for most of a
-    minute while every other phase polled)."""
-    chunks: list[bytes] = []
-    while True:
-        _check_cancel()
-        chunk = response.read(64 * 1024)
-        if not chunk:
-            return b"".join(chunks)
-        chunks.append(chunk)
+    """Read a (small) HTTP body whole, with Cancel polled throughout
+    (see _iter_body_cancellable — a read-to-EOF is a blind spot)."""
+    return b"".join(_iter_body_cancellable(response, step))
 
 
 def _download(step: str, url: str, dest: Path,
@@ -326,16 +364,11 @@ def _download(step: str, url: str, dest: Path,
             total = response.headers.get("Content-Length")
             total = int(total) if total and total.isdigit() else None
             done = 0
-            while True:
-                chunk = response.read(1024 * 64)
-                if not chunk:
-                    break
+            for chunk in _iter_body_cancellable(response, step):
                 handle.write(chunk)
                 done += len(chunk)
                 if on_bytes is not None:
                     on_bytes(done, total)
-                if _cancelled():
-                    raise _InstallCancelled()
     except _InstallCancelled:
         part.unlink(missing_ok=True)  # a half download is never kept
         raise
@@ -753,10 +786,19 @@ def _install_body(sdk: str, host: str | None = None, progress: ProgressFn | None
         return receipt
     log: list[str] = []
     report(0, f"Installing {label}…")
+    # Phase testimony (field 2026-10-19): the bridge log shows the
+    # tool's total seconds but not where they went — approval wait
+    # vs download vs a phase ignoring Cancel were indistinguishable.
+    print(f"[installer] {canonical}: starting on {resolved_host}",
+          file=sys.stderr, flush=True)
+    started = time.monotonic()
     try:
         _check_cancel()
         _INSTALLERS[canonical](resolved_host, log, report)
     except _InstallCancelled:
+        print(f"[installer] {canonical}: cancelled after "
+              f"{time.monotonic() - started:.1f}s of installing",
+              file=sys.stderr, flush=True)
         return (
             f"⏹ {label} installation cancelled — the install stopped "
             f"where it was and partial downloads were removed. Run "

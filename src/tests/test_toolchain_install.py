@@ -419,7 +419,54 @@ def test_manifest_body_read_polls_cancel_between_chunks(monkeypatch):
     assert ti._read_body_cancellable(_Response(), "release lookup") == b"x" * (64 * 1024 * 5)
 
 
+def test_body_read_never_hides_a_cancel_behind_a_silent_server(monkeypatch):
+    """Field 2026-10-19, third report: the console showed the click,
+    the flip, and the engine's 'accepted=True' — yet the install ran
+    on ~90s. A bare response.read(n) blocks until n bytes have
+    accumulated (or EOF); a server that accepts and then sends
+    nothing hides the Cancel inside that one call indefinitely.
+    The pumped body iterator must surface the cancel within about a
+    second even when no byte ever arrives."""
+    import threading
+    import time
+
+    class _StuckResponse:
+        headers = {}
+
+        def read(self, size=-1):
+            time.sleep(30)  # accepts the connection, sends nothing
+            return b""
+
+        def close(self):
+            pass
+
+    state = {"cancel": False}
+    monkeypatch.setattr(ti, "_cancelled", lambda: state["cancel"])
+    outcome: dict[str, object] = {}
+
+    def consume():
+        try:
+            for _chunk in ti._iter_body_cancellable(_StuckResponse(), "download"):
+                pass
+            outcome["result"] = "finished"
+        except ti._InstallCancelled:
+            outcome["result"] = "cancelled"
+        except Exception as exc:  # noqa: BLE001
+            outcome["result"] = f"error: {exc!r}"
+
+    worker = threading.Thread(target=consume, daemon=True)
+    started = time.monotonic()
+    worker.start()
+    time.sleep(0.6)
+    state["cancel"] = True
+    worker.join(timeout=5)
+    elapsed = time.monotonic() - started
+    assert outcome.get("result") == "cancelled", outcome
+    assert elapsed < 3.0, f"cancel took {elapsed:.1f}s to surface through a stuck read"
+
+
 def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):
+
     import io
 
     class _Response:
