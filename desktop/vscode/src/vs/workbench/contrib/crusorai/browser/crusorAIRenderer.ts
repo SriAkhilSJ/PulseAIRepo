@@ -366,7 +366,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-32';
+const CRUSORAI_UI_STAMP = '2026-10-18-33';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -1672,7 +1672,7 @@ function webSearchBody(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLEl
 	return out;
 }
 
-function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
+function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents: readonly CrusorAISubAgentView[] = [], cancelling = false): HTMLElement {
 	// A2UI Catalog v1 (plan Phase 2): a tool result carrying an
 	// {"a2ui_operations": [...]} envelope renders through the fixed-catalog
 	// surface manager — display_crusor_task takes this generic path instead
@@ -1804,7 +1804,7 @@ function familyBody(tool: CrusorAIToolView, host: CrusorAIRenderHost, subAgents:
 			// becoz, i know its a instalation, i wait") — real
 			// percentages where the engine measured them, an honest
 			// moving band + the step label where it could not.
-			body.append(installProgressBox(tool, host));
+			body.append(installProgressBox(tool, host, cancelling));
 		}
 		// NO invented checklist (the old body hardcoded three check rows
 		// and a dead evidence button): the tool's own output — tsc
@@ -1961,8 +1961,15 @@ function installSdkLabel(tool: CrusorAIToolView): string {
  * the graph ends the turn — the agent rests, and no model call is
  * spent on the cancellation. stopPropagation keeps a click on the
  * summary copy from also toggling the card. */
-function installCancelButton(host: CrusorAIRenderHost, mini = false): HTMLButtonElement {
-	const node = button('Cancel', 'crusorai-install-cancel' + (mini ? ' is-mini' : ''), () => host.cancel());
+function installCancelButton(host: CrusorAIRenderHost, mini = false, cancelling = false): HTMLButtonElement {
+	// Spontaneous (founder 2026-10-18: "make sure both cancel buttons
+	// are spontaneous"): the click answers in the same gesture — the
+	// host flips cancelRequested and repaints at once, so the button
+	// itself goes disabled 'Cancelling…' without waiting for the
+	// engine to confirm. A button that looks alive after the click
+	// reads as a button that ignored it.
+	const node = button(cancelling ? 'Cancelling…' : 'Cancel', 'crusorai-install-cancel' + (mini ? ' is-mini' : ''), () => host.cancel());
+	if (cancelling) { node.disabled = true; }
 	node.addEventListener('click', (event) => { event.stopPropagation(); event.preventDefault(); });
 	return node;
 }
@@ -1973,30 +1980,32 @@ function installCancelButton(host: CrusorAIRenderHost, mini = false): HTMLButton
  * package-manager output); otherwise the bar moves without a number.
  * The resting line is founder's rule made visible (2026-10-18): the
  * agent makes no AI calls while an install runs. */
-function installProgressBox(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+function installProgressBox(tool: CrusorAIToolView, host: CrusorAIRenderHost, cancelling = false): HTMLElement {
 	const box = element('div', 'crusorai-install-progress');
 	box.dataset.component = 'install-progress';
 	const percent = typeof tool.progressPercent === 'number'
 		? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
-	box.append(element('span', 'crusorai-install-progress-label', tool.progressLabel || 'Installing…'));
+	box.append(element('span', 'crusorai-install-progress-label',
+		cancelling ? 'Cancelling…' : (tool.progressLabel || 'Installing…')));
 	if (percent !== undefined) {
 		box.append(element('span', 'crusorai-install-progress-percent', `${Math.round(percent)}%`));
 	}
-	box.append(installCancelButton(host));
+	box.append(installCancelButton(host, false, cancelling));
 	const track = element('span', 'crusorai-install-progress-track');
 	const fill = element('span', 'crusorai-install-progress-fill' + (percent === undefined ? ' is-indeterminate' : ''));
 	if (percent !== undefined) { fill.style.width = `${percent}%`; }
 	track.append(fill);
 	box.append(track);
-	box.append(element('span', 'crusorai-install-rest',
-		'Installing on this machine — the agent is resting (no AI calls) until this finishes.'));
+	box.append(element('span', 'crusorai-install-rest', cancelling
+		? 'Stopping the installer — partial files are removed; nothing keeps running.'
+		: 'Installing on this machine — the agent is resting (no AI calls) until this finishes.'));
 	return box;
 }
 
 /** The loader's summary form: a thin track that stays visible while
  * the card is closed (a <details> hides everything but its summary),
  * with its own Cancel — reachable without opening the card. */
-function installProgressTrack(tool: CrusorAIToolView, host: CrusorAIRenderHost): HTMLElement {
+function installProgressTrack(tool: CrusorAIToolView, host: CrusorAIRenderHost, cancelling = false): HTMLElement {
 	const percent = typeof tool.progressPercent === 'number'
 		? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
 	const track = element('span', 'crusorai-install-progress-track crusorai-install-progress-mini');
@@ -2006,7 +2015,7 @@ function installProgressTrack(tool: CrusorAIToolView, host: CrusorAIRenderHost):
 		track.title = `${tool.progressLabel || 'Installing'} — ${Math.round(percent)}%`;
 	}
 	track.append(fill);
-	return element('span', 'crusorai-install-progress-minirow', track, installCancelButton(host, true));
+	return element('span', 'crusorai-install-progress-minirow', track, installCancelButton(host, true, cancelling));
 }
 
 /** The approval-state install card's one action (founder 2026-10-18:
@@ -2031,7 +2040,7 @@ function installApprovalActions(tool: CrusorAIToolView, host: CrusorAIRenderHost
 	return wrap;
 }
 
-function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
+function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = [], cancelling = false): HTMLElement {
 	// Hermes (message-parts ChainToolFallback): a clarify call renders its own
 	// widget card — the interactive question while it blocks, the settled Q&A
 	// after — never a generic collapsible tool row. Settled calls (every
@@ -2079,7 +2088,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 	let body: HTMLElement | undefined;
 	let bodyHasContent = false;
 	if (!isInline) {
-		body = familyBody(tool, host, subAgents);
+		body = familyBody(tool, host, subAgents, cancelling);
 		body.dataset.slot = 'collapsible-content';
 		if (tool.state === 'failed' && (body.classList.contains('crusorai-tool-body') || body.querySelector?.('.crusorai-tool-body'))) { body.append(errorCard(tool)); }
 		bodyHasContent = (body.textContent ?? '').trim().length > 0 || !!body.querySelector('img, svg, canvas');
@@ -2243,7 +2252,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		// The loader also lives in the summary: a closed <details>
 		// hides everything but its summary, and a multi-minute
 		// install must never look frozen.
-		summary.append(installProgressTrack(tool, host));
+		summary.append(installProgressTrack(tool, host, cancelling));
 	}
 	// Persist ONLY user-driven disclosure. A 'toggle' listener also
 	// fires for programmatic `details.open` changes on repaint; a
@@ -2331,7 +2340,7 @@ function activityGroupHeader(groupKey: string, members: readonly CrusorAIToolVie
  * stays a card in place. `live` comes from the caller: a settled turn whose last call
  * never got a result must still read as finished, not as work in progress.
  */
-function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = []): HTMLElement {
+function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHost, openTools: Set<string>, closedTools: Set<string>, live: boolean, showHeading = true, pendingClarify?: CrusorAIRenderModel['clarify'], subAgents: readonly CrusorAISubAgentView[] = [], cancelling = false): HTMLElement {
 	const section = element('section', 'crusorai-tool-list');
 	section.dataset.component = 'tool-list';
 	if (showHeading) {
@@ -2348,7 +2357,7 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 	// twice). Only 2+ same-kind consecutive calls earn a dropdown.
 	for (const group of groups) {
 		if (group.kind === 'single') {
-			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify, subAgents));
+			section.append(toolRow(group.tool, host, openTools, closedTools, pendingClarify, subAgents, cancelling));
 			continue;
 		}
 		const runTools = group.tools;
@@ -2381,7 +2390,7 @@ function toolSection(tools: readonly CrusorAIToolView[], host: CrusorAIRenderHos
 		);
 		details.append(summary);
 		const body = element('div', 'crusorai-tool-run-body');
-		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents)); }
+		for (const tool of runTools) { body.append(toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents, cancelling)); }
 		details.append(body);
 		section.append(details);
 	}
@@ -2658,7 +2667,7 @@ function assistantTurn(
 	let run: CrusorAIToolView[] = [];
 	const flushRun = () => {
 		if (!run.length) { return; }
-		response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents));
+		response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested));
 		run = [];
 	};
 	parts.forEach((part, index) => {
@@ -2687,7 +2696,7 @@ function assistantTurn(
 	// A tool with no part (a replay that lost its start frame) must still show.
 	const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
 	const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
-	if (orphans.length) { response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents)); }
+	if (orphans.length) { response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested)); }
 	if (spec.assistantText && lastTextIndex < 0) {
 		response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
 	}
@@ -4618,6 +4627,20 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 			if (tool.name !== 'install_toolchain' || tool.state !== 'running') { continue; }
 			const details = root.querySelector<HTMLElement>(`details[data-tool-id="${tool.id}"]`);
 			if (!details) { continue; }
+			if (model.cancelRequested) {
+				// The stop is already in flight (the click answered
+				// in its own gesture; the engine retires within a
+				// second): freeze the loader and keep both Cancels
+				// disabled — progress frames landing during the
+				// stop must not resurrect the step label.
+				const stopLabel = details.querySelector<HTMLElement>('.crusorai-install-progress-label');
+				if (stopLabel) { stopLabel.textContent = 'Cancelling…'; }
+				details.querySelectorAll<HTMLButtonElement>('.crusorai-install-cancel').forEach(b => {
+					b.disabled = true;
+					b.textContent = 'Cancelling…';
+				});
+				continue;
+			}
 			const percent = typeof tool.progressPercent === 'number'
 				? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
 			const label = details.querySelector<HTMLElement>('.crusorai-install-progress-label');

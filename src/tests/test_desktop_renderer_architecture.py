@@ -170,7 +170,7 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     # transcript branches, every consecutive tool run through the shared rule.
     assert renderer.count("lane.append(toolSection(") == 0, "tool groups paint inside the turn timeline, not as a lane-level block"
     assert "function assistantTurn(" in renderer
-    assert renderer.count("response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents))") == 1, "consecutive tool runs fold through the shared grouping rule"
+    assert renderer.count("response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested))") == 1, "consecutive tool runs fold through the shared grouping rule"
     assert "textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined)" in renderer, "the streaming slot rides the LAST text segment only (inside the OpenCode text-part)"
     assert "dataset.component = 'tool-run'" in renderer and "dataset.runKey = key" in renderer
     assert "runLive = live && runTools.some(tool => tool.state === 'running'" in renderer, \
@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-32';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-18-33';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 
@@ -1211,7 +1211,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-32'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-18-33'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
@@ -1547,6 +1547,15 @@ def test_install_toolchain_card_and_dock_wiring():
     # fields; patchInstallProgress is the only progress painter.
     assert "function patchInstallProgress" in renderer or "patchInstallProgress" in renderer
     assert "({ id: t.id, name: t.name, state: t.state })" in renderer
+    # Founder (same day, third report): "make sure both cancel
+    # buttons are spontaneous" — a Cancel click must answer in its
+    # own gesture. The local cancelRequested flip drives the card:
+    # both buttons disabled 'Cancelling…', label frozen, note
+    # explaining cleanup; progress frames during the stop cannot
+    # resurrect the step label.
+    assert "Cancelling…" in renderer
+    assert "spec.cancelRequested" in renderer
+    assert "model.cancelRequested" in renderer
 
 
 def test_shipped_manifest_lets_the_engine_name_stale_files():
@@ -1928,7 +1937,7 @@ def test_read_and_search_rows_are_single_line_info_rows():
     assert "`#L1-${lines}`" in renderer, "whole-file reads report the real line count"
     # inline rows return before any body is appended; non-inline rows
     # build (and measure) their body first, per the BasicTool law
-    assert "if (!isInline) {" in renderer and "body = familyBody(tool, host, subAgents);" in renderer
+    assert "if (!isInline) {" in renderer and "body = familyBody(tool, host, subAgents, cancelling);" in renderer
     assert "bodyHasContent" in renderer
     inline_at = renderer.index("if (isInline) {")
     append_at = renderer.index("if (body && bodyHasContent) { details.append(body); }")

@@ -472,6 +472,8 @@
 	white-space: nowrap;
 }
 .crusorai-render-root .crusorai-install-cancel:hover { background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+.crusorai-render-root .crusorai-install-cancel[disabled] { opacity: 0.45; cursor: default; }
+.crusorai-render-root .crusorai-install-cancel[disabled]:hover { background: transparent; }
 .crusorai-render-root .crusorai-install-cancel.is-mini { padding: 1px 9px; }
 .crusorai-render-root .crusorai-install-progress-minirow {
 	display: flex;
