@@ -2025,7 +2025,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			if (frame.session) { this.noteEngineRow(frame.session); }
 			// Stop ack from the bridge: another surface (or a queued cancel)
 			// may have pulled the brake — this pane's button must agree.
-			if (typeof frame.cancel_requested === 'boolean') { this.cancelRequested = frame.cancel_requested; }
+			if (typeof frame.cancel_requested === 'boolean') {
+				console.info(`[crusorai] engine cancel ack received: cancel_requested=${frame.cancel_requested} (session ${frame.session_id ?? '?'})`);
+				this.cancelRequested = frame.cancel_requested;
+			}
 			// Live auto-title push (Hermes session.title parity): the engine titler runs
 			// async after the turn and emits the same ack shape as rename. A titled row
 			// is noted directly — even a foreign one — so no list refetch is needed.

@@ -366,7 +366,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-19-35';
+const CRUSORAI_UI_STAMP = '2026-10-19-36';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -1968,8 +1968,18 @@ function installCancelButton(host: CrusorAIRenderHost, mini = false, cancelling 
 	// itself goes disabled 'Cancelling…' without waiting for the
 	// engine to confirm. A button that looks alive after the click
 	// reads as a button that ignored it.
-	const node = button(cancelling ? 'Cancelling…' : 'Cancel', 'crusorai-install-cancel' + (mini ? ' is-mini' : ''), () => host.cancel());
-	if (cancelling) { node.disabled = true; }
+	const node = button(cancelling ? 'Cancelling…' : 'Cancel', 'crusorai-install-cancel' + (mini ? ' is-mini' : ''), () => {
+		// Console line per click (founder 2026-10-19: "add consoles
+		// for that cancel button"): the pair with the service funnel
+		// line proves whether a real click reached host.cancel, and
+		// which of the two Cancel copies took it.
+		console.info(`[crusorai] install Cancel button clicked (${mini ? 'dropdown summary' : 'card body'})`);
+		host.cancel();
+	});
+	if (cancelling) {
+		node.disabled = true;
+		console.info('[crusorai] install Cancel button painted disabled "Cancelling…"');
+	}
 	node.addEventListener('click', (event) => { event.stopPropagation(); event.preventDefault(); });
 	return node;
 }
@@ -4643,6 +4653,7 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 				const stopLabel = details.querySelector<HTMLElement>('.crusorai-install-progress-label');
 				if (stopLabel) { stopLabel.textContent = 'Cancelling…'; }
 				details.querySelectorAll<HTMLButtonElement>('.crusorai-install-cancel').forEach(b => {
+					if (!b.disabled) { console.info('[crusorai] install progress patch: Cancel -> disabled "Cancelling…"'); }
 					b.disabled = true;
 					b.textContent = 'Cancelling…';
 				});

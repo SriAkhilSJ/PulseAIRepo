@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-19-35';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-19-36';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 def test_install_cancel_flip_rides_the_patch_signature():
@@ -1093,6 +1093,14 @@ def test_install_cancel_flip_rides_the_patch_signature():
     service = _text("browser", "crusorAIRendererService.ts")
     assert "[crusorai] cancel click sent for session" in service
     assert "[crusorai] cancel click ignored" in service
+    # Button-level consoles (founder 2026-10-19: "add consoles for
+    # that cancel button") — click, flip paint, and ack are each
+    # observable in DevTools, in order.
+    assert "[crusorai] install Cancel button clicked" in renderer
+    assert "install progress patch: Cancel -> disabled" in renderer
+    assert "[crusorai] engine cancel ack received" in service
+    bundle = (FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai" / "browser" / "crusorAIRendererService.js").read_text(encoding="utf-8")
+    assert "[crusorai] engine cancel ack received" in bundle
     bridge = (ROOT / "src" / "bridge" / "__main__.py").read_text(encoding="utf-8")
     assert "[bridge] cancel for {sid}: accepted={active}" in bridge
     installer = (ROOT / "src" / "tools" / "toolchain_install.py").read_text(encoding="utf-8")
@@ -1234,7 +1242,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-19-35'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-19-36'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
