@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-19-37';
+const CRUSORAI_UI_STAMP = '2026-10-19-38';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -4685,9 +4685,24 @@ export function mountCrusorAIRenderer(root, surface, host) {
         // that rebuild is the freeze. The flip is patchInstallProgress's
         // job (it freezes the loader and disables both Cancels in
         // place); structural paints still read the flag directly.
+        // The session list's clock (seconds / elapsedLabel) is
+        // recomputed from Date.now() at every model build. Signed,
+        // it changed the structural signature every second and
+        // turned every paint of a running turn into a FULL
+        // transcript rebuild — the install card the user was
+        // holding was replaced once a second, clicks died with
+        // their node mid-gesture, and the dropdown read as frozen
+        // (field 2026-10-19, all four reports; regression proof:
+        // the harness feeds ticking rows and watches the card's
+        // node identity). The Manager surface's whole job is that
+        // list, so it keeps the live signature; the transcript
+        // never rebuilds for a clock again.
+        const stripSession = (s) => surface === 'manager'
+            ? s : { ...s, seconds: undefined, elapsedLabel: undefined };
         return JSON.stringify({
             ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined,
             cancelRequested: undefined,
+            sessions: (model.sessions ?? []).map(stripSession),
             tools: model.tools.map(strip),
             history: model.history.map(h => ({ ...h, tools: h.tools.map(strip) })),
         }) + '|' + model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');

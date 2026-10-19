@@ -1071,7 +1071,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-19-37';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-19-38';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 def test_install_cancel_flip_rides_the_patch_signature():
@@ -1093,6 +1093,14 @@ def test_install_cancel_flip_rides_the_patch_signature():
     # Stop in agreement.
     assert "cancelRequested: undefined," in renderer
     assert "root.querySelector<HTMLButtonElement>('.crusorai-send-stop')" in renderer
+    # The freeze itself (field 2026-10-19, fourth report: the MB
+    # counter's ticking disturbed the whole UI): the session list's
+    # clock is recomputed from Date.now() per model build, and
+    # signed it rebuilt the transcript every second. The volatile
+    # clock fields are stripped for the transcript mount; the
+    # Manager keeps the live signature.
+    assert "sessions: (model.sessions ?? []).map(stripSession)," in renderer
+    assert "? s : { ...s, seconds: undefined, elapsedLabel: undefined }" in renderer
     # The self-proving pair (field 2026-10-19, second report): every
     # Cancel click logs one line in the pane funnel, and the bridge
     # logs its verdict — a future "not working" report shows its own
@@ -1253,7 +1261,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-19-37'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-19-38'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
