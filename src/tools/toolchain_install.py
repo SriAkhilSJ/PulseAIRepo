@@ -354,6 +354,27 @@ def _read_body_cancellable(response, step: str) -> bytes:
     return b"".join(_iter_body_cancellable(response, step))
 
 
+def _discard_tree(path: Path) -> None:
+    """Remove a partial SDK tree WITHOUT making the user wait for
+    it. Deleting thousands of freshly extracted files can take
+    seconds on Windows (every file passes the antivirus), and that
+    time used to be charged to the Cancel click (field 2026-10-19:
+    the stop felt frozen after the engine had already agreed to
+    stop). The tree is renamed aside instantly — the SDK location
+    is clean for the next attempt in the same gesture — and the
+    physical delete finishes on a daemon thread."""
+    try:
+        aside = path.with_name(
+            f"{path.name}.cancelling-{os.getpid()}-{int(time.time())}")
+        path.rename(aside)
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
+        return
+    threading.Thread(target=shutil.rmtree, args=(aside,),
+                     kwargs={"ignore_errors": True},
+                     daemon=True, name="crusorai-tree-discard").start()
+
+
 def _download(step: str, url: str, dest: Path,
               on_bytes: Callable[[int, int | None], None] | None = None) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -490,7 +511,7 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
             # to trip over (a partial tree reads as "installed").
             archive.unlink(missing_ok=True)
             if not tree_existed:
-                shutil.rmtree(dest, ignore_errors=True)
+                _discard_tree(dest)
             raise
         archive.unlink(missing_ok=True)
         if host != HOST_WINDOWS:
@@ -585,7 +606,7 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
         except _InstallCancelled:
             archive.unlink(missing_ok=True)
             if not tools_tree_existed:
-                shutil.rmtree(root / "cmdline-tools", ignore_errors=True)
+                _discard_tree(root / "cmdline-tools")
             raise
         archive.unlink(missing_ok=True)
         inner = root / "cmdline-tools" / "cmdline-tools"

@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-19-36';
+const CRUSORAI_UI_STAMP = '2026-10-19-37';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -4599,6 +4599,13 @@ export function mountCrusorAIRenderer(root, surface, host) {
                     b.disabled = true;
                     b.textContent = 'Cancelling…';
                 });
+                // The composer Stop agrees in the same gesture (the
+                // full paint that used to disable it no longer runs
+                // for a cancel flip — cancelRequested is unsigned).
+                const stopBtn = root.querySelector('.crusorai-send-stop');
+                if (stopBtn) {
+                    stopBtn.disabled = true;
+                }
                 continue;
             }
             // Not cancelling: if an earlier flip disabled the Cancels
@@ -4606,12 +4613,21 @@ export function mountCrusorAIRenderer(root, surface, host) {
             // flight), restore them — a stranded disabled button is
             // as dishonest as a dead one. Text/disabled only, the
             // nodes themselves never move.
+            let restoredCancel = false;
             details.querySelectorAll('.crusorai-install-cancel').forEach(b => {
                 if (b.disabled && b.textContent === 'Cancelling…') {
+                    console.info('[crusorai] install progress patch: engine reports not cancelling — Cancel restored');
                     b.disabled = false;
                     b.textContent = 'Cancel';
+                    restoredCancel = true;
                 }
             });
+            if (restoredCancel) {
+                const stopBtn = root.querySelector('.crusorai-send-stop');
+                if (stopBtn) {
+                    stopBtn.disabled = false;
+                }
+            }
             const percent = typeof tool.progressPercent === 'number'
                 ? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
             const label = details.querySelector('.crusorai-install-progress-label');
@@ -4661,8 +4677,17 @@ export function mountCrusorAIRenderer(root, surface, host) {
         // worked after multiple clicks") was that race, not the
         // buttons.
         const strip = (t) => ({ id: t.id, name: t.name, state: t.state });
+        // cancelRequested stays OUT too (field 2026-10-19, fourth
+        // report: "dropdown menu gets freeze"): while it was signed,
+        // the Cancel click's own repaint was a FULL transcript
+        // rebuild — the card the user was holding was replaced at
+        // the exact moment of interaction, and on a grown transcript
+        // that rebuild is the freeze. The flip is patchInstallProgress's
+        // job (it freezes the loader and disables both Cancels in
+        // place); structural paints still read the flag directly.
         return JSON.stringify({
             ...model, assistantText: undefined, parts: undefined, reasoningParts: undefined,
+            cancelRequested: undefined,
             tools: model.tools.map(strip),
             history: model.history.map(h => ({ ...h, tools: h.tools.map(strip) })),
         }) + '|' + model.parts.map(p => (p.kind === 'tool' ? `tool:${p.toolId}` : 'text')).join('>');

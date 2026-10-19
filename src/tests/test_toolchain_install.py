@@ -465,6 +465,30 @@ def test_body_read_never_hides_a_cancel_behind_a_silent_server(monkeypatch):
     assert elapsed < 3.0, f"cancel took {elapsed:.1f}s to surface through a stuck read"
 
 
+def test_discard_tree_vacates_the_sdk_location_instantly(tmp_path):
+    """Cancel's cleanup must not charge the user for a full tree
+    delete (field 2026-10-19: on Windows, thousands of extracted
+    files through the antivirus made the stop feel frozen AFTER
+    the engine had agreed to stop). The SDK location is vacated in
+    the same gesture (rename-aside); physical deletion finishes in
+    the background."""
+    import time
+
+    tree = tmp_path / "flutter"
+    (tree / "bin").mkdir(parents=True)
+    for i in range(50):
+        (tree / "bin" / f"f{i}.bin").write_bytes(b"x" * 64)
+    ti._discard_tree(tree)
+    assert not tree.exists(), "SDK location must be empty the moment cleanup returns"
+    # The aside copy is physically deleted by the daemon thread.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if not list(tmp_path.glob("flutter.cancelling-*")):
+            break
+        time.sleep(0.05)
+    assert not list(tmp_path.glob("flutter.cancelling-*")), "background delete never finished"
+
+
 def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):
 
     import io
