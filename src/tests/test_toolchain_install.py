@@ -346,6 +346,50 @@ def test_install_stops_when_the_session_cancel_lands(monkeypatch):
     assert ti._install("flutter", session_id="sess-1").startswith("✅")
 
 
+def test_bridge_style_cancel_stops_a_real_install(monkeypatch):
+    """The production chain with NO fakes at the seam (field
+    2026-10-19: the card's Cancel "not working"): the bridge calls
+    turn_controls.cancel(sid) — the real registry the bridge and
+    stream_agent both begin() — and the installer must feel it
+    through the real _CANCEL_KEY binding _install(session_id=...)
+    performs, the same binding install_toolchain makes from the
+    graph config's thread_id."""
+    import threading
+    import time
+
+    from src.runtime.turn_control import turn_controls
+
+    state = {"flutter": False, "dart": False}
+    monkeypatch.setattr(toolchain, "probe", _probe_with(state))
+    entered = threading.Event()
+
+    def recipe(host, log, report):
+        entered.set()
+        for _ in range(600):
+            ti._check_cancel()  # the real poll every long wait performs
+            time.sleep(0.01)
+        raise AssertionError("install continued after Cancel")
+
+    monkeypatch.setitem(ti._INSTALLERS, "flutter", recipe)
+    sid = "sess-production-chain"
+    turn_controls.begin(sid)
+    receipts: list[str] = []
+    worker = threading.Thread(
+        target=lambda: receipts.append(ti._install("flutter", session_id=sid)),
+        daemon=True)
+    try:
+        worker.start()
+        assert entered.wait(timeout=5), "install never started"
+        # Exactly the bridge's cancel branch (src/bridge/__main__.py).
+        assert turn_controls.cancel(sid) is True
+        worker.join(timeout=10)
+    finally:
+        turn_controls.end(sid)
+        turn_controls.reset(sid)
+    assert not worker.is_alive(), "install thread never stopped"
+    assert receipts and receipts[0].startswith("⏹"), receipts
+
+
 def test_cancel_during_download_aborts_and_removes_the_part(tmp_path, monkeypatch):
     import io
 

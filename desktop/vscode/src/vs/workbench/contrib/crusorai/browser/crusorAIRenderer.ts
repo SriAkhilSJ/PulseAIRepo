@@ -366,7 +366,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-18-33';
+const CRUSORAI_UI_STAMP = '2026-10-19-34';
 
 function markdownCopy(text: string, slot?: string): HTMLElement {
 	const root = element('div', 'crusorai-assistant-copy crusorai-md');
@@ -4617,10 +4617,17 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 	// through every progress frame untouched.
 	let lastInstallSig = '';
 	const patchInstallProgress = (model: CrusorAIRenderModel): void => {
+		// The cancelling flag rides the signature (field 2026-10-19:
+		// "inside drop down menu cancel button not working"): the
+		// click's own repaint carries no new percent/label, so a sig
+		// without it early-returned and the flip branch below never
+		// ran — during a silent phase (indeterminate step, static
+		// label) NO later frame moved the sig either, and the button
+		// sat enabled saying "Cancel" as if the click never landed.
 		const sig = model.tools
 			.filter(t => t.name === 'install_toolchain')
 			.map(t => `${t.id}:${t.state}:${t.progressPercent ?? ''}:${t.progressLabel ?? ''}`)
-			.join('|');
+			.join('|') + (model.cancelRequested ? ':cancelling' : '');
 		if (sig === lastInstallSig) { return; }
 		lastInstallSig = sig;
 		for (const tool of model.tools) {
@@ -4641,6 +4648,17 @@ export function mountCrusorAIRenderer(root: HTMLElement, surface: CrusorAISurfac
 				});
 				continue;
 			}
+			// Not cancelling: if an earlier flip disabled the Cancels
+			// (a local click the engine then reported as not in
+			// flight), restore them — a stranded disabled button is
+			// as dishonest as a dead one. Text/disabled only, the
+			// nodes themselves never move.
+			details.querySelectorAll<HTMLButtonElement>('.crusorai-install-cancel').forEach(b => {
+				if (b.disabled && b.textContent === 'Cancelling…') {
+					b.disabled = false;
+					b.textContent = 'Cancel';
+				}
+			});
 			const percent = typeof tool.progressPercent === 'number'
 				? Math.max(0, Math.min(100, tool.progressPercent)) : undefined;
 			const label = details.querySelector<HTMLElement>('.crusorai-install-progress-label');

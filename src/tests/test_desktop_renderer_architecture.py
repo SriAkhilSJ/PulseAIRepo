@@ -1071,9 +1071,23 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-18-33';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-19-34';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
+
+
+def test_install_cancel_flip_rides_the_patch_signature():
+    """Field 2026-10-19 ('inside drop down menu cancel button not
+    working', header 1f417a3d): patchInstallProgress early-returns on
+    an unchanged id:state:percent:label signature, and the click's own
+    repaint carries no new percent/label — so during a silent install
+    phase NOTHING ever moved the signature and the Cancelling… flip
+    never painted. The cancelling flag must ride the signature, and
+    the not-cancelling branch must restore a flipped button so an
+    engine 'not in flight' report can never strand it disabled."""
+    renderer = _text("browser", "crusorAIRenderer.ts")
+    assert "model.cancelRequested ? ':cancelling' : ''" in renderer
+    assert "if (b.disabled && b.textContent === 'Cancelling…')" in renderer
 
 
 def test_terminal_envelope_never_surfaces_in_the_card():
@@ -1211,7 +1225,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-18-33'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-19-34'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():
