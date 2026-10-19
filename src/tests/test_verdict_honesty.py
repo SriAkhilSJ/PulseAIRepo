@@ -260,3 +260,115 @@ def test_composite_ui_verification_satisfies_the_screenshot_ask():
         "verify_ui_workspace typechecks + navigates + snapshots + screenshots "
         "in one call; it must satisfy the composite contract"
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. Terminal-created deliverables are verifiable deliverables
+# (field 2026-10-19 run 2: `flutter create` in the terminal, verification
+# FAILED, model chattered, turn stamped completed — _wrote_code_files was
+# False because no write_file call ever happened.)
+# ---------------------------------------------------------------------------
+
+def _terminal_created_app_state(tmp_path, verify_results: list[str]) -> dict:
+    (tmp_path / "flutterdemo").mkdir()
+    messages = [
+        HumanMessage("Create a Flutter app called flutterdemo"),
+        AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "run_terminal",
+                "args": {"command": "flutter create flutterdemo"},
+                "id": "c1",
+            }],
+        ),
+        ToolMessage(
+            content="Creating project flutterdemo... All done! (93 files)",
+            tool_call_id="c1",
+            name="run_terminal",
+        ),
+    ]
+    for i, result in enumerate(verify_results):
+        cid = f"v{i}"
+        messages.append(AIMessage(
+            content="",
+            tool_calls=[{
+                "name": "verify_ui_workspace",
+                "args": {"command": "flutter run -d web-server", "url": "http://localhost:8137"},
+                "id": cid,
+            }],
+        ))
+        messages.append(ToolMessage(content=result, tool_call_id=cid, name="verify_ui_workspace"))
+    messages.append(AIMessage(
+        content="The probe gave up before the first web build finished. "
+                "Let me check whether the port now serves."
+    ))
+    return {
+        "messages": messages,
+        "current_task": "Create a Flutter app called flutterdemo",
+        "workspace": str(tmp_path),
+        "steps_completed": ["Ran command: flutter create flutterdemo"],
+        "failed_steps": [],
+        "plan": [],
+    }
+
+
+_FAILED_VERIFY = (
+    "❌ UI VERIFICATION FAILED: server never became ready:\n"
+    "Status: RUNNING\nProcess ID: 04cd7805"
+)
+
+
+def test_terminal_created_app_with_failed_verification_is_not_completed(_no_memory, tmp_path):
+    from src.graphs.chat_graph import finalize_node
+
+    state = _terminal_created_app_state(tmp_path, [_FAILED_VERIFY])
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is False
+    assert out["task_status"] == "unverified"
+
+
+def test_terminal_created_app_passing_verification_later_still_completes(_no_memory, tmp_path):
+    from src.graphs.chat_graph import finalize_node
+
+    state = _terminal_created_app_state(
+        tmp_path, [_FAILED_VERIFY, "✅ UI VERIFICATION PASSED\npage rendered"]
+    )
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+
+
+def test_verify_gate_sees_terminal_created_app(tmp_path):
+    from src.graphs.gates import _verify_unsatisfied, should_continue
+
+    state = _terminal_created_app_state(tmp_path, [_FAILED_VERIFY])
+    state.update({"finish_nudges": 0, "verify_nudges": 0, "iteration_used": 0})
+    assert _verify_unsatisfied(state) is True
+    assert should_continue(state) == "finish_gate"
+
+
+def test_pdf_artifact_without_verification_still_completes(_no_memory, tmp_path):
+    """Non-code artifacts carry no runtime to verify: a produced
+    report.pdf must not be dragged into the unverified verdict."""
+    from src.graphs.chat_graph import finalize_node
+
+    (tmp_path / "report.pdf").write_bytes(b"%PDF-1.4\ncontent")
+    state = {
+        "messages": [
+            HumanMessage("Create the final research report as report.pdf"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "execute_code", "args": {"code": "..."}, "id": "c1"}],
+            ),
+            ToolMessage(content="✅ wrote report.pdf", tool_call_id="c1", name="execute_code"),
+            AIMessage(content="Done — report.pdf is ready."),
+        ],
+        "current_task": "Create the final research report as report.pdf",
+        "workspace": str(tmp_path),
+        "steps_completed": ["Generated report.pdf"],
+        "failed_steps": [],
+        "plan": [],
+    }
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"

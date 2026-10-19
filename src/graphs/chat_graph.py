@@ -2675,13 +2675,28 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     from src.graphs.gates import (
         _any_tool_activity,
         _named_deliverables_exist,
+        _produced_code_deliverable,
+        _ran_verification,
+        _verification_failed,
         _verification_ran_and_passed,
     )
     from src.graphs.progress_helpers import trailing_batch_failed
+    # The second arm covers production routes write_file never sees: an
+    # app generated in the terminal (`flutter create`) whose verification
+    # RAN and FAILED is unverified, not completed (field 2026-10-19
+    # run 2). Never-ran stays on the old bar — existence is the
+    # copy/docs contract (test_lab_fixes pins).
     unverified = (
         _looks_like_execution_task(current_task)
-        and _wrote_code_files(state)
         and not _verification_ran_and_passed(state)
+        and (
+            _wrote_code_files(state)
+            or (
+                _ran_verification(state)
+                and _verification_failed(state)
+                and _produced_code_deliverable(state)
+            )
+        )
     )
     # Zero Mutation / Empty Execution Check: if the user requested building or
     # executing a task, and the turn finalized with ZERO tool activity at all

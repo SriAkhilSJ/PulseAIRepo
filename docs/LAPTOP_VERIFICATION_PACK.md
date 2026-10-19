@@ -226,3 +226,24 @@ fake Flutter project. Now it must install the real SDK first.
    created. (If the model stalls again, an honest incomplete ending
    is the correct behaviour — report it, with the last lines it
    printed.)
+5. **Verification must be honest too** (field 2026-10-19 run 2: the
+   project WAS created this time — `flutter create flutterdemo`,
+   93 files — but the web verification probe gave up at 120s while
+   Flutter was still compiling its first web build, left the
+   `flutter run` process running, and the turn still stamped
+   completed). Now: the readiness probe also polls the page URL
+   directly and waits up to 300s through slow first builds; a
+   probe that gives up STOPS the server it started (nothing left
+   listening, no ghost process holding the port); and a turn whose
+   verification ran and FAILED — for terminal-created apps too —
+   ends "unverified", never completed.
+   ✅ The verify card either passes with a screenshot, or fails
+   with the port free afterwards (check: nothing still serving on
+   the web port after a failed verify).
+   ❌ A failed verify card followed by a completed turn, or a
+   leftover `flutter run` process after a failed verification.
+   NOTE: that run also showed `engine build: bb5a6683` in the log
+   while the panel header showed the newer commit — the engine
+   process was stale. After pulling, fully quit and relaunch the
+   app; the log's engine-build line must match the header commit
+   before judging behaviour.

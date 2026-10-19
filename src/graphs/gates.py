@@ -747,8 +747,59 @@ def _verify_unsatisfied(state: AgentState) -> bool:
     if not _looks_like_execution_task(state.get("current_task", "")):
         return False
     if not _wrote_code_files(state):
-        return False
+        # Terminal-produced deliverables: scaffold tools are deleted, so
+        # `flutter create` writes no write_file steps and the old bar was
+        # blind. A verification that RAN and FAILED still gates — but a
+        # never-ran one does not: existence remains the copy/docs
+        # contract (test_lab_fixes pins).
+        if not (
+            _ran_verification(state)
+            and _verification_failed(state)
+            and _produced_code_deliverable(state)
+        ):
+            return False
     return not _ran_verification(state) or _verification_failed(state)
+
+
+def _produced_code_deliverable(state: AgentState) -> bool:
+    """True when the turn produced a code/app deliverable that can be
+    verified — by ANY production route.
+
+    `_wrote_code_files` alone was the old bar, but the sanctioned
+    app-creation path is the terminal (scaffold tools are deleted):
+    `flutter create flutterdemo` writes 93 files without a single
+    write_file call, so the verify gate and the finalize verdict were
+    both blind to the one deliverable the task existed to produce
+    (field 2026-10-19 run 2: verification failed, model chattered,
+    turn stamped completed). A named target counts when it is an
+    app-named project directory or carries a code extension (the
+    `_CODE_EXT_MARKERS` set — docs and data artifacts carry no
+    runtime to verify and stay on the existence contract)."""
+    if _wrote_code_files(state):
+        return True
+    task = state.get("current_task", "")
+    app_named = _app_named_targets(task)
+    targets = [
+        t for t in _deliverable_targets(task)
+        if Path(t).suffix.lower() in _CODE_EXT_MARKERS
+    ]
+    for name in app_named:
+        if name not in targets:
+            targets.append(name)
+    if not targets:
+        return False
+    workspace = state.get("workspace", ".")
+    for target in targets:
+        try:
+            exists = any(
+                cand.is_file() or (target in app_named and cand.is_dir())
+                for cand in _deliverable_candidates(workspace, target)
+            )
+        except OSError:
+            exists = False
+        if not exists:
+            return False
+    return True
 
 
 def _wrote_code_files(state: AgentState) -> bool:
@@ -1012,7 +1063,14 @@ def finish_gate_node(state: AgentState) -> dict:
             "finish_nudges": state.get("finish_nudges", 0) + 1,
             "nudged_at_msg_count": len(state.get("messages") or []),
         }
-    if _wrote_code_files(state) and (
+    if (
+        _wrote_code_files(state)
+        or (
+            _ran_verification(state)
+            and _verification_failed(state)
+            and _produced_code_deliverable(state)
+        )
+    ) and (
         not _ran_verification(state) or _verification_failed(state)
     ):
         nudge = _VERIFY_FAILED_NUDGE if _verification_failed(state) else _VERIFY_NUDGE

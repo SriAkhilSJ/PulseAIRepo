@@ -19,24 +19,66 @@ def _safe_route_name(route: str) -> str:
     return "-".join(part for part in token.replace("_", "-").split("/") if part) or "home"
 
 
-def _start_ready_server(command: str, config: RunnableConfig) -> tuple[str | None, str]:
-    from src.tools.terminal_tools import start_terminal, check_terminal
+_READY_DEADLINE_SECONDS = 300
+
+
+def _url_answers(url: str) -> bool:
+    """True when something HTTP answers at `url` (any status — even a
+    404 proves the server is up; connection refused proves it is not)."""
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(url, timeout=2):
+            return True
+    except urllib.error.HTTPError:
+        return True
+    except Exception:
+        return False
+
+
+def _start_ready_server(
+    command: str, config: RunnableConfig, url: str = ""
+) -> tuple[str | None, str]:
+    from src.tools.terminal_tools import check_terminal, start_terminal, stop_terminal
 
     started = str(start_terminal.invoke({"command": command}, config=config))
     match = re.search(r"Process ID:\s*([A-Za-z0-9_-]+)", started)
     if not match:
         return None, "failed to start server:\n" + started
     process_id = match.group(1)
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + _READY_DEADLINE_SECONDS
     last = ""
     while time.monotonic() < deadline:
         last = str(check_terminal.invoke({"process_id": process_id, "wait_seconds": 5}))
         low = last.lower()
-        if any(marker in low for marker in ("ready in", "listening on", "server running", "local:")):
+        # Word-boundaried on purpose: the bare substring "ready in" also
+        # matches "already in use" — a port-conflict crash was read as a
+        # ready server (pinned by test_ui_verification_readiness).
+        if any(re.search(pattern, low) for pattern in (
+            r"\bready in\b", r"listening on", r"server running", r"local:",
+        )):
+            return process_id, last
+        # Output markers alone missed slow first-build servers (field
+        # 2026-10-19: `flutter run -d web-server` was still compiling
+        # when the old 120s probe gave up). The caller knows the URL —
+        # probe it directly; it answers only when the server serves.
+        if url and _url_answers(url):
             return process_id, last
         if "status: completed" in low:
             break
-    return process_id, "server never became ready:\n" + last[-3000:]
+    # Giving up must not leak the server: field 2026-10-19 left a
+    # `flutter run` process RUNNING after the failed receipt, holding
+    # the port while the agent planned around a ghost.
+    try:
+        stop_terminal.invoke({"process_id": process_id})
+    except Exception:
+        pass
+    return process_id, (
+        "server never became ready "
+        f"(waited {_READY_DEADLINE_SECONDS}s; the started process was "
+        "stopped, so nothing is left listening):\n" + last[-3000:]
+    )
 
 
 def _native_javascript_syntax(workspace) -> tuple[bool, str]:
@@ -194,7 +236,7 @@ def verify_ui_workspace(
     if not source_ok:
         return "❌ UI VERIFICATION FAILED at static source checks:\n" + source_receipt
 
-    process_id, ready = _start_ready_server(command, config)
+    process_id, ready = _start_ready_server(command, config, url)
     if process_id is None or "never became ready" in ready or "failed to start" in ready:
         return "❌ UI VERIFICATION FAILED: " + ready
     try:
@@ -238,7 +280,7 @@ def verify_ui_routes(
     if not source_ok:
         return "❌ UI ROUTE VERIFICATION FAILED at static source checks:\n" + source_receipt
 
-    process_id, ready = _start_ready_server(command, config)
+    process_id, ready = _start_ready_server(command, config, base_url)
     if process_id is None or "never became ready" in ready or "failed to start" in ready:
         return "❌ UI ROUTE VERIFICATION FAILED: " + ready
 
