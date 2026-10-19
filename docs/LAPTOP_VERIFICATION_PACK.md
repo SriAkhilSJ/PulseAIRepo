@@ -178,7 +178,9 @@ fake Flutter project. Now it must install the real SDK first.
    is the founder's one-click surface, the dock is the fallback for
    child sessions). Click **Install** ON THE CARD → the card becomes
    a live **0→100 loader**: real % while the SDK downloads (the
-   label reads downloaded-of-total, e.g. "199 MB of 1.49 GB"), % while
+   label reads downloaded-of-total, e.g. "199 MB of 1.49 GB" — and
+   the % beside it IS that fraction: 640 MB of 1.93 GB reads 33%,
+   never a weighted composite), % while
    it extracts, then step labels for first-run/verify; a thin bar
    also shows on the card header even if you close it. Under the
    bar: "the agent is resting (no AI calls) until this finishes" —

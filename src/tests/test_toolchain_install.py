@@ -288,7 +288,6 @@ def test_download_label_names_the_total(tmp_path, monkeypatch):
             return _Response(jsonlib.dumps(manifest).encode())
         raise AssertionError(f"unexpected url {url}")
 
-    labels: list[str] = []
 
     def fake_download(step, url, dest, on_bytes=None):
         on_bytes(50_000_000, 100_000_000)
@@ -299,8 +298,13 @@ def test_download_label_names_the_total(tmp_path, monkeypatch):
     monkeypatch.setattr(ti, "_download", fake_download)
     monkeypatch.setattr(ti, "_extract", lambda step, archive, dest, on_file=None: None)
     monkeypatch.setattr(ti, "_sh", lambda step, argv, **kw: "Flutter 9.9.9")
-    ti._install_flutter("linux", [], lambda pct, label: labels.append(label))
-    assert any("50 MB of 100 MB" in label for label in labels), labels
+    seen: list[tuple[float | None, str]] = []
+    ti._install_flutter("linux", [], lambda pct, label: seen.append((pct, label)))
+    assert any("50 MB of 100 MB" in label for _, label in seen), seen
+    # Founder 2026-10-19 ("is count down loader correct??"): the
+    # number beside "50 MB of 100 MB" is 50 — the phase's own
+    # fraction, never a weighted composite of the whole install.
+    assert (50.0, next(label for _, label in seen if "50 MB of 100 MB" in label)) in seen
 
 
 def test_size_labels_use_natural_units():

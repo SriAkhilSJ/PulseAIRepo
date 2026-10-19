@@ -399,7 +399,7 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
             "https://storage.googleapis.com/flutter_infra_release"
             f"/releases/releases_{os_name}.json"
         )
-        report(1, "Checking the latest Flutter release…")
+        report(0, "Checking the latest Flutter release…")
         try:
             with urllib.request.urlopen(manifest_url, timeout=60) as response:
                 manifest = json.loads(response.read().decode("utf-8"))
@@ -417,9 +417,12 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
 
         def on_bytes(done: int, total: int | None) -> None:
             if total:
-                # Founder 2026-10-18: "total mb size not specified" —
-                # the denominator is what makes the wait feel finite.
-                report(2 + 63 * (done / total),
+                # Phase-true percent (founder 2026-10-19: "is count
+                # down loader correct??" — 640 MB of 1.93 GB is 33%,
+                # and a weighted 23% beside those sizes reads as a
+                # bug). The number beside a fraction IS that fraction;
+                # each phase reports its own honest 0..100.
+                report(100 * (done / total),
                        f"Downloading Flutter SDK… {_size_label(done / 1_000_000)} of {_size_label(total / 1_000_000)}")
             else:
                 report(None, f"Downloading Flutter SDK… {_size_label(done / 1_000_000)}")
@@ -429,7 +432,7 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
             _download("download", f"{manifest['base_url']}/{archive_name}", archive, on_bytes=on_bytes)
             log.append(f"downloaded Flutter {release.get('version', '?')} ({archive.name})")
             _extract("extract", archive, MANAGED_ROOT,
-                     on_file=_band(report, 65, 82, "Extracting Flutter SDK…"))
+                     on_file=_band(report, 0, 100, "Extracting Flutter SDK…"))
         except _InstallCancelled:
             # Never leave a half SDK tree behind for the next attempt
             # to trip over (a partial tree reads as "installed").
@@ -441,11 +444,11 @@ def _install_flutter(host: str, log: list[str], report: ProgressFn) -> None:
         if host != HOST_WINDOWS:
             _run(["chmod", "-R", "+x", str(dest / "bin")], timeout=300)
     _activate(dest / "bin")
-    report(84, "First run — building the Flutter tool (a minute or two)…")
+    report(None, "First run — building the Flutter tool (a minute or two)…")
     binary = dest / "bin" / ("flutter.bat" if host == HOST_WINDOWS else "flutter")
     out = _sh("first run", [str(binary), "--version"], timeout=1200)
     log.append(out.splitlines()[0] if out.splitlines() else "flutter --version ok")
-    report(95, "Verifying the installation…")
+    report(None, "Verifying the installation…")
 
 
 def _ensure_java_env(host: str) -> None:
@@ -477,7 +480,7 @@ def _ensure_java_env(host: str) -> None:
 
 
 def _install_java(host: str, log: list[str], report: ProgressFn,
-                  band: tuple[float, float] = (0, 90)) -> None:
+                  band: tuple[float, float] = (0, 100)) -> None:
     emit = _band(report, band[0], band[1], "Installing JDK 21…")
     if host == HOST_WINDOWS:
         _winget("winget", "Microsoft.OpenJDK.21", emit)
@@ -503,7 +506,7 @@ def _android_root(host: str) -> Path:
 
 def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
     if not toolchain.probe(fresh=True)["java"].available:
-        _install_java(host, log, report, band=(0, 12))
+        _install_java(host, log, report, band=(0, 100))
     _ensure_java_env(host)
     root = _android_root(host)
     latest = root / "cmdline-tools" / "latest"
@@ -517,7 +520,7 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
 
         def on_bytes(done: int, total: int | None) -> None:
             if total:
-                report(12 + 20 * (done / total),
+                report(100 * (done / total),
                        f"Downloading Android command-line tools… {_size_label(done / 1_000_000)} of {_size_label(total / 1_000_000)}")
             else:
                 report(None, f"Downloading Android command-line tools… {_size_label(done / 1_000_000)}")
@@ -526,7 +529,7 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
         try:
             _download("download", url, archive, on_bytes=on_bytes)
             _extract("extract", archive, root / "cmdline-tools",
-                     on_file=_band(report, 32, 38, "Extracting Android command-line tools…"))
+                     on_file=_band(report, 0, 100, "Extracting Android command-line tools…"))
         except _InstallCancelled:
             archive.unlink(missing_ok=True)
             if not tools_tree_existed:
@@ -540,18 +543,18 @@ def _install_android(host: str, log: list[str], report: ProgressFn) -> None:
     manager = latest / "bin" / ("sdkmanager.bat" if host == HOST_WINDOWS else "sdkmanager")
     if not manager.exists():
         raise _StepFailed("sdkmanager", f"not found at {manager}")
-    report(40, "Accepting Android SDK licenses…")
+    report(None, "Accepting Android SDK licenses…")
     _sh("licenses", [str(manager), f"--sdk_root={root}", "--licenses"],
         timeout=600, input_text="y\n" * 24)
     _sh("sdk packages", [str(manager), f"--sdk_root={root}", *_ANDROID_PACKAGES],
         timeout=1800,
-        on_line=_line_progress(_band(report, 42, 96, "Installing Android SDK packages (platform-tools, android-35, emulator)…")))
+        on_line=_line_progress(_band(report, 0, 100, "Installing Android SDK packages (platform-tools, android-35, emulator)…")))
     log.append("installed " + ", ".join(_ANDROID_PACKAGES))
-    report(97, "Verifying the installation…")
+    report(None, "Verifying the installation…")
 
 
 def _install_node(host: str, log: list[str], report: ProgressFn) -> None:
-    emit = _band(report, 0, 90, "Installing Node.js…")
+    emit = _band(report, 0, 100, "Installing Node.js…")
     if host == HOST_WINDOWS:
         _winget("winget", "OpenJS.NodeJS.LTS", emit)
         node_dir = Path("C:/Program Files/nodejs")
@@ -573,7 +576,7 @@ def _install_node(host: str, log: list[str], report: ProgressFn) -> None:
 
 def _install_rust(host: str, log: list[str], report: ProgressFn) -> None:
     cargo_bin = Path.home() / ".cargo" / "bin"
-    emit = _band(report, 0, 90, "Installing Rust…")
+    emit = _band(report, 0, 100, "Installing Rust…")
     if host == HOST_WINDOWS:
         _winget("winget", "Rustlang.Rustup", emit)
     elif host == HOST_MACOS and shutil.which("brew"):
