@@ -5713,6 +5713,20 @@ class SafeToolNode:
                     **request_item, "thread_id": thread_id or "default",
                     "warning": warning,
                 })
+                # Testimony (field run-3, build c54ccebf: two `flutter
+                # create` calls waited out the full 300s dock timeout and
+                # the engine log showed only "[tool_node] 0 tool result(s)
+                # ready" — an unanswered dock was indistinguishable from
+                # a swallowed tool call). Every dock wait now speaks in
+                # the engine log: asked, answered, or timed out.
+                _ask_reason = (
+                    (warning or "permission ask").strip().splitlines()[0][:120]
+                )
+                print(
+                    f"[approval] {tc.get('name', '')} needs approval — "
+                    f"waiting for human (up to {timeout:.0f}s): {_ask_reason}",
+                    flush=True,
+                )
 
                 # Stop must wake an approval wait immediately rather than leave
                 # the bridge blocked for the full approval timeout.
@@ -5725,13 +5739,25 @@ class SafeToolNode:
                     )
 
                 _tc.register_abort(_cfg_sid, _cancel_approval)
+                _wait_started = time.monotonic()
                 try:
                     decision = approval_queue.wait_for_decision(
                         tool_id, timeout=timeout
                     )
                 finally:
                     _tc.unregister_abort(_cfg_sid, _cancel_approval)
+                _waited_s = time.monotonic() - _wait_started
                 if decision and decision.get("decision") is True:
+                    print(
+                        f"[approval] {tc.get('name', '')} allowed after "
+                        f"{_waited_s:.1f}s"
+                        + (
+                            " (always — granted for this session)"
+                            if decision.get("always_allow")
+                            else ""
+                        ),
+                        flush=True,
+                    )
                     approved_ids.add(tool_id)
                     # "Allow always": remember (session, tool, resource)
                     # so the same ask is not repeated THIS session —
@@ -5751,6 +5777,11 @@ class SafeToolNode:
                         else "timed out"
                         if decision and decision.get("timeout")
                         else "denied"
+                    )
+                    print(
+                        f"[approval] {tc.get('name', '')} {reason} after "
+                        f"{_waited_s:.1f}s — call denied before execution",
+                        flush=True,
                     )
                     denials[tool_id] = self._durable_denial(
                         tc,
