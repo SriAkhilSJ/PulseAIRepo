@@ -47,10 +47,34 @@ reports `.git/config` as not-ignored — the two checks are complements, not dup
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 _UNSET = object()
+
+_IS_WINDOWS = os.name == "nt" or sys.platform.startswith("win")
+_MSYS_DRIVE_RE = re.compile(r"^/(?:(?:cygdrive|mnt)/)?([a-zA-Z])(/.*)?$")
+
+
+def _msys_to_windows_path(path: str) -> str:
+    """Translate Git-Bash/MSYS drive spellings for permission judgment only.
+
+    The model legitimately speaks Git-Bash on Windows (the same dialect
+    file_tools already handles before file/path execution), so the guard
+    must judge `/c/Users/...` as its Windows address instead of letting
+    `Path()` misread it as the drive-relative `C:\\c\\Users\\...` and ask
+    for outside-project consent on a path that is in fact inside the
+    workspace. This changes judgment only, never the executed command.
+    Off Windows (and for native/POSIX paths) this is a no-op.
+    """
+    if not _IS_WINDOWS or not path:
+        return path
+    m = _MSYS_DRIVE_RE.match(path)
+    if not m:
+        return path
+    tail = (m.group(2) or "").replace("/", "\\")
+    return f"{m.group(1).upper()}:{tail or chr(92)}"
 
 
 def session_grant_vetoed(warning: str) -> bool:
@@ -104,7 +128,7 @@ class SafetyGuard:
     }
 
     def __init__(self, workspace: str = "."):
-        self.workspace = Path(workspace).resolve()
+        self.workspace = Path(_msys_to_windows_path(str(workspace))).resolve()
         self._repo_root = _UNSET
 
     def check_tool_call(self, tool_name: str, tool_args: dict[str, Any]) -> tuple[bool, str]:
@@ -254,7 +278,9 @@ class SafetyGuard:
     def _resolve_path(self, path: str) -> Path:
         """Resolve with realpath — symlink aware."""
         import os as _os
-        p = Path(path)
+        # Git-Bash/MSYS spellings mean the Windows drive address; judge
+        # that address, not the drive-relative spelling Path() would make.
+        p = Path(_msys_to_windows_path(str(path)))
         raw = p if p.is_absolute() else self.workspace / p
         try:
             return Path(_os.path.realpath(str(raw)))

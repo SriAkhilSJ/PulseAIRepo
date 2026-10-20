@@ -347,6 +347,53 @@ def test_verify_gate_sees_terminal_created_app(tmp_path):
     assert should_continue(state) == "finish_gate"
 
 
+# ---------------------------------------------------------------------------
+# 5b. Hard gate (founder 2026-10-20, go 2_hard): verification that NEVER
+# ran gates exactly like verification that failed. Run 3 ended unverified
+# with zero `flutter analyze`/`test` — under the old bar a never-ran
+# terminal-created app could close silently; now it is nudged (bounded),
+# and any bounded escape ends stamped unverified, never completed.
+# ---------------------------------------------------------------------------
+
+def test_terminal_created_app_never_verified_is_not_completed(_no_memory, tmp_path):
+    from src.graphs.chat_graph import finalize_node
+
+    state = _terminal_created_app_state(tmp_path, [])
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is False
+    assert out["task_status"] == "unverified"
+
+
+def test_verify_gate_blocks_terminal_created_app_that_never_verified(tmp_path):
+    from src.graphs.gates import _verify_unsatisfied, finish_gate_node, should_continue
+
+    state = _terminal_created_app_state(tmp_path, [])
+    state.update({"finish_nudges": 0, "verify_nudges": 0, "iteration_used": 0})
+    assert _verify_unsatisfied(state) is True
+    assert should_continue(state) == "finish_gate"
+    out = finish_gate_node(state)
+    assert out["verify_nudges"] == 1
+    assert "verif" in out["messages"][0].content.lower()
+
+
+def test_verify_gate_bounded_escape_still_finalizes_unverified(tmp_path):
+    """Refusal is bounded: once the verify-nudge budget is spent the router
+    lets the turn end — but the verdict stays unverified (the founder is
+    surfaced the truth, not a silent completed)."""
+    from src.graphs.gates import _verify_unsatisfied, should_continue
+
+    state = _terminal_created_app_state(tmp_path, [])
+    state.update({
+        # Every bounded budget spent: finish (terminal production is not
+        # a _WORK_TOOLS call), verify, and stall-continuation (the
+        # fixture's closing line announces a next step).
+        "finish_nudges": 2, "verify_nudges": 2, "iteration_used": 0,
+        "stall_continuations": 2,
+    })
+    assert _verify_unsatisfied(state) is False
+    assert should_continue(state) == "finalize"
+
+
 def test_pdf_artifact_without_verification_still_completes(_no_memory, tmp_path):
     """Non-code artifacts carry no runtime to verify: a produced
     report.pdf must not be dragged into the unverified verdict."""

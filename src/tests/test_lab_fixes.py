@@ -896,6 +896,31 @@ def test_msys_drive_paths_translate_before_anchoring(monkeypatch):
     assert file_tools._msys_to_windows_path("/d/test2_ws_retest") == "/d/test2_ws_retest"
 
 
+def test_guard_msys_drive_paths_translate_for_judgment(monkeypatch):
+    """Go 1 (founder 2026-10-20): the SafetyGuard judges paths for the
+    permission decision, so it must speak the same MSYS dialect as
+    file_tools — `/c/Users/...` judged on Windows is the drive address
+    `C:\\Users\\...`, not the drive-relative `C:\\c\\Users\\...` that
+    Path() would fabricate (run-3's false external_directory ask).
+    Judgment-side only; off Windows the translation is a no-op so POSIX
+    judgment is untouched."""
+    from src.context import safety_guard
+
+    monkeypatch.setattr(safety_guard, "_IS_WINDOWS", True)
+    assert safety_guard._msys_to_windows_path(
+        "/c/Users/Administrator/Downloads/testCRUSOR"
+    ) == "C:\\Users\\Administrator\\Downloads\\testCRUSOR"
+    assert safety_guard._msys_to_windows_path("/cygdrive/d/x") == "D:\\x"
+    assert safety_guard._msys_to_windows_path("/mnt/c/x") == "C:\\x"
+    assert safety_guard._msys_to_windows_path("D:/x") == "D:/x"  # native: no-op
+    assert safety_guard._msys_to_windows_path("/home/x") == "/home/x"  # posix: no-op
+    assert safety_guard._msys_to_windows_path("") == ""
+    monkeypatch.setattr(safety_guard, "_IS_WINDOWS", False)
+    assert safety_guard._msys_to_windows_path(
+        "/c/Users/x"
+    ) == "/c/Users/x"  # off Windows: no-op
+
+
 def test_tool_path_coercion_unwraps_markdown_and_quotes():
     """Field 2026-09-05: read_file {'path': '[README.md](http://README.md)'}
     burned three tool calls. One markdown link spanning the WHOLE argument
@@ -1449,7 +1474,13 @@ def test_retest_copy_task_blocked_from_finalize_even_after_nudge_budget():
 def test_retest_copy_task_finalizes_once_components_placed():
     """R3: once both named components exist on disk (under src/components/ui/),
     the on-disk check must clear and the run finalizes — the candidate scan
-    must recognize a bare 'demo.tsx' placed under the component dir."""
+    must recognize a bare 'demo.tsx' placed under the component dir.
+
+    Hard gate (founder 2026-10-20): placed .tsx components are a code
+    deliverable, so with verify budget remaining the run must route to
+    finish_gate for a real check first; the finalize below is the bounded
+    escape (verify budget spent), which finalize_node stamps unverified —
+    never a silent completed."""
     import os, tempfile
     from src.graphs.chat_graph import should_continue
     ws = tempfile.mkdtemp(prefix="r3-")
@@ -1465,6 +1496,8 @@ def test_retest_copy_task_finalizes_once_components_placed():
         with open(p, "w", encoding="utf-8") as fh:
             fh.write("// component\n")
     state = _retest_state(ws, finish_nudges=2)
+    assert should_continue(state) == "finish_gate"
+    state["verify_nudges"] = 2
     assert should_continue(state) == "finalize"
 
 

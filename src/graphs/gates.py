@@ -683,9 +683,9 @@ def should_continue(state: AgentState):
         if (state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
                 and _deliverables_missing_on_disk(state, state.get("workspace", "."))):
             return "finish_gate"
-        if (_wrote_code_files(state)
+        if (_produced_code_deliverable(state)
                 and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
-                and verification_status(state) != PASSED):
+                and not _verification_ran_and_passed(state)):
             return "finish_gate"
         return "finalize"
 
@@ -753,18 +753,16 @@ def _verify_unsatisfied(state: AgentState) -> bool:
         return False
     if not _looks_like_execution_task(state.get("current_task", "")):
         return False
-    if not _wrote_code_files(state):
-        # Terminal-produced deliverables: scaffold tools are deleted, so
-        # `flutter create` writes no write_file steps and the old bar was
-        # blind. A verification that RAN and FAILED still gates — but a
-        # never-ran one does not: existence remains the copy/docs
-        # contract (test_lab_fixes pins).
-        if not (
-            _ran_verification(state)
-            and _verification_failed(state)
-            and _produced_code_deliverable(state)
-        ):
-            return False
+    # Hard gate (founder 2026-10-20): a produced code deliverable owes at
+    # least one real verification pass before the turn may close, however
+    # it was produced. Scaffold tools are deleted, so `flutter create`
+    # writes no write_file steps; gating only write_file output (or only
+    # verification that already ran and failed) let a terminal-created app
+    # finish with zero checks. Non-code artifacts (PDF/docs/data) carry no
+    # runtime to verify and stay on the existence contract via
+    # _produced_code_deliverable's code-extension/app-name bar.
+    if not _produced_code_deliverable(state):
+        return False
     return not _ran_verification(state) or _verification_failed(state)
 
 
@@ -1079,17 +1077,17 @@ def finish_gate_node(state: AgentState) -> dict:
             "finish_nudges": state.get("finish_nudges", 0) + 1,
             "nudged_at_msg_count": len(state.get("messages") or []),
         }
-    if (
-        _wrote_code_files(state)
-        or (
-            _ran_verification(state)
-            and _verification_failed(state)
-            and _produced_code_deliverable(state)
-        )
-    ) and (
+    if _produced_code_deliverable(state) and (
         not _ran_verification(state) or _verification_failed(state)
     ):
-        nudge = _VERIFY_FAILED_NUDGE if _verification_failed(state) else _VERIFY_NUDGE
+        # _verification_failed means "required receipts are not all
+        # passing", which is also true when nothing ever ran — that
+        # never-ran case owes the first-check nudge, not the failure one.
+        nudge = (
+            _VERIFY_FAILED_NUDGE
+            if _ran_verification(state) and _verification_failed(state)
+            else _VERIFY_NUDGE
+        )
         receipt = _verification_receipt_status(state)
         issues = list(receipt.get("integrity_issues") or [])
         if issues:
