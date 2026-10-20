@@ -327,7 +327,10 @@ def test_real_turn_forwards_headless_workspace_approval_policy(tmp_path, monkeyp
 
     assert captured["approval_channel"] is True
     assert captured["approval_policy"] == "workspace_session"
-    assert captured["approval_timeout"] == 300.0
+    assert "approval_timeout" not in captured, (
+        "the dock timeout was removed (founder 2026-10-20): "
+        "an ask pends until the human answers or Stop cancels it"
+    )
     assert any(frame.get("type") == "turn_done" for frame in emitted)
 
 

@@ -167,7 +167,6 @@ def chat():
                     workspace=".",
                     execution_mode=mode,
                     approval_channel=True,
-                    approval_timeout=300.0,
                     approval_policy=("workspace_session" if auto_approve else "ask"),
                 )
 

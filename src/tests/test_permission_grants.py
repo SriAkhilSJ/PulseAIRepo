@@ -25,7 +25,6 @@ def _config(session: str, workspace: str) -> dict:
             "workspace": workspace,
             "approval_channel": True,
             "approval_policy": "workspace_session",
-            "approval_timeout": 30.0,
         }
     }
 

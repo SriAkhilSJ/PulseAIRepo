@@ -119,7 +119,8 @@ class EventBus:
 
 
 class ApprovalQueue:
-    """Session-scoped approval requests; timeout and errors deny by default."""
+    """Session-scoped approval requests; waits pend until resolved
+    (a caller-supplied timeout resolves as a denial)."""
 
     def __init__(self):
         self._pending: dict[str, dict] = {}
@@ -168,8 +169,27 @@ class ApprovalQueue:
             self._conditions.setdefault(tool_id, threading.Condition(self._lock)).notify_all()
             return True
 
-    def wait_for_decision(self, tool_id: str, timeout: float = 300.0) -> dict | None:
-        deadline = time.monotonic() + max(0.0, timeout)
+    def wait_for_decision(
+        self, tool_id: str, timeout: float | None = None,
+        *, heartbeat=None, heartbeat_interval: float = 30.0,
+    ) -> dict | None:
+        """Wait for the human's verdict on one queued request.
+
+        timeout=None (the desktop dock's contract — founder 2026-10-20
+        removed the 300s timeout) waits indefinitely: the call pends
+        until the human answers or the session's cancel path resolves
+        it. A finite timeout keeps the historical behaviour: expiry
+        resolves the request as a denial stamped timeout=True.
+
+        heartbeat(elapsed_s), when given, fires every
+        heartbeat_interval seconds while the request is still pending,
+        so a long wait keeps testifying (engine log) and keeps the
+        turn's liveness clock fed (bridge stall watchdog, which counts
+        approval waits as activity) instead of looking like a stall.
+        """
+        started = time.monotonic()
+        deadline = None if timeout is None else started + max(0.0, timeout)
+        last_beat = started
         with self._lock:
             condition = self._conditions.setdefault(tool_id, threading.Condition(self._lock))
             while True:
@@ -179,16 +199,34 @@ class ApprovalQueue:
                     self._pending.pop(tool_id, None)
                     self._conditions.pop(tool_id, None)
                     return result
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    if item:
-                        item.update(status="resolved", decision=False, timeout=True)
-                        result = dict(item)
-                        self._pending.pop(tool_id, None)
-                        self._conditions.pop(tool_id, None)
-                        return result
-                    return None
-                condition.wait(timeout=remaining)
+                now = time.monotonic()
+                if deadline is not None:
+                    remaining = deadline - now
+                    if remaining <= 0:
+                        if item:
+                            item.update(status="resolved", decision=False, timeout=True)
+                            result = dict(item)
+                            self._pending.pop(tool_id, None)
+                            self._conditions.pop(tool_id, None)
+                            return result
+                        return None
+                    wait_for = remaining
+                    if heartbeat is not None:
+                        wait_for = min(wait_for, heartbeat_interval)
+                else:
+                    wait_for = (
+                        heartbeat_interval if heartbeat is not None else None
+                    )
+                condition.wait(timeout=wait_for)
+                if heartbeat is not None:
+                    item = self._pending.get(tool_id)
+                    now = time.monotonic()
+                    if (
+                        not (item and item.get("status") == "resolved")
+                        and now - last_beat >= heartbeat_interval
+                    ):
+                        last_beat = now
+                        heartbeat(now - started)
 
     def get_pending(self, session_id: str | None = None) -> list[dict]:
         with self._lock:

@@ -460,7 +460,6 @@ def test_workspace_session_lands_large_safe_write_without_approval_wait(tmp_path
     cfg["configurable"].update({
         "approval_channel": True,
         "approval_policy": "workspace_session",
-        "approval_timeout": 0.01,
     })
     out = _reach_node(
         node,

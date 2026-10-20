@@ -333,6 +333,7 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
                 if isinstance(raw, str) and raw.strip():
                     candidates.append(raw)
         external_paths = []
+        external_raw = []
         for raw in candidates:
             if raw.startswith(("~", "$HOME")):
                 import os as _os
@@ -343,13 +344,22 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
                 resolved = guard._resolve_path(raw)
             if resolved != workspace_root and workspace_root not in resolved.parents:
                 external_paths.append(str(resolved))
+                external_raw.append(raw)
         if external_paths:
             external_effect = effect_for("external_directory", external_paths, rules)
             if external_effect == "deny":
                 effect = "deny"
             elif external_effect == "ask" and effect != "deny":
                 effect = "ask"
-                warning = "🌐 **Outside the project:** this call touches paths outside the project directory."
+                # Name the judged path(s) verbatim, founder 2026-10-20:
+                # the human (and the log reader) must see WHICH path was
+                # judged outside — a false ask (e.g. an MSYS-spelled
+                # in-workspace path) has to be recognizable at a glance.
+                warning = (
+                    "🌐 **Outside the project:** "
+                    + ", ".join(external_raw)
+                    + " — outside the project directory."
+                )
         # Guard action: the same call repeating with identical input.
         if _doom_repeats(tc, state) >= 2:
             doom_effect = effect_for("doom_loop", ["*"], rules)
@@ -5687,12 +5697,13 @@ class SafeToolNode:
                     approval_candidates.append((tc, False, ask_warning))
         if approval_channel and (approval_candidates or preapproved_ids or denied_ids):
             # Real pre-execution UI approval: publish the proposed diff, wait
-            # on this session's request, deny on timeout/failure, then execute
-            # only approved + originally-safe calls through the durable path.
+            # on this session's request for the human's verdict (no timeout —
+            # founder 2026-10-20 removed it; Stop cancels the wait), then
+            # execute only approved + originally-safe calls through the
+            # durable path. The wait heartbeats, so the bridge's stall
+            # watchdog — which counts approval waits as liveness — never
+            # mistakes a pending dock for a dead turn.
             from src.dashboard.event_bus import approval_queue
-            timeout = float(
-                (config or {}).get("configurable", {}).get("approval_timeout", 300.0)
-            )
             unsafe_ids = {tc.get("id") for tc, _, _ in approval_candidates}
             approved_ids: set[str] = set(preapproved_ids)
             denials: dict[str, ToolMessage] = {}
@@ -5718,18 +5729,20 @@ class SafeToolNode:
                 # the engine log showed only "[tool_node] 0 tool result(s)
                 # ready" — an unanswered dock was indistinguishable from
                 # a swallowed tool call). Every dock wait now speaks in
-                # the engine log: asked, answered, or timed out.
+                # the engine log: asked, still waiting, answered, or
+                # cancelled. The ask names the judged resource, so a
+                # false ask is recognizable at a glance.
                 _ask_reason = (
-                    (warning or "permission ask").strip().splitlines()[0][:120]
+                    (warning or "permission ask").strip().splitlines()[0][:160]
                 )
                 print(
                     f"[approval] {tc.get('name', '')} needs approval — "
-                    f"waiting for human (up to {timeout:.0f}s): {_ask_reason}",
+                    f"waiting for human: {_ask_reason}",
                     flush=True,
                 )
 
-                # Stop must wake an approval wait immediately rather than leave
-                # the bridge blocked for the full approval timeout.
+                # Stop must wake an approval wait immediately rather than
+                # leave the turn blocked on an unanswered dock.
                 def _cancel_approval(
                     pending_tool_id=tool_id,
                     pending_session=thread_id or "default",
@@ -5738,11 +5751,31 @@ class SafeToolNode:
                         pending_tool_id, False, session_id=pending_session
                     )
 
+                def _approval_heartbeat(elapsed_s: float) -> None:
+                    # The wait is alive and says so: a log line for the
+                    # human reading along, and an event the bridge
+                    # forwarder relays — relayed approval-wait output is
+                    # liveness, so the stall watchdog never fires on a
+                    # dock the human simply hasn't reached yet. The
+                    # event has no Protocol v2 projection; it never
+                    # reaches the panel as a frame.
+                    print(
+                        f"[approval] still waiting for human "
+                        f"({elapsed_s:.0f}s): {tc.get('name', '')}",
+                        flush=True,
+                    )
+                    event_bus.emit("tool.approval.waiting", {
+                        "tool_id": tool_id,
+                        "tool_name": tc.get("name", ""),
+                        "thread_id": thread_id or "default",
+                        "elapsed_s": round(elapsed_s, 1),
+                    })
+
                 _tc.register_abort(_cfg_sid, _cancel_approval)
                 _wait_started = time.monotonic()
                 try:
                     decision = approval_queue.wait_for_decision(
-                        tool_id, timeout=timeout
+                        tool_id, heartbeat=_approval_heartbeat
                     )
                 finally:
                     _tc.unregister_abort(_cfg_sid, _cancel_approval)
@@ -5772,11 +5805,7 @@ class SafeToolNode:
                         )
                 else:
                     reason = (
-                        "cancelled"
-                        if _tc.cancelled(_cfg_sid)
-                        else "timed out"
-                        if decision and decision.get("timeout")
-                        else "denied"
+                        "cancelled" if _tc.cancelled(_cfg_sid) else "denied"
                     )
                     print(
                         f"[approval] {tc.get('name', '')} {reason} after "
@@ -6414,7 +6443,6 @@ def stream_agent(
     workspace: str = ".",
     execution_mode: ExecutionMode = "agent",
     approval_channel: bool = False,
-    approval_timeout: float = 300.0,
     approval_policy: str = "ask",
     turn_id: str | None = None,
     initial_plan: list[dict[str, Any]] | None = None,
@@ -6442,7 +6470,6 @@ def stream_agent(
                 "model": model,
                 "workspace": workspace,
                 "approval_channel": approval_channel,
-                "approval_timeout": approval_timeout,
                 "approval_policy": approval_policy,
                 "turn_id": turn_id,
                 "reasoning_effort": reasoning_effort,

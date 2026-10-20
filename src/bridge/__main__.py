@@ -971,7 +971,7 @@ class BridgeServer:
                     approval_policy = "workspace_session"
                 result = stream_agent(
                     text, thread_id=sid, workspace=workspace,
-                    approval_channel=True, approval_timeout=300.0,
+                    approval_channel=True,
                     approval_policy=approval_policy,
                     turn_id=identity.turn_id,
                     execution_mode=mode,
