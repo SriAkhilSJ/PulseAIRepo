@@ -23,6 +23,33 @@ def test_streak_counts_trailing_no_tool_replies_only():
     assert consecutive_no_tool_ai_messages(msgs3) == 1
 
 
+def test_streak_sees_through_engine_nudges():
+    """Field 2026-10-21: nudge SystemMessages between empty replies
+    reset the streak every lap, so NO_TOOL_TURN_LIMIT could never
+    fire. Engine nudges (crusor_nudge) are skipped; a genuine system
+    message still ends the streak."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    from src.graphs.loop_guards import consecutive_no_tool_ai_messages
+
+    nudge = SystemMessage(
+        content="[System: verify]", additional_kwargs={"crusor_nudge": True}
+    )
+    msgs = [
+        HumanMessage("build it"),
+        AIMessage(""), nudge,
+        AIMessage(""), nudge,
+        AIMessage(""),
+    ]
+    assert consecutive_no_tool_ai_messages(msgs) == 3
+    msgs2 = [
+        HumanMessage("build it"),
+        AIMessage(""), SystemMessage("real system note"),
+        AIMessage(""),
+    ]
+    assert consecutive_no_tool_ai_messages(msgs2) == 1
+
+
 def test_repetition_guard_ports_hermes_shape():
     from src.graphs.loop_guards import is_repetition_dominated
     frag = "x" * 100

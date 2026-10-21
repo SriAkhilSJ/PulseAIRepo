@@ -429,6 +429,42 @@ def test_terminal_named_check_receipts_register_static_proof(tmp_path):
     assert bad["static"] is False, "a failed analyze proves nothing"
 
 
+def test_empty_reply_laps_converge_to_finalize(tmp_path):
+    """Field 2026-10-21 (build ca4a5b0d): after `flutter create`, the
+    model answered EMPTY replies in a loop — 8+ paid calls, no tools.
+    Two budget gears never meshed: the router stopped routing on the
+    verify gate at its budget but re-entered through the finish gate,
+    whose budget the node's verify branch never spends; and each
+    nudge SystemMessage reset the no-progress streak. Simulate the
+    field lap-for-lap: the router must reach finalize in a bounded
+    number of laps, after which the turn ends unverified (previous
+    pin), never spins."""
+    from langchain_core.messages import AIMessage
+
+    from src.graphs.gates import finish_gate_node, should_continue
+
+    state = _terminal_created_app_state(tmp_path, [])
+    state.update({
+        "finish_nudges": 0, "verify_nudges": 0, "iteration_used": 0,
+        "stall_continuations": 2,
+    })
+    laps = 0
+    while should_continue(state) == "finish_gate" and laps < 12:
+        laps += 1
+        out = finish_gate_node(state)
+        for key in ("finish_nudges", "verify_nudges", "stall_continuations"):
+            if key in out:
+                state[key] = out[key]
+        state["messages"] = list(state["messages"]) + list(
+            out.get("messages") or []
+        ) + [AIMessage(content="")]
+    assert should_continue(state) == "finalize", (
+        f"empty-reply laps must converge (still routing after {laps} laps)"
+    )
+    assert laps <= 6, f"convergence must be cheap, took {laps} laps"
+    assert state["verify_nudges"] <= 2, "verify budget must actually bind"
+
+
 def test_pdf_artifact_without_verification_still_completes(_no_memory, tmp_path):
     """Non-code artifacts carry no runtime to verify: a produced
     report.pdf must not be dragged into the unverified verdict."""

@@ -1088,8 +1088,16 @@ def finish_gate_node(state: AgentState) -> dict:
             "finish_nudges": state.get("finish_nudges", 0) + 1,
             "nudged_at_msg_count": len(state.get("messages") or []),
         }
-    if _produced_code_deliverable(state) and (
-        not _ran_verification(state) or _verification_failed(state)
+    # The verify branch MUST honor the same budget the router checks
+    # (_VERIFY_NUDGE_BUDGET): field 2026-10-21 (build ca4a5b0d) looped
+    # forever here — the router stopped routing on the verify gate at
+    # budget, re-entered via the finish gate (whose budget this branch
+    # never spends), and this branch kept re-emitting the verify nudge
+    # while verify_nudges grew unbounded past every limit.
+    if (
+        _produced_code_deliverable(state)
+        and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
+        and (not _ran_verification(state) or _verification_failed(state))
     ):
         # _verification_failed means "required receipts are not all
         # passing", which is also true when nothing ever ran — that

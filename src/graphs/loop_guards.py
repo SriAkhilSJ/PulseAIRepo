@@ -53,6 +53,15 @@ def consecutive_no_tool_ai_messages(messages: list[Any]) -> int:
                 return 0  # tool activity: not a no-tool streak
             streak += 1
             continue
+        # Engine nudge injections are NOT a boundary: they are the
+        # router's own re-prompts sitting between model replies, and
+        # counting them as one reset the streak every lap — a model
+        # answering empties past a nudge could loop forever without
+        # ever reaching NO_TOOL_TURN_LIMIT (field 2026-10-21).
+        if mtype == "system" and (
+            getattr(msg, "additional_kwargs", {}) or {}
+        ).get("crusor_nudge"):
+            continue
         # human / tool / system boundaries end the streak
         return streak
     return streak
