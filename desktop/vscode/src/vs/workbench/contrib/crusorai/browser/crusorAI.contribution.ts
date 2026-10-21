@@ -408,29 +408,9 @@ registerAction2(class extends Action2 {
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerConfiguration({
 	id: 'crusorai',
-	title: localize2('crusorai.copilotWebview.title', 'CrusorAI CopilotKit Webview').value,
+	title: localize2('crusorai.configuration.title', 'CrusorAI').value,
 	type: 'object',
 	properties: {
-		'crusorai.copilotWebview.enabled': {
-			type: 'boolean',
-			default: true,
-			scope: ConfigurationScope.APPLICATION,
-			description: localize('crusorai.copilotWebview.enabled.desc', "Show the CopilotKit React surface (crusor-webview) under the native Crusor Agent view. Turn off to give the whole pane to the native renderer."),
-		},
-		'crusorai.copilotWebview.url': {
-			type: 'string',
-			default: 'local',
-			scope: ConfigurationScope.APPLICATION,
-			description: localize('crusorai.copilotWebview.url.desc', "What the CopilotKit tab loads. 'local' (default) uses the SPA built into the app by `npm run build` in crusor-webview, which needs no server and works in packaged or remote windows. Any other value is an absolute URL framed as-is -- the workbench CSP allows only 'self' and vscode-webview:, so an http URL will be refused unless you extend the frame policy, and a dev server on :5173 therefore belongs in a browser tab, not here.")
-		},
-		'crusorai.copilotWebview.height': {
-			type: 'number',
-			default: 50,
-			minimum: 10,
-			maximum: 85,
-			scope: ConfigurationScope.APPLICATION,
-			description: localize('crusorai.copilotWebview.height.desc', "Share of the Crusor view given to the CopilotKit webview, in percent. The native Agent renderer keeps the rest."),
-		},
 		'crusorai.notifyOnComplete': {
 			type: 'boolean',
 			default: true,

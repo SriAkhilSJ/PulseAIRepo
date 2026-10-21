@@ -1497,22 +1497,6 @@
 .crusorai-diff-line.is-meta { color: var(--vscode-descriptionForeground); }
 .crusorai-diff-line.is-truncated { color: var(--vscode-descriptionForeground); font-style: italic; border-top: 1px dashed var(--vscode-widget-border, #4444); }
 
-/* --- the optional webview pane: configurable host + an honest "not answering" state --- */
-.crusorai-webview-slot { position: relative; }
-.crusorai-webview-unreachable {
-	position: absolute;
-	inset: auto 8px 8px 8px;
-	display: grid;
-	gap: 6px;
-	padding: 10px 12px;
-	border: 1px solid var(--vscode-inputValidation-infoBorder, transparent);
-	background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-	box-shadow: 0 6px 18px rgb(0 0 0 / 25%);
-	font-size: var(--crusorai-text-body);
-}
-.crusorai-webview-unreachable p { margin: 0; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-.crusorai-webview-unreachable .crusorai-button { justify-self: start; }
-
 /* --- designed empty state for the native Agent view (mirrors the ported webview's
    `empty-state.tsx`, so the two surfaces of one agent cannot look unrelated) --- */
 .crusorai-empty-state {

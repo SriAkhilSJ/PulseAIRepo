@@ -9,7 +9,7 @@
 	 * `electron-browser/` are left out because they need @types/node and electron.d.ts from a
 	 * real install; the full build still checks them. Run from desktop/vscode/src:
 	 *
-	 *   node ../../../crusor-webview/node_modules/typescript/bin/tsc -p tsconfig.crusorai-check.json
+	 *   node ../../node_modules/typescript/bin/tsc -p tsconfig.crusorai-check.json
 	 */
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {

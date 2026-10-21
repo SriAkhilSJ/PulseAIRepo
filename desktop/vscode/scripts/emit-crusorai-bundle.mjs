@@ -83,8 +83,7 @@ function emit(dir) {
 emit(SRC_ROOT);
 
 // Media — everything `tsc` can NEVER emit: the preview window's html/css/js
-// boot files, the workbench CSS, and the whole built crusorai-spa tree the
-// Agent pane iframes (index.html + hashed assets + fonts + icons).
+// boot files and the workbench CSS.
 //
 // Field 2026-09-27, the blank-preview report: the app boots its preview
 // window with FileAccess.asBrowserUri('.../browser/media/crusor-preview/
@@ -121,7 +120,7 @@ copyMedia(SRC_ROOT);
 if (mediaFailures.length) {
 	throw new Error(`[emit] refusing to ship: ${mediaFailures.length} media file(s) did not land in out/ byte-identical (${mediaFailures.slice(0, 5).join(', ')})`);
 }
-console.log(`[emit] copied ${mediaCount} media file(s) to out/ (css / html / preview boot files / crusorai-spa assets) — the panel and the preview window load these by URL`);
+console.log(`[emit] copied ${mediaCount} media file(s) to out/ (css / html / preview boot files) — the panel and the preview window load these by URL`);
 
 // Sources hash: sha256 over EVERYTHING under the contrib tree (ts + css +
 // media — CSS changes the UI too) plus this script, in a deterministic

@@ -442,7 +442,9 @@ def test_the_manager_is_not_branded_like_anyone_elses_product():
         for branded in ("'CopilotKit'", '"CopilotKit"', "'@copilot'", "'GitHub Copilot'"):
             assert branded not in text, f"{path.name} ships {branded} as chrome"
     view = _text(VIEW_PANE)
-    assert "webviewTab.textContent = 'Webview';" in view
+    # The Webview tab itself was stripped with the CopilotKit surface
+    # (founder 2026-10-21): the pane's only tabs are Agent + Preview.
+    assert "webviewTab" not in view and "Webview" not in view
     # Hiding Copilot's own chrome is the intended behaviour and must survive the sweep.
     css = _text(CSS)
     assert ".codicon-copilot" in css

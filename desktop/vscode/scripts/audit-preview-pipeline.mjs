@@ -58,7 +58,7 @@ if (missingOutList.length > 20) console.log(`  ... and ${missingOutList.length -
 console.log('src missing on disk:', missingOnDisk, '| tracked src w/o out counterpart:', missingInOut,
   `(of which media the app loads by URL: ${missingMedia})`);
 
-// ── 3. src-on-disk files NOT tracked in git (user assets like crusorai-spa) ─
+// ── 3. src-on-disk files NOT tracked in git (untracked user assets) ─
 const onDisk = list(SRC).map(p => path.relative(ROOT, p).replace(/\\/g, '/'));
 const trackedSet = new Set(tracked);
 const extra = onDisk.filter(f => !trackedSet.has(f));

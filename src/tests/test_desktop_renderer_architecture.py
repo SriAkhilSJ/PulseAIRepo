@@ -536,40 +536,28 @@ def _toolsets_source() -> str:
 	return (Path(__file__).resolve().parents[1] / "tools" / "toolsets.py").read_text(encoding="utf-8")
 
 
-def test_copilot_webview_host_is_a_setting_and_fails_loudly():
-    """The CopilotKit iframe used to hardcode `http://localhost:5173` at a fixed 50%.
+def test_copilotkit_surface_is_stripped_and_native_owns_the_pane():
+    """Founder 2026-10-21 ("strip it"): the CopilotKit webview surface is
+    gone — lab deleted, iframe host removed, settings removed, built SPA
+    removed. The native renderer owns the whole pane unconditionally;
+    the Preview chip (a native surface, not the webview) stays."""
+    from pathlib import Path
 
-    That is only reachable when someone happens to have `npm run dev` open on that
-    port: a packaged build, a remote window (where `localhost` is the client), a
-    taken port, or just forgetting the dev server all render an empty frame with no
-    explanation -- and the native renderer above it still surrenders half the pane.
-    So: URL/enabled/height are settings, and an unreachable URL says so in the pane.
-    """
     view = _text("browser", "crusorAIViewPane.ts")
     contribution = _text("browser", "crusorAI.contribution.ts")
-    for key in ("crusorai.copilotWebview.enabled", "crusorai.copilotWebview.url", "crusorai.copilotWebview.height"):
-        assert key in view, f"{key} must be read by the pane"
-        assert f"'{key}'" in contribution, f"{key} must be declared, not merely read"
-    # The default may exist only as a named constant -- never inline on the element,
-    # which is what made it unconfigurable in the first place. The default itself is
-    # 'local': the built SPA served same-origin. The workbench CSP frames only 'self'
-    # and vscode-webview:, so pinning the old dev-server literal as the default would
-    # ship a frame that is refused before it is asked; localhost:5173 survives only
-    # in the comments that explain why.
-    assert "setAttribute('src', 'http://localhost:5173')" not in view
-    assert "const DEFAULT_COPILOT_WEBVIEW_URL = 'local'" in view
-    assert "frame.setAttribute('src', url)" in view
-    # Off means off: the iframe must not be built at all, so the native renderer
-    # gets the whole pane instead of 50% of it.
-    disabled_guard = view.index("copilotWebview.enabled') === false")
-    assert "return;" in view[disabled_guard:disabled_guard + 200]
-    # And a dead URL is a message, not a blank rectangle: the honest fix for a
-    # missing pane is the built SPA, not a dev server that may not be running.
-    assert "crusorai-webview-unreachable" in view
-    assert "npm run build" in view
-    # The load event is the only honest success signal, so the watchdog is cancelled
-    # on dispose rather than left to fire into torn-down DOM.
-    assert "watchdog.cancel()" in view
+    for surface in ("copilotWebview", "LOCAL_SPA_RESOURCE", "renderCopilotWebview",
+                    "crusorai-webview-slot", "crusorai-spa"):
+        assert surface not in view, f"{surface} must be stripped from the pane"
+        assert surface not in contribution, f"{surface} must be stripped from the settings"
+    spa = (Path(__file__).resolve().parents[2] / "desktop" / "vscode" / "src" / "vs"
+           / "workbench" / "contrib" / "crusorai" / "browser" / "media" / "crusorai-spa")
+    assert not spa.exists(), "the built CopilotKit SPA tree must be deleted"
+    # The native surface mounts unconditionally and the Preview chip stays.
+    assert "mount(root, 'agent')" in view
+    assert "crusorai-preview-open" in view
+    css = _text("browser", "media/crusorAI.css")
+    assert ".crusorai-webview-slot" not in css
+    assert ".crusorai-webview-unreachable" not in css
 
 
 def test_approval_dock_offers_every_scope_the_protocol_carries():
@@ -1648,9 +1636,8 @@ def test_bundle_emitter_copies_the_media_the_app_loads_by_url():
     assert "refusing to ship" in emitter, "a media gap must fail the emitter, never ship quietly"
     assert "fs.writeFileSync(out, bytes)" in emitter, "verbatim bytes — a text round-trip corrupts fonts"
     assert "fs.readFileSync(out).equals(bytes)" in emitter, "verify the copy landed byte-identical"
-    # The two trees the app frames by URL must exist as sources to copy.
-    for rel in ("browser/media/crusor-preview/index.html",
-                "browser/media/crusorai-spa/index.html"):
+    # The tree the app frames by URL must exist as a source to copy.
+    for rel in ("browser/media/crusor-preview/index.html",):
         assert (CRUSOR / rel).is_file(), rel
     # The preview window's boot files also travel INSIDE the committed
     # bundle (the app updates by git pull), so out/ must carry them too.

@@ -14,8 +14,7 @@
  *   2. `tsc -p src/tsconfig.json` -> out/  (src/*.ts bootstraps emit to
  *      out/, src/vs/** to out/vs/ — common root is src/);
  *   3. copy what tsc never emits: css, ttf (codicons), wasm, and every
- *      media/ tree — including the crusorai-spa website the Crusor panel
- *      iframes — from src/vs into out/vs.
+ *      media/ tree from src/vs into out/vs.
  * Expect MINUTES of tsc output, not seconds.
  *--------------------------------------------------------------------------------------------*/
 import { spawnSync } from 'node:child_process';
@@ -117,7 +116,7 @@ function copyResources() {
 		}
 	};
 	walk(SRC);
-	crusorLog(`resources copied: ${copied} files (css / ttf / wasm / html / media incl. crusorai-spa)`);
+	crusorLog(`resources copied: ${copied} files (css / ttf / wasm / html / media)`);
 }
 
 function readFileRetry(file) {

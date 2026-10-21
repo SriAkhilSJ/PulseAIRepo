@@ -69,23 +69,13 @@ def test_compile_task_is_self_contained_in_tracked_gulpfile():
     assert "build/gulpfile.ts" not in gulpfile
     assert "export async function compile" in gulpfile
     assert "tsconfig.json" in gulpfile and "tsc" in gulpfile
-    assert "crusorai-spa" in gulpfile, "compile must copy the SPA media tree"
+    assert "crusorai-spa" not in gulpfile, "the stripped SPA must not ride the compile"
+    assert "underMedia" in gulpfile, "compile must copy the media trees"
     tracked = subprocess.run(
         ["git", "ls-files", "--", "desktop/vscode/gulpfile.mjs"],
         cwd=ROOT, capture_output=True, text=True,
     ).stdout.strip()
     assert tracked == "desktop/vscode/gulpfile.mjs", tracked
-
-
-def test_spa_iframe_uses_browser_uri_not_file_uri():
-    # field 2026-09-05: the native workbench document is served from
-    # vscode-file://vscode-app/<appRoot>/out/ (workbench.ts baseUrl), and a raw
-    # file:// iframe from that origin is refused by Chromium ("Not allowed to
-    # load local resource"). The SPA frame must ride FileAccess.asBrowserUri —
-    # the document's OWN origin, admitted by frame-src 'self'.
-    pane = _text("browser", "crusorAIViewPane.ts")
-    assert "FileAccess.asBrowserUri(LOCAL_SPA_RESOURCE" in pane
-    assert "asFileUri(LOCAL_SPA_RESOURCE" not in pane
 
 
 def test_workbench_uses_existing_utility_process_framework():
