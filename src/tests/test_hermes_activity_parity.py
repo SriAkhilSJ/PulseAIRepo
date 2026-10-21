@@ -41,6 +41,14 @@ pytestmark = pytest.mark.skipif(
     reason="the row's maths are executed here, so this needs node (and an esbuild that executes)",
 )
 
+# The crusor-webview lab was deleted on founder order (2026-10-21): the
+# native fork is the only surface now. Lanes whose whole premise was
+# fork<->lab parity skip honestly; fork-only lanes keep executing.
+requires_web = pytest.mark.skipif(
+    not HERMES_UI.exists(),
+    reason="crusor-webview lab deleted (founder, 2026-10-21); parity counterpart gone",
+)
+
 
 def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
     """Run node and decode its output as UTF-8 *explicitly*.
@@ -61,7 +69,7 @@ def _node_json(command: list[str], cwd: Path, timeout: int = 180) -> object:
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
-        [str(esbuild_or_skip(ROOT / "crusor-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+        [str(esbuild_or_skip(ROOT / "desktop" / "vscode")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=180,
@@ -123,6 +131,7 @@ process.stdout.write(JSON.stringify(cases.map(parts => {
 """
 
 
+@requires_web
 def test_signature_and_suppression_are_the_same_function_on_both_surfaces(tmp_path):
     fork = _bundle(FORK_ACTIVITY, tmp_path)
     web = _bundle(HERMES_UI / "model" / "turn-activity.ts", tmp_path)
@@ -153,6 +162,7 @@ process.stdout.write(JSON.stringify(results));
 """
 
 
+@requires_web
 def test_elapsed_formatting_and_origin_math_agree(tmp_path):
     fork = _bundle(FORK_ACTIVITY, tmp_path)
     web = _bundle(HERMES_UI / "model" / "activity-timer.ts", tmp_path)
@@ -172,6 +182,7 @@ def test_elapsed_formatting_and_origin_math_agree(tmp_path):
     assert results[-1][1] == 0
 
 
+@requires_web
 def test_reveal_delay_and_compaction_label_are_the_webviews_constants():
     """Compile-time constants have no behaviour to execute, so compare them literally.
 
@@ -200,6 +211,7 @@ def _path_table(text: str, var_name: str) -> dict[str, str]:
     return dict(entries)
 
 
+@requires_web
 def test_solid_glyphs_are_upstreams_path_data_verbatim():
     """A copied icon is only faithful byte-for-byte; a redrawn one is a different icon.
 
@@ -230,6 +242,7 @@ def _fork_catalog_icons() -> dict[str, str]:
     return dict(re.findall(r"^\t([a-z_0-9]+): tool\('[^']+', '[a-z-]+', '([a-z-]+)'", text, flags=re.M))
 
 
+@requires_web
 def test_fork_glyph_names_are_the_ones_the_webview_resolves():
     """Same tool, same glyph key -- so the solid/fallback decision is shared, not re-guessed."""
     fork, web = _fork_catalog_icons(), _webview_tool_meta()

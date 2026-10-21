@@ -42,7 +42,6 @@ SRC = ROOT / "desktop" / "vscode" / "src"
 # tsc is a JS entrypoint, so it runs on any host with node -- including a Windows checkout whose
 # node_modules was installed on Linux, where .bin/esbuild is a POSIX shim that cannot execute.
 TSC_CANDIDATES = (
-    ROOT / "crusor-webview" / "node_modules" / "typescript" / "bin" / "tsc",
     ROOT / "desktop" / "vscode" / "node_modules" / "typescript" / "bin" / "tsc",
 )
 
@@ -88,7 +87,7 @@ def _esbuild() -> Path | None:
     """An esbuild that executes on THIS host, or None. The .bin shim is only a candidate, not an
     assumption: a node_modules tree installed on another platform leaves it as a POSIX script, which is
     what cost the first Windows round (WinError 193)."""
-    return resolve_esbuild(ROOT / "crusor-webview")
+    return resolve_esbuild(ROOT / "desktop" / "vscode")
 
 
 def _transpile(source: Path, workdir: Path) -> Path:
@@ -348,7 +347,7 @@ def test_scoped_typecheck_reports_no_errors_in_our_contribution():
         pytest.skip("no node on this host -- the typecheck lane cannot run; report it, do not call it clean")
     tsc = next((path for path in TSC_CANDIDATES if path.exists()), None)
     if tsc is None:
-        pytest.skip("no typescript package under crusor-webview or desktop/vscode -- run npm install; not a pass")
+        pytest.skip("no typescript package under desktop/vscode -- run npm install; not a pass")
     vscode = ROOT / "desktop" / "vscode"
     listing = subprocess.run(
         ["node", str(tsc), "-p", str(vscode / "src" / "tsconfig.crusorai-check.json"), "--noEmit", "--listFilesOnly"],

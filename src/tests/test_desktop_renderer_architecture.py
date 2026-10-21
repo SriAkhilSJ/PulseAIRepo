@@ -929,9 +929,8 @@ def test_catalog_resolves_clarify_and_derives_hermes_generic_titles():
     assert "replace(/^browser_/, '').replace(/^web_/, '')" in catalog
     assert "map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')" in catalog
     assert "tool('Tool', 'generic', GENERIC_ICON)" in catalog  # empty-name fallback only
-    # the webview already ran this rule; the two surfaces must not diverge
-    webview = (ROOT / "crusor-webview" / "src" / "hermes-ui" / "model" / "fallback-model.ts").read_text(encoding="utf-8")
-    assert "replace(/^browser_/, '').replace(/^web_/, '')" in webview
+    # (the rule came from hermes' webview lab, deleted 2026-10-21; the
+    # native catalog is the only surface carrying it now)
 
 
 def test_plan_strip_renders_each_steps_own_status():

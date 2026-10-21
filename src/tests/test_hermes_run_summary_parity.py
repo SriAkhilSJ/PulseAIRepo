@@ -34,14 +34,21 @@ from _node_loader import esbuild_or_skip  # noqa: E402  (src/tests is not a pack
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None,
-    reason="parity is executed, so it needs node and crusor-webview's esbuild (npm install)",
+    reason="parity is executed, so it needs node and an esbuild that executes",
+)
+
+# crusor-webview lab deleted on founder order (2026-10-21); fork-only
+# lanes keep executing, the fork<->lab table comparison skips honestly.
+requires_web = pytest.mark.skipif(
+    not WEB_TS.exists(),
+    reason="crusor-webview lab deleted (founder, 2026-10-21); parity counterpart gone",
 )
 
 
 def _bundle(source: Path, workdir: Path) -> Path:
     out = workdir / f"{source.stem}.mjs"
     proc = subprocess.run(
-        [str(esbuild_or_skip(ROOT / "crusor-webview")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
+        [str(esbuild_or_skip(ROOT / "desktop" / "vscode")), str(source), "--bundle", "--format=esm", f"--outfile={out}",
          "--log-level=warning", "--platform=node"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         stdin=subprocess.DEVNULL, timeout=120,
@@ -64,6 +71,7 @@ def _copy_table(path: Path) -> dict[str, tuple[str, str, str, str]]:
     return found
 
 
+@requires_web
 def test_both_surfaces_share_one_verb_table():
     """Copy drift is the quiet failure: same run, two different grey lines."""
     fork = _copy_table(FORK_TS)
