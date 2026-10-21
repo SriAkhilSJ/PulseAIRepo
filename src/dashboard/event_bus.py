@@ -142,6 +142,11 @@ class ApprovalQueue:
         with self._lock:
             return key in self._grants.get(session_id or "default", set())
 
+    def grants_for(self, session_id: str) -> set[str]:
+        """Copy of a session's grant keys (callers test coverage)."""
+        with self._lock:
+            return set(self._grants.get(session_id or "default", set()))
+
     def request(
         self, tool_id: str, tool_name: str, tool_args: dict,
         *, session_id: str = "default", diff: dict | None = None,

@@ -334,6 +334,7 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
                     candidates.append(raw)
         external_paths = []
         external_raw = []
+        external_ask = False
         for raw in candidates:
             if raw.startswith(("~", "$HOME")):
                 import os as _os
@@ -350,6 +351,10 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
             if external_effect == "deny":
                 effect = "deny"
             elif external_effect == "ask" and effect != "deny":
+                # This ask IS the outside-project ask (not a ride-along
+                # on some other rule's ask): an "Allow always" verdict
+                # scopes its session grant to the judged path(s) below.
+                external_ask = effect != "ask"
                 effect = "ask"
                 # Name the judged path(s) verbatim, founder 2026-10-20:
                 # the human (and the log reader) must see WHICH path was
@@ -367,6 +372,7 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
                 effect = "deny"
             elif doom_effect == "ask" and effect != "deny":
                 effect = "ask"
+                external_ask = False
                 warning = "🌀 **Doom loop:** the same call has repeated 3 times with identical input."
         if effect == "deny":
             decisions[tc_id] = {
@@ -374,7 +380,11 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
                 "warning": f"⛔ Permission denied: {action} blocked by the permission config.",
             }
         elif effect == "ask":
-            decisions[tc_id] = {"effect": "ask", "action": action, "warning": warning}
+            decisions[tc_id] = {
+                "effect": "ask", "action": action, "warning": warning,
+                "external_ask": external_ask,
+                "grant_paths": list(external_paths) if external_ask else [],
+            }
     return decisions
 
 
@@ -5650,6 +5660,41 @@ class SafeToolNode:
                     break
             return f"{tc.get('name', '')}\n{resource}"
 
+        def _external_paths_covered(session_id: str, judged_paths) -> bool:
+            """True when every judged outside path is inside a path an
+            earlier "Allow always" granted for this session.
+
+            The grant scope is the judged path the dock named (upstream
+            suggested-pattern shape), NOT the exact command string:
+            keyed on the full command, "always" could never cover the
+            next, different command — e.g. every flutter invocation via
+            an absolute SDK path re-asked forever (field 2026-10-20)."""
+            if not judged_paths:
+                return False
+            from src.dashboard.event_bus import approval_queue as _q
+            granted = [
+                key.split("\n", 1)[1]
+                for key in _q.grants_for(session_id)
+                if key.startswith("external_directory\n")
+            ]
+            if not granted:
+                return False
+
+            def _covers(granted_path: str, path: str) -> bool:
+                g, pth = granted_path, path
+                if "\\" in g or "\\" in pth:
+                    g, pth = g.replace("/", "\\"), pth.replace("/", "\\")
+                    sep = "\\"
+                    g, pth = g.casefold(), pth.casefold()
+                else:
+                    sep = "/"
+                return pth == g or pth.startswith(g.rstrip(sep) + sep)
+
+            return all(
+                any(_covers(g, str(path)) for g in granted)
+                for path in judged_paths
+            )
+
         from src.context.safety_guard import session_grant_vetoed
 
         approval_candidates = []
@@ -5682,8 +5727,17 @@ class SafeToolNode:
                     ask_warning = warning or (decision["warning"] if decision else "")
                     if (
                         not session_grant_vetoed(ask_warning)
-                        and _queue_peek.is_granted(
-                            thread_id or "default", _approval_grant_key(tc)
+                        and (
+                            _queue_peek.is_granted(
+                                thread_id or "default", _approval_grant_key(tc)
+                            )
+                            or (
+                                bool(decision and decision.get("external_ask"))
+                                and _external_paths_covered(
+                                    thread_id or "default",
+                                    (decision or {}).get("grant_paths") or [],
+                                )
+                            )
                         )
                     ):
                         preapproved_ids.add(str(tc.get("id") or ""))
@@ -5794,9 +5848,25 @@ class SafeToolNode:
                     # Veto classes (secrets, git-ignored paths) are
                     # never remembered.
                     if decision.get("always_allow") and not session_grant_vetoed(warning):
-                        approval_queue.grant(
-                            thread_id or "default", _approval_grant_key(tc)
+                        _pdecision = perm_decisions.get(tool_id) or {}
+                        _grant_paths = (
+                            _pdecision.get("grant_paths") or []
+                            if _pdecision.get("external_ask") else []
                         )
+                        if _grant_paths:
+                            # Scope the session grant to the judged
+                            # outside path(s) the human just approved —
+                            # never to the full command string, which no
+                            # future command would ever match again.
+                            for _gp in _grant_paths:
+                                approval_queue.grant(
+                                    thread_id or "default",
+                                    f"external_directory\n{_gp}",
+                                )
+                        else:
+                            approval_queue.grant(
+                                thread_id or "default", _approval_grant_key(tc)
+                            )
                 else:
                     reason = (
                         "cancelled" if _tc.cancelled(_cfg_sid) else "denied"

@@ -279,6 +279,77 @@ def test_external_directory_asks_by_default(tmp_path):
         outside.unlink(missing_ok=True)
 
 
+def test_external_always_covers_later_commands_under_granted_path(tmp_path):
+    """Field 2026-10-20 ("asking u"): "Allow always" on an
+    outside-project ask used to key its session grant on the EXACT
+    command string, so no later (different) command could ever match
+    it — every flutter call via an absolute SDK path re-asked. The
+    grant now scopes to the judged path the dock named: later commands
+    touching that path or anything under it run without asking."""
+    outside_dir = tmp_path.parent / "outside-grant-dir"
+    outside_dir.mkdir(exist_ok=True)
+    (outside_dir / "tool").write_text("sdk\n", encoding="utf-8")
+    (outside_dir / "other").write_text("sdk2\n", encoding="utf-8")
+    try:
+        asked, message = _drive_tool(
+            tmp_path, "ext-grant", "e-1", "run_terminal",
+            {"command": f"ls {outside_dir}"}, always=True,
+        )
+        assert asked, "the first outside-project reach must ask"
+        assert message.status != "error"
+
+        # A DIFFERENT command under the granted path: no second ask.
+        asked, message = _drive_tool(
+            tmp_path, "ext-grant", "e-2", "run_terminal",
+            {"command": f"cat {outside_dir}/tool"}, always=False,
+        )
+        assert not asked, "the granted path must cover later commands under it"
+        assert message.status != "error"
+
+        # The same binary path in a different command shape: covered.
+        asked, message = _drive_tool(
+            tmp_path, "ext-grant", "e-3", "run_terminal",
+            {"command": f"cat {outside_dir}/tool | head -1"}, always=False,
+        )
+        assert not asked, "the granted path must cover the same path re-used"
+        assert message.status != "error"
+    finally:
+        for child in outside_dir.iterdir():
+            child.unlink(missing_ok=True)
+        outside_dir.rmdir()
+
+
+def test_external_always_stays_scoped_and_session_only(tmp_path):
+    """The path-scoped grant must not widen: a DIFFERENT outside path
+    still asks, and a different session inherits nothing."""
+    dir_a = tmp_path.parent / "outside-grant-a"
+    dir_b = tmp_path.parent / "outside-grant-b"
+    for d in (dir_a, dir_b):
+        d.mkdir(exist_ok=True)
+        (d / "f.txt").write_text("x\n", encoding="utf-8")
+    try:
+        asked, _ = _drive_tool(
+            tmp_path, "ext-scope", "s-1", "run_terminal",
+            {"command": f"ls {dir_a}"}, always=True,
+        )
+        assert asked
+        asked, _ = _drive_tool(
+            tmp_path, "ext-scope", "s-2", "run_terminal",
+            {"command": f"cat {dir_b}/f.txt"}, always=False,
+        )
+        assert asked, "a grant for one outside path must not cover another"
+        asked, _ = _drive_tool(
+            tmp_path, "ext-scope-2", "s-3", "run_terminal",
+            {"command": f"cat {dir_a}/f.txt"}, always=False,
+        )
+        assert asked, "grants never leak across sessions"
+    finally:
+        for d in (dir_a, dir_b):
+            for child in d.iterdir():
+                child.unlink(missing_ok=True)
+            d.rmdir()
+
+
 def test_per_agent_rules_override_for_the_main_agent(tmp_path):
     _write_settings(tmp_path, {"agent": {"build": {"permission": {"bash": "deny"}}}})
     asked, message = _drive_tool(
