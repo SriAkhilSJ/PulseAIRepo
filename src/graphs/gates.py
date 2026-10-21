@@ -190,7 +190,11 @@ def _deliverable_targets(task: str) -> list[str]:
 _VERIFY_NUDGE_BUDGET = 2
 
 _VERIFY_TOOL_NAMES = frozenset({
-    "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes", "run_terminal",
+    "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes",
+    # The desktop shell is bound as `terminal` (hermes parity rename);
+    # `run_terminal` is the legacy alias of the same tool. Both report
+    # checks — a set that names only the alias is blind on the desktop.
+    "run_terminal", "terminal",
     "browser_navigate", "browser_snapshot", "browser_screenshot",
     "browser_click", "browser_type",
     # Multi-platform receipts (src/targets/): a target build/verify receipt is
@@ -238,7 +242,10 @@ _VERIFY_NUDGE = (
     "ONE verify_ui_workspace call, which deterministically typechecks, starts "
     "the app, navigates, snapshots, captures a screenshot, rejects near-blank "
     "proof, and cleans up. Use individual browser tools only for interactive "
-    "flows that need browser_type/browser_click. Fix any errors BEFORE "
+    "flows that need browser_type/browser_click. For a Flutter/native "
+    "deliverable run verify_target_app — a device/emulator receipt is its "
+    "runtime proof (flutter analyze/flutter test via the terminal prove the "
+    "code statically, not that it renders). Fix any errors BEFORE "
     "finishing, then re-verify until it passes.]"
 )
 
@@ -901,11 +908,15 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             passed = content.startswith("✅") and "0 errors" in low
             status["typecheck"] = passed
             status["static"] = passed
-        elif name == "run_terminal":
+        elif name in {"run_terminal", "terminal"}:
             command = str(tool_args(message).get("command", "")).lower()
             is_check = any(token in command for token in (
                 "pytest", " test", "npm test", "typecheck", "tsc ",
                 " lint", " build", "cargo check", "go test",
+                # flutter/dart analyze is THE static check of its stack;
+                # without the token a lone `flutter analyze` never
+                # registered as a check at all.
+                " analyze",
             ))
             if is_check:
                 status["static"] = "exit code: 0" in low

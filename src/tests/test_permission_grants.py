@@ -279,6 +279,23 @@ def test_external_directory_asks_by_default(tmp_path):
         outside.unlink(missing_ok=True)
 
 
+def test_relative_path_fragments_in_shell_text_do_not_ask(tmp_path):
+    """Field 2026-10-21: `ls build/web/flutter_bootstrap.js` asked about
+    a phantom "/web/flutter_bootstrap.js" at the drive root — the path
+    miner matched the slash INSIDE a relative path. Only token-initial
+    absolute paths are mined now; relative fragments are the project's
+    own files and must never ask."""
+    target = tmp_path / "build" / "web" / "flutter_bootstrap.js"
+    target.parent.mkdir(parents=True)
+    target.write_text("// bootstrap\n", encoding="utf-8")
+    asked, message = _drive_tool(
+        tmp_path, "cfg-rel", "c-40", "run_terminal",
+        {"command": "ls build/web/flutter_bootstrap.js"},
+    )
+    assert not asked, "a relative path inside the project must not ask"
+    assert message.status != "error"
+
+
 def test_external_always_covers_later_commands_under_granted_path(tmp_path):
     """Field 2026-10-20 ("asking u"): "Allow always" on an
     outside-project ask used to key its session grant on the EXACT

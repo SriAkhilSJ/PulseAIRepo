@@ -270,7 +270,7 @@ def test_composite_ui_verification_satisfies_the_screenshot_ask():
 # ---------------------------------------------------------------------------
 
 def _terminal_created_app_state(tmp_path, verify_results: list[str]) -> dict:
-    (tmp_path / "flutterdemo").mkdir()
+    (tmp_path / "flutterdemo").mkdir(exist_ok=True)
     messages = [
         HumanMessage("Create a Flutter app called flutterdemo"),
         AIMessage(
@@ -392,6 +392,41 @@ def test_verify_gate_bounded_escape_still_finalizes_unverified(tmp_path):
     })
     assert _verify_unsatisfied(state) is False
     assert should_continue(state) == "finalize"
+
+
+def test_terminal_named_check_receipts_register_static_proof(tmp_path):
+    """Field 2026-10-21 (build 47234e16): the desktop shell is bound as
+    `terminal` (hermes parity rename), but the evidence ledger only
+    recognized the legacy `run_terminal` name — a full granttest run of
+    flutter analyze + flutter test + flutter build registered ZERO
+    verification receipts and ended unverified. Terminal-named check
+    results now earn static proof exactly like the alias; the UI
+    render bar is untouched (static alone still cannot pass a UI app).
+    """
+    from src.graphs.gates import _verification_receipt_status
+
+    def receipts(content: str, command: str) -> dict:
+        state = _terminal_created_app_state(tmp_path, [])
+        # Replace the create call's result name with the desktop's real
+        # shell tool name and append the check call.
+        from langchain_core.messages import AIMessage, ToolMessage
+        state["messages"] = [
+            AIMessage(content="", tool_calls=[{
+                "name": "terminal", "args": {"command": command}, "id": "k1",
+            }]),
+            ToolMessage(content=content, tool_call_id="k1", name="terminal"),
+            AIMessage(content="done"),
+        ]
+        return _verification_receipt_status(state)
+
+    ok = receipts("No issues found!\nExit code: 0", "flutter analyze")
+    assert ok["static"] is True, "flutter analyze via `terminal` must register"
+    assert ok["passed"] is False, "static proof alone must not pass a UI app"
+    assert "navigate" in ok["missing"]
+
+    bad = receipts("error: Target of URI doesn't exist\nExit code: 1",
+                   "flutter analyze")
+    assert bad["static"] is False, "a failed analyze proves nothing"
 
 
 def test_pdf_artifact_without_verification_still_completes(_no_memory, tmp_path):

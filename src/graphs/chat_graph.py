@@ -308,13 +308,26 @@ def _permission_decisions(tool_calls, *, workspace: str, thread_id: str, state, 
         if tc.get("name", "") in ("run_terminal", "start_terminal", "terminal"):
             import re as _re
             cmd_text = resources[0] if resources else ""
+            # Token-boundary anchor (field 2026-10-21): the slash must
+            # START a token — preceded by whitespace, a quote, `=`, a
+            # bracket or a shell separator, or begin the text. The old
+            # unanchored scan mined the slash INSIDE relative paths, so
+            # `ls build/web/flutter_bootstrap.js` asked about a phantom
+            # "/web/flutter_bootstrap.js" at the drive root. Windows
+            # drive paths mine in both slash spellings.
+            _BOUNDARY = r"(?<![^\s'\"=(;|&<>`])"
             candidates = _re.findall(
-                r"(?:[A-Za-z]:\\[^\s'\";|]+|/[^\s'\";|]+)", cmd_text
+                _BOUNDARY + r"(?:[A-Za-z]:[\\/][^\s'\";|]+|/[^\s'\";|]+)",
+                cmd_text,
             )
+            candidates = [c.rstrip(")]}") for c in candidates]
             # Field 2026-10-17: `cat ~/.bashrc` sailed past this check
             # because only absolute paths were mined -- home-relative
             # paths are outside the project too.
-            candidates += _re.findall(r"(?:~[/\\][^\s'\";|]+|\$HOME[/\\][^\s'\";|]+)", cmd_text)
+            candidates += _re.findall(
+                _BOUNDARY + r"(?:~[/\\][^\s'\";|]+|\$HOME[/\\][^\s'\";|]+)",
+                cmd_text,
+            )
             # A shell cat is still a read: .env rules follow the file,
             # not the tool (field 2026-10-17: (test -f .env && cat .env)
             # read the secret the read_file deny protects).
@@ -3767,10 +3780,16 @@ def _invoke_with_token_pump(
             # Name it — the fix lives on the endpoint, not in the panel.
             if pump.token_count <= 2 and pump.char_count >= 200:
                 shape = " [buffered: endpoint sent the whole answer as one chunk]"
+            _reasoned = len(pump._reasoning_acc)
+            _rshape = (
+                f", reasoning streamed live ({_reasoned} chars)"
+                if _reasoned and pump._think_seen
+                else ", no live reasoning deltas (aggregated-only or none)"
+            )
             print(
                 f"[ai_node] {route} answered in {total:.1f}s "
                 f"(first token {ft:.1f}s, {pump.token_count} chunks streamed)"
-                f"{shape}",
+                f"{shape}{_rshape}",
                 flush=True,
             )
         else:
