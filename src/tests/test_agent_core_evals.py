@@ -9,6 +9,7 @@ Unifies evaluation patterns from the top open-source coding agents:
 import math
 from typing import List
 import pytest
+from unittest.mock import patch
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 
 from src.prompts.claude_persona import CLAUDE_SYSTEM_PERSONA, AUTONOMOUS_SYSTEM_PERSONA
@@ -124,15 +125,27 @@ def test_hermes_trajectory_compaction_pair_integrity():
 # =========================================================================
 
 def test_aider_token_and_cost_accounting():
-    """Aider Benchmark Standard: Accurate provider cache discount accounting."""
-    # Claude 3.5 Sonnet pricing: $3.00/M in, $0.30/M cached in (90% discount!), $15.00/M out
-    cost_no_cache = estimate_cost("claude-3-5-sonnet-20241022", input_tokens=100_000, output_tokens=1_000, cached_tokens=0)
-    cost_with_cache = estimate_cost("claude-3-5-sonnet-20241022", input_tokens=100_000, output_tokens=1_000, cached_tokens=80_000)
+    """Cache discounts apply only from a reported cache rate in the rate card."""
+    card = {
+        "claude-3-5-sonnet-20241022": {
+            "input_per_1m": 3.0,
+            "output_per_1m": 15.0,
+            "cached_input_per_1m": 0.30,
+            "currency": "USD",
+        }
+    }
+    with patch("src.telemetry.call_ledger.load_rate_card", return_value=card):
+        cost_no_cache = estimate_cost(
+            "claude-3-5-sonnet-20241022", input_tokens=100_000,
+            output_tokens=1_000,
+        )
+        cost_with_cache = estimate_cost(
+            "claude-3-5-sonnet-20241022", input_tokens=100_000,
+            output_tokens=1_000, cached_tokens=80_000, cache_reported=True,
+        )
 
     assert cost_no_cache > cost_with_cache
-    # 80k cached tokens should save ~$0.216 USD
-    savings = cost_no_cache - cost_with_cache
-    assert savings > 0.20
+    assert cost_no_cache - cost_with_cache > 0.20
 
 
 # =========================================================================

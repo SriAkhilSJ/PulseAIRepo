@@ -255,21 +255,80 @@ def _resolve(model: str, card: dict, manual: dict | None) -> dict | None:
     return _rate_for(model, card)
 
 
+def estimate_cost_from_rate(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cached_tokens: int = 0,
+    cache_reported: bool = False,
+    rate_card: dict | None = None,
+) -> tuple[float | None, str]:
+    """Estimate cost and currency from the same provider/manual rate card as the ledger.
+
+    No generic fallback price is invented. Cached input gets a discount only
+    when the rate card explicitly publishes a cached-input rate.
+    """
+    card = rate_card if rate_card is not None else load_rate_card()
+    manual = _load_manual_card() if rate_card is None else None
+    rate = _resolve(model, card, manual)
+    if rate is None:
+        return None, ""
+    currency = str(rate.get("currency") or "USD").upper()
+    try:
+        input_per_1m = float(rate["input_per_1m"])
+        output_per_1m = float(rate["output_per_1m"])
+    except (KeyError, TypeError, ValueError):
+        return None, currency
+    reported_cached = max(0, min(int(input_tokens or 0), int(cached_tokens or 0))) if cache_reported else 0
+    cached_rate = rate.get("cached_input_per_1m")
+    if reported_cached and cached_rate is not None:
+        try:
+            input_cost = (
+                (max(0, int(input_tokens) - reported_cached) * input_per_1m)
+                + (reported_cached * float(cached_rate))
+            ) / 1_000_000
+        except (TypeError, ValueError):
+            return None, currency
+    else:
+        input_cost = max(0, int(input_tokens or 0)) * input_per_1m / 1_000_000
+    output_cost = max(0, int(output_tokens or 0)) * output_per_1m / 1_000_000
+    return input_cost + output_cost, currency
+
+
+def estimate_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    *,
+    cached_tokens: int = 0,
+    cache_reported: bool = False,
+    rate_card: dict | None = None,
+) -> float | None:
+    """Estimate USD only; return unknown rather than converting another currency."""
+    cost, currency = estimate_cost_from_rate(
+        model, input_tokens, output_tokens,
+        cached_tokens=cached_tokens, cache_reported=cache_reported,
+        rate_card=rate_card,
+    )
+    return cost if cost is not None and currency == "USD" else None
+
+
 def _call_cost(record: dict, card: dict, manual: dict | None = None) -> float | None:
     reported = record.get("cost")
     if isinstance(reported, (int, float)) and not isinstance(reported, bool):
         return float(reported)  # the provider's own bill for this call
-    rate = _resolve(str(record.get("model") or ""), card, manual)
+    model = str(record.get("model") or "")
+    rate = _resolve(model, card, manual)
     if rate is None:
         return None
-    try:
-        input_per_1m = float(rate.get("input_per_1m"))
-        output_per_1m = float(rate.get("output_per_1m"))
-    except (TypeError, ValueError):
-        return None
-    input_tokens = record.get("input_tokens") or 0
-    output_tokens = record.get("output_tokens") or 0
-    return (input_tokens / 1_000_000 * input_per_1m) + (output_tokens / 1_000_000 * output_per_1m)
+    cost, _currency = estimate_cost_from_rate(
+        model,
+        int(record.get("input_tokens") or 0),
+        int(record.get("output_tokens") or 0),
+        rate_card={model: rate},
+    )
+    return cost
 
 
 def summarize(month: str | None = None, directory: str | None = None, now: datetime | None = None) -> dict:

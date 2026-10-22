@@ -17,6 +17,14 @@ def test_off_by_default_and_env_gated(monkeypatch, tmp_path):
     assert rec["tool_names"] == ["edit_file"] and rec["completed"] is True
 
 
+def test_unknown_estimated_cost_is_written_as_null_not_zero(monkeypatch, tmp_path):
+    monkeypatch.setenv("CRUSORAI_OBSERVABILITY", "on")
+    monkeypatch.setenv("CRUSORAI_OBSERVABILITY_PATH", str(tmp_path / "turns.jsonl"))
+    assert record_turn_receipt(thread_id="s-unknown", estimated_cost_usd=None)
+    rec = json.loads((tmp_path / "turns.jsonl").read_text().splitlines()[0])
+    assert rec["estimated_cost_usd"] is None
+
+
 def test_fail_closed_never_raises(monkeypatch, tmp_path):
     monkeypatch.setenv("CRUSORAI_OBSERVABILITY", "on")
     monkeypatch.setenv("CRUSORAI_OBSERVABILITY_PATH", "/proc/definitely/not/writable/x.jsonl")

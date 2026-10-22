@@ -27,36 +27,18 @@ from src.runtime.quality_evaluator import UserAskQualityEvaluator, QualityReport
 
 _TRACE_LOCK = threading.Lock()
 
-# Standard pricing table per 1M tokens ($ USD)
-MODEL_PRICING: dict[str, dict[str, float]] = {
-    "deepseek-v3": {"input": 0.27, "output": 1.10, "cached": 0.07},
-    "deepseek-chat": {"input": 0.27, "output": 1.10, "cached": 0.07},
-    "claude-3-5-sonnet": {"input": 3.00, "output": 15.00, "cached": 0.30},
-    "claude-3-7-sonnet": {"input": 3.00, "output": 15.00, "cached": 0.30},
-    "gpt-4o": {"input": 2.50, "output": 10.00, "cached": 1.25},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60, "cached": 0.075},
-    "gemini-1.5-flash": {"input": 0.075, "output": 0.30, "cached": 0.018},
-    "gemini-1.5-pro": {"input": 1.25, "output": 5.00, "cached": 0.3125},
-    "default": {"input": 1.00, "output": 3.00, "cached": 0.50},
-}
+def estimate_cost(model_name: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0,
+                  *, cache_reported: bool = False) -> float | None:
+    """Estimate USD using the ledger's provider/manual catalog; unknown stays unknown."""
+    from src.telemetry.call_ledger import estimate_cost_usd
 
-
-def estimate_cost(model_name: str, input_tokens: int, output_tokens: int, cached_tokens: int) -> float:
-    """Calculate estimated cost in USD based on model pricing."""
-    model_key = "default"
-    clean_name = (model_name or "").lower()
-    for k in MODEL_PRICING:
-        if k in clean_name:
-            model_key = k
-            break
-    prices = MODEL_PRICING.get(model_key, MODEL_PRICING["default"])
-    uncached_input = max(0, input_tokens - cached_tokens)
-    cost = (
-        (uncached_input * prices["input"] / 1_000_000.0)
-        + (cached_tokens * prices.get("cached", prices["input"] * 0.2) / 1_000_000.0)
-        + (output_tokens * prices["output"] / 1_000_000.0)
+    return estimate_cost_usd(
+        model_name,
+        input_tokens,
+        output_tokens,
+        cached_tokens=cached_tokens,
+        cache_reported=cache_reported,
     )
-    return round(cost, 6)
 
 
 @dataclass
@@ -88,7 +70,7 @@ class StepRecord:
     cache_reported: bool = True
     cache_hit_ratio: float = 0.0
     tokens_per_second: float = 0.0
-    estimated_cost_usd: float = 0.0
+    estimated_cost_usd: float | None = None
     tool_calls: list[ToolExecutionRecord] = field(default_factory=list)
     verification_status: str = "not_applicable"
     compaction_active: bool = False
@@ -260,6 +242,7 @@ class StepTracker:
             self._current_step.input_tokens,
             self._current_step.output_tokens,
             self._current_step.cached_tokens,
+            cache_reported=self._current_step.cache_reported,
         )
 
     def record_tool_call(
@@ -368,6 +351,12 @@ class StepTracker:
                     f.write(line + "\n")
         except Exception:
             pass
+
+    def _known_total_cost_usd(self) -> float | None:
+        metered = [s for s in self.steps if s.input_tokens or s.output_tokens]
+        if not metered or any(s.estimated_cost_usd is None for s in metered):
+            return None
+        return round(sum(float(s.estimated_cost_usd) for s in metered), 4)
 
     def compute_performance_score(self) -> dict[str, Any]:
         """Compute an overall 0-100 Agent Performance Health Score."""
@@ -484,7 +473,12 @@ class StepTracker:
                 "cache_hit_rate_pct": round(cache_hit_rate * 100, 1),
                 "telemetry_available": telemetry_available,
                 "tool_failure_rate_pct": round(tool_failure_rate * 100, 1),
-                "total_cost_usd": round(sum(s.estimated_cost_usd for s in self.steps), 4),
+                "total_cost_usd": self._known_total_cost_usd(),
+                "priced_calls": sum(
+                    1 for s in self.steps
+                    if (s.input_tokens or s.output_tokens) and s.estimated_cost_usd is not None
+                ),
+                "total_cost_calls": sum(1 for s in self.steps if s.input_tokens or s.output_tokens),
             },
             "actionable_ideas": ideas,
         }
@@ -533,6 +527,11 @@ class StepTracker:
             cached_tokens = sum(s.cached_tokens for s in self.steps)
             total_time = sum(s.duration_s for s in self.steps)
             total_cost = perf["metrics"]["total_cost_usd"]
+            total_cost_label = (
+                f"**${total_cost:.4f} USD**"
+                if total_cost is not None
+                else f"**Unknown** ({perf['metrics']['priced_calls']}/{perf['metrics']['total_cost_calls']} token-bearing calls priced in USD)"
+            )
 
             cache_val_str = (
                 f"**{perf['metrics']['cache_hit_rate_pct']}%** ({cached_tokens:,} cached)"
@@ -578,7 +577,7 @@ class StepTracker:
             md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step) | $<5.0$s / step |")
             md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
             md.append(f"| **Prompt Cache Hit Rate** | {cache_val_str} | $\\ge 70\\%$ |")
-            md.append(f"| **Estimated Cost** | **${total_cost:.4f} USD** | $< $0.05 / task |")
+            md.append(f"| **Estimated Cost** | {total_cost_label} | $< $0.05 / task |")
             md.append("")
             md.append("### Runtime Sub-Scores")
             md.append(f"- **Latency Efficiency:** `{perf['breakdown']['latency_score']} / 25`")

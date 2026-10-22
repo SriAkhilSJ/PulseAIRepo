@@ -53,7 +53,7 @@ def record_turn_receipt(
     input_tokens: int = 0,
     output_tokens: int = 0,
     cache_tokens: int = 0,
-    estimated_cost_usd: float = 0.0,
+    estimated_cost_usd: float | None = 0.0,
     duration_s: float = 0.0,
     tool_calls: int = 0,
     tool_names: list[str] | None = None,
@@ -77,7 +77,9 @@ def record_turn_receipt(
             "output": int(output_tokens or 0),
             "cache": int(cache_tokens or 0),
         },
-        "estimated_cost_usd": round(float(estimated_cost_usd or 0.0), 6),
+        "estimated_cost_usd": (
+            round(float(estimated_cost_usd), 10) if estimated_cost_usd is not None else None
+        ),
         "duration_s": round(float(duration_s or 0.0), 3),
         "tool_calls": int(tool_calls or 0),
         "tool_names": list(tool_names or []),

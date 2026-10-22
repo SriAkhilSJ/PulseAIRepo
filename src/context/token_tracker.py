@@ -22,39 +22,6 @@ import tiktoken
 from langchain_core.messages import AIMessage, BaseMessage
 
 
-# =========================================================
-# PRICING TABLE: Cost per 1 MILLION tokens (USD)
-# Update these as providers change prices.
-# =========================================================
-
-PRICING = {
-    # OpenAI
-    "gpt-4o": {"input": 2.50, "output": 10.00},
-    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
-    "gpt-4": {"input": 30.00, "output": 60.00},
-    "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
-
-    # Groq / common OSS model aliases (approximate)
-    "llama-3.1-70b-versatile": {"input": 0.59, "output": 0.79},
-    "llama-3.1-8b-instant": {"input": 0.05, "output": 0.08},
-    "mixtral-8x7b-32768": {"input": 0.24, "output": 0.24},
-    "gemma2-9b-it": {"input": 0.20, "output": 0.20},
-    "qwen3.6-27b": {"input": 0.50, "output": 0.50},
-    "qwen": {"input": 0.50, "output": 0.50},
-
-    # Gemini
-    "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
-    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
-
-    # Custom/local fallback. Override by adding a specific model key above.
-    "auto/cheap": {"input": 0.10, "output": 0.10},
-    "cheap": {"input": 0.10, "output": 0.10},
-
-    # Default fallback if model not found
-    "default": {"input": 1.00, "output": 1.00},
-}
-
-
 @dataclass
 class TokenUsage:
     """One snapshot of token usage."""
@@ -63,6 +30,7 @@ class TokenUsage:
     completion_tokens: int = 0
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    cost_known: bool = True
     calls_made: int = 0
     cached_tokens: int = 0  # provider-reported prompt-cache hits (Law 1 visibility)
 
@@ -75,7 +43,8 @@ class TokenUsage:
             prompt_tokens=data.get("prompt_tokens", 0),
             completion_tokens=data.get("completion_tokens", 0),
             total_tokens=data.get("total_tokens", 0),
-            estimated_cost_usd=data.get("estimated_cost_usd", 0.0),
+            estimated_cost_usd=float(data.get("estimated_cost_usd") or 0.0),
+            cost_known=bool(data.get("cost_known", True)),
             calls_made=data.get("calls_made", 0),
             cached_tokens=data.get("cached_tokens", 0),
         )
@@ -85,7 +54,8 @@ class TokenUsage:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
-            "estimated_cost_usd": round(self.estimated_cost_usd, 6),
+            "estimated_cost_usd": round(self.estimated_cost_usd, 10),
+            "cost_known": self.cost_known,
             "calls_made": self.calls_made,
             "cached_tokens": self.cached_tokens,
         }
@@ -96,6 +66,7 @@ class TokenUsage:
             completion_tokens=self.completion_tokens + other.completion_tokens,
             total_tokens=self.total_tokens + other.total_tokens,
             estimated_cost_usd=self.estimated_cost_usd + other.estimated_cost_usd,
+            cost_known=self.cost_known and other.cost_known,
             calls_made=self.calls_made + other.calls_made,
             cached_tokens=self.cached_tokens + other.cached_tokens,
         )
@@ -139,13 +110,18 @@ class TokenTracker:
             completion_tokens = actual_completion
 
         total = prompt_tokens + completion_tokens
-        cost = TokenTracker._calculate_cost(prompt_tokens, completion_tokens, model)
+        cost = TokenTracker._calculate_cost(
+            prompt_tokens, completion_tokens, model,
+            cached_tokens=actual_cached or 0,
+            cache_reported=actual_cached is not None,
+        )
 
         return TokenUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total,
-            estimated_cost_usd=cost,
+            estimated_cost_usd=cost or 0.0,
+            cost_known=cost is not None,
             calls_made=1,
             cached_tokens=actual_cached or 0,
         )
@@ -158,10 +134,11 @@ class TokenTracker:
         else:
             u = usage
 
+        cost_text = f"${u.estimated_cost_usd:.6f}" if u.cost_known else "unknown (no USD rate)"
         return (
             f"Tokens: {u.prompt_tokens:,} in + {u.completion_tokens:,} out "
             f"= {u.total_tokens:,} total | "
-            f"Cost: ${u.estimated_cost_usd:.6f} | "
+            f"Cost: {cost_text} | "
             f"Calls: {u.calls_made}"
         )
 
@@ -272,24 +249,21 @@ class TokenTracker:
         return input_tokens, output_tokens, (cached or None)
 
     @staticmethod
-    def _calculate_cost(prompt: int, completion: int, model: str) -> float:
-        """Calculate cost in USD."""
-        clean = model.lower()
-        last_part = clean.split("/")[-1]
+    def _calculate_cost(
+        prompt: int,
+        completion: int,
+        model: str,
+        *,
+        cached_tokens: int = 0,
+        cache_reported: bool = False,
+    ) -> float | None:
+        """Use the telemetry ledger's live/manual rate card; never guess a fallback."""
+        from src.telemetry.call_ledger import estimate_cost_usd
 
-        pricing = PRICING.get(clean) or PRICING.get(last_part)
-
-        if not pricing:
-            # Try partial match.
-            for key, value in PRICING.items():
-                if key in clean or clean in key or key in last_part or last_part in key:
-                    pricing = value
-                    break
-
-        if not pricing:
-            pricing = PRICING["default"]
-
-        input_cost = (prompt / 1_000_000) * pricing["input"]
-        output_cost = (completion / 1_000_000) * pricing["output"]
-
-        return input_cost + output_cost
+        return estimate_cost_usd(
+            model,
+            prompt,
+            completion,
+            cached_tokens=cached_tokens,
+            cache_reported=cache_reported,
+        )

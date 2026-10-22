@@ -3180,7 +3180,8 @@ def finalize_node(state: AgentState, config: RunnableConfig):
 
     # Calculate token usage for emissions
     usage = state.get("token_usage", {})
-    cost_usd = usage.get("estimated_cost_usd", 0)
+    cost_known = bool(usage.get("cost_known", True))
+    cost_usd = usage.get("estimated_cost_usd", 0) if cost_known else None
     prompt_tokens = usage.get("prompt_tokens", 0)
     completion_tokens = usage.get("completion_tokens", 0)
     call_count = usage.get("calls_made", 0)
@@ -3189,6 +3190,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     event_bus.emit("analytics.update", {
         "thread_id": _final_thread_id,
         "totalCost": cost_usd,
+        "costKnown": cost_known,
         "tokensIn": prompt_tokens,
         "tokensOut": completion_tokens,
         "apiCalls": call_count,
@@ -3226,7 +3228,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             provider=_turn_provider,
             input_tokens=int(prompt_tokens or 0),
             output_tokens=int(completion_tokens or 0),
-            estimated_cost_usd=float(cost_usd or 0.0),
+            estimated_cost_usd=float(cost_usd) if cost_usd is not None else None,
             duration_s=_duration_s,
             tool_calls=len(_trace),
             tool_names=_tool_names or None,
