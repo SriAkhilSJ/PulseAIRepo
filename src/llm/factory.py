@@ -315,10 +315,21 @@ def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | 
                     return max(0, candidate)
         return None
 
+    def reported_cost() -> float | None:
+        # Some gateways bill-report each call in its own usage payload
+        # (OpenRouter-style `cost`). When present it is ground truth for
+        # the ledger — no rate card can know a negotiated price better.
+        for source in (usage, provider_usage, metadata):
+            candidate = source.get("cost") if isinstance(source, dict) else None
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                return max(0.0, float(candidate))
+        return None
+
     return {
         "input_tokens": value("input_tokens", "prompt_tokens"),
         "output_tokens": value("output_tokens", "completion_tokens"),
         "total_tokens": value("total_tokens"),
+        "reported_cost": reported_cost(),
     }
 
 

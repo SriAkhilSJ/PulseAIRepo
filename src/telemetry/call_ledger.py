@@ -90,29 +90,40 @@ def record_call(
     reasoning_chars: int = 0,
     streamed: bool = False,
     error: str = "",
+    provider_cost: float | None = None,
     directory: str | None = None,
 ) -> None:
     """Meter one billed model call. Token counts may be None (provider
-    reported none) — recorded as null, never estimated silently."""
+    reported none) — recorded as null, never estimated silently. When the
+    provider itself reported the call's cost in its usage payload, that
+    number is stamped on the line (cost_source=provider) and wins over
+    every rate card: the provider's own bill is the ground truth."""
     if not telemetry_enabled():
         return
-    _append(
-        {
-            "kind": "call",
-            "ts": datetime.now().isoformat(timespec="seconds"),
-            "thread": str(thread_id or "default"),
-            "provider": str(provider or ""),
-            "model": str(model or ""),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "total_tokens": total_tokens,
-            "reasoning_chars": int(reasoning_chars or 0),
-            "wall_s": round(float(wall_s or 0.0), 3),
-            "streamed": bool(streamed),
-            "error": str(error or "")[:80],
-        },
-        directory=directory,
-    )
+    record = {
+        "kind": "call",
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "thread": str(thread_id or "default"),
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "reasoning_chars": int(reasoning_chars or 0),
+        "wall_s": round(float(wall_s or 0.0), 3),
+        "streamed": bool(streamed),
+        "error": str(error or "")[:80],
+    }
+    if provider_cost is not None:
+        record["cost"] = round(float(provider_cost), 6)
+        record["cost_source"] = "provider"
+    _append(record, directory=directory)
+    try:
+        from src.telemetry import pricing
+
+        pricing.ensure_pricing_async(directory=directory)
+    except Exception:
+        pass  # pricing refresh is opportunistic; the call path never waits
 
 
 def record_run(
@@ -161,6 +172,24 @@ def load_records(month: str | None = None, directory: str | None = None) -> list
 
 
 def load_rate_card(directory: str | None = None) -> dict:
+    """Merged price book, manual over dynamic: CRUSORAI_RATE_CARD env /
+    rates.json entries win; underneath, the provider catalog fetched by
+    src.telemetry.pricing (pricing-cache.json) prices ANY model id the
+    provider publishes. {} when nothing is known anywhere."""
+    merged: dict = {}
+    try:
+        from src.telemetry import pricing
+
+        if pricing.pricing_enabled():
+            merged.update(pricing.load_cached_rates(directory=directory))
+    except Exception:
+        pass
+    manual = _load_manual_card(directory=directory)
+    merged.update(manual)
+    return merged
+
+
+def _load_manual_card(directory: str | None = None) -> dict:
     """Env JSON first, then <telemetry dir>/rates.json. {} when unset/bad."""
     raw = os.environ.get("CRUSORAI_RATE_CARD", "").strip()
     if raw:
@@ -181,15 +210,43 @@ def load_rate_card(directory: str | None = None) -> dict:
 
 
 def _rate_for(model: str, card: dict) -> dict | None:
-    lowered = (model or "").lower()
-    for key, rate in card.items():
-        if isinstance(rate, dict) and str(key).lower() in lowered:
+    valid = {k: v for k, v in card.items() if isinstance(v, dict)}
+    if not valid:
+        return None
+    try:
+        from src.telemetry import pricing
+
+        return pricing.resolve_rate(model, valid)
+    except Exception:
+        lowered = (model or "").lower()
+        for key, rate in valid.items():
+            if str(key).lower() in lowered:
+                return rate
+        return None
+
+
+def record_currency(record: dict) -> str:
+    """Currency stamped beside a provider-reported cost, when present."""
+    value = record.get("currency")
+    return str(value) if isinstance(value, str) and value else ""
+
+
+
+def _resolve(model: str, card: dict, manual: dict | None) -> dict | None:
+    """Manual card resolves FIRST (the founder's explicit price always
+    wins), then the merged book (manual keys over the dynamic catalog)."""
+    if manual:
+        rate = _rate_for(model, manual)
+        if rate is not None:
             return rate
-    return None
+    return _rate_for(model, card)
 
 
-def _call_cost(record: dict, card: dict) -> float | None:
-    rate = _rate_for(str(record.get("model") or ""), card)
+def _call_cost(record: dict, card: dict, manual: dict | None = None) -> float | None:
+    reported = record.get("cost")
+    if isinstance(reported, (int, float)) and not isinstance(reported, bool):
+        return float(reported)  # the provider's own bill for this call
+    rate = _resolve(str(record.get("model") or ""), card, manual)
     if rate is None:
         return None
     try:
@@ -207,6 +264,7 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
     month = month or _month_stamp(now)
     records = load_records(month=month, directory=directory)
     card = load_rate_card(directory=directory)
+    manual = _load_manual_card(directory=directory)
     calls = [r for r in records if r.get("kind") == "call"]
     runs = [r for r in records if r.get("kind") == "run"]
     ok_calls = [c for c in calls if not c.get("error")]
@@ -227,13 +285,13 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
         bucket["input_tokens"] += int(call.get("input_tokens") or 0)
         bucket["output_tokens"] += int(call.get("output_tokens") or 0)
         bucket["wall_s"] = round(bucket["wall_s"] + float(call.get("wall_s") or 0.0), 1)
-        cost = _call_cost(call, card)
+        cost = _call_cost(call, card, manual)
         if cost is not None:
             cost_known_calls += 1
             cost_total += cost
             bucket["cost"] = (bucket["cost"] or 0.0) + cost
-            rate = _rate_for(model, card) or {}
-            currency = str(rate.get("currency") or currency or "USD")
+            rate = _resolve(model, card, manual) or {}
+            currency = str(record_currency(call) or rate.get("currency") or currency or "USD")
 
     verdicts: dict[str, int] = {}
     for run in runs:
@@ -303,8 +361,9 @@ def format_summary(summary: dict) -> str:
     ]
     if cost is None:
         lines.append(
-            "  cost: unknown — no rate card. Set CRUSORAI_RATE_CARD or drop a rates.json "
-            "into the telemetry dir (see src/telemetry/call_ledger.py)."
+            "  cost: unknown — no pricing source yet. Run "
+            "`python -m src.telemetry.call_ledger --refresh-pricing` to pull your "
+            "provider's catalog, or set CRUSORAI_RATE_CARD / rates.json manually."
         )
     else:
         lines.append(f"  cost so far: {currency} {cost:,.4f}".rstrip("0").rstrip("."))
@@ -335,7 +394,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--month", default=None, help="YYYY-MM (default: current month)")
     parser.add_argument("--dir", default=None, help="telemetry directory override")
     parser.add_argument("--json", action="store_true", help="print the raw summary dict as JSON")
+    parser.add_argument("--refresh-pricing", action="store_true",
+                        help="fetch the provider's priced model catalog now (no manual rates needed)")
+    parser.add_argument("--model", default=None,
+                        help="print the resolved rate for ANY model id, or 'unknown'")
     args = parser.parse_args(argv)
+    if args.refresh_pricing:
+        from src.telemetry import pricing
+
+        try:
+            rates, source = pricing.refresh(directory=args.dir)
+        except Exception as exc:
+            print(f"pricing refresh failed: {exc}")
+            return 1
+        if not rates:
+            print(f"{source} answered but carried no parseable pricing — "
+                  "cost stays unknown until a rates.json override is added.")
+            return 1
+        print(f"priced {len(rates)} model(s) from {source} — cached for 24h.")
+        return 0
+    if args.model:
+        card = load_rate_card(directory=args.dir)
+        rate = _rate_for(args.model, card)
+        if rate is None:
+            print(f"{args.model}: unknown — no rate in the manual card or the provider catalog "
+                  f"(try --refresh-pricing).")
+            return 1
+        print(f"{args.model}: input {rate.get('input_per_1m')}/1M, output {rate.get('output_per_1m')}/1M "
+              f"({rate.get('currency') or 'USD'}, source: {rate.get('source') or 'manual'})")
+        return 0
     summary = summarize(month=args.month, directory=args.dir)
     print(json.dumps(summary, indent=2) if args.json else format_summary(summary))
     return 0

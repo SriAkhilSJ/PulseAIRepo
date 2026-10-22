@@ -103,6 +103,7 @@ def test_provider_response_info_recognizes_token_limit_metadata():
         "input_tokens": None,
         "output_tokens": None,
         "total_tokens": None,
+        "reported_cost": None,
     }
 
 

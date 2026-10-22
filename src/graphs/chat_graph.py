@@ -3792,6 +3792,7 @@ def _invoke_with_token_pump(
             total_tokens=_usage.get("total_tokens"),
             reasoning_chars=int(_usage.get("reasoning_chars") or 0),
             streamed=pump.streamed,
+            provider_cost=_usage.get("reported_cost"),
         )
     except Exception:
         pass  # telemetry never breaks the call
