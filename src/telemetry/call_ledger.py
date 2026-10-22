@@ -92,6 +92,7 @@ def record_call(
     error: str = "",
     provider_cost: float | None = None,
     anatomy: dict | None = None,
+    tool_names: list | None = None,
     directory: str | None = None,
 ) -> None:
     """Meter one billed model call. Token counts may be None (provider
@@ -115,6 +116,8 @@ def record_call(
         "streamed": bool(streamed),
         "error": str(error or "")[:80],
     }
+    if tool_names is not None:
+        record["tool_names"] = [str(name)[:80] for name in tool_names[:32]]
     if provider_cost is not None:
         record["cost"] = round(float(provider_cost), 6)
         record["cost_source"] = "provider"
@@ -314,19 +317,28 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
             return round(sum(present) / len(present), 1) if present else 0.0
 
         avg_req = _avg("req_tokens_est")
+        row_totals = [
+            int(c.get("req_tokens_est") or 0) + int(c.get("tools_schema_tokens") or 0)
+            for c in anatomy_rows
+        ]
+        row_static = [
+            int(c.get("sys_tokens") or 0) + int(c.get("tools_schema_tokens") or 0)
+            for c in anatomy_rows
+        ]
         anatomy = {
             "calls": len(anatomy_rows),
             "avg_sys_tokens": _avg("sys_tokens"),
             # Schema only rides tools-bound calls (grace/ask calls bind
             # none) — average over the calls that actually carried one.
             "avg_tools_schema_tokens": _avg_present("tools_schema_tokens"),
+            "tools_bound_calls": sum(1 for c in anatomy_rows if isinstance(c.get("tools_schema_tokens"), int)),
             "avg_user_tokens": _avg("user_tokens"),
             "avg_ai_tokens": _avg("ai_tokens"),
             "avg_tool_result_tokens": _avg("tool_result_tokens"),
             "avg_req_tokens_est": avg_req,
+            "avg_total_tokens_est": round(sum(row_totals) / len(row_totals), 1),
             "static_share_pct": (
-                round((_avg("sys_tokens") + _avg("tools_schema_tokens")) / avg_req * 100, 1)
-                if avg_req else None
+                round(sum(row_static) / sum(row_totals) * 100, 1) if sum(row_totals) else None
             ),
         }
 
@@ -417,12 +429,15 @@ def format_summary(summary: dict) -> str:
         lines.append(f"  projected month-end tokens: {summary['projected_month_tokens']:,}")
     anatomy = summary.get("anatomy")
     if anatomy:
+        _tools_all = anatomy["avg_total_tokens_est"] - anatomy["avg_req_tokens_est"]
         lines.append(
             f"  request anatomy (avg/call over {anatomy['calls']} calls): "
-            f"~{anatomy['avg_req_tokens_est']:,.0f} tokens = "
-            f"system {anatomy['avg_sys_tokens']:,.0f} + tools {anatomy['avg_tools_schema_tokens']:,.0f} "
+            f"~{anatomy['avg_total_tokens_est']:,.0f} tokens = "
+            f"system {anatomy['avg_sys_tokens']:,.0f} + tools {_tools_all:,.0f} "
             f"(static {anatomy['static_share_pct']}%) + conversation "
-            f"{anatomy['avg_user_tokens'] + anatomy['avg_ai_tokens'] + anatomy['avg_tool_result_tokens']:,.0f}"
+            f"{anatomy['avg_user_tokens'] + anatomy['avg_ai_tokens'] + anatomy['avg_tool_result_tokens']:,.0f}; "
+            f"tool schemas alone run {anatomy['avg_tools_schema_tokens']:,.0f}/call "
+            f"on the {anatomy['tools_bound_calls']} tools-bound calls"
         )
     for model, bucket in sorted(summary["by_model"].items()):
         model_cost = bucket["cost"]

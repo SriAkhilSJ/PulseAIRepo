@@ -3857,6 +3857,7 @@ def _invoke_with_token_pump(
             streamed=pump.streamed,
             provider_cost=_usage.get("reported_cost"),
             anatomy=_request_anatomy(messages, call_llm),
+            tool_names=_usage.get("tool_names"),
         )
     except Exception:
         pass  # telemetry never breaks the call

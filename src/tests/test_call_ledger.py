@@ -197,3 +197,62 @@ def test_summary_reports_static_share_for_the_diet(tmp_path, monkeypatch):
     assert anatomy["avg_sys_tokens"] == 1000
     assert anatomy["static_share_pct"] > 80  # system+tools dominate: the diet target
     assert "request anatomy" in call_ledger.format_summary(summary)
+
+
+def test_static_share_never_exceeds_100_percent(tmp_path):
+    """Field regression (2026-10-22 evidence): system 9,088 + tools
+    13,642 over a messages-only denominator printed 'static 116.3%'.
+    The schema bills ALONGSIDE the messages — the denominator is
+    messages+schema per row."""
+    for _ in range(4):
+        call_ledger.record_call(
+            "t1", "custom", "m", 1.0,
+            input_tokens=30_000, output_tokens=100, total_tokens=30_100,
+            anatomy={"sys_tokens": 9_000, "tools_schema_tokens": 14_200,
+                     "user_tokens": 5_000, "ai_tokens": 500,
+                     "tool_result_tokens": 500, "req_tokens_est": 15_000},
+            directory=str(tmp_path),
+        )
+    anatomy = call_ledger.summarize(directory=str(tmp_path))["anatomy"]
+    assert anatomy["static_share_pct"] < 100
+    assert anatomy["static_share_pct"] == pytest.approx((9_000 + 14_200) / (15_000 + 14_200) * 100, abs=0.2)
+    assert anatomy["avg_total_tokens_est"] == pytest.approx(29_200)
+
+
+def test_desktop_evidence_file_reproduces_its_own_report(tmp_path, monkeypatch):
+    """The founder-laptop evidence (8bed7591) must keep reproducing:
+    21 calls, ~$0.0136, schema constant — at the relayed Velona rates."""
+    import shutil
+    from pathlib import Path as _P
+
+    evidence = _P(__file__).resolve().parents[2] / "diagnostics" / "telemetry-evidence"
+    assert (evidence / "calls-2026-10.jsonl").is_file()
+    monkeypatch.setenv(
+        "CRUSORAI_RATE_CARD",
+        json.dumps({"glm-5.3-flash": {"input_per_1m": 0.018, "output_per_1m": 0.121, "currency": "USD"}}),
+    )
+    summary = call_ledger.summarize(month="2026-10", directory=str(evidence))
+    assert summary["calls"] == 21
+    assert summary["cost"] == pytest.approx(0.0136, abs=0.0005)
+    assert summary["anatomy"]["avg_tools_schema_tokens"] == pytest.approx(13_642, abs=1)
+    assert summary["anatomy"]["static_share_pct"] < 100
+
+
+def test_pump_records_which_tools_the_call_asked_for(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRUSORAI_TELEMETRY_DIR", str(tmp_path))
+    monkeypatch.delenv("CRUSORAI_TELEMETRY", raising=False)
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from src.graphs.chat_graph import _invoke_with_token_pump
+
+    class _ToolLLM:
+        def invoke(self, messages, config=None):
+            return AIMessage(
+                content="",
+                tool_calls=[{"name": "write_file", "args": {"path": "x"}, "id": "1"}],
+                usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+            )
+
+    _invoke_with_token_pump(_ToolLLM(), [HumanMessage(content="go")], "thread-tools", "custom", "fake-model")
+    (call,) = [r for r in _lines(tmp_path) if r["kind"] == "call"]
+    assert call["tool_names"] == ["write_file"], "names only — arguments never touch the ledger"
