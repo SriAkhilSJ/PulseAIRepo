@@ -154,8 +154,19 @@ def parse_catalog(payload, default_currency: str = "") -> dict[str, dict]:
                 break
         if not entries and ("pricing" in payload or "id" in payload):
             entries = [payload]
-    elif isinstance(payload, list):
-        entries = payload
+        if not entries:
+            # Some gateways nest the list one level deeper (field 2026-10-22,
+            # desktop trace: Velona's GET /gateway/v1/models returns
+            # {"data": {"models": [...], "total": N}}). Look one level
+            # inside any dict container for the actual entry list.
+            for container in (payload.get(key) for key in ("data", "models", "result")):
+                if isinstance(container, dict):
+                    for inner_key in ("models", "data", "result", "items"):
+                        if isinstance(container.get(inner_key), list):
+                            entries = container[inner_key]
+                            break
+                    if entries:
+                        break
     rates: dict[str, dict] = {}
     for entry in entries:
         parsed = _parse_entry(entry, currency)
@@ -239,10 +250,20 @@ def fetch_rates(base_url: str, api_key: str, timeout: float = 8.0) -> tuple[dict
     errors only for URLs that answered — callers decide how to report."""
     last_error: Exception | None = None
     for url in candidate_urls(base_url):
-        try:
-            payload = _http_get_json(url, api_key, timeout)
-        except Exception as exc:  # try the next candidate layout
-            last_error = exc
+        # Cloudflare's bot rule intermittently flashes on even allowed
+        # agents (desktop trace 2026-10-22: browser-shaped UA answered
+        # 200 in a standalone probe, then 403-flash inside a loop). One
+        # tiny retry per candidate drains that flake honestly.
+        payload = None
+        for attempt in range(2):
+            try:
+                payload = _http_get_json(url, api_key, timeout)
+                break
+            except Exception as exc:  # try again, then the next layout
+                last_error = exc
+                if attempt == 0:
+                    time.sleep(0.4)
+        if payload is None:
             continue
         rates = parse_catalog(payload)
         if rates:

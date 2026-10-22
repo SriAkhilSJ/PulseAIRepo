@@ -400,6 +400,21 @@ def main(argv: list[str] | None = None) -> int:
                         help="print the resolved rate for ANY model id, or 'unknown'")
     args = parser.parse_args(argv)
     if args.refresh_pricing:
+        # The CLI runs outside the app process: the engine's .env (with
+        # CUSTOM_BASE_URL + CUSTOM_API_KEY) is not in os.environ yet.
+        # Bootstrap it the same way every engine entry point does — a
+        # bare "python -m src.telemetry.call_ledger --refresh-pricing"
+        # must find the provider on its own (founder field 2026-10-22).
+        try:
+            import src.config.settings  # noqa: F401  (side effect: loads .env)
+        except Exception:  # noqa: BLE001 - telemetry never breaks on config
+            try:
+                from dotenv import load_dotenv
+
+                load_dotenv(override=True)
+            except Exception:  # noqa: BLE001 - dotenv missing: env only
+                pass
+
         from src.telemetry import pricing
 
         try:
