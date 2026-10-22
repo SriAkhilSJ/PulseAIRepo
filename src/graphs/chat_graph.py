@@ -3724,6 +3724,69 @@ class _AgentTokenPump(BaseCallbackHandler):
         self._held_chars = 0
 
 
+def _est_tokens(text: str) -> int:
+    """chars//4 token estimate — the house heuristic (context_breakdown)."""
+    return (len(text) + 3) // 4
+
+
+def _request_anatomy(messages, call_llm) -> dict:
+    """What one model request is MADE OF (Phase 1 diet measurement).
+
+    Buckets by message role; the bound tool schemas ride the llm binding,
+    not the messages — introspected defensively (RunnableBinding kwargs),
+    None -> omitted rather than guessed. Estimates, labelled as such;
+    provider-reported input_tokens on the same ledger line is the billed
+    truth the diet is judged against.
+    """
+    import json as _json
+
+    buckets = {"sys_tokens": 0, "user_tokens": 0, "ai_tokens": 0, "tool_result_tokens": 0}
+    total = 0
+    for message in messages or []:
+        role = getattr(message, "type", "") or ""
+        content = getattr(message, "content", "")
+        text = content if isinstance(content, str) else str(content)
+        size = _est_tokens(text)
+        calls = getattr(message, "tool_calls", None) or []
+        if calls:
+            try:
+                size += _est_tokens(_json.dumps(calls, ensure_ascii=False, default=str))
+            except Exception:
+                pass
+        total += size
+        if role == "system":
+            buckets["sys_tokens"] += size
+        elif role == "human":
+            buckets["user_tokens"] += size
+        elif role == "ai":
+            buckets["ai_tokens"] += size
+        elif role == "tool":
+            buckets["tool_result_tokens"] += size
+        else:
+            buckets["user_tokens"] += size
+    buckets["req_tokens_est"] = total
+    try:
+        # Walk proxy/binding layers (RetryLLMProxy -> RunnableBinding) the
+        # way llm.factory._nested_runnable_attr does until the binding
+        # that carries the tools shows up.
+        current, seen = call_llm, set()
+        for _ in range(8):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            bound = getattr(current, "kwargs", None) or {}
+            tools = bound.get("tools") if isinstance(bound, dict) else None
+            if tools:
+                buckets["tools_schema_tokens"] = _est_tokens(
+                    _json.dumps(tools, ensure_ascii=False, default=str)
+                )
+                break
+            current = getattr(current, "bound", None) or getattr(current, "_llm", None)
+    except Exception:
+        pass
+    return buckets
+
+
 def _invoke_with_token_pump(
     call_llm, messages, thread_id: str, provider: str = "", model: str = "",
     strip_tool_blocks: bool = False, reasoning_config: dict | None = None,
@@ -3793,6 +3856,7 @@ def _invoke_with_token_pump(
             reasoning_chars=int(_usage.get("reasoning_chars") or 0),
             streamed=pump.streamed,
             provider_cost=_usage.get("reported_cost"),
+            anatomy=_request_anatomy(messages, call_llm),
         )
     except Exception:
         pass  # telemetry never breaks the call

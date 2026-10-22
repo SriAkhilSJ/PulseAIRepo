@@ -151,3 +151,49 @@ def test_engine_hooks_stay_wired():
     source = (Path(__file__).resolve().parents[1] / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
     assert source.count("call_ledger.record_call(") == 2  # success + failure paths
     assert source.count("call_ledger.record_run(") == 2  # verdict + cancelled paths
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 anatomy (diet measurement, founder 2026-10-21 NEXT TASK)
+# ---------------------------------------------------------------------------
+
+def _fake_pump_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRUSORAI_TELEMETRY_DIR", str(tmp_path))
+    monkeypatch.delenv("CRUSORAI_TELEMETRY", raising=False)
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    from src.graphs.chat_graph import _invoke_with_token_pump
+
+    class _FakeLLM:
+        kwargs = {"tools": [{"name": "write_file", "description": "d" * 396, "parameters": {"type": "object"}}]}
+
+        def invoke(self, messages, config=None):
+            return AIMessage(
+                content="done",
+                usage_metadata={"input_tokens": 5000, "output_tokens": 10, "total_tokens": 5010},
+            )
+
+    _invoke_with_token_pump(
+        _FakeLLM(),
+        [SystemMessage(content="S" * 4000), HumanMessage(content="H" * 400)],
+        "thread-anatomy", "custom", "fake-model",
+    )
+    return [r for r in _lines(tmp_path) if r["kind"] == "call"]
+
+
+def test_pump_records_request_anatomy_per_call(tmp_path, monkeypatch):
+    (call,) = _fake_pump_run(tmp_path, monkeypatch)
+    assert call["sys_tokens"] == 1000  # 4000 chars // 4
+    assert call["user_tokens"] == 100
+    assert call["tools_schema_tokens"] > 100  # bound schema rode the binding
+    assert call["req_tokens_est"] == call["sys_tokens"] + call["user_tokens"]
+
+
+def test_summary_reports_static_share_for_the_diet(tmp_path, monkeypatch):
+    _fake_pump_run(tmp_path, monkeypatch)
+    summary = call_ledger.summarize(directory=str(tmp_path))
+    anatomy = summary["anatomy"]
+    assert anatomy is not None and anatomy["calls"] == 1
+    assert anatomy["avg_sys_tokens"] == 1000
+    assert anatomy["static_share_pct"] > 80  # system+tools dominate: the diet target
+    assert "request anatomy" in call_ledger.format_summary(summary)

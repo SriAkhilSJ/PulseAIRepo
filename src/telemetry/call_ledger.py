@@ -91,6 +91,7 @@ def record_call(
     streamed: bool = False,
     error: str = "",
     provider_cost: float | None = None,
+    anatomy: dict | None = None,
     directory: str | None = None,
 ) -> None:
     """Meter one billed model call. Token counts may be None (provider
@@ -117,6 +118,15 @@ def record_call(
     if provider_cost is not None:
         record["cost"] = round(float(provider_cost), 6)
         record["cost_source"] = "provider"
+    if anatomy:
+        # Phase 1 diet measurement: what the request was MADE OF, in
+        # chars//4-estimated tokens (same heuristic as context_breakdown).
+        # sys + tools_schema are the static tax resent on every call.
+        for key in ("sys_tokens", "tools_schema_tokens", "user_tokens",
+                    "ai_tokens", "tool_result_tokens", "req_tokens_est"):
+            value = anatomy.get(key)
+            if isinstance(value, int) and value >= 0:
+                record[key] = value
     _append(record, directory=directory)
     try:
         from src.telemetry import pricing
@@ -293,6 +303,33 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
             rate = _resolve(model, card, manual) or {}
             currency = str(record_currency(call) or rate.get("currency") or currency or "USD")
 
+    anatomy_rows = [c for c in ok_calls if isinstance(c.get("req_tokens_est"), int)]
+    anatomy = None
+    if anatomy_rows:
+        def _avg(key: str) -> float:
+            return round(sum(int(c.get(key) or 0) for c in anatomy_rows) / len(anatomy_rows), 1)
+
+        def _avg_present(key: str) -> float:
+            present = [int(c[key]) for c in anatomy_rows if isinstance(c.get(key), int)]
+            return round(sum(present) / len(present), 1) if present else 0.0
+
+        avg_req = _avg("req_tokens_est")
+        anatomy = {
+            "calls": len(anatomy_rows),
+            "avg_sys_tokens": _avg("sys_tokens"),
+            # Schema only rides tools-bound calls (grace/ask calls bind
+            # none) — average over the calls that actually carried one.
+            "avg_tools_schema_tokens": _avg_present("tools_schema_tokens"),
+            "avg_user_tokens": _avg("user_tokens"),
+            "avg_ai_tokens": _avg("ai_tokens"),
+            "avg_tool_result_tokens": _avg("tool_result_tokens"),
+            "avg_req_tokens_est": avg_req,
+            "static_share_pct": (
+                round((_avg("sys_tokens") + _avg("tools_schema_tokens")) / avg_req * 100, 1)
+                if avg_req else None
+            ),
+        }
+
     verdicts: dict[str, int] = {}
     for run in runs:
         verdict = str(run.get("verdict") or "unknown")
@@ -331,6 +368,7 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
         "projected_month_tokens": projection_tokens,
         "by_model": by_model,
         "verdicts": verdicts,
+        "anatomy": anatomy,
     }
 
 
@@ -377,6 +415,15 @@ def format_summary(summary: dict) -> str:
             )
     if summary["projected_month_tokens"]:
         lines.append(f"  projected month-end tokens: {summary['projected_month_tokens']:,}")
+    anatomy = summary.get("anatomy")
+    if anatomy:
+        lines.append(
+            f"  request anatomy (avg/call over {anatomy['calls']} calls): "
+            f"~{anatomy['avg_req_tokens_est']:,.0f} tokens = "
+            f"system {anatomy['avg_sys_tokens']:,.0f} + tools {anatomy['avg_tools_schema_tokens']:,.0f} "
+            f"(static {anatomy['static_share_pct']}%) + conversation "
+            f"{anatomy['avg_user_tokens'] + anatomy['avg_ai_tokens'] + anatomy['avg_tool_result_tokens']:,.0f}"
+        )
     for model, bucket in sorted(summary["by_model"].items()):
         model_cost = bucket["cost"]
         cost_part = f", {currency} {model_cost:,.10f}".rstrip("0").rstrip(".") if model_cost is not None else ""
