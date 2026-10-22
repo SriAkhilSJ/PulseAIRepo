@@ -69,7 +69,7 @@ class TestStepTracker(TestCase):
             finished = self.tracker.finish_step()
         expected = (12_000 * 0.018 + 100 * 0.121) / 1_000_000
         self.assertAlmostEqual(finished.estimated_cost_usd, expected, places=10)
-        report = (Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md").read_text()
+        report = (Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md").read_text(encoding="utf-8")
         self.assertIn(f"${expected:.4f} USD", report)
         self.assertNotIn("$1.00/$3.00", report)
 
@@ -82,7 +82,7 @@ class TestStepTracker(TestCase):
             )
             finished = self.tracker.finish_step()
         self.assertIsNone(finished.estimated_cost_usd)
-        report = (Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md").read_text()
+        report = (Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md").read_text(encoding="utf-8")
         self.assertIn("**Unknown** (0/1 token-bearing calls priced in USD)", report)
 
     def test_start_and_finish_step(self):

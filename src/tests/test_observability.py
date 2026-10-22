@@ -1,5 +1,6 @@
 """Contracts: the Floor-6 observability sink — env-driven, fail-closed, JSONL."""
 import json
+import os
 
 from src.observability import record_turn_receipt, sink_path
 
@@ -27,7 +28,12 @@ def test_unknown_estimated_cost_is_written_as_null_not_zero(monkeypatch, tmp_pat
 
 def test_fail_closed_never_raises(monkeypatch, tmp_path):
     monkeypatch.setenv("CRUSORAI_OBSERVABILITY", "on")
-    monkeypatch.setenv("CRUSORAI_OBSERVABILITY_PATH", "/proc/definitely/not/writable/x.jsonl")
+    if os.name == "nt":
+        # a nonexistent drive is unwritable on Windows, as /proc is on POSIX
+        poison = "Q:\\definitely\\not\\writable\\x.jsonl"
+    else:
+        poison = "/proc/definitely/not/writable/x.jsonl"
+    monkeypatch.setenv("CRUSORAI_OBSERVABILITY_PATH", poison)
     assert record_turn_receipt(thread_id="s2") is False  # swallowed, no raise
 
 
