@@ -69,9 +69,9 @@ def _fallback_currency() -> str:
 # --------------------------------------------------------------------------
 
 _PER_1M_HINTS = ("per_1m", "per_million", "per-1m", "1m_tokens", "_1m", "per_m")
-_INPUT_KEYS = ("input_per_1m", "input_price_per_1m", "prompt_per_1m", "prompt_price_per_1m",
+_INPUT_KEYS = ("input_per_1m_usd", "input_per_1m_inr", "input_per_1m", "input_price_per_1m", "prompt_per_1m", "prompt_price_per_1m",
                "input_price_per_million", "prompt_price_per_million", "input", "prompt", "input_price", "prompt_price")
-_OUTPUT_KEYS = ("output_per_1m", "output_price_per_1m", "completion_per_1m", "completion_price_per_1m",
+_OUTPUT_KEYS = ("output_per_1m_usd", "output_per_1m_inr", "output_per_1m", "output_price_per_1m", "completion_per_1m", "completion_price_per_1m",
                 "output_price_per_million", "completion_price_per_million", "output", "completion", "output_price", "completion_price")
 
 
@@ -88,14 +88,14 @@ def _as_float(value) -> float | None:
     return None
 
 
-def _pick(pricing: dict, keys: tuple[str, ...]) -> tuple[float | None, bool]:
-    """(value, explicitly_per_1m) for the first known key present."""
+def _pick(pricing: dict, keys: tuple[str, ...]) -> tuple[float | None, bool, str]:
+    """(value, explicitly_per_1m, matched_key) for the first known key."""
     for key in keys:
         if key in pricing:
             number = _as_float(pricing.get(key))
             if number is not None:
-                return number, any(hint in key for hint in _PER_1M_HINTS)
-    return None, False
+                return number, any(hint in key for hint in _PER_1M_HINTS), key
+    return None, False, ""
 
 
 def _parse_entry(entry: dict, default_currency: str) -> tuple[str, dict] | None:
@@ -106,8 +106,8 @@ def _parse_entry(entry: dict, default_currency: str) -> tuple[str, dict] | None:
         return None
     pricing = entry.get("pricing")
     pricing = pricing if isinstance(pricing, dict) else entry
-    input_price, input_1m = _pick(pricing, _INPUT_KEYS)
-    output_price, output_1m = _pick(pricing, _OUTPUT_KEYS)
+    input_price, input_1m, input_key = _pick(pricing, _INPUT_KEYS)
+    output_price, output_1m, _output_key = _pick(pricing, _OUTPUT_KEYS)
     if input_price is None or output_price is None:
         return None
     # Scale: explicit per-1M keys are taken as-is. Bare prompt/completion
@@ -119,9 +119,18 @@ def _parse_entry(entry: dict, default_currency: str) -> tuple[str, dict] | None:
             return value
         return value * 1_000_000
 
+    suffix_currency = ""
+    for matched in (input_key, _output_key):
+        if matched.endswith("_usd"):
+            suffix_currency = "USD"
+            break
+        if matched.endswith("_inr"):
+            suffix_currency = "INR"
+            break
     currency = str(
         (pricing.get("currency") if isinstance(pricing, dict) else None)
         or entry.get("currency")
+        or suffix_currency
         or default_currency
     )
     return model_id, {
@@ -153,7 +162,33 @@ def parse_catalog(payload, default_currency: str = "") -> dict[str, dict]:
         if parsed:
             model_id, rate = parsed
             rates[model_id] = rate
-    return rates
+    return _maybe_convert_to_inr(rates)
+
+
+# Velona's USD->INR wallet conversion (field 2026-10-21, desktop relay):
+# INR price = USD price x prevailing fx x 1.005 (forex spread) x 1.07
+# (gateway fee). The fx rate itself is market data this repo must not
+# invent: it only converts when the founder supplies CRUSORAI_USD_INR.
+_FOREX_SPREAD = 1.005
+_GATEWAY_FEE = 1.07
+
+
+def _maybe_convert_to_inr(rates: dict[str, dict]) -> dict[str, dict]:
+    if os.environ.get("CRUSORAI_PRICING_CURRENCY", "").strip().upper() != "INR":
+        return rates
+    fx = _as_float(os.environ.get("CRUSORAI_USD_INR", ""))
+    if not fx:
+        return rates
+    multiplier = fx * _FOREX_SPREAD * _GATEWAY_FEE
+    converted: dict[str, dict] = {}
+    for model_id, rate in rates.items():
+        rate = dict(rate)
+        if str(rate.get("currency") or "").upper() == "USD":
+            rate["input_per_1m"] = round(float(rate["input_per_1m"]) * multiplier, 6)
+            rate["output_per_1m"] = round(float(rate["output_per_1m"]) * multiplier, 6)
+            rate["currency"] = "INR"
+        converted[model_id] = rate
+    return converted
 
 
 # --------------------------------------------------------------------------
@@ -163,7 +198,17 @@ def parse_catalog(payload, default_currency: str = "") -> dict[str, dict]:
 def _http_get_json(url: str, api_key: str, timeout: float) -> object:
     request = urllib.request.Request(
         url,
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+            # Field 2026-10-21 (desktop, live evidence): Cloudflare Error
+            # 1010 bans the python-urllib default UA on velona.in — the
+            # catalog only answers a browser-shaped agent string.
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+        },
         method="GET",
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - provider URL from founder env
@@ -178,6 +223,11 @@ def candidate_urls(base: str) -> list[str]:
     urls = [base + "/models"] if base else []
     if base.endswith("/v1"):
         origin = base[: -len("/v1")]
+        # Velona's native priced catalog (field 2026-10-21, desktop live
+        # evidence: 468 models with per-model USD pricing) lives on the
+        # gateway surface, not under /v1 — try it before the generic
+        # OpenRouter-style layouts.
+        urls.append(origin + "/gateway/v1/models")
         urls.append(origin + "/api/v1/models")
         urls.append(origin + "/api/models")
     return urls

@@ -322,10 +322,10 @@ def summarize(month: str | None = None, directory: str | None = None, now: datet
         "output_tokens": _sum(ok_calls, "output_tokens"),
         "total_tokens": total_tokens,
         "unknown_token_calls": sum(1 for c in ok_calls if c.get("input_tokens") is None),
-        "cost": round(cost_total, 4) if cost_known_calls else None,
+        "cost": round(cost_total, 10) if cost_known_calls else None,
         "currency": currency if cost_known_calls else "",
         "cost_per_completed_run": (
-            round(cost_total / completed, 4) if cost_known_calls and completed else None
+            round(cost_total / completed, 10) if cost_known_calls and completed else None
         ),
         "projected_month_cost": projection_cost,
         "projected_month_tokens": projection_tokens,
@@ -366,10 +366,10 @@ def format_summary(summary: dict) -> str:
             "provider's catalog, or set CRUSORAI_RATE_CARD / rates.json manually."
         )
     else:
-        lines.append(f"  cost so far: {currency} {cost:,.4f}".rstrip("0").rstrip("."))
+        lines.append(f"  cost so far: {currency} {cost:,.10f}".rstrip("0").rstrip("."))
         if summary["cost_per_completed_run"] is not None:
             lines.append(
-                f"  cost per completed turn: {currency} {summary['cost_per_completed_run']:,.4f}".rstrip("0").rstrip(".")
+                f"  cost per completed turn: {currency} {summary['cost_per_completed_run']:,.10f}".rstrip("0").rstrip(".")
             )
         if summary["projected_month_cost"] is not None:
             lines.append(
@@ -379,7 +379,7 @@ def format_summary(summary: dict) -> str:
         lines.append(f"  projected month-end tokens: {summary['projected_month_tokens']:,}")
     for model, bucket in sorted(summary["by_model"].items()):
         model_cost = bucket["cost"]
-        cost_part = f", {currency} {model_cost:,.4f}".rstrip("0").rstrip(".") if model_cost is not None else ""
+        cost_part = f", {currency} {model_cost:,.10f}".rstrip("0").rstrip(".") if model_cost is not None else ""
         lines.append(
             f"  - {model}: {bucket['calls']} calls, {bucket['input_tokens'] + bucket['output_tokens']:,} tokens"
             f"{cost_part}, {bucket['wall_s']:.0f}s model time"
