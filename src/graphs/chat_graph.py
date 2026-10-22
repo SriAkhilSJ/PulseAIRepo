@@ -2663,6 +2663,14 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     ]
     last = state.get("messages", [])[-1] if state.get("messages") else None
     if bool(getattr(last, "additional_kwargs", {}).get("crusor_cancelled")):
+        try:
+            from src.telemetry import call_ledger
+            call_ledger.record_run(
+                str((config.get("configurable") or {}).get("thread_id") or "default"),
+                "cancelled",
+            )
+        except Exception:
+            pass  # telemetry never breaks finalization
         return {
             "task_completed": False,
             "task_status": "cancelled",
@@ -2789,6 +2797,14 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         else "completed"
     )
     task_succeeded = verdict == "completed"
+    try:
+        from src.telemetry import call_ledger
+        call_ledger.record_run(
+            str((config.get("configurable") or {}).get("thread_id") or "default"),
+            verdict,
+        )
+    except Exception:
+        pass  # telemetry never breaks finalization
     if not task_succeeded:
         plan = finalize_plan(
             plan=list(state.get("plan", [])),
@@ -3744,18 +3760,41 @@ def _invoke_with_token_pump(
         result = call_llm.invoke(messages, config={"callbacks": [pump]})
     except TypeError:
         result = call_llm.invoke(messages)
-    except Exception:
+    except Exception as _call_exc:
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
         _TURN_LAST_CALL_TEXT[thread_id] = pump.painted_chars
         # Failed requests cost wall time too — account before re-raising.
         _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
             time.monotonic() - _model_t0
         )
+        try:
+            from src.telemetry import call_ledger
+            call_ledger.record_call(
+                thread_id, provider, model,
+                time.monotonic() - _model_t0,
+                streamed=pump.streamed, error=type(_call_exc).__name__,
+            )
+        except Exception:
+            pass  # telemetry never breaks the call
         raise
     _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
     _TURN_MODEL_WALL[thread_id] = _TURN_MODEL_WALL.get(thread_id, 0.0) + (
         time.monotonic() - _model_t0
     )
+    try:
+        from src.telemetry import call_ledger
+        _usage = provider_response_info(result)
+        call_ledger.record_call(
+            thread_id, provider, model,
+            time.monotonic() - _model_t0,
+            input_tokens=_usage.get("input_tokens"),
+            output_tokens=_usage.get("output_tokens"),
+            total_tokens=_usage.get("total_tokens"),
+            reasoning_chars=int(_usage.get("reasoning_chars") or 0),
+            streamed=pump.streamed,
+        )
+    except Exception:
+        pass  # telemetry never breaks the call
     if enable_reasoning and not pump._think_seen:
         # Streamed but thought-less: some routers carry reasoning only on the
         # AGGREGATED response (reasoning_content), never on chunks. Flush it
