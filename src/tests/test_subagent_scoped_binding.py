@@ -65,11 +65,44 @@ def test_code_child_binds_write_and_execution(tmp_path):
 
 
 def test_parent_bind_unchanged_without_strict_scope(tmp_path):
+    # Knife #1: the parent now binds the narrow model-pulled core (not the
+    # full registry) — strict scoping stays child-only, but the general
+    # parent no longer pays the full 65-tool schema bill every call.
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    config = _config(tmp_path)
     names = [t.name for t in chat_graph._resolve_bound_tools(
-        _state(), _config(tmp_path))]
-    # The parent still gets the broad surface (waist-by-task is a
-    # separate, later lever); strict scoping is child-only.
-    assert len(names) > 40, len(names)
+        _state(), config)]
+    assert chat_graph._resolve_bound_tools.__doc__ is not None  # binding still task-agnostic
+    assert "find_tools" in names
+    assert "write_file" in names and "read_file" in names
+    # Specialized caps (web, browser, target, delegation) are not in the first
+    # parent call — they are available for find_tools and bound after pull.
+    assert "web_search" not in names
+    assert "browser_navigate" not in names
+    assert config["configurable"]["tool_search_active"] is True
+    assert "web_search" in config["configurable"]["tool_search_available_names"]
+    assert len(names) == 22, names  # core + find_tools, not the 65-tool registry
+
+    # A real find_tools result pulls a specialized tool into the next call.
+    activated_state = {
+        **_state(),
+        "messages": [
+            HumanMessage(content="need web"),
+            AIMessage(content="", tool_calls=[{
+                "name": "find_tools",
+                "args": {"query": "web search"},
+                "id": "find-web",
+            }]),
+            ToolMessage(
+                content="Activated for the next model call: web_search, web_fetch",
+                tool_call_id="find-web",
+                name="find_tools",
+            ),
+        ],
+    }
+    activated = {t.name for t in chat_graph._resolve_bound_tools(activated_state, _config(tmp_path))}
+    assert "web_search" in activated
 
 
 def test_real_delegate_chain_scopes_the_child_bind(tmp_path):

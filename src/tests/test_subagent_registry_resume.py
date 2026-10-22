@@ -203,7 +203,12 @@ def test_batch_resume_entry(captured, tmp_path):
 def test_bound_delegate_description_lists_workspace_agents(tmp_path):
     """OpenCode builds the task description from the live registry:
     after binding in a workspace with a custom agent, the delegate
-    tool's description names it — and rebinding never stacks lists."""
+    tool's description names it — and rebinding never stacks lists.
+    Under Knife #1 delegate is not in the first-call core; the model
+    pulls it with find_tools, after which the same description refresh
+    and non-stacking guarantee must hold."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
     agents_dir = tmp_path / ".crusorai" / "agents"
     agents_dir.mkdir(parents=True)
     (agents_dir / "release-writer.md").write_text(
@@ -212,10 +217,31 @@ def test_bound_delegate_description_lists_workspace_agents(tmp_path):
     )
     from src.graphs import chat_graph as _cg
 
-    state = {"current_task": "delegate work", "plan": [], "execution_trace": [], "iteration_used": 0}
-    config = {"configurable": {"workspace": str(tmp_path)}}
+    base_state = {"current_task": "delegate work", "plan": [], "execution_trace": [], "iteration_used": 0}
+    base_config = {"configurable": {"workspace": str(tmp_path)}}
+    # First call: delegate not in core, but available for pull.
+    first_bound = _cg._resolve_bound_tools(base_state, base_config)
+    assert "delegate_to_subagent" not in {t.name for t in first_bound}
+    assert "delegate_to_subagent" in base_config["configurable"]["tool_search_available_names"]
+
+    activated_state = {
+        **base_state,
+        "messages": [
+            HumanMessage(content="delegate work"),
+            AIMessage(content="", tool_calls=[{
+                "name": "find_tools",
+                "args": {"query": "delegate to subagent"},
+                "id": "find-delegate",
+            }]),
+            ToolMessage(
+                content="Activated for the next model call: delegate_to_subagent, delegate_to_subagent_batch",
+                tool_call_id="find-delegate",
+                name="find_tools",
+            ),
+        ],
+    }
     for _ in range(2):
-        bound = _cg._resolve_bound_tools(state, config)
+        bound = _cg._resolve_bound_tools(activated_state, {"configurable": {"workspace": str(tmp_path)}})
         delegate = next(t for t in bound if t.name == "delegate_to_subagent")
         assert "release-writer" in delegate.description
         assert delegate.description.count("Available agents:") == 1
