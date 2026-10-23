@@ -77,10 +77,11 @@ def _journal_run(
     finally:
         event_journal_module.sanitize_event_payload = original
 
-    with sqlite3.connect(path) as conn:
-        encoded = conn.execute(
-            "SELECT payload_json FROM runtime_events ORDER BY seq LIMIT 1"
-        ).fetchone()[0]
+    conn = sqlite3.connect(path)
+    try:
+        encoded = conn.execute("SELECT payload_json FROM runtime_events ORDER BY seq LIMIT 1").fetchone()[0]
+    finally:
+        conn.close()
     return {
         "writes": writes,
         "median_ms": round(statistics.median(samples), 4),
