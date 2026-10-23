@@ -784,6 +784,7 @@ def redact_sensitive_text(
     code_file: bool = False,
     file_read: bool = False,
     redact_url_credentials: bool = False,
+    non_reusable: bool = False,
 ) -> str:
     """Apply all redaction patterns to a block of text.
 
@@ -797,6 +798,10 @@ def redact_sensitive_text(
     URL userinfo. The default remains False because actionable OAuth callback,
     magic-link, and pre-signed URLs must survive ordinary tool flows unchanged.
 
+    Set non_reusable=True at durable-storage boundaries to replace every
+    recognized credential value with a sentinel that preserves none of its
+    random body. Ordinary live logs keep the shorter head/tail display mask.
+
     Set code_file=True to skip the ENV-assignment and JSON-field regex
     patterns when the text is known to be source code (e.g. MAX_TOKENS=***
     constants, "apiKey": "test" fixtures). Prefix patterns, auth headers,
@@ -804,8 +809,8 @@ def redact_sensitive_text(
 
     Set file_read=True for file *content* returned to the agent (read_file /
     search_files / cat). Secrets are STILL redacted — they are never exposed —
-    but prefix-matched credentials are replaced with a non-reusable sentinel
-    (``«redacted:ghp_…»``) instead of a head/tail-preserving mask
+    and recognized credentials use a non-reusable sentinel (for example,
+    ``«redacted:ghp_…»``) instead of a head/tail-preserving mask
     (``ghp_S1...Pn2T``). The old mask looked like a real-but-truncated key, so
     an agent reading it from config.yaml and writing it back silently corrupted
     the stored credential into a dead 13-char value → 401 (issue #35519). The
@@ -836,9 +841,15 @@ def redact_sensitive_text(
     if file_read:
         code_file = True
 
+    mask_token = (
+        _mask_token_nonreusable
+        if file_read or non_reusable
+        else _mask_token
+    )
+
     # Known prefixes (sk-, ghp_, etc.) — gate on substring presence
     if _has_known_prefix_substring(text):
-        _prefix_sub = _mask_token_nonreusable if file_read else _mask_token
+        _prefix_sub = mask_token
         # Control/zero-width chars (\\n, \\r, ESC, U+200B, …) split a token
         # body so _PREFIX_RE cannot match across them — a secret smuggled as
         # ``sk-abc\\x1bdef…`` leaks verbatim (issue #77484). Mask such runs by
@@ -865,7 +876,7 @@ def redact_sensitive_text(
                 # embedded matching inside the helper.
                 if not _key_has_secret_keyword(name):
                     return m.group(0)
-                return f"{name}={quote}{_mask_token(value)}{quote}"
+                return f"{name}={quote}{mask_token(value)}{quote}"
             text = _ENV_ASSIGN_RE.sub(_redact_env, text)
             # Lowercase env names (``openai_key=…``). Skip URLs — the query
             # string may contain ``token=``/``key=`` params that are
@@ -900,7 +911,7 @@ def redact_sensitive_text(
                 # not a leaked secret value.
                 if _ENV_LOOKUP_VALUE_RE.match(value):
                     return m.group(0)
-                return f'{key}: "{_mask_token(value)}"'
+                return f'{key}: "{mask_token(value)}"'
             text = _JSON_FIELD_RE.sub(_redact_json, text)
 
         # Unquoted YAML / colon config: password: ***  (after JSON so quoted
@@ -919,7 +930,7 @@ def redact_sensitive_text(
                 # document text, not credentials (nearai/ironclaw#6129).
                 if not _key_has_secret_keyword(key):
                     return m.group(0)
-                return f"{key}{sep}{_mask_token(value)}"
+                return f"{key}{sep}{mask_token(value)}"
             text = _YAML_ASSIGN_RE.sub(_redact_yaml, text)
 
     # Authorization headers — _AUTH_HEADER_RE matches any scheme after
@@ -927,7 +938,7 @@ def redact_sensitive_text(
     # cheapest substring gate that covers every casing without a casefold().
     if "uthorization" in text or "UTHORIZATION" in text:
         text = _AUTH_HEADER_RE.sub(
-            lambda m: m.group(1) + (m.group(2) or "") + _mask_token(m.group(3)),
+            lambda m: m.group(1) + (m.group(2) or "") + mask_token(m.group(3)),
             text,
         )
 
@@ -935,7 +946,7 @@ def redact_sensitive_text(
     # colon-separated, so gate on ":" — the regex itself is the precise filter.
     if ":" in text:
         text = _SECRET_HEADER_RE.sub(
-            lambda m: m.group(1) + _mask_token(m.group(2)),
+            lambda m: m.group(1) + mask_token(m.group(2)),
             text,
         )
 
@@ -974,13 +985,13 @@ def redact_sensitive_text(
         # query-string tokens are left to pass through (see the web-URL note
         # below). See _URL_BARE_TOKEN_RE for the false-positive guards.
         text = _URL_BARE_TOKEN_RE.sub(
-            lambda m: f"{m.group(1)}{_mask_token(m.group(2))}{m.group(3)}",
+            lambda m: f"{m.group(1)}{mask_token(m.group(2))}{m.group(3)}",
             text,
         )
 
     # JWT tokens (eyJ... — base64-encoded JSON headers)
     if "eyJ" in text:
-        text = _JWT_RE.sub(lambda m: _mask_token(m.group(0)), text)
+        text = _JWT_RE.sub(lambda m: mask_token(m.group(0)), text)
 
     # NOTE: Web-URL redaction (query params + userinfo + HTTP access-log
     # request targets) is intentionally OFF. Many legitimate workflows pass

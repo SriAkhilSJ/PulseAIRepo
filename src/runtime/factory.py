@@ -19,7 +19,7 @@ class RuntimeServices:
     def close(self) -> None:
         self.journal.close()
         try:
-            self.verification._conn.close()
+            self.verification.close()
         except Exception:
             pass
 

@@ -33,13 +33,24 @@ def _record_workspace_edit(config: RunnableConfig, workspace: str, paths: list[s
     still fresh.
     """
     try:
-        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        configurable = (config or {}).get("configurable", {})
+        session_id = str(configurable.get("thread_id", "default"))
         from src.runtime.factory import get_runtime_services
-        status = get_runtime_services().verification.mark_edited(
+        from src.runtime.verification_events import journal_verification_update
+        services = get_runtime_services()
+        status = services.verification.mark_edited(
             session_id=session_id, workspace=workspace, paths=paths,
         )
+        update = journal_verification_update(
+            services,
+            status,
+            session_id=session_id,
+            workspace=workspace,
+            evidence_kind="edit",
+            turn_id=str(configurable.get("turn_id") or "") or None,
+        )
         from src.dashboard.event_bus import event_bus
-        event_bus.emit("verification.updated", {**status, "thread_id": session_id})
+        event_bus.emit("verification.updated", {**update, "thread_id": session_id})
     except Exception as exc:
         try:
             from src.dashboard.event_bus import event_bus
@@ -973,15 +984,53 @@ def _record_explicit_verification(
     config: RunnableConfig, workspace: str, *, ok: bool, output: str
 ) -> None:
     try:
-        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        configurable = (config or {}).get("configurable", {})
+        session_id = str(configurable.get("thread_id", "default"))
         from src.runtime.factory import get_runtime_services
-        evidence = get_runtime_services().verification.record_command(
+        from src.runtime.verification_events import journal_verification_update
+        services = get_runtime_services()
+        evidence = services.verification.record_command(
             session_id=session_id, workspace=workspace,
             command="npm run typecheck", exit_code=0 if ok else 1, output=output,
         )
         if evidence:
+            update = journal_verification_update(
+                services,
+                evidence,
+                session_id=session_id,
+                workspace=workspace,
+                evidence_kind="explicit",
+                turn_id=str(configurable.get("turn_id") or "") or None,
+            )
             from src.dashboard.event_bus import event_bus
-            event_bus.emit("verification.updated", {**evidence, "thread_id": session_id})
+            event_bus.emit("verification.updated", {**update, "thread_id": session_id})
+    except Exception:
+        pass
+
+
+def _record_verification_unavailable(
+    config: RunnableConfig, workspace: str, *, reason: str
+) -> None:
+    """Persist an explicit could-not-run receipt and publish one envelope."""
+    try:
+        configurable = (config or {}).get("configurable", {})
+        session_id = str(configurable.get("thread_id", "default"))
+        from src.runtime.factory import get_runtime_services
+        from src.runtime.verification_events import journal_verification_update
+        services = get_runtime_services()
+        status = services.verification.mark_unavailable(
+            session_id=session_id, workspace=workspace, reason=reason,
+        )
+        update = journal_verification_update(
+            services,
+            status,
+            session_id=session_id,
+            workspace=workspace,
+            evidence_kind="unavailable",
+            turn_id=str(configurable.get("turn_id") or "") or None,
+        )
+        from src.dashboard.event_bus import event_bus
+        event_bus.emit("verification.updated", {**update, "thread_id": session_id})
     except Exception:
         pass
 
@@ -1090,14 +1139,7 @@ def typecheck_workspace(config: RunnableConfig) -> str:
             "here, so there is nothing to typecheck. (If you expected a TS "
             "project, verify your setup.)"
         )
-        try:
-            session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
-            from src.runtime.factory import get_runtime_services
-            get_runtime_services().verification.mark_unavailable(
-                session_id=session_id, workspace=workspace, reason=message,
-            )
-        except Exception:
-            pass
+        _record_verification_unavailable(config, workspace, reason=message)
         return message
 
     project_label = (
@@ -1114,14 +1156,7 @@ def typecheck_workspace(config: RunnableConfig) -> str:
             "(node_modules/typescript missing) — skipped. Install typescript "
             "if you want tsc-level verification."
         )
-        try:
-            session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
-            from src.runtime.factory import get_runtime_services
-            get_runtime_services().verification.mark_unavailable(
-                session_id=session_id, workspace=workspace, reason=message,
-            )
-        except Exception:
-            pass
+        _record_verification_unavailable(config, workspace, reason=message)
         return message
 
     try:

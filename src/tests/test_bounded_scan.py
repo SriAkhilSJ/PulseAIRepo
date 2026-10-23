@@ -249,17 +249,19 @@ def test_priority_order_shallow_first(tmp_path):
     assert got.index("root_thing.py") < got.index("deep/a.py")
 
 
-def test_priority_larger_file_first(tmp_path):
+def test_priority_larger_size_class_first(tmp_path):
     big = _sample_py(tmp_path, 2000)
     _write_tree(tmp_path, {
-        "small.py": "x = 1\n",
-        "big.py": big + "\nx = 2\n",
+        # Names deliberately oppose size order: size class, not lexical luck,
+        # must put the substantive module first.
+        "a_small.py": "x = 1\n",
+        "z_big.py": big + "\nx = 2\n",
     })
     got = [
         p.name
         for p in scan_files(tmp_path, priority=True, limits=ScanLimits(max_files=100))[0]
     ]
-    assert got[0] == "big.py"
+    assert got[0] == "z_big.py"
 
 
 def test_priority_truncation_still_yields_best_prefix(tmp_path):
@@ -277,6 +279,63 @@ def test_priority_truncation_still_yields_best_prefix(tmp_path):
     assert len(got) == 3
     assert report.truncated is True
     assert report.reason == "files"
+
+
+def test_priority_selection_is_independent_of_scandir_order(tmp_path, monkeypatch):
+    """Sort the bounded candidate set, not an OS-ordered max_files prefix."""
+    _write_tree(tmp_path, {
+        "a.py": "x = 1\n",
+        "b.py": "x = 1\n",
+        "c.py": "x = 1\n",
+        "d.py": "x = 1\n",
+        "e.py": "x = 1\n",
+        "f.py": "x = 1\n",
+    })
+
+    import src.context.bounded_scan as bounded_scan
+
+    real_scandir = bounded_scan.os.scandir
+    direction = {"reverse": False}
+
+    class OrderedScandir:
+        def __init__(self, path):
+            self._raw = real_scandir(path)
+            self._entries = iter(sorted(
+                list(self._raw), key=lambda entry: entry.name,
+                reverse=direction["reverse"],
+            ))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._raw.close()
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self._entries)
+
+    monkeypatch.setattr(bounded_scan.os, "scandir", OrderedScandir)
+    limits = ScanLimits(
+        max_files=3, max_bytes=0, max_elapsed=0,
+        max_considered=100, max_visited=100,
+    )
+
+    first_it, first_report = scan_files(
+        tmp_path, priority=True, limits=limits
+    )
+    first = [path.name for path in first_it]
+    direction["reverse"] = True
+    second_it, second_report = scan_files(
+        tmp_path, priority=True, limits=limits
+    )
+    second = [path.name for path in second_it]
+
+    assert first == second == ["a.py", "b.py", "c.py"]
+    assert first_report.extra["priority_candidates"] == 6
+    assert second_report.extra["priority_policy"] == "bounded_top_k_v1"
 
 
 # ---------------------------------------------------------------------------
