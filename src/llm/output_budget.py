@@ -16,6 +16,14 @@ setting as the DESIRED amount. What changes: the provider's stated cap is the up
 provider rejects a request as too large for the remaining window, its own error tells us the allowance for
 one retry (see `note_available_output` / `take_available_output`, and src/llm/context_errors.py for why the
 window itself is never adjusted on an output-cap error).
+
+Reasoning rides in the same envelope (field 2026-10-22, `z-ai/glm-5.3-flash` @ high effort): an endpoint
+that bills hidden reasoning against `max_tokens` truncated a delivery call after ~4k tokens of thinking --
+`finish=length` with zero content, the model asked to continue with nothing to continue FROM. The user's
+knob describes the desired REPLY, so when thinking is enabled the requested amount grows by the active
+thinking budget (src/config/reasoning_config.THINKING_BUDGET_TOKENS). On providers that bill reasoning
+separately the extra is harmless headroom; an over-ask meets the same stated-cap clamp and, failing that,
+the provider's own rejection -> `note_available_output` retry.
 """
 from __future__ import annotations
 
@@ -38,12 +46,21 @@ def _key(model: str | None) -> str:
     return (model or "").strip().lower()
 
 
-def requested_output_cap(model: str | None, provider: str | None = None, requested: int | None = None) -> int:
-    """Tokens to ask for: what the user wants, clamped by what the model says it can emit.
+def requested_output_cap(
+    model: str | None,
+    provider: str | None = None,
+    requested: int | None = None,
+    thinking_tokens: int = 0,
+) -> int:
+    """Tokens to ask for: what the user wants (plus thinking), clamped by what the model says it can emit.
 
     No invented ceiling. If the endpoint stated nothing, we send what was asked for -- the absence of a
     number is not evidence for 8,192, and guessing one is how a 512,000-token model gets treated like a
     small one.
+
+    ``thinking_tokens``: hidden-reasoning budget the endpoint bills inside ``max_tokens`` for this call
+    (0 when thinking is off). The user's knob is the desired visible reply, so the requested amount is the
+    reply PLUS reasoning -- not either-or.
     """
     if requested is None:
         raw = os.environ.get("CRUSORAI_DELIVERY_MAX_TOKENS", "").strip()
@@ -51,6 +68,11 @@ def requested_output_cap(model: str | None, provider: str | None = None, request
             requested = int(raw) if raw else DEFAULT_REQUESTED
         except ValueError:
             requested = DEFAULT_REQUESTED
+
+    try:
+        requested = max(0, int(requested)) + max(0, int(thinking_tokens))
+    except (TypeError, ValueError):
+        requested = DEFAULT_REQUESTED + max(0, int(thinking_tokens or 0))
 
     from src.context.model_budgets import max_output_for
 

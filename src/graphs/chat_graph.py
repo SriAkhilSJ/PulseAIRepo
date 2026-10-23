@@ -2088,8 +2088,18 @@ def ai_node(
             # src/llm/output_budget) — never a constant written here. The
             # user's CRUSORAI_DELIVERY_MAX_TOKENS stays the DESIRED amount.
             from src.llm.output_budget import requested_output_cap, take_available_output
+            from src.config.reasoning_config import THINKING_BUDGET_TOKENS
 
-            allowed = requested_output_cap(model)
+            # Endpoints that bill hidden reasoning inside max_tokens (e.g.
+            # velona/glm-5.3-flash @ high effort) truncate the delivery call
+            # before any content unless the thinking budget is included
+            # (field 2026-10-22); providers billing reasoning separately just
+            # get harmless headroom.
+            _think = 0
+            _effort = (reasoning_config or {}).get("effort", "")
+            if (reasoning_config or {}).get("enabled"):
+                _think = THINKING_BUDGET_TOKENS.get(str(_effort), 0)
+            allowed = requested_output_cap(model, thinking_tokens=_think)
             _room = take_available_output(model)
             if _room:
                 allowed = max(512, min(allowed, _room))
@@ -2325,8 +2335,16 @@ def ai_node(
                     # any rejection headroom — env knob stays the desired
                     # amount; the hardcoded 8,192 is gone.
                     from src.llm.output_budget import requested_output_cap, take_available_output
+                    from src.config.reasoning_config import THINKING_BUDGET_TOKENS
 
-                    allowed = requested_output_cap(model)
+                    # Thinking budget inside max_tokens — same accounting as
+                    # the primary delivery bind (field 2026-10-22).
+                    _think = 0
+                    if (reasoning_config or {}).get("enabled"):
+                        _think = THINKING_BUDGET_TOKENS.get(
+                            str((reasoning_config or {}).get("effort", "")), 0
+                        )
+                    allowed = requested_output_cap(model, thinking_tokens=_think)
                     _room = take_available_output(model)
                     if _room:
                         allowed = max(512, min(allowed, _room))
