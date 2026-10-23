@@ -22,10 +22,12 @@ from src.runtime.windows_shell import select_shell
 # learns the environment, not just the error.
 _IS_WINDOWS = platform.system() == "Windows"
 
-#: How long a cancelled foreground command may take to flush before we answer
-#: anyway. Long enough for a well-behaved child to exit, short enough that a
-#: grandchild holding the pipes cannot stall the turn.
-_CANCEL_DRAIN_TIMEOUT_S = 2.0
+#: Timeout/cancellation cleanup is a single wall-clock budget shared by all
+#: reader threads and the process reap, not one timeout per stream.
+_TERMINAL_DRAIN_TIMEOUT_S = 2.0
+#: Once the shell exits, let both output readers finish within one shared
+#: budget before taking the final snapshot.
+_TERMINAL_OUTPUT_DRAIN_TIMEOUT_S = 10.0
 
 # A command is treated as POSIX-dialect when it reaches a POSIX-only verb or
 # a /tmp (or Unix-style) path. Words are split on whitespace and shell
@@ -91,33 +93,81 @@ def _posix_violations(command: str) -> list[str]:
     return violations
 
 
-# Stores currently known background processes
+# Stores tracked foreground and background processes while their logs are useful.
 _processes = {}
 
-# Protects _processes from simultaneous thread access
+# Protects _processes and each process's output log from simultaneous access.
 _process_lock = threading.Lock()
+_STARTUP_PREVIEW_CHARS = 8_192
+
+
+def _create_terminal_log(process_id: str):
+    """Create a private, persistent output log for one tracked process."""
+    root = os.path.join(os.path.expanduser("~"), ".crusorai", "terminal-logs")
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    path = os.path.join(root, f"{process_id}.log")
+    fd = os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+    return path, os.fdopen(fd, "w", encoding="utf-8", errors="replace", newline="")
+
+
+def _discard_terminal_log(process_id: str) -> None:
+    """Close and remove a completed process log when no paged reread is needed."""
+    with _process_lock:
+        process_data = _processes.pop(process_id, None)
+        if process_data is None:
+            return
+        writer = process_data.get("output_file")
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:
+                pass
+        output_path = process_data.get("output_path")
+    if output_path:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
 
 
 def _read_process_output(
     process_id: str,
     process: subprocess.Popen
 ):
-    """Continuously collect output from a background process."""
-
-    if process.stdout is None:
-        return
-
-    for line in iter(process.stdout.readline, ""):
-
+    """Spool background output to disk and keep only a bounded startup preview."""
+    try:
+        if process.stdout is None:
+            return
+        for line in iter(process.stdout.readline, ""):
+            with _process_lock:
+                process_data = _processes.get(process_id)
+                if process_data is None:
+                    break
+                writer = process_data.get("output_file")
+                if writer is None:
+                    break
+                writer.write(line)
+                writer.flush()
+                process_data["line_count"] += 1
+                remaining = _STARTUP_PREVIEW_CHARS - len(process_data["startup_output"])
+                if remaining > 0:
+                    process_data["startup_output"] += line[:remaining]
+    finally:
+        if process.stdout is not None:
+            try:
+                process.stdout.close()
+            except Exception:
+                pass
         with _process_lock:
             process_data = _processes.get(process_id)
-
-            if process_data is None:
-                break
-
-            process_data["output"].append(line)
-
-    process.stdout.close()
+            writer = process_data.get("output_file") if process_data else None
+            if writer is not None:
+                try:
+                    writer.flush()
+                    writer.close()
+                except Exception:
+                    pass
+                process_data["output_file"] = None
 
 
 @tool
@@ -149,10 +199,22 @@ def read_terminal_output(
         if process_data is None:
             return f"Unknown process ID: {process_id}"
 
-        # Copy while holding the lock.
-        output_lines = list(process_data["output"])
-
-    total_lines = len(output_lines)
+        total_lines = process_data.get("line_count", len(process_data.get("output", [])))
+        output_path = process_data.get("output_path")
+        if output_path:
+            selected_lines = []
+            try:
+                with open(output_path, "r", encoding="utf-8", errors="replace") as output_file:
+                    for line_number, line in enumerate(output_file, start=1):
+                        if line_number >= start_line:
+                            selected_lines.append(line)
+                        if line_number >= end_line:
+                            break
+            except OSError as exc:
+                return f"Could not read output for process {process_id}: {exc}"
+        else:
+            # Compatibility for process records created before file-backed logs.
+            selected_lines = list(process_data.get("output", []))[start_line - 1:end_line]
 
     if total_lines == 0:
         return (
@@ -172,10 +234,6 @@ def read_terminal_output(
         end_line,
         total_lines,
     )
-
-    selected_lines = output_lines[
-        start_line - 1:actual_end
-    ]
 
     output = "".join(selected_lines)
 
@@ -222,16 +280,28 @@ def _spawn_tracked_background(command: str, config: RunnableConfig) -> str:
             | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     else:
         popen_kwargs["start_new_session"] = True
-    process = subprocess.Popen(_bg_argv if _bg_argv is not None else command, **popen_kwargs)
+    output_path, output_file = _create_terminal_log(process_id)
+    try:
+        process = subprocess.Popen(_bg_argv if _bg_argv is not None else command, **popen_kwargs)
+    except Exception:
+        try:
+            output_file.close()
+            os.remove(output_path)
+        except OSError:
+            pass
+        raise
 
-    # Store the process
+    # Store the process and its disk-backed output cursor.
     with _process_lock:
         _processes[process_id] = {
             "process": process,
             "command": command,
             "workspace": workspace,
-            "output": [],
-            "cursor": 0
+            "output_path": output_path,
+            "output_file": output_file,
+            "startup_output": "",
+            "line_count": 0,
+            "cursor": 0,
         }
 
     # Start background output reader
@@ -249,15 +319,25 @@ def _spawn_tracked_background(command: str, config: RunnableConfig) -> str:
     for _ in range(6):
         with _process_lock:
             proc_info = _processes.get(process_id, {})
-            current_out = "".join(proc_info.get("output", []))
+            current_out = proc_info.get("startup_output", "")
         if any(term in current_out.lower() for term in ("ready", "listening", "http://", "localhost:", "compiled", "failed", "error", "vite", "next")):
             break
         time.sleep(0.3)
 
     with _process_lock:
         proc_info = _processes.get(process_id, {})
-        initial_output = "".join(proc_info.get("output", [])).strip()
-        proc_info["cursor"] = len(proc_info.get("output", []))
+        initial_output = proc_info.get("startup_output", "").strip()
+        output_file = proc_info.get("output_file")
+        if output_file is not None:
+            output_file.flush()
+            proc_info["cursor"] = output_file.tell()
+        else:
+            try:
+                with open(proc_info.get("output_path", ""), "r", encoding="utf-8", errors="replace") as logged_output:
+                    logged_output.seek(0, os.SEEK_END)
+                    proc_info["cursor"] = logged_output.tell()
+            except OSError:
+                proc_info["cursor"] = 0
 
     out_preview = f"\n\nInitial startup output:\n{initial_output[:800]}" if initial_output else ""
 
@@ -374,16 +454,22 @@ def check_terminal(
         if process_data is None:
             return f"Unknown process ID: {process_id}"
 
-        start = process_data["cursor"]
-        output_lines = process_data["output"][start:]
-
-        process_data["cursor"] = len(
-            process_data["output"]
-    )
+        start = process_data.get("cursor", 0)
+        output_path = process_data.get("output_path")
+        if output_path:
+            try:
+                with open(output_path, "r", encoding="utf-8", errors="replace") as logged_output:
+                    logged_output.seek(start)
+                    full_new_output = logged_output.read()
+                    process_data["cursor"] = logged_output.tell()
+            except OSError as exc:
+                full_new_output = f"[Could not read process output log: {exc}]"
+        else:
+            output_lines = process_data.get("output", [])[start:]
+            full_new_output = "".join(output_lines)
+            process_data["cursor"] = len(process_data.get("output", []))
 
     return_code = process.poll()
-
-    full_new_output = "".join(output_lines)
 
     new_output = _limit_terminal_output(
         full_new_output
@@ -642,6 +728,203 @@ def _foreground_timeout(value) -> tuple[int, str | None]:
     return requested, None
 
 
+def _capture_foreground_process(
+    process,
+    started: float,
+    timeout: float,
+    is_cancelled,
+    emit,
+    process_id: str | None = None,
+    capture_limit: int | None = None,
+):
+    """Observe process exit and timeout as competing, first-wins outcomes.
+
+    This mirrors OpenCode's shell lifecycle: process/output ownership is
+    separate, exit and timeout race to settle once, killing is detached, and
+    the final output snapshot is taken only after readers drain (or the
+    bounded drain budget expires for a pipe held open by an escaped child).
+    """
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    output_lock = threading.Lock()
+    outcome_lock = threading.Lock()
+    outcome_ready = threading.Event()
+    process_done = threading.Event()
+    output_done = threading.Event()
+    outcome: dict = {"value": None}
+    reader_count = sum(stream is not None for stream in (process.stdout, process.stderr))
+    readers_left = {"count": reader_count}
+    readers_lock = threading.Lock()
+    streamed = {"chars": 0}
+    captures = {
+        "stdout": {"parts": [], "buffer_chars": 0, "head": "", "tail": "", "total": 0, "truncated": False},
+        "stderr": {"parts": [], "buffer_chars": 0, "head": "", "tail": "", "total": 0, "truncated": False},
+    }
+
+    if reader_count == 0:
+        output_done.set()
+
+    def finish(status: str, *, exit_code=None) -> bool:
+        with outcome_lock:
+            if outcome["value"] is not None:
+                return False
+            outcome["value"] = {"status": status, "exit": exit_code}
+            outcome_ready.set()
+            return True
+
+    def capture_line(name: str, parts: list[str], line: str) -> None:
+        state = captures[name]
+        if process_id is None or capture_limit is None:
+            parts.append(line)
+            return
+        state["total"] += len(line)
+        if not state["truncated"]:
+            state["parts"].append(line)
+            state["buffer_chars"] += len(line)
+            if state["buffer_chars"] > capture_limit:
+                buffered = "".join(state["parts"])
+                head_chars = max(1, capture_limit // 3)
+                tail_chars = max(1, capture_limit - head_chars)
+                state["head"] = buffered[:head_chars]
+                state["tail"] = buffered[-tail_chars:]
+                state["parts"].clear()
+                state["buffer_chars"] = 0
+                state["truncated"] = True
+        else:
+            tail_chars = max(1, capture_limit - max(1, capture_limit // 3))
+            state["tail"] = (state["tail"] + line)[-tail_chars:]
+
+    def render_capture(name: str, parts: list[str]) -> str:
+        state = captures[name]
+        if process_id is None or capture_limit is None:
+            return "".join(parts)
+        if not state["truncated"]:
+            return "".join(state["parts"])
+        omitted = max(0, state["total"] - len(state["head"]) - len(state["tail"]))
+        return (
+            f"{state['head']}\n[... {name} output clipped; {omitted} characters omitted, "
+            f"full log available by process ID ...]\n{state['tail']}"
+        )
+
+    def pump(stream, parts: list[str], stream_name: str) -> None:
+        try:
+            for line in iter(stream.readline, ""):
+                with output_lock:
+                    capture_line(stream_name, parts, line)
+                    streamed["chars"] += len(line)
+                    should_emit = streamed["chars"] <= 65_536
+                    if process_id is not None:
+                        with _process_lock:
+                            process_data = _processes.get(process_id)
+                            writer = process_data.get("output_file") if process_data else None
+                            if writer is not None:
+                                try:
+                                    writer.write(line)
+                                    writer.flush()
+                                    process_data["line_count"] += 1
+                                    process_data["capture_truncated"] = any(
+                                        capture["truncated"] for capture in captures.values()
+                                    )
+                                    process_data["captured_chars"] = sum(
+                                        capture["total"] for capture in captures.values()
+                                    )
+                                except Exception:
+                                    pass  # output capture remains authoritative
+                if should_emit:
+                    try:
+                        emit(line)
+                    except Exception:
+                        pass  # streaming is best-effort; capture remains authoritative
+        except Exception:
+            pass
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+            with readers_lock:
+                readers_left["count"] -= 1
+                if readers_left["count"] == 0:
+                    output_done.set()
+
+    pumps = []
+    for stream, parts, stream_name in (
+        (process.stdout, stdout_parts, "stdout"),
+        (process.stderr, stderr_parts, "stderr"),
+    ):
+        if stream is None:
+            continue
+        thread = threading.Thread(target=pump, args=(stream, parts, stream_name), daemon=True)
+        thread.start()
+        pumps.append(thread)
+
+    def watch_exit() -> None:
+        try:
+            finish("exited", exit_code=process.wait())
+        except Exception:
+            finish("exited", exit_code=getattr(process, "returncode", None))
+        finally:
+            process_done.set()
+
+    threading.Thread(target=watch_exit, daemon=True).start()
+
+    def kill_tree_with_grace() -> None:
+        try:
+            if _IS_WINDOWS:
+                from src.context.git_context import _taskkill_tree
+                if not _taskkill_tree(process.pid):
+                    process.kill()
+                return
+            import signal
+            os.killpg(process.pid, signal.SIGTERM)
+            if not process_done.wait(3.0):
+                os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    while not outcome_ready.wait(0.05):
+        if is_cancelled():
+            if finish("cancelled"):
+                threading.Thread(target=kill_tree_with_grace, daemon=True).start()
+            break
+        if timeout > 0 and time.monotonic() - started >= timeout:
+            if finish("timeout"):
+                # Like OpenCode, recording timeout is immediate; killing must
+                # not block the caller or be cancelled with the timer fiber.
+                threading.Thread(target=kill_tree_with_grace, daemon=True).start()
+            break
+
+    settled = outcome["value"] or {"status": "exited", "exit": getattr(process, "returncode", None)}
+    if settled["status"] == "exited":
+        output_done.wait(_TERMINAL_OUTPUT_DRAIN_TIMEOUT_S)
+    else:
+        # Reap and both output readers share one monotonic deadline. A leaked
+        # descendant cannot grant each pipe a fresh timeout.
+        deadline = time.monotonic() + _TERMINAL_DRAIN_TIMEOUT_S
+        process_done.wait(max(0.0, deadline - time.monotonic()))
+        output_done.wait(max(0.0, deadline - time.monotonic()))
+
+    if process_id is not None:
+        with _process_lock:
+            process_data = _processes.get(process_id)
+            writer = process_data.get("output_file") if process_data else None
+            if writer is not None:
+                try:
+                    writer.flush()
+                    writer.close()
+                except Exception:
+                    pass
+                process_data["output_file"] = None
+
+    with output_lock:
+        stdout = render_capture("stdout", stdout_parts)
+        stderr = render_capture("stderr", stderr_parts)
+    return settled["status"], stdout, stderr
+
+
 @tool
 def terminal(
     command: str,
@@ -781,146 +1064,84 @@ def terminal(
             popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         else:
             popen_kwargs["start_new_session"] = True
-        process = subprocess.Popen(argv if argv is not None else command, **popen_kwargs)
+        process_id = f"fg-{uuid.uuid4().hex[:8]}"
+        output_path, output_file = _create_terminal_log(process_id)
+        try:
+            process = subprocess.Popen(argv if argv is not None else command, **popen_kwargs)
+        except Exception:
+            try:
+                output_file.close()
+                os.remove(output_path)
+            except OSError:
+                pass
+            raise
+        with _process_lock:
+            _processes[process_id] = {
+                "process": process,
+                "command": command,
+                "workspace": workspace,
+                "output_path": output_path,
+                "output_file": output_file,
+                "startup_output": "",
+                "line_count": 0,
+                "cursor": 0,
+                "capture_truncated": False,
+                "captured_chars": 0,
+                "foreground": True,
+            }
+        try:
+            _raw = os.environ.get("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
+            _max_chars = max(1_000, min(int(str(_raw).strip()), 1_000_000))
+        except Exception:
+            _max_chars = 12_000
         started = time.monotonic()
-        stdout = stderr = ""
         session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
         from src.runtime.turn_control import turn_controls
-        # Live output (OpenCode shell-output wiring): reader threads pump
-        # stdout/stderr line by line into the SAME buffers the envelope is
-        # assembled from, emitting each line on the tool.output bus event so
-        # the pane sees output while the command runs. The final result is
-        # unchanged — streaming is a preview of the durable record, never a
-        # second source of truth. Emission is capped (the pane keeps a tail
-        # anyway); collection for the envelope is not.
         from src.runtime.tool_middleware import current_tool_emitter
-        _emit_chunk = current_tool_emitter()
-        _streamed = {"chars": 0}
-        _stdout_parts: list[str] = []
-        _stderr_parts: list[str] = []
-
-        def _pump(stream, parts: list[str]) -> None:
-            try:
-                for line in iter(stream.readline, ""):
-                    parts.append(line)
-                    if _streamed["chars"] <= 65_536:
-                        _streamed["chars"] += len(line)
-                        _emit_chunk(line)
-            except Exception:
-                pass
-
-        _pumps = [
-            threading.Thread(target=_pump, args=(process.stdout, _stdout_parts), daemon=True),
-            threading.Thread(target=_pump, args=(process.stderr, _stderr_parts), daemon=True),
-        ]
-        for _pump_thread in _pumps:
-            _pump_thread.start()
-
-        def _kill_tree() -> None:
-            try:
-                if _IS_WINDOWS:
-                    from src.context.git_context import _taskkill_tree
-                    if not _taskkill_tree(process.pid):
-                        process.kill()
-                else:
-                    import signal
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except Exception:
-                        process.kill()
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
-
-        while True:
-            try:
-                process.wait(timeout=0.2)
-                for _pump_thread in _pumps:
-                    _pump_thread.join(timeout=5)
-                stdout = "".join(_stdout_parts)
-                stderr = "".join(_stderr_parts)
-                break
-            except subprocess.TimeoutExpired:
-                if turn_controls.cancelled(session_id):
-                    # TREE kill on both platforms: the same disease the timeout
-                    # branch below already cures. process.terminate() stops only
-                    # the shell wrapper on Windows, so the real child survives and
-                    # keeps holding the stdout/stderr handles; the unguarded
-                    # communicate() that followed then raised TimeoutExpired out of
-                    # the loop and into the outer handler, which answered a
-                    # cancellation with the TIMEOUT text (live round on a Windows
-                    # host: the foreground-cancel contract never held there).
-                    try:
-                        if _IS_WINDOWS:
-                            from src.context.git_context import _taskkill_tree
-                            if not _taskkill_tree(process.pid):
-                                process.kill()
-                        else:
-                            import signal
-                            os.killpg(process.pid, signal.SIGTERM)
-                    except Exception:
-                        try:
-                            process.kill()
-                        except Exception:
-                            pass
-                    # Bounded and never fatal. Orphaned grandchildren can keep
-                    # the pipes open for their own lifetime, and a truthful
-                    # "cancelled" beats whatever partial output we drop. The
-                    # reader threads own the pipes now, so the drain is a
-                    # bounded join, never a second communicate().
-                    for _pump_thread in _pumps:
-                        _pump_thread.join(timeout=_CANCEL_DRAIN_TIMEOUT_S)
-                    return (
-                        "⛔ Terminal command cancelled by the user before completion. "
-                        f"Command: {command}"
-                    )
-                if time.monotonic() - started >= timeout:
-                    # TREE kill, both platforms. process.kill() on Windows
-                    # kills only the shell wrapper -- npm/node grandchildren
-                    # survive, hold the stdout/stderr pipes, and the old
-                    # unbounded communicate() then hung FOREVER (test5-2: no
-                    # tool_call_end for 322s, watchdog kill on a healthy
-                    # build). Same disease git_context's _taskkill_tree
-                    # already cures; reuse it.
-                    try:
-                        if _IS_WINDOWS:
-                            from src.context.git_context import _taskkill_tree
-                            if not _taskkill_tree(process.pid):
-                                process.kill()
-                        else:
-                            import signal
-                            try:
-                                os.killpg(process.pid, signal.SIGKILL)
-                            except Exception:
-                                process.kill()
-                    except Exception:
-                        process.kill()
-                    for _pump_thread in _pumps:
-                        _pump_thread.join(timeout=10)
-                    # pipes may be held by orphaned grandchildren; the daemon
-                    # pumps never hang the return.
-                    raise subprocess.TimeoutExpired(command, timeout)
+        status, stdout, stderr = _capture_foreground_process(
+            process,
+            started,
+            timeout,
+            is_cancelled=lambda: turn_controls.cancelled(session_id),
+            emit=current_tool_emitter(),
+            process_id=process_id,
+            capture_limit=_max_chars,
+        )
+        if status == "cancelled":
+            return (
+                "⛔ Terminal command cancelled by the user before completion. "
+                f"Command: {command}\nOutput log process ID: {process_id}. "
+                "Use read_terminal_output with this ID to inspect captured output."
+            )
 
         output = ""
         if stdout:
             output += f"STDOUT:\n{stdout}"
         if stderr:
             output += f"\nSTDERR:\n{stderr}"
+        # The capture limit was applied while streaming; the complete output
+        # remains available in the per-process log when capture was clipped.
+        with _process_lock:
+            process_data = _processes.get(process_id, {})
+            capture_truncated = bool(process_data.get("capture_truncated"))
+        if status == "timeout":
+            partial = _limit_terminal_output(output.strip(), _max_chars) if output.strip() else ""
+            message = (
+                f"⛔ run_terminal timed out after {timeout}s (command may be blocked or hung): {command}. "
+                "Retry only with a justified longer timeout, or use start_terminal for a long-running process. "
+                f"Captured output remains available with read_terminal_output(process_id='{process_id}')."
+            )
+            return f"{message}\n\nPartial output:\n{partial}" if partial else message
         output += f"\nExit code: {process.returncode}"
-        # Output budget at the SOURCE, hermes' file-read-cap pattern
-        # (tools/file_tools.py::_get_max_read_chars: a configured knob with a
-        # built-in default -- the number lives in config, not in logic).
-        # Owner run: a recursive listing returned ~5MB and the bridge dropped
-        # the whole frame; the desktop never saw the result. Env-driven, read
-        # per call, clamped. CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS.
-        try:
-            _raw = os.environ.get("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "12000")
-            _max_chars = max(1_000, min(int(str(_raw).strip()), 1_000_000))
-        except Exception:
-            _max_chars = 12_000
+        is_truncated = capture_truncated or len(output.strip()) > _max_chars
         final_output = _limit_terminal_output(output.strip(), _max_chars)
+        if is_truncated:
+            final_output += (
+                f"\n\nFull output is available with read_terminal_output "
+                f"(process_id='{process_id}', start_line=1, end_line=200)."
+            )
+        else:
+            _discard_terminal_log(process_id)
         _record_verification_result(
             config, workspace, command, process.returncode, final_output
         )
@@ -1047,7 +1268,20 @@ def cleanup_terminal_processes() -> str:
 
             if process.poll() is not None:
                 removed.append(process_id)
+                writer = process_data.get("output_file")
+                if writer is not None:
+                    try:
+                        writer.flush()
+                        writer.close()
+                    except Exception:
+                        pass
+                output_path = process_data.get("output_path")
                 del _processes[process_id]
+                if output_path:
+                    try:
+                        os.remove(output_path)
+                    except OSError:
+                        pass
 
     if not removed:
         return "No completed terminal processes to clean up."

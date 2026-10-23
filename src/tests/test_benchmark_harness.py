@@ -479,30 +479,158 @@ def test_test5_headless_approval_is_workspace_scoped_and_payload_size_independen
     ) is False
 
 
-def test_terminal_timeout_tree_kills_and_returns_promptly(monkeypatch, tmp_path):
-    """test5-2 pin: a hung command must produce a bounded tool result via
-    TREE kill -- the old Windows path killed only the wrapper, orphaned
-    children held the pipes, and the unbounded communicate() hung forever
-    (322s silence, watchdog killed a healthy build)."""
-    import sys
-    import time as _time
+def test_background_terminal_output_is_spooled_and_readable(monkeypatch, tmp_path):
+    import io
 
     import src.tools.terminal_tools as tt
 
-    killed = []
-    monkeypatch.setattr(tt, "_IS_WINDOWS", True)
-    import src.context.git_context as gc
-    monkeypatch.setattr(
-        gc, "_taskkill_tree",
-        lambda pid: (killed.append(pid), True)[1],
+    monkeypatch.setenv("HOME", str(tmp_path))
+    process_id = "spooltest"
+    output_path, output_file = tt._create_terminal_log(process_id)
+    class FakeProcess:
+        stdout = io.StringIO("first line\nsecond line\nthird line\n")
+
+    with tt._process_lock:
+        tt._processes[process_id] = {
+            "output_path": output_path,
+            "output_file": output_file,
+            "line_count": 0,
+            "startup_output": "",
+        }
+    try:
+        tt._read_process_output(process_id, FakeProcess())
+        assert "output" not in tt._processes[process_id], "full output must not remain in memory"
+        result = tt.read_terminal_output.func(process_id, 2, 3)
+        assert "Total lines: 3" in result
+        assert "Showing lines: 2-3" in result
+        assert "second line\nthird line\n" in result
+        assert os.path.exists(output_path)
+    finally:
+        with tt._process_lock:
+            tt._processes.pop(process_id, None)
+
+
+def test_foreground_terminal_large_output_can_be_paged_from_log(monkeypatch, tmp_path):
+    import io
+    import re
+
+    import src.tools.terminal_tools as tt
+
+    class FakeProcess:
+        pid = 9876
+        returncode = 0
+
+        def __init__(self):
+            self.stdout = io.StringIO("output line\n" * 2_000)
+            self.stderr = io.StringIO("")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    process = FakeProcess()
+    monkeypatch.setattr(tt.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(tt, "_record_verification_result", lambda *args: None)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "1000")
+
+    runner = getattr(tt.run_terminal, "func", tt.run_terminal)
+    result = runner(
+        "echo many",
+        {"configurable": {"thread_id": "spool-large", "workspace": str(tmp_path)}},
     )
+    match = re.search(r"process_id='([^']+)'", result)
+    assert "Terminal output truncated" in result
+    assert match, "truncated foreground result must expose its output-log ID"
+    with tt._process_lock:
+        process_data = tt._processes[match.group(1)]
+        assert process_data["capture_truncated"] is True
+        assert process_data["captured_chars"] == 24_000
+    page = tt.read_terminal_output.func(match.group(1), 1_999, 2_000)
+    assert "Total lines: 2000" in page
+    assert "Showing lines: 1999-2000" in page
+    assert page.count("output line") == 2
+    tt._discard_terminal_log(match.group(1))
+
+
+def test_terminal_timeout_tree_kills_and_returns_promptly(monkeypatch, tmp_path):
+    """A timeout returns within one drain budget even if both pipes stay open."""
+    import threading
+    import time as _time
+
+    import src.tools.terminal_tools as tt
+    import src.context.git_context as gc
+    import src.tools.shadow_checkpoints as checkpoints
+
+    release_readers = threading.Event()
+    killed = []
+
+    class BlockingPipe:
+        def __init__(self, first_line=""):
+            self.first_line = first_line
+
+        def readline(self):
+            if self.first_line:
+                line, self.first_line = self.first_line, ""
+                return line
+            release_readers.wait(30)
+            return ""
+
+    class FakeProcess:
+        pid = 4321
+
+        def __init__(self):
+            self.stdout = BlockingPipe("partial output before timeout\n")
+            self.stderr = BlockingPipe()
+            self.returncode = None
+            self.was_killed = threading.Event()
+
+        def wait(self, timeout=None):
+            if not self.was_killed.wait(timeout if timeout is not None else 60):
+                raise tt.subprocess.TimeoutExpired("fake-command", timeout)
+            self.returncode = -9
+            return self.returncode
+
+        def kill(self):
+            self.was_killed.set()
+            self.returncode = -9
+
+    process = FakeProcess()
+
+    def fake_taskkill_tree(pid):
+        killed.append(pid)
+        process.was_killed.set()
+        return True
+
+    monkeypatch.setattr(tt, "_IS_WINDOWS", True)
+    monkeypatch.setattr(gc, "_taskkill_tree", fake_taskkill_tree)
+    monkeypatch.setattr(tt.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(checkpoints, "checkpoint_before_mutation", lambda *args: None)
+    monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CRUSORAI_TERMINAL_TIMEOUT", "1")
-    hang = f'"{sys.executable}" -c "import time; time.sleep(60)"'
+    # Keep the test fast while proving the two blocked readers share—not
+    # each receive—the cleanup deadline.
+    monkeypatch.setattr(tt, "_TERMINAL_DRAIN_TIMEOUT_S", 0.25)
+
     t0 = _time.monotonic()
     runner = getattr(tt.run_terminal, "func", tt.run_terminal)  # StructuredTool -> raw fn
-    result = runner(hang, {"configurable": {"thread_id": "t5-pin", "workspace": str(tmp_path)}})
+    try:
+        result = runner(
+            "hang-for-test",
+            {"configurable": {"thread_id": "t5-pin", "workspace": str(tmp_path)}},
+        )
+    finally:
+        # Release daemon readers after the bounded return so the test leaves
+        # no background threads behind.
+        release_readers.set()
     elapsed = _time.monotonic() - t0
+
     assert "timed out" in result, result[:200]
-    assert elapsed < 15, f"timeout path must return promptly, took {elapsed:.1f}s"
-    assert killed, "Windows timeout must consult the tree-kill (not wrapper kill)"
-    assert killed[0] > 0
+    assert "partial output before timeout" in result, "return the captured output with the timeout receipt"
+    match = __import__("re").search(r"process_id='([^']+)'", result)
+    assert match, "timeout receipt must expose the log ID for paged reads"
+    logged = tt.read_terminal_output.func(match.group(1), 1, 20)
+    assert "partial output before timeout" in logged
+    assert elapsed < 2.0, f"timeout cleanup exceeded its single drain budget: {elapsed:.2f}s"
+    assert killed == [process.pid], "timeout must kill the process tree"
+    assert process.returncode == -9, "timeout must reap the process after tree kill"
+    tt._discard_terminal_log(match.group(1))
