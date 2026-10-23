@@ -128,38 +128,14 @@ def test_tool_truly_empty_workspace_skip_message(tmp_path):
 
 def test_binding_keeps_typecheck_for_a_subdir_project(tmp_path):
     """The field bug: root D:\\TestCrusorAI (no tsconfig), project test5/ — the
-    tool must stay available (Knife #1 defers its schema until the model
-    pulls it with find_tools, but availability itself must not be lost)."""
-    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-
+    tool must STAY BOUND."""
     from src.graphs.chat_graph import _resolve_bound_tools
 
     _project(tmp_path, "test5")
     config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
     names = {t.name for t in _resolve_bound_tools(
         {"current_task": "typecheck everything"}, config)}
-    # Knife #1: not in the first-call core, but available for pull.
-    assert "typecheck_workspace" not in names
-    assert "typecheck_workspace" in config["configurable"]["tool_search_available_names"]
-
-    activated_state = {
-        "current_task": "typecheck everything",
-        "messages": [
-            HumanMessage(content="typecheck everything"),
-            AIMessage(content="", tool_calls=[{
-                "name": "find_tools",
-                "args": {"query": "typecheck workspace"},
-                "id": "find-tc",
-            }]),
-            ToolMessage(
-                content="Activated for the next model call: typecheck_workspace",
-                tool_call_id="find-tc",
-                name="find_tools",
-            ),
-        ],
-    }
-    activated = {t.name for t in _resolve_bound_tools(activated_state, config)}
-    assert "typecheck_workspace" in activated
+    assert "typecheck_workspace" in names
 
 
 def test_binding_still_hides_typecheck_with_no_project(tmp_path):

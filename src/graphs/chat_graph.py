@@ -1,11 +1,10 @@
 import json
-import math
 import os
 import re
 import sqlite3
 import threading
 import time
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from typing import Annotated
 from typing_extensions import TypedDict
 # pyrefly: ignore [missing-import]
@@ -662,28 +661,6 @@ def think(reasoning: str) -> str:
 
 
 @tool
-def find_tools(
-    query: str,
-    limit: int = 8,
-    config: RunnableConfig = None,  # type: ignore[assignment]
-) -> str:
-    """
-    Search the full Crusor tool registry and activate matching tools.
-
-    Use this when the next action needs a capability that is not in the
-    currently bound tool set: browser or device control, target builds and
-    app verification, web or media work, delegation, host capabilities,
-    toolchain installation, or another specialized tool. Give a short
-    capability query, not a full task description.
-
-    The matching tools are bound automatically on the next model call.
-    After this returns, call the activated tool directly; call find_tools
-    again only if another capability is still missing.
-    """
-    return _find_tools_impl(query, limit, config)
-
-
-@tool
 def verify(
     step_description: str,
     expected_result: str,
@@ -1335,7 +1312,6 @@ def display_crusor_task(
 
 tools = [
     think,
-    find_tools,
     verify,
     terminal,
     plan_update,
@@ -1434,210 +1410,16 @@ tools = [
 
 
 # --------------------------------------------------------------------------- #
-# Tool binding — Knife #1 scoped model-pull (founder order, 2026-10-22).      #
-# The registry remains the execution catalog, but the general parent no       #
-# longer pays to describe every registered schema on every model call. It     #
-# binds a small everyday core plus find_tools; the MODEL pulls specialized    #
-# schemas by calling find_tools, and only real find_tools results activate    #
-# them for later calls in the same turn. This is deliberately not a task-     #
-# keyword waist: no user wording selects tools, no capability is removed,     #
-# and availability/state phases still win. Strict sub-agent scopes and the    #
-# operator's CRUSORAI_MAX_TOOLS compatibility path keep their prior binding.  #
+# Tool binding — hermes' registry snapshot (agent_init._load_tools).          #
+# Hermes loads agent.tools ONCE from the registry and binds the SAME list on  #
+# every call; narrowing exists only as operator toolset opt-in/out and        #
+# check_fn availability (deps missing -> tool unregistered). Crusor matched    #
+# that on 2026-09-07 after the field proved the old task-keyword waist is a   #
+# failure generator ("browser testing" lost its tools to the word "build";    #
+# a differently-worded ask would never bind them at all). `tools` IS the      #
+# bound list; the SafeToolNode executes whatever the model calls.             #
 # --------------------------------------------------------------------------- #
 _TOOLS_BY_NAME: dict[str, Any] = {t.name: t for t in tools}
-
-# Knife #1: the always-bound parent core. It covers planning/clarification,
-# skill pull, everyday file work, and the terminal/process loop. Everything
-# specialized stays registered and executable, but its schema is paid only
-# after the model pulls it with find_tools. Registry order is preserved when
-# this set is applied; never build the wire list from the set itself.
-_TOOL_SEARCH_CORE_TOOLS = frozenset({
-    "think", "find_tools", "verify", "todo_list", "clarify",
-    "skills_list", "skill_view",
-    "read_file", "list_files", "search_files", "search_code",
-    "write_file", "edit_file", "copy_file",
-    "terminal", "run_terminal", "start_terminal", "check_terminal",
-    "read_terminal_output", "stop_terminal", "list_terminal_processes",
-    "cleanup_terminal_processes",
-})
-_TOOL_SEARCH_ACTIVATION_PREFIX = "Activated for the next model call:"
-_TOOL_SEARCH_TOKEN_RE = re.compile(r"[a-z0-9]+")
-_TOOL_SEARCH_STOPWORDS = frozenset({
-    "a", "an", "and", "app", "call", "can", "for", "from", "get", "give",
-    "i", "in", "into", "me", "need", "of", "on", "or", "please", "the",
-    "this", "to", "tool", "tools", "use", "want", "with",
-})
-
-
-def _tool_search_terms(text: Any) -> list[str]:
-    return [
-        term for term in _TOOL_SEARCH_TOKEN_RE.findall(str(text or "").lower())
-        if term not in _TOOL_SEARCH_STOPWORDS
-    ]
-
-
-def _tool_argument_terms(tool: Any) -> list[str]:
-    terms: list[str] = []
-    try:
-        args = getattr(tool, "args", {}) or {}
-        if isinstance(args, dict):
-            for name, schema in args.items():
-                terms.extend(_tool_search_terms(name))
-                if isinstance(schema, dict):
-                    terms.extend(_tool_search_terms(schema.get("description", "")))
-    except Exception:
-        pass
-    return terms
-
-
-def _search_tool_registry(
-    query: str,
-    limit: int = 8,
-    available: set[str] | None = None,
-) -> list[Any]:
-    """Deterministic lexical retrieval over names/descriptions/arguments.
-
-    This ranks the existing registry only; it makes no task decision and has
-    no hand-built capability routes. Exact tool names win, then weighted
-    term overlap (name > arguments > description), with registry order as
-    the stable tie-breaker.
-    """
-    query_terms = list(dict.fromkeys(_tool_search_terms(query)))
-    if not query_terms:
-        return []
-    limit = max(1, min(int(limit or 8), 12))
-    candidates = [
-        tool for tool in tools
-        if getattr(tool, "name", "") != "find_tools"
-        and (available is None or getattr(tool, "name", "") in available)
-    ]
-    documents: list[tuple[Any, dict[str, list[str]]]] = []
-    document_frequency: Counter[str] = Counter()
-    for tool in candidates:
-        fields = {
-            "name": _tool_search_terms(str(getattr(tool, "name", "")).replace("_", " ")),
-            "arguments": _tool_argument_terms(tool),
-            "description": _tool_search_terms(getattr(tool, "description", "")),
-        }
-        documents.append((tool, fields))
-        document_frequency.update(set(fields["name"] + fields["arguments"] + fields["description"]))
-    total_docs = max(1, len(documents))
-    scored: list[tuple[float, int, Any]] = []
-    normalized_query = " ".join(query_terms)
-    for order, (tool, fields) in enumerate(documents):
-        name = str(getattr(tool, "name", ""))
-        if normalized_query == name.lower() or normalized_query == name.replace("_", " ").lower():
-            score = 10_000.0
-        else:
-            score = 0.0
-            field_weights = {"name": 8.0, "arguments": 3.0, "description": 1.0}
-            for term in query_terms:
-                idf = math.log((total_docs + 1) / (document_frequency.get(term, 0) + 1)) + 1.0
-                for field, weight in field_weights.items():
-                    count = fields[field].count(term)
-                    if count:
-                        score += weight * idf * (1.0 + math.log(count))
-            if normalized_query and normalized_query in str(getattr(tool, "description", "")).lower():
-                score += 4.0
-        if score > 0:
-            scored.append((score, order, tool))
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [tool for _, _, tool in scored[:limit]]
-
-
-def _find_tools_impl(
-    query: str,
-    limit: int = 8,
-    config: RunnableConfig | dict[str, Any] | None = None,
-) -> str:
-    available: set[str] | None = None
-    if isinstance(config, dict):
-        _cfg = config.get("configurable", {}) or {}
-        _names = (
-            _cfg.get("tool_search_available_names")
-            or _cfg.get("bound_tool_names")
-        )
-        if _names is not None:
-            available = {str(name) for name in _names}
-    matches = _search_tool_registry(query, limit, available)
-    if not matches:
-        return (
-            "No matching registered tools were activated. Try a shorter "
-            "capability query using the action and object you need; do not "
-            "invent a tool name or schema."
-        )
-    names = [str(getattr(tool, "name", "")) for tool in matches if getattr(tool, "name", "")]
-    lines = [
-        f"{_TOOL_SEARCH_ACTIVATION_PREFIX} {', '.join(names)}",
-        "These tools will be bound on the next model call. Call the needed tool directly then.",
-        "",
-    ]
-    for tool in matches:
-        description = " ".join(str(getattr(tool, "description", "") or "").split())
-        if len(description) > 180:
-            description = description[:177].rstrip() + "..."
-        lines.append(f"- {tool.name}: {description}")
-    return "\n".join(lines)
-
-
-def _message_value(message: Any, name: str, default: Any = None) -> Any:
-    if isinstance(message, dict):
-        return message.get(name, default)
-    return getattr(message, name, default)
-
-
-def _activated_tool_names(state: AgentState, available: set[str]) -> set[str]:
-    """Tool names activated by real find_tools results in the current turn.
-
-    The scan starts after the latest human turn, so yesterday's specialized
-    schemas do not quietly re-accumulate into every later request. Only an
-    AI-proposed find_tools call paired with its ToolMessage can activate a
-    name; user text and model prose cannot.
-    """
-    messages = list(state.get("messages", []) or [])
-    start = 0
-    for index, message in enumerate(messages):
-        if _message_value(message, "type", "") == "human":
-            start = index + 1
-    segment = messages[start:]
-    find_call_ids: set[str] = set()
-    for message in segment:
-        if _message_value(message, "type", "") != "ai":
-            continue
-        for call in _message_value(message, "tool_calls", []) or []:
-            if isinstance(call, dict) and call.get("name") == "find_tools":
-                call_id = str(call.get("id") or "")
-                if call_id:
-                    find_call_ids.add(call_id)
-    activated: set[str] = set()
-    marker = re.compile(
-        re.escape(_TOOL_SEARCH_ACTIVATION_PREFIX) + r"\s*([a-z0-9_,\s]+)",
-        re.IGNORECASE,
-    )
-    for message in segment:
-        if _message_value(message, "type", "") != "tool":
-            continue
-        if _message_value(message, "name", "") != "find_tools":
-            continue
-        if str(_message_value(message, "tool_call_id", "") or "") not in find_call_ids:
-            continue
-        content = _message_value(message, "content", "")
-        text = content if isinstance(content, str) else str(content or "")
-        match = marker.search(text)
-        if not match:
-            continue
-        for raw_name in match.group(1).replace("\n", ",").split(","):
-            name = raw_name.strip()
-            if name in available:
-                activated.add(name)
-    return activated
-
-
-def _tool_search_requested_off() -> bool:
-    return os.environ.get("CRUSORAI_TOOL_SEARCH", "on").strip().lower() in {
-        "0", "off", "false", "no", "disabled",
-    }
-
 # Base descriptions of the delegate tools, captured before the binder
 # starts refreshing them with the live agent registry listing.
 _DELEGATE_BASE_DESCRIPTIONS: dict[str, str] = {}
@@ -1717,13 +1499,15 @@ def _workspace_is_effectively_empty(workspace: Any) -> bool:
 
 
 def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
-    """The tool OBJECTS to bind for this model call.
+    """The tool OBJECTS to bind for this turn (narrowed by task type).
 
-    The registry is availability-filtered first. State-driven phases and
-    strict child scopes keep their existing allowlists; the general parent
-    uses Knife #1's model-pulled core + current-turn find_tools activations.
-    No task wording participates in any of those selections.
+    The autonomous surface deliberately has a smaller waist than interactive
+    IDE chat. It cannot answer clarify, and broad meta/delegation/process
+    schemas diluted the direct actions in six Test-5 traces.
     """
+    # The registry snapshot, hermes-shaped: every registered tool is bound,
+    # every turn, regardless of task wording (agent_init._load_tools loads
+    # the registry once; per-message narrowing does not exist in hermes).
     names = [t.name for t in tools]
     hidden_receipts: list[str] = []
     # check_fn availability (hermes registration semantics): the browser
@@ -1767,8 +1551,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         )
     autonomous = _is_autonomous_workspace(config)
     resolved_names = list(names)
-    _strict_scope_applied = False
-    _operator_cap_applied = False
 
     # Strict scope waist (sub-agent children): when the run carries an
     # explicit capability scope, bind ONLY what the capability waist grants
@@ -1787,7 +1569,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             _scoped = [n for n in resolved_names if n in _waist]
             if _scoped:
                 resolved_names = _scoped
-                _strict_scope_applied = True
     except Exception:
         pass  # scoping must never break binding; worst case = today's surface
 
@@ -1795,8 +1576,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.
     _max_env = os.getenv("CRUSORAI_MAX_TOOLS", "0").strip()
     _max_tools = int(_max_env) if _max_env.isdigit() else 0
-    if _max_tools > 0:
-        _operator_cap_applied = True
     if _max_tools > 0 and len(resolved_names) > _max_tools:
         # Keep the most important tools (write_file, edit_file, read_file,
         # list_files, search_files, terminal) at the front, then fill up
@@ -1894,33 +1673,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             phase_name, frozenset(verification_tools),
             max_file_mutations_per_turn=2, guidance=guidance,
         )
-    # Knife #1 (general phase only): bind the everyday core plus whatever
-    # the model has already pulled this turn with find_tools. The candidate
-    # list remains availability-filtered above; the selection itself is a
-    # filter over registry order, never a task-word route and never a new
-    # ordering. State-driven phases, strict child scopes, and the operator
-    # cap retain their existing binding contracts.
-    tool_search_active = False
-    _activated_tools: set[str] = set()
-    if (
-        phase.allowed is None
-        and not _strict_scope_applied
-        and not _operator_cap_applied
-        and not _tool_search_requested_off()
-    ):
-        tool_search_active = True
-        _activated_tools = _activated_tool_names(state, set(resolved_names))
-        _selected = set(_TOOL_SEARCH_CORE_TOOLS) | _activated_tools
-        names = [name for name in resolved_names if name in _selected]
-        if not globals().get("_TOOL_SEARCH_BINDING_REPORTED"):
-            globals()["_TOOL_SEARCH_BINDING_REPORTED"] = True
-            _core_count = sum(1 for name in names if name in _TOOL_SEARCH_CORE_TOOLS)
-            print(
-                f"[tools] Knife #1 scoped binding: {len(names)} tools "
-                f"({_core_count} core + {len(_activated_tools)} activated); "
-                f"{len(resolved_names) - len(names)} schemas deferred via find_tools",
-                flush=True,
-            )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
@@ -1928,13 +1680,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
     configurable["phase_max_file_mutations"] = phase.max_file_mutations_per_turn
     configurable["phase_guidance"] = phase.guidance
-    configurable["tool_search_active"] = bool(tool_search_active)
-    configurable["tool_search_available_names"] = list(resolved_names)
-    configurable["bound_tool_names"] = (
-        list(names)
-        if tool_search_active or phase.allowed is not None or _strict_scope_applied
-        else None
-    )
     # Dynamic agent list (OpenCode builds the task tool's description
     # from the live registry): refresh the delegate tools' descriptions
     # with the agents THIS workspace has, so the model can name custom
@@ -1962,10 +1707,9 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     bound = [_TOOLS_BY_NAME[n] for n in names if n in _TOOLS_BY_NAME]
     if bound:
         return bound
-    # Scoped and guarded bindings never fall back to the full registry:
-    # that would silently restore the schema bill this selection removed.
-    if tool_search_active and "find_tools" in _TOOLS_BY_NAME:
-        return [_TOOLS_BY_NAME["find_tools"]]
+    # A guarded phase never falls back to the full registry. Keep clarify as
+    # the safe escape hatch (hermes' one ask tool); general mode retains the
+    # historical safe superset.
     if phase.allowed is not None and "clarify" in _TOOLS_BY_NAME:
         return [_TOOLS_BY_NAME["clarify"]]
     return list(tools)
@@ -2231,16 +1975,6 @@ def ai_node(
             messages,
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
             + phase_guidance,
-        )
-
-    if configurable.get("tool_search_active") and execution_mode != "ask":
-        _insert_system_prefix(
-            messages,
-            "=== TOOL DISCOVERY (Knife #1) ===\n"
-            "Only the tools bound on this call are callable. If the capability you need is not bound, "
-            "call find_tools with a concrete capability query before concluding it is unavailable. "
-            "find_tools activates the matching tools on the next model call in this same turn; it does not execute them. "
-            "Do not invent or guess an unbound tool name.",
         )
 
     # --- CopilotKit app context (agent-app-context) + refusal guard ---
@@ -5877,50 +5611,6 @@ class SafeToolNode:
                 )
                 for tc in tool_calls
             ])
-
-        # Repair model-emitted names before any execution-side allowlist is
-        # judged, so a familiar alias for a bound tool is not mistaken for
-        # an unbound capability (the later validation seam repairs again;
-        # it is idempotent).
-        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
-        if _names_changed:
-            _repaired_ai = AIMessage(
-                content=last_msg.content,
-                tool_calls=tool_calls,
-                id=getattr(last_msg, "id", None),
-            )
-
-        # Knife #1 bound-set enforcement: a model can echo, repair, or
-        # hallucinate the name of a real-but-unbound tool. That call must
-        # never reach permissions or execution merely because the tool
-        # exists in the process registry. Batch-level denial mirrors the
-        # phase policy below: no member executes, and every proposed call
-        # gets its paired terminal result.
-        bound_tool_names = None
-        bound_tool_search = False
-        if config and "configurable" in config:
-            bound_tool_names = config["configurable"].get("bound_tool_names")
-            bound_tool_search = bool(config["configurable"].get("tool_search_active"))
-        if bound_tool_names is not None:
-            _bound_set = {str(name) for name in bound_tool_names}
-            _unbound = [tc for tc in tool_calls if tc.get("name", "") not in _bound_set]
-            if _unbound:
-                _unbound_names = ", ".join(sorted({str(tc.get("name", "")) for tc in _unbound}))
-                _how = (
-                    "Call find_tools('<the capability you need>') first; the matching "
-                    "tools activate on the next model call in this turn, then call the "
-                    "activated tool."
-                    if bound_tool_search and "find_tools" in _bound_set else
-                    "Use only the tools bound for the current execution scope."
-                )
-                _denial = (
-                    f"\u26d4 TOOL NOT BOUND: {_unbound_names}. This batch did not execute: "
-                    "the named tool exists but its schema was not bound on the model call "
-                    f"that proposed it. {_how}"
-                )
-                return _with_repaired([
-                    self._durable_denial(tc, _denial, config) for tc in tool_calls
-                ])
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.

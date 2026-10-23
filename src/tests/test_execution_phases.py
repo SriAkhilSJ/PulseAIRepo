@@ -72,12 +72,7 @@ def test_state_driven_phases_still_construct_real_allowlists():
 def test_browser_task_with_build_step_binds_browser_and_planning_tools(tmp_path):
     """2026-09-07 field shape: 'browser testing' task, active plan step
     'Run the build to ensure no errors'. The old lexicon stripped the
-    browser tools AND todo_list here. Knife #1 must neither word-route the
-    browser schemas into the first call nor lose the capability: planning
-    stays in the core, and a real find_tools result activates the browser
-    tools for the next call in the same turn."""
-    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-
+    browser tools AND todo_list here. Binding must keep them all."""
     from src.graphs.chat_graph import _resolve_bound_tools
 
     state = {
@@ -90,38 +85,11 @@ def test_browser_task_with_build_step_binds_browser_and_planning_tools(tmp_path)
     }}
     bound = _resolve_bound_tools(state, config)
     names = {t.name for t in bound}
-    assert {"find_tools", "todo_list", "think"} <= names
-    assert "browser_navigate" not in names  # no task-word routing
-    assert "browser_navigate" in config["configurable"]["tool_search_available_names"]
+    assert {"browser_navigate", "browser_screenshot", "todo_list", "think"} <= names
+    # no execution-time policy may deny them either
     assert config["configurable"]["execution_phase"] == "general"
     assert config["configurable"]["phase_allowed_tools"] is None
     assert config["configurable"]["phase_guidance"] == ""
-
-    activated_state = {
-        **state,
-        "messages": [
-            HumanMessage(content="test2 folder plz do browser testing"),
-            AIMessage(content="", tool_calls=[{
-                "name": "find_tools",
-                "args": {"query": "browser navigation screenshot"},
-                "id": "find-browser",
-            }]),
-            ToolMessage(
-                content=(
-                    "Activated for the next model call: "
-                    "browser_navigate, browser_screenshot"
-                ),
-                tool_call_id="find-browser",
-                name="find_tools",
-            ),
-        ],
-    }
-    activated_config = {"configurable": {
-        "thread_id": "field-regression",
-        "workspace": str(tmp_path),
-    }}
-    activated = {t.name for t in _resolve_bound_tools(activated_state, activated_config)}
-    assert {"browser_navigate", "browser_screenshot", "todo_list", "think"} <= activated
 
 
 def test_state_driven_forced_delivery_phase_keeps_its_allowlist(tmp_path):
@@ -149,34 +117,26 @@ def test_state_driven_forced_delivery_phase_keeps_its_allowlist(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Knife #1 binding: availability check_fn first, then the same model-pulled
-# core for every wording — specialized schemas activate only via find_tools
+# Hermes registry binding (agent_init._load_tools): full registry every turn,
+# availability check_fn, operator/state narrows only — NO task-text matching
 # ---------------------------------------------------------------------------
 
 def test_binding_is_the_registry_snapshot_regardless_of_task_wording(tmp_path):
-    """Knife #1 binds the same model-pulled core for 'hi' and for a build
-    task. Crusor's former task-keyword waist (runtime_profile regexes over
-    current_task) stays retired: wording changes neither the core nor the
-    availability snapshot; specialized schemas wait for find_tools."""
+    """hermes binds the same registry for 'hi' and for a build task. Crusor's
+    former task-keyword waist (runtime_profile regexes over current_task) is
+    retired from binding: any phrasing gets the full surface."""
     from src.graphs.chat_graph import _resolve_bound_tools
 
-    seen: list[frozenset[str]] = []
     for task in ("hi", "test my app works", "fix the bug", "写一个网站"):
         config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
         names = {t.name for t in _resolve_bound_tools({"current_task": task}, config)}
-        seen.append(frozenset(names))
         assert "run_terminal" in names, task
-        assert "find_tools" in names, task
-        assert "web_search" not in names, task
-        assert "web_search" in config["configurable"]["tool_search_available_names"], task
+        assert "web_search" in names, task
         assert "todo_list" in names, task
         assert "write_file" in names, task
-        assert config["configurable"]["tool_search_active"] is True, task
-        assert set(config["configurable"]["bound_tool_names"]) == names, task
         # no per-task phase/guidance leaked from task WORDS
         assert config["configurable"]["execution_phase"] == "general", task
         assert config["configurable"]["phase_allowed_tools"] is None, task
-    assert len(set(seen)) == 1, seen
 
 
 def test_browser_tools_bound_when_cli_resolves_hidden_when_it_doesnt(tmp_path, monkeypatch):
@@ -188,22 +148,14 @@ def test_browser_tools_bound_when_cli_resolves_hidden_when_it_doesnt(tmp_path, m
     config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
     monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
     names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
-    # Real resolution succeeds in CI (npx sentinel): browser tools are
-    # available for find_tools, though Knife #1 defers their schemas until
-    # the model pulls them.
-    assert "browser_navigate" in config["configurable"]["tool_search_available_names"]
-    assert "browser_navigate" not in names
+    assert "browser_navigate" in names  # real resolution succeeds in CI (npx sentinel)
 
     bt.invalidate_cli_cache()
     monkeypatch.setenv("CRUSORAI_AGENT_BROWSER", str(tmp_path / "no-such-browser"))
     bt.invalidate_cli_cache()
     names = {t.name for t in _resolve_bound_tools({"current_task": "x"}, config)}
     assert not any(name.startswith("browser_") for name in names)
-    assert not any(
-        name.startswith("browser_")
-        for name in config["configurable"]["tool_search_available_names"]
-    )
-    assert "run_terminal" in names  # the core survives
+    assert "run_terminal" in names  # everything else survives
     bt.invalidate_cli_cache()
 
 
@@ -216,16 +168,12 @@ def test_typecheck_hidden_only_by_workspace_state(tmp_path):
     names = {t.name for t in _resolve_bound_tools(
         {"current_task": "typecheck everything"}, config)}
     assert "typecheck_workspace" not in names
-    assert "typecheck_workspace" not in config["configurable"]["tool_search_available_names"]
 
     (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
     config2 = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
     names2 = {t.name for t in _resolve_bound_tools(
         {"current_task": "typecheck everything"}, config2)}
-    # Available does not mean schema-paid on the first call: the model
-    # pulls this specialized tool with find_tools when it needs it.
-    assert "typecheck_workspace" not in names2
-    assert "typecheck_workspace" in config2["configurable"]["tool_search_available_names"]
+    assert "typecheck_workspace" in names2
 
 
 # ---------------------------------------------------------------------------
@@ -256,18 +204,15 @@ def test_availability_receipt_names_the_install_fix_once(tmp_path, monkeypatch, 
         _resolve_bound_tools({"current_task": "x"},
                              {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})
         assert capsys.readouterr().out.count("[tools] binding") == 0
-        # available stack produces no receipt (nothing hidden: the
-        # workspace gets a tsconfig so typecheck_workspace is available too;
-        # Knife #1 still defers both specialized schemas until pulled)
+        # available stack binds without the receipt (nothing hidden: the
+        # workspace gets a tsconfig so typecheck_workspace binds too)
         bt.invalidate_cli_cache()
         monkeypatch.delenv("CRUSORAI_AGENT_BROWSER", raising=False)
         (tmp_path / "tsconfig.json").write_text("{}", encoding="utf-8")
         cg._TOOL_AVAILABILITY_REPORTED = False
-        available_config = {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}}
         names = {t.name for t in _resolve_bound_tools({"current_task": "x"},
-                                                      available_config)}
-        assert "browser_navigate" not in names
-        assert "browser_navigate" in available_config["configurable"]["tool_search_available_names"]
+                                                      {"configurable": {"thread_id": "t", "workspace": str(tmp_path)}})}
+        assert "browser_navigate" in names
         assert capsys.readouterr().out.count("[tools] binding") == 0
     finally:
         bt.invalidate_cli_cache()
