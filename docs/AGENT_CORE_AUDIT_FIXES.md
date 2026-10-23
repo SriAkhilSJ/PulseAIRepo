@@ -1,5 +1,15 @@
 # Agent-Core Audit Fixes — 2026-10-12
 
+> **Status:** historical audit/fix record.
+> **Current correction (2026-10-23):** the broad definition was repaired and
+> validated locally (**2,585 passed, 16 skipped**) and is now installed as
+> `.github/workflows/agent-core.yml` on the active branch; its first clean
+> GitHub run is the remaining activation checkpoint. Reliability helpers
+> described below remain implemented, but no production/release-gate caller
+> was found. See
+> [`README.md`](README.md) and
+> [`AGENT_CORE_CURRENT_STATE.md`](AGENT_CORE_CURRENT_STATE.md).
+
 Follow-up to the agent-core audit (`AGENT_CORE_AUDIT.md`). Four defects and one
 claim gap were found by running the repo's own hermetic suite against the shipped
 code; all four are fixed here, each with a regression pin that fails against the
@@ -56,15 +66,12 @@ in Polish. `diagnose_steps.py` prints the reliability footer on every report.
   it asserted the bug's precondition. Added
   `test_d35_batch_block_cannot_silently_vanish`, which asserts the composed
   block by content, not by fragments.
-- **CI** (`ci/agent-core.yml` — staged; install with the one command in
-  `ci/README.md`). No `.github/` existed before. The `agent-core` job runs the
-  hermetic runner on Python 3.11 with the full dependency set (tree-sitter
-  grammars, Pillow, pyright) — the same command as a laptop. A second
-  informational job keeps the desktop-panel parity pins visible without
-  blocking. The workflow file sits in `ci/` because Arena's GitHub App lacks
-  the `workflows` permission, so a push touching `.github/workflows/**` is
-  rejected; `cp ci/agent-core.yml .github/workflows/` + push (or reconnecting
-  GitHub with that permission) finishes the job.
+- **CI** (`ci/agent-core.yml`). No `.github/` existed when this historical work
+  was written. The `agent-core` job runs the hermetic runner on Python 3.11 with
+  the full dependency set (tree-sitter grammars, Pillow, pyright). A second
+  informational job keeps desktop-panel parity visible without blocking.
+  **2026-10-23 follow-up:** the broad lane was repaired to green and the same
+  definition is now installed at `.github/workflows/agent-core.yml`.
 
 ## Evidence (same machine, same runner)
 

@@ -595,6 +595,7 @@ class BridgeServer:
             "tool.result": "tool_call_end",
             "message.agent.chunk": "token",
             "message.agent.retract": "token_retract",
+            "verification.updated": "verification_updated",
         }.get(kind)
         if target is None:
             return event if kind in {
@@ -632,6 +633,11 @@ class BridgeServer:
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
         if target == "token_retract":
             return {**base, "chars": max(0, int(payload.get("chars") or 0))}
+        if target == "verification_updated":
+            return {
+                **base, **payload, "type": "verification_updated",
+                "journal_seq": event.get("seq"), "journal_status": "persisted",
+            }
         name = str(payload.get("name") or payload.get("tool_name") or "")
         if target == "tool_call_start":
             return {**base, "name": name, "arguments": payload.get("arguments", payload.get("args"))}

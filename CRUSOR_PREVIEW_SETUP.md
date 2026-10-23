@@ -1,10 +1,17 @@
 # Crusor Preview — laptop setup
 
+> **Status:** current subsystem runbook
+> **Last reviewed:** 2026-10-23
+> **Verified against:** `590fe542306ef89547e7909b89da01a9c730e55c`
+> **UI boundary:** native Agent pane plus a native auxiliary Preview window;
+> the deleted `crusor-webview`/CopilotKit app is not required.
+
 Everything you need to run **Crusor Preview** on your own machine, from "30-second demo in a
 browser" to "the full flow inside the desktop app". Each section is self-contained; stop wherever
 your goal is met.
 
-Everything is on `main` (the preview branch `arena/01a0ca7c-pulseairepo` merged 2026-09-27).
+The preview work is on `main`; the old `arena/01a0ca7c-pulseairepo` branch named
+in historical field reports is not part of the current setup.
 
 ---
 
@@ -12,7 +19,7 @@ Everything is on `main` (the preview branch `arena/01a0ca7c-pulseairepo` merged 
 
 | Tool | Version | Why |
 | --- | --- | --- |
-| `git` | any recent | to get the branch |
+| `git` | any recent | to get the repository and identify the exact commit |
 | `python` | **3.11+** | the preview proxy, injection, prompt builder, and tests |
 | `node` | **24.18.0** (`desktop/.nvmrc`) | only for the desktop IDE build |
 | `uv` *(optional)* | recent | the repo is uv-managed; plain `pip` works too |
@@ -36,11 +43,13 @@ cd PulseAIRepo
 git fetch origin
 ```
 
-Only want the patch, on top of `main`?
+The file `patches/crusorai-preview-inspect-fix.patch` is retained as historical
+provenance. Do **not** apply it to current `main`; its changes are already
+present. Record the exact tree you test:
 
 ```bash
-git checkout main
-git am patches/crusorai-preview-inspect-fix.patch
+git rev-parse HEAD
+git status --short
 ```
 
 ---
@@ -56,17 +65,17 @@ python -m venv .venv
 . .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install pytest
 
-# run the preview suite
-python -m pytest src/tests/test_preview_inject.py src/tests/test_preview_prompt.py \
-                 src/tests/test_preview_server.py src/tests/test_preview_endpoint.py \
-                 src/tests/test_preview_contract.py src/tests/test_preview_target_probe.py \
-                 src/tests/test_preview_batch_turn_script.py src/tests/test_preview_autostart.py -q
+# run every current preview test through the hermetic wrapper
+scripts/run_tests.sh src/tests/test_preview_*.py -q
 ```
 
-**Expected: `117 passed, 1 skipped`** (94 + the 23 autostart tests). These are the real checks — the
-proxy runs over real sockets, the contract test loads the shipped JavaScript through node and pins
-the message names in both directions, and the autostart tests spawn the real proxy and assert the
-endpoint it publishes answers on `/crusor-preview/health`.
+**Expected:** zero failures. Record the collected/pass/skip counts printed by
+your exact commit rather than comparing with the old hard-coded `117 passed, 1
+skipped` snapshot; the suite has grown. These are the real checks—the proxy runs
+over real sockets, the contract test loads the shipped JavaScript through Node
+and pins the message names in both directions, and the autostart tests spawn the
+real proxy and assert the endpoint it publishes answers on
+`/crusor-preview/health`.
 
 ---
 
@@ -151,6 +160,7 @@ npm install                     # large, one time
 npm run typecheck-client
 npm run valid-layers-check
 npm run compile
+node scripts/emit-crusorai-bundle.mjs
 npm run gulp minify-vscode     # only if you want a minified build
 
 # launch (from the same directory)
@@ -241,22 +251,20 @@ fails. It starts from `npm run typecheck-client` and ends at the agent landing t
 
 ## 8. Known gaps (read before filing anything as broken)
 
-1. **The TypeScript layer has not been compiled on our side.** No `node_modules` and no Code OSS
-   build were possible in the environment where this was written, so
-   `crusorAIPreviewService.ts` and the `crusorAIViewPane.ts` edits are contract-pinned and reviewed
-   but not type-checked. If `npm run typecheck-client` complains, expect small mechanical fixes —
-   that is the one place to look first.
-2. **Nothing starts the proxy automatically — fixed 2026-09-29.** The engine now starts it as soon as
-   a session binds the opened folder (`src/preview/autostart.py`; `CRUSORAI_PREVIEW_AUTOSTART=0`
-   opts out), which is why §5b no longer asks for a second terminal. The proxy is deliberately
-   detached rather than owned by the engine — an engine restart must not kill the page an open
-   preview window is showing — so it also outlives the app; `python -m src.preview.server
-   --prune-endpoints` drops registrations left behind.
-   Still open from that change: the proxy is not tied to the app's lifetime, so a machine that keeps
-   opening different folders can accumulate one proxy per folder until it is restarted.
-3. **The composer shows the batch as prompt text plus its `preview_batch` receipt**, not yet a bespoke
-   card in the renderer.
-4. **Ancillary `auxiliaryWindow.onDidLayout` / focus polishing** in the preview window (remembering
-   size and position across sessions) is not wired.
-5. Steps 3–8 were verified in the lab (real chrome, real overlay, real proxy) and by the test suite;
-   they have not been exercised inside a real Electron auxiliary window on this machine.
+1. **A tracked build is not a field run.** Source, architecture tests, and the
+   checked-in panel bundle exist, but each release candidate still needs a real
+   Electron launch on the target OS. Record commit, UI stamp, build metadata,
+   and screenshots rather than carrying forward an old pass count.
+2. **The proxy is deliberately detached from the engine.** It autostarts when a
+   session binds the folder (`src/preview/autostart.py`;
+   `CRUSORAI_PREVIEW_AUTOSTART=0` opts out) and can survive an engine/app
+   restart. A machine that opens many folders can accumulate one proxy per
+   folder; `python -m src.preview.server --prune-endpoints` removes stale
+   registrations.
+3. **The composer shows the batch as prompt text plus its `preview_batch`
+   receipt**, not a dedicated release/evidence card.
+4. **Auxiliary-window layout/focus polishing**—including persistence of size and
+   position across sessions—is incomplete.
+5. The generated `desktop/vscode/out/**/media/crusorai-spa/` subtree is not part
+   of Preview and is not loaded by the native Agent pane. Do not use it as a
+   fallback when diagnosing Preview.

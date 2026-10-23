@@ -1,5 +1,10 @@
 # Hermes → Crusor: prompt engine + Agent UI, pinned copy, verified without a provider
 
+> **Status:** historical port evidence. Its `crusor-webview` UI target has been
+> deleted; prompt-engine provenance may still be useful, but old UI commands and
+> counts are not current. See [README.md](README.md) and
+> [docs/README.md](docs/README.md).
+
 **Branch:** `arena/01a06408-pulseairepo` (merged to `main`) · **Base:** `86eaaae2` → **Merged:** `bf696a61`
 **Upstream pin:** `NousResearch/hermes-agent @ a9c783f21995723c812dcb2f8ae58bc6a4323e2f` (2026-08-30)
 **Method:** provider-free. **Zero LLM/provider tokens were spent.** Every number

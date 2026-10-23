@@ -1,5 +1,11 @@
 # Bridge silence investigation — final status
 
+> **Status:** historical incident report. It proves the diagnosed field run,
+> not current bridge health or provider availability. For current architecture
+> and validation commands, use [AGENT_HANDOFF.md](AGENT_HANDOFF.md). Never
+> publish or copy the historical provider details/credentials from a local
+> environment.
+
 ## API key — working
 One live call to Sarvam (`custom` provider → `https://api.sarvam.ai/v1`, model
 `sarvam-105b-conversations`) returned `'\nOK'` in ~0.8 s (~21 tokens). Loaded

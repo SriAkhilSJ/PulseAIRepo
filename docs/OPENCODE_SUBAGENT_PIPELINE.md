@@ -1,5 +1,9 @@
 # OpenCode Subagent Full Pipeline — Analysis from anomalyco/opencode
 
+> **Status:** upstream reference snapshot from 2026-09-22, not current Crusor
+> behavior. Use [`DESIGN/SUBAGENT_PARITY_AUDIT.md`](DESIGN/SUBAGENT_PARITY_AUDIT.md)
+> plus its 2026-10-23 correction for Crusor parity.
+
 Source: https://github.com/anomalyco/opencode.git (cloned 2026-09-22 to /home/user/opencode)
 Focus: full lifecycle of subagents including UI rendering.
 

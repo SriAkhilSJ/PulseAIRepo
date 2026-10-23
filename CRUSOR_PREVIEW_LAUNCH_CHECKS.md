@@ -1,18 +1,27 @@
 # Launch checks — when the IDE fork starts
 
+> **Status:** current host checklist
+> **Last reviewed:** 2026-10-23
+> **Verified against:** `590fe542306ef89547e7909b89da01a9c730e55c`
+> The active pane has `Agent · Preview`; the deleted Webview/CopilotKit tab is
+> not an expected surface.
+
 Run these in order the first time the desktop app runs with Crusor Preview. Each line is something
 to *look at*, what a pass looks like, and what a failure means — so nothing here needs me in the
 loop to diagnose.
 
-The pull, the two typecheck lanes, the build, the launch with the provider guard and the in-app agent
-checks are in **`CRUSOR_PREVIEW_DESKTOP_APP_TEST.md`** — do that file first; this one starts when the
-app is up and the agent answers.
+Use [`desktop/README.md`](desktop/README.md) and
+[`CRUSOR_PREVIEW_SETUP.md`](CRUSOR_PREVIEW_SETUP.md) for the current pull,
+typecheck, build, bundle-emitter, and launch sequence. The older
+`CRUSOR_PREVIEW_DESKTOP_APP_TEST.md` is a branch-era incident/run record, not a
+current prerequisite. This checklist starts when the app is up and the agent
+answers.
 
 Every check is tagged:
 
-- **[code]** — pinned by the test suite (`python -m pytest src/tests/test_preview_*.py -q` → 90 passed —
-  67 of those are the pre-autostart set),
-  so a failure here means something in the environment or the build, not the logic;
+- **[code]** — pinned by the current suite (`scripts/run_tests.sh
+  src/tests/test_preview_*.py -q`; record the counts from your exact commit), so
+  a failure here means code, environment, or build provenance must be examined;
 - **[host]** — depends on the real Electron/workbench, and could not be verified before launch.
 
 ---
@@ -21,9 +30,9 @@ Every check is tagged:
 
 | # | Check | Pass looks like | If it fails |
 | --- | --- | --- | --- |
-| 0.1 | **[code]** `tsc -p tsconfig.crusorai-check.json --noEmit` from `desktop/vscode/src` | `Crusor errors: 0`, 34 files in program | this lane was red until `d0603692`/`87030b4a` (six sites: an unbalanced generic, `userHome`, `IDisposable`, a pair-typed query, two dead declarations). Now 0 — non-zero means the pulled tree is not what this doc was written against. Full `npm run typecheck-client` must also be clean once `node_modules` exists |
-| 0.2 | **[code]** `python -m pytest src/tests/test_preview_*.py -q` | `90 passed` | if not, the engine side is broken independently of the app |
-| 0.3 | Proxy running for the **same folder** you open in the app | `python -m src.preview.server --workspace <opened folder> --port 8931 --endpoint-session ide` printed an origin and an endpoint path | no endpoint file → the IDE will find no proxy (§2.1) |
+| 0.1 | **[code]** `npm run typecheck-client` and `npm run valid-layers-check` from `desktop/vscode` | both commands exit 0; then `npm run compile` and `node scripts/emit-crusorai-bundle.mjs` succeed | do not rely on the old 34-file scoped count; current source/build receipts are authoritative |
+| 0.2 | **[code]** `scripts/run_tests.sh src/tests/test_preview_*.py -q` from the repo root | zero failures; record current collected/pass/skip counts | if not, the engine/preview contract is broken independently of the app |
+| 0.3 | Proxy is registered for the **same folder** opened in the app | after the first bound session, autostart creates a healthy matching endpoint; `~/.crusorai/preview/proxy-ide.log` explains startup | no endpoint file → inspect autostart/log first; use the manual `python -m src.preview.server ... --endpoint-session ide` command only as fallback |
 
 ---
 
@@ -33,7 +42,7 @@ Every check is tagged:
 | --- | --- | --- | --- |
 | 1.1 | **[host]** Workbench loads, no error dialog | normal window | unrelated to the preview — check `Help → Toggle Developer Tools` console for a module error naming `crusorAIPreviewService` / `crusorAIPreview` |
 | 1.2 | **[host]** Crusor panel opens (`Ctrl/Cmd+L`, or Crusor → Open Agent) | the Agent pane renders as before | the preview code only *adds* to this pane; a blank pane means the renderer service (not the preview) broke |
-| 1.3 | **[host]** The pane's tab row shows `Agent · Webview · Preview` | Preview chip present, greyed out, tooltip "No preview yet: when Crusor builds UI or starts a dev server, it appears here." | chip missing → the pane change did not compile/apply. Chip present but **hidden** when the CopilotKit webview is off is a bug I fixed in `761a4f98` — confirm you are on that commit or later |
+| 1.3 | **[host]** The pane's tab row shows `Agent · Preview` | Preview chip present, disabled until evidence exists, tooltip "No preview yet: when Crusor builds UI or starts a dev server, it appears here." | a `Webview` tab means stale pre-removal output; a missing Preview chip means the native pane build did not apply |
 | 1.4 | **[host]** Command palette has **Crusor: Open Crusor Preview** and the Crusor menu has the same entry | command listed, `Crusor → Open Crusor Preview` present | the contribution registration did not apply |
 
 ---

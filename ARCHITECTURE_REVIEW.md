@@ -1,4 +1,11 @@
-﻿> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
+> **Status: historical architecture review.** This document preserves its
+> August–September 2026 analysis and mojibake as historical evidence; it is not
+> the current architecture source of truth. The native-only pane, current CI,
+> evidence limitations, and 2026-10-23 repository state are documented in
+> [README.md](README.md), [AGENT_HANDOFF.md](AGENT_HANDOFF.md), and
+> [docs/AGENT_CORE_CURRENT_STATE.md](docs/AGENT_CORE_CURRENT_STATE.md).
+>
+> **Update 2026-09-20:** LSP perf (0.91ms baseline), breathing 5s pulse, scroll fix, pulse-webview removed, engine snapshot 1.5s timeout, hard watchdog 12s greeting, AgentOps launcher (auto-detect ~/.crusorai), CopilotKit disabled by default — see README.md Recent Changes.
 # CrusorAI â€” Codebase Architecture Review & Strategic Roadmap
 
 **Reviewer:** Context-engineering analysis, 2026-08-04

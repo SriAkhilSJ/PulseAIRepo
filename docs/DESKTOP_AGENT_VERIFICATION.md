@@ -1,5 +1,10 @@
 # Desktop Agent Verification — Copilot-Hidden Crusor-Only UI
 
+> **Status:** historical 2026-09-11 verification script. Do not run its fixed
+> branch, path, count, or reset instructions against the current repository.
+> The active pane is now native-only; use [`../desktop/README.md`](../desktop/README.md)
+> and [`LAPTOP_VERIFICATION_PACK.md`](LAPTOP_VERIFICATION_PACK.md).
+
 **Date:** 2026-09-11
 **Branch:** `main` (HEAD: `bf696a61`)
 **Required implementation ancestor:** `d0843937` (four-mode agent)

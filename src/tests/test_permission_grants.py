@@ -254,9 +254,16 @@ def test_env_via_shell_is_still_denied(tmp_path):
     assert message.status == "error" and "Permission denied" in message.content
 
 
-def test_home_relative_shell_path_asks(tmp_path):
+def test_home_relative_shell_path_asks(tmp_path, monkeypatch):
     """Field 2026-10-17: `cat ~/.bashrc` must ask (home is outside
     the project) — previously only absolute paths were mined."""
+    # Make the execution half hermetic too: permission detection should be the
+    # behavior under test, not whether the CI account happens to own .bashrc.
+    home = tmp_path.parent / f"{tmp_path.name}-shell-home"
+    home.mkdir()
+    (home / ".bashrc").write_text("# isolated test home\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     asked, message = _drive_tool(
         tmp_path, "cfg-home-shell", "c-31", "run_terminal",
         {"command": "cat ~/.bashrc"},

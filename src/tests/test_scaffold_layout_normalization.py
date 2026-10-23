@@ -1,15 +1,22 @@
-def test_generated_layoutprops_is_normalized(tmp_path):
-    from src.tools.scaffold_tools import _normalize_generated_layout
+"""Current scaffold ownership contract.
 
-    path = tmp_path / "src" / "app" / "layout.tsx"
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        'export default function RootLayout({ children }: LayoutProps<"/">) {\n'
-        '  return <html><body>{children}</body></html>;\n}\n',
-        encoding="utf-8",
-    )
-    assert _normalize_generated_layout(tmp_path) is True
-    text = path.read_text(encoding="utf-8")
-    assert 'LayoutProps' not in text
-    assert '{ children: React.ReactNode }' in text
-    assert _normalize_generated_layout(tmp_path) is False
+The dedicated scaffold tools were intentionally deleted: the terminal creates a
+framework project and ordinary verification/repair tools fix generated output.
+Keep this pin so an orphaned test cannot silently reintroduce that retired tool
+family.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+
+def test_retired_scaffold_layout_normalizer_stays_deleted():
+    root = Path(__file__).resolve().parents[2]
+    assert importlib.util.find_spec("src.tools.scaffold_tools") is None
+    assert not (root / "src" / "tools" / "scaffold_tools.py").exists()
+
+    graph = (root / "src" / "graphs" / "chat_graph.py").read_text(encoding="utf-8")
+    assert "scaffold_tools" not in graph
+    assert "_normalize_generated_layout" not in graph

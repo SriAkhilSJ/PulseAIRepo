@@ -75,6 +75,12 @@ def test_handwritten_payload_union_covers_every_generated_name():
     server, client = text.split("export type CrusorClientMethod =", 1)
     assert _frame_names(server) == set(_manifest()["server_events"])
     assert _frame_names(client) == set(_manifest()["client_methods"])
+    verification = re.search(r"export interface CrusorVerificationUpdate \{(.*?)\n\}", text, re.S)
+    assert verification is not None
+    assert "readonly schema_version?: number" in verification.group(1)
+    assert "readonly evidence_id?: string" in verification.group(1)
+    assert "readonly evidence_kind?:" in verification.group(1)
+    assert "readonly journal_status?: 'persisted' | 'unavailable'" in verification.group(1)
 
 
 def test_event_bus_projection_normalizes_stream_tool_and_approval_fields(tmp_path):
@@ -117,11 +123,24 @@ def test_durable_replay_projection_emits_protocol_tool_frames():
             "workspace_id": "w", "tool_call_id": "tool-1",
             "payload": {"tool_name": "read_file", "status": "ok", "content": "done"},
         },
+        {
+            "type": "verification.updated", "event_id": "verify-1", "seq": 23,
+            "session_id": "s", "turn_id": "t", "workspace_id": "w", "tool_call_id": None,
+            "payload": {
+                "schema_version": 1, "evidence_id": "verify-1",
+                "evidence_kind": "command", "status": "passed", "scope": "full",
+            },
+        },
     ]
     projected = BridgeServer._project_stored_events(rows)
-    assert [event["type"] for event in projected] == ["tool_call_start", "tool_call_end"]
+    assert [event["type"] for event in projected] == [
+        "tool_call_start", "tool_call_end", "verification_updated",
+    ]
     assert projected[0]["arguments"] == {"path": "README.md"}
     assert projected[1]["status"] == "ok" and projected[1]["result"] == "done"
+    assert projected[2]["evidence_id"] == "verify-1"
+    assert projected[2]["status"] == "passed" and projected[2]["schema_version"] == 1
+    assert projected[2]["journal_status"] == "persisted" and projected[2]["journal_seq"] == 23
 
 
 def test_bridge_accepts_only_allowlisted_read_only_host_capabilities(tmp_path):

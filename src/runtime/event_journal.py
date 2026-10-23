@@ -15,6 +15,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from src.runtime.persistence import sanitize_for_persistence
+
 
 class JournalUnavailable(RuntimeError):
     pass
@@ -67,7 +69,11 @@ class EventJournal:
         eid = event_id or f"evt-{uuid.uuid4().hex}"
         created = time.time()
         try:
-            encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+            # Durable replay is a stricter trust boundary than live output:
+            # force secret redaction even when the interactive preference is
+            # disabled, and normalize values before JSON serialization.
+            safe_payload = sanitize_for_persistence(payload)
+            encoded = json.dumps(safe_payload, ensure_ascii=False, sort_keys=True)
             with self._lock, self._conn:
                 cur = self._conn.execute(
                     "INSERT INTO runtime_events(event_id,created_at,event_type,session_id,turn_id,workspace_id,tool_call_id,payload_json) "
@@ -86,7 +92,7 @@ class EventJournal:
             "turn_id": turn_id,
             "workspace_id": workspace_id,
             "tool_call_id": tool_call_id,
-            "payload": payload,
+            "payload": safe_payload,
         }
 
     def list_events(self, session_id: str, *, after_seq: int = 0, limit: int = 500) -> list[dict]:

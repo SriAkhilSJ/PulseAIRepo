@@ -90,9 +90,10 @@ def execute_tool_transaction(
     workspace = str(configurable.get("workspace") or ".")
     from src.runtime.factory import get_runtime_services
     from src.runtime.identity import workspace_id
+    from src.runtime.persistence import sanitize_tool_arguments
     services = get_runtime_services()
     services.journal.append(
-        "tool.intent", {"tool_name": name, "args": args},
+        "tool.intent", {"tool_name": name, "args": sanitize_tool_arguments(args)},
         session_id=session_id, turn_id=turn_id,
         workspace_id=workspace_id(workspace), tool_call_id=tool_call_id,
     )

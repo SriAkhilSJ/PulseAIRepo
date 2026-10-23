@@ -131,6 +131,28 @@ export type CrusorA2UIOperation =
 	| { readonly version?: string; readonly updateDataModel: { readonly surfaceId: string; readonly path?: string; readonly value: unknown } }
 	| { readonly version?: string; readonly deleteSurface: { readonly surfaceId: string } };
 
+/**
+ * Versioned durable verification envelope. Fields are optional while replaying
+ * legacy rows; newly journaled updates populate schema/evidence identity.
+ */
+export interface CrusorVerificationUpdate {
+	readonly status: 'passed' | 'failed' | 'stale' | 'unverified' | 'unavailable';
+	readonly schema_version?: number;
+	readonly evidence_id?: string;
+	readonly evidence_kind?: 'command' | 'edit' | 'explicit' | 'unavailable';
+	readonly observed_at?: number;
+	readonly kind?: string;
+	readonly scope?: string;
+	readonly command?: string;
+	readonly exit_code?: number;
+	readonly workspace?: string;
+	readonly changed_paths?: readonly string[];
+	readonly reason?: string;
+	readonly journal_seq?: number;
+	readonly journal_status?: 'persisted' | 'unavailable';
+	readonly journal_error?: string;
+}
+
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
@@ -149,7 +171,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'safety_request'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown; readonly diff?: unknown; readonly warning?: string } & CrusorIdentity)
 	| ({ readonly type: 'clarify_request'; readonly tool_id?: string; readonly request_id: string; readonly title?: string; readonly questions: readonly CrusorClarifyQuestion[] } & CrusorIdentity)
 	| ({ readonly type: 'todo_updated'; readonly todos: readonly CrusorTodoItem[]; readonly revision: number; readonly summary?: Readonly<Record<string, number>> } & CrusorIdentity)
-	| ({ readonly type: 'verification_updated'; readonly status: string; readonly evidence?: unknown } & CrusorIdentity)
+	| ({ readonly type: 'verification_updated'; readonly evidence?: unknown } & CrusorVerificationUpdate & CrusorIdentity)
 	| ({ readonly type: 'subagent_updated'; readonly subagent_id: string; readonly state: string } & CrusorIdentity)
 	| ({ readonly type: 'subagent_list'; readonly subagents: readonly unknown[]; readonly error?: string } & CrusorIdentity)
 	| ({ readonly type: 'skills_hub_result'; readonly op: string; readonly result: Record<string, unknown>; readonly error?: string } & CrusorIdentity)

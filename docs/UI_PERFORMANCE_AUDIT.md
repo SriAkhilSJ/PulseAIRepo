@@ -1,5 +1,9 @@
 # UI + Performance of Context Engine
 
+> **Status:** historical mixed-surface audit. The native renderer and context
+> paths should be rechecked in source; the `crusor-webview` section describes a
+> surface deleted in `7fd8ea61` and is not active. See [`../README.md`](../README.md).
+
 **Scope:** `desktop/vscode/src/vs/workbench/contrib/crusorai` + `crusor-webview` + `src/context/context_engine.py` + `src/runtime/quality_evaluator.py`.
 **Status:** ✅ **ACTIVE CHAMPION EVALUATION & REASONING CONTROL ENGINE (2026-10-12)**
 

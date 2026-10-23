@@ -98,20 +98,24 @@ def test_workbench_service_tracks_active_diffs_and_resolves():
     assert "this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: false })" in service_ts
 
 
-def test_approval_dock_renders_inline_diff_and_warning():
-    """Approval dock renders the inline diff preview with stats and the
-    plain-language hint. (The warning box / risk badge this test once
-    pinned were the amber design the founder rejected 2026-10-15; the
-    dock is OpenCode's permission dock now — header, one plain hint,
-    the diff, Deny | Allow always | Allow once.)"""
+def test_approval_dock_renders_review_action_and_plain_hint():
+    """The current slim permission bar keeps a file diff one click away.
+
+    Inline preview classes belonged to the rejected card design. The native
+    editor diff, +/- summary, plain hint, and three explicit verdicts are the
+    active contract.
+    """
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "crusorai-approval-diff-preview" in renderer
-    assert "crusorai-approval-diff-header" in renderer
+    assert "crusorai-approval-review" in renderer
+    assert "host.openDiff(approval.toolId)" in renderer
+    assert "crusorai-diff-count" in renderer
     assert "function approvalHintText" in renderer
+    assert "crusorai-approval-diff-preview" not in renderer
     assert "crusorai-approval-warning" not in renderer
     assert "crusorai-approval-risk-badge" not in renderer
-    assert ".crusorai-approval-diff-preview" in css
+    assert ".crusorai-approval-review" in css
+    assert ".crusorai-approval-diff-preview" not in css
     assert ".crusorai-approval-warning" not in css
 
 

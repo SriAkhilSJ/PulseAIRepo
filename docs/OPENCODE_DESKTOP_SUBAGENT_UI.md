@@ -1,5 +1,9 @@
 # OpenCode Desktop UI — Subagent Pipeline (no TUI)
 
+> **Status:** upstream reference snapshot from 2026-09-22, not current Crusor
+> behavior. Use [`DESIGN/SUBAGENT_PARITY_AUDIT.md`](DESIGN/SUBAGENT_PARITY_AUDIT.md)
+> plus its 2026-10-23 correction for Crusor parity.
+
 Source: `anomalyco/opencode` cloned 2026-09-22 to `/home/user/opencode`
 Scope: **Desktop only** — Electron + SolidJS web app (`packages/app` + `packages/session-ui` + `packages/desktop`)
 

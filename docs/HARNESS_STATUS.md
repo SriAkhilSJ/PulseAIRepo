@@ -1,5 +1,10 @@
 # Harness v0.1 — Status & Handoff
 
+> **Status:** historical benchmark/harness snapshot. Counts and merge status
+> below apply to the named 2026-08/09 trees, not the current repository. For
+> current test/CI scope and evidence capability, see [`../README.md`](../README.md)
+> and [`AGENT_CORE_CURRENT_STATE.md`](AGENT_CORE_CURRENT_STATE.md).
+
 **Date:** 2026-09-11 · **Scope:** execution lane of the Crusor Reliability Benchmark (PR #7)
 
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.

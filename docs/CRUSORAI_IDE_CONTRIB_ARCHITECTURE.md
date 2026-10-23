@@ -1,8 +1,11 @@
 # CrusorAI IDE — Workbench Contribution Architecture
 
-**Decision date:** 2026-08-15
-**Status:** Founder-approved and implementation-started
-**Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
+> **Status:** current architectural boundary; the file tree below is
+> illustrative, not a complete current inventory
+> **Decision date:** 2026-08-15
+> **Last reviewed:** 2026-10-23 against `590fe542`
+> The Agent pane is now native-only. Historical merge statements below prove
+> provenance, not current full-suite health.
 
 ## Non-negotiable placement
 

@@ -53,10 +53,11 @@ jobs:
           # itself; set explicitly so a future runner change cannot regress it).
           CRUSORAI_PREVIEW_AUTOSTART: "0"
         # The two ignored modules compare the repo's TRACKED desktop build
-        # output (desktop/vscode/out/**, 52 committed files) against the
-        # current TypeScript sources. They fail whenever the desktop panel is
-        # rebuilt/stale — a desktop-lane concern, owned by the app run
-        # verification, not by the agent core. They run in the informational
+        # output against the current TypeScript sources. HEAD also carries an
+        # orphaned generated crusorai-spa subtree with no matching source, so
+        # output presence alone is not Agent Core evidence. Source/output
+        # parity is a desktop-lane concern, owned by the app run verification,
+        # not by the agent core. These tests run in the informational
         # `desktop-panel-parity` job below instead of blocking this one.
         run: |
           bash scripts/run_tests.sh src/tests \

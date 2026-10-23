@@ -1,5 +1,11 @@
 # Crusor Subagent Full Pipeline — Implementation Plan (Desktop Focus)
 
+> **Status:** historical pre-implementation plan. The referenced webview was
+> later deleted and the native/sub-agent implementation evolved substantially.
+> Use [`DESIGN/SUBAGENT_PARITY_AUDIT.md`](DESIGN/SUBAGENT_PARITY_AUDIT.md) for
+> the dated parity record and [`PERMISSIONS.md`](PERMISSIONS.md) for current
+> approval behavior.
+
 **Date:** 2026-09-22
 **Source analysis:** `anomalyco/opencode` desktop UI (packages/app + session-ui + desktop) + Crusor current (`src/agents/sub_agent.py`, `subagent_lifecycle.py`, `chat_graph.py`, bridge, `crusorAIRenderer.ts`, `crusor-webview`)
 **Author:** Arena agent

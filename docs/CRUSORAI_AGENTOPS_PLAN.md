@@ -1,5 +1,9 @@
 # CrusorAI — AgentOps Dashboard: Needs Extraction & Build Plan
 
+> **Status:** proposed product/build plan, not a shipped dashboard. Raw signals
+> listed below should be rechecked against current callers and schemas; the
+> current audit is [`AGENT_CORE_CURRENT_STATE.md`](AGENT_CORE_CURRENT_STATE.md).
+>
 > **Product name:** CrusorAI (explicitly **not** PulseAI — all new surfaces say CrusorAI).
 > **Goal:** A dedicated AgentOps website dashboard that observes, measures, and operates the
 > CrusorAI agent end-to-end.

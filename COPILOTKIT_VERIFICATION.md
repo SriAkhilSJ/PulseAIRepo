@@ -1,5 +1,11 @@
 # CopilotKit verification — does the Crusor agent really render?
 
+> **Status:** historical evidence for a removed surface. The repository-owned
+> `crusor-webview/` was deleted in `7fd8ea61`, and native CopilotKit integration
+> was stripped in `f4f3a14e`. Commands and pass counts below are provenance, not
+> current validation. Use [README.md](README.md) and
+> [desktop/README.md](desktop/README.md).
+
 **Commit under test:** `bf696a61` (PR #14 merge, merged 2026-09-11T21:02:36Z)
 **Date:** 2026-09-11
 **Verification method:** provider-free. Zero LLM/provider tokens were spent. Every

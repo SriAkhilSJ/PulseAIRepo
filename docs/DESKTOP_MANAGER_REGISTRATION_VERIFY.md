@@ -1,5 +1,11 @@
 # Desktop verification — Manager session registration (step 1)
 
+> **Status:** historical 2026-09 branch-era field script. Do not execute its
+> checkout/reset commands or deleted `crusor-webview` compiler fallback. Use
+> [`../desktop/README.md`](../desktop/README.md) and
+> [`LAPTOP_VERIFICATION_PACK.md`](LAPTOP_VERIFICATION_PACK.md) for current
+> validation.
+
 **For:** the owner's Windows laptop, real VS Code fork (`CrusorAI.exe`) + real Copilot Chat.
 **Entry point:** `DESKTOP_AGENT_INSTRUCTIONS.md` (authorization, budget, evidence push). This file is the appendix:
 the exact PASS lines, the console snippet, and the deliberate gaps.

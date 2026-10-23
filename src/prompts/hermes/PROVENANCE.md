@@ -1,5 +1,10 @@
 # Provenance — the Hermes pin this port was copied from
 
+> **Status:** historical provenance for the 2026-09 port. Prompt provenance
+> remains useful; every `crusor-webview`/CopilotKit UI path and command below
+> refers to a surface deleted in October 2026 and must not be used as current
+> architecture. See [`../../../README.md`](../../../README.md).
+
 Everything under `src/prompts/hermes/` (prompt engine) and
 `crusor-webview/src/hermes-ui/` (Agent UI) is a **pin-to-pin copy** of one specific
 upstream checkout, remapped onto Crusor's own backend. This file is the record that

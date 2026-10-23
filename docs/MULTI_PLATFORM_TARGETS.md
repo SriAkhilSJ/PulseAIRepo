@@ -1,5 +1,10 @@
 # Multi-platform delivery: mobile, desktop, and Android targets for the Crusor agent
 
+> **Status:** current subsystem guide; implementation present, runtime proof is
+> host/device dependent
+> **Last reviewed:** 2026-10-23
+> **Verified against:** `590fe542306ef89547e7909b89da01a9c730e55c`
+
 Status: **implemented in this repo** (target layer + agent surface + hermetic tests); the
 Windows Android CLI/emulator setup still needs a native-machine run, and the
 external tooling choices and CI pipelines below remain templates.

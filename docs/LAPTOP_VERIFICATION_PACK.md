@@ -1,16 +1,55 @@
-# Laptop verification pack — engine + UI through the SDK-installer round (UI stamp `2026-10-18-29`)
+# Laptop verification pack — native Agent pane
+
+> **Status:** manual field checklist. Sections A–F preserve the permission and
+> SDK-installer rounds they were written for; passing them in an older report is
+> not proof for the current build.
+> **Last reviewed:** 2026-10-23
+> **Current source:** `590fe542306ef89547e7909b89da01a9c730e55c`
+> **Current native UI stamp:** `2026-10-19-38`
+> **Compiled artifact metadata:** `BUILD_INFO.json` records `0edce5c3`, the
+> parent source commit compiled before `590fe542` checked in its output.
 
 ## Setup (every round)
 
-1. Pull `arena/0d4596c3-pulseairepo`.
-2. Fully quit and reopen the agent (a running workbench keeps the old
-   compiled panel — that is what the freshness stamp exists to catch).
-3. The status chip must read **`ui 2026-10-18-29`** (engine build =
-   your latest pull, after `8177c94e`).
-   Anything older = you are not testing this code; stop and tell me.
+1. Check out the exact commit under test. Do not use the old
+   `arena/0d4596c3-pulseairepo` branch name from earlier field rounds.
+2. If testing local source edits, run the desktop build and
+   `node scripts/emit-crusorai-bundle.mjs` from `desktop/vscode`.
+3. Fully quit and reopen the agent (a running workbench keeps the old compiled
+   panel; that is what the freshness stamp exists to catch).
+4. The status chip must read **`ui 2026-10-19-38`** for the reviewed source.
+   The bridge must not print `DESKTOP WORKBENCH STALE`. Anything older means you
+   are not testing this source; stop and capture the chip, engine build, and
+   `BUILD_INFO.json`.
+5. Confirm the Agent pane is the native renderer. No `crusor-webview` or port
+   `3001` process is required. The generated `out/**/crusorai-spa` payload is
+   not an active test surface.
 
-Run each check in the **desktop agent**. Mark ✅ / ❌ and send me the
-failing numbers.
+Run each check in the **desktop agent**. Mark ✅ / ❌, record the exact commit,
+OS, provider/model, and attach the failing check numbers plus logs/screenshots.
+
+### Current-delta checks (run before the historical rounds)
+
+- **D0.1 Native-only boot:** the Agent pane opens with no webview dev server,
+  CopilotKit process, or port `3001` dependency.
+- **D0.2 Terminal lifecycle:** run a command that prints at least three delayed
+  lines. One process card starts, output appends to that same process/tool ID,
+  and exactly one terminal end state reports the real exit code.
+- **D0.3 Cancel:** start a bounded long-running command or SDK setup, press
+  Stop/Cancel, and confirm the process and any approval wait settle promptly;
+  no late success receipt may appear.
+- **D0.4 Verdict integrity:** make a code edit and intentionally run a failing
+  verification. The turn must not end as completed/verified. Fix it, rerun, and
+  verify that only fresh post-fix evidence authorizes completion.
+- **D0.5 Reasoning budget:** with a reasoning-capable provider, confirm the call
+  ledger records reasoning volume and a length-exhausted/empty reply does not
+  evade the delivery cap.
+- **D0.6 Child HITL truth:** a child clarifying question may surface in the tree.
+  A child tool action that requires permission is currently expected to be
+  denied before the dock; do not record synthetic approval UI plumbing as an
+  end-to-end pass. See [`PERMISSIONS.md`](PERMISSIONS.md).
+- **D0.7 Local telemetry:** `python -m src.telemetry.call_ledger` shows the live
+  calls and one final run verdict without prompt, answer, or file contents.
 
 ---
 

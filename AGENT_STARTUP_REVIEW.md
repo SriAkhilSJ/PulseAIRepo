@@ -1,5 +1,12 @@
 # CrusorAI Agent — Startup-Focused Technical Review
 
+> **Status:** historical snapshot; not current product status
+> **Reviewed:** 2026-08-13
+> **Superseded for current state by:** [README](README.md) and
+> [Agent Core current state](docs/AGENT_CORE_CURRENT_STATE.md). Claims here
+> about failing tests, approval wiring, dashboard scope, and readiness were
+> accurate only for the inspected tree and have not been rolled forward.
+
 **Review date:** 2026-08-13  
 **Scope:** Agent backend and supporting dashboard API. The VS Code/Desktop fork was intentionally excluded.
 

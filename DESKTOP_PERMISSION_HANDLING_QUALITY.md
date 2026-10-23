@@ -1,5 +1,10 @@
 # Permission handling in the desktop agent — quality assessment
 
+> **Status:** historical assessment at `bf696a61`. The CopilotKit view was
+> subsequently removed and permission semantics changed (session-only grants,
+> indefinite approval waits, OpenCode rule table). Use
+> [docs/PERMISSIONS.md](docs/PERMISSIONS.md) for current behavior.
+
 Scope: how consent works when Crusor writes files **inside the VS Code fork**, plus the state of
 Ask/Plan modes, the Manager surface, and the CopilotKit view. Written against `main` as of
 `bf696a61` (PR #14 merge). Every claim names a file and line; anything I could not verify is in

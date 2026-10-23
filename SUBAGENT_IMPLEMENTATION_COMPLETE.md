@@ -1,5 +1,12 @@
 # Subagent Full Pipeline — Implementation Complete (OpenCode Parity)
 
+> **Status:** historical implementation report, not a current parity
+> certification. The webview half was later deleted, many native/sub-agent
+> paths evolved, and child tool approvals remain UI/transport-only rather than
+> end-to-end. See
+> [docs/DESIGN/SUBAGENT_PARITY_AUDIT.md](docs/DESIGN/SUBAGENT_PARITY_AUDIT.md)
+> and [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
+
 Date: 2026-09-22
 
 ## What was requested

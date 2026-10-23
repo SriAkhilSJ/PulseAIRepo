@@ -1,5 +1,17 @@
 # Sub-agent parity audit — Crusor vs OpenCode (A–Z)
 
+> **Status:** historical audit snapshot (2026-10-15), with current correction
+> **Current source checked:** 2026-10-23 at `590fe542306ef89547e7909b89da01a9c730e55c`
+> **Correction:** row 12 proved tree-aware desktop/bridge plumbing, not a real
+> child permission round trip. Current `SafeToolNode` auto-denies guard-unsafe
+> and permission-config `ask` calls for `sub-*` sessions before the approval
+> channel. `CRUSORAI_SUBAGENT_AUTO_APPROVE=1` skips checks rather than asking.
+> Treat child tool approval parity as **partial/unshipped** until an end-to-end
+> child call proves request → dock → verdict → durable execution. Child
+> clarifying questions remain a separate, working tree-routed path. See
+> [`../PERMISSIONS.md`](../PERMISSIONS.md) and
+> [`../AGENT_CORE_CURRENT_STATE.md`](../AGENT_CORE_CURRENT_STATE.md).
+
 Founder-requested, 2026-10-15. OpenCode studied at upstream v2 (`f40dc43`,
 v2.0.30): `packages/core/src/tool/plugin/{subagent,question,form}.ts`,
 `session/{subagent-job,subagent-completion,session}.ts`, `agent.ts`, and the
@@ -9,16 +21,16 @@ through this audit's fix build (clarify tree-surfacing + stop cascade).
 
 **Plain-English summary.** A sub-agent is a worker the main agent hires for
 one job. OpenCode's whole design is: *a worker is just another conversation*
-— same screen, same question popups, same stop button behaviour. Crusor now
-matches that core, including the follow-ups: workers can be re-hired with
-their context intact (resume), given a cheaper brain (model choice), defined
-by you (custom agents), and both their questions AND their permission
-requests surface where you're standing.
+— same screen, same question popups, same stop button behaviour. The audit's
+2026-10-15 conclusion was that Crusor matched that core, including resume,
+model choice, custom agents, and tree-routed questions/permissions. Current
+source review preserves the question path but narrows the permission claim:
+the dock plumbing exists, while child tool asks are denied before reaching it.
 
-*Status update, same day: every ❌ below was closed in the "important" build
-(`test_subagent_registry_resume.py`, 11 tests; jsdom harness; architecture
-pins). Remaining known deltas are the two ⚠️ rows (11 and 20) and #19's
-deliberate difference.*
+*Historical status update from the audit day: every then-known ❌ was described
+as closed in the "important" build (`test_subagent_registry_resume.py`, 11
+tests; jsdom harness; architecture pins). Current correction: row 12 is partial;
+row 11 and #19's deliberate difference also remain relevant.*
 
 ## The audit
 
@@ -35,7 +47,7 @@ deliberate difference.*
 | 9 | Parent **Stop interrupts children** (job cancel + child interrupt; also wakes their pending questions) | Was missing. **Fixed in this audit's build**: delegate registers a turn abort that cancels the child (foreground + batch); proven by `test_subagent_stop_cascade.py` | ✅ DONE (was ❌ MISSING) |
 | 10 | Deleting a session cascades to children | `delete_session` removes child rows + checkpoints | ✅ DONE |
 | 11 | Background tasks: completion delivered INTO the parent as a synthetic `<subagent>` message; an idle parent resumes | Event → bridge frame → service appends the text to the viewed transcript. No persisted synthetic message; an idle/backgrounded parent is not re-invoked to react | ⚠️ PARTIAL |
-| 12 | **Approvals (permissions) from children surface by the same tree rule** | Was row-chip only. **Fixed**: approvals tracked by tool id tree-wide, tree-picked into the approval dock, verdict routed to the asking session | ✅ DONE |
+| 12 | **Approvals (permissions) from children surface by the same tree rule** | Desktop/bridge plumbing tracks approvals by tool id tree-wide and can route a synthetic verdict, but current core execution auto-denies a child's guard/config ask before it reaches that path | ⚠️ PARTIAL — UI/transport only |
 | 13 | **Resume/continue**: passing `sessionID` continues a previous child (may switch agent/model) | **Fixed**: `session_id` on both delegate tools; same thread/checkpoint, follow-up verbatim (no persona re-applied); only the own parent may resume, only once settled. (Model CAN switch on resume via `model`; agent is the child's own.) | ✅ DONE |
 | 14 | **Model choice**: per-agent model, per-call override (`model` arg) | **Fixed**: per-call `model` > custom agent's frontmatter model > parent's model, threaded delegate → lifecycle → coordinator → invoke_agent | ✅ DONE |
 | 15 | **Open agent registry**: custom agents (own prompt/model/permissions/colour), tool description lists available agents dynamically | **Fixed**: built-ins + `.crusorai/agents/*.md` (workspace) and `~/.crusorai/agents/*.md` (global), frontmatter description/capabilities/model/base + body prompt; custom shadows built-in by name; delegate descriptions rebuilt from the live registry at bind. (No per-agent colour — the card has no colour slot.) | ✅ DONE |
@@ -47,14 +59,18 @@ deliberate difference.*
 
 ## Recommended order from here
 
-All seven gaps above are closed. What remains, in value order:
+The audit originally recorded all seven gaps as closed. Current review reopens
+#12's execution half. What remains, in value order:
 
-1. **#11 background completion** — persist the synthetic `<subagent>`
+1. **#12 child approval execution** — connect a child's permission `ask` to
+   the existing tree-aware dock without weakening `deny`, then prove the full
+   request/verdict/durable-execution path with a real child tool call.
+2. **#11 background completion** — persist the synthetic `<subagent>`
    message into the parent thread and re-invoke an idle parent so it can
    react without being poked (today: the completion text paints live).
-2. ~~**#20 token streaming into an open child view**~~ — SHIPPED: the bridge forwards proven in-tree frames; the service adopts the checkpoint tail turn into the live lane and stands the 3s poll down. (Was: replace the 3s
-   checkpoint poll with the child's live token frames while it's open.
-3. Field-verify resume + custom agents with real provider calls (sandbox
+3. ~~**#20 token streaming into an open child view**~~ — SHIPPED: the bridge forwards proven in-tree frames; the service adopts the checkpoint tail turn into the live lane and stands the 3s poll down. (Earlier proposal: replace the 3s
+   checkpoint poll with the child's live token frames while it is open.)
+4. Field-verify resume + custom agents with real provider calls (sandbox
    has no provider keys; the chains are proven with `invoke_agent` faked
    at exactly the provider seam).
 

@@ -516,11 +516,20 @@ def _record_verification_result(
     try:
         session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
         from src.runtime.factory import get_runtime_services
-        evidence = get_runtime_services().verification.record_command(
+        from src.runtime.verification_events import journal_verification_update
+        services = get_runtime_services()
+        evidence = services.verification.record_command(
             session_id=session_id, workspace=workspace, command=command,
             exit_code=exit_code, output=output,
         )
         if evidence:
+            evidence = journal_verification_update(
+                services, evidence,
+                session_id=session_id,
+                workspace=workspace,
+                evidence_kind="command",
+                turn_id=str((config or {}).get("configurable", {}).get("turn_id") or "") or None,
+            )
             from src.dashboard.event_bus import event_bus
             event_bus.emit("verification.updated", {**evidence, "thread_id": session_id})
     except Exception as exc:
@@ -1128,7 +1137,9 @@ def terminal(
             partial = _limit_terminal_output(output.strip(), _max_chars) if output.strip() else ""
             message = (
                 f"⛔ run_terminal timed out after {timeout}s (command may be blocked or hung): {command}. "
-                "Retry only with a justified longer timeout, or use start_terminal for a long-running process. "
+                "TIP: this is an ENVIRONMENT failure until the command proves otherwise — do not retry the "
+                "same interactive command. Use non-interactive flags, retry only with a justified longer "
+                "timeout, or use start_terminal for a long-running process. "
                 f"Captured output remains available with read_terminal_output(process_id='{process_id}')."
             )
             return f"{message}\n\nPartial output:\n{partial}" if partial else message

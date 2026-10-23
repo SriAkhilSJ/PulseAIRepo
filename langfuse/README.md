@@ -1,5 +1,9 @@
 # Langfuse (self-hosted) for the Crusor agent
 
+> **Status:** optional current diagnostics path, last reviewed 2026-10-23
+> against `590fe542`. Traces monitor turns/nodes/model/tool calls; they are
+> fail-open and do not authorize a release or replace verification evidence.
+
 `docker-compose.yml` is the **official upstream Langfuse compose** (fetched from
 `langfuse/langfuse@main`), unmodified. It runs the full stack locally:
 langfuse-web + worker, postgres, clickhouse, redis, minio. Nothing leaves

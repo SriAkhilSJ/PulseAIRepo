@@ -222,19 +222,23 @@ def test_bridge_receipt_splits_model_vs_non_model_wall():
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall" in bridge
+    assert "pop_turn_model_accounting" in bridge
+    assert "_subagent_model_wall" in bridge
     assert "non-model" in bridge, "the receipt must name where non-model wall lives"
 
 
-def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
-    """Field 2026-09-09: the receipt read turn_model_wall(session_id) but the
-    bridge scope names the thread `sid` — NameError, swallowed, and the log
-    printed "model 0.0s" while the model visibly consumed minutes."""
+def test_bridge_receipt_reads_and_clears_wall_with_the_real_thread_id():
+    """The bridge must use its real `sid` and consume accounting once.
+
+    The original cumulative ``turn_model_wall`` read was replaced by an atomic
+    read-and-clear that also attributes delegated model time; pin that current
+    contract rather than the retired helper name.
+    """
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall(sid)" in bridge
-    assert "turn_model_wall(session_id)" not in bridge
+    assert "pop_turn_model_accounting(sid)" in bridge
+    assert "pop_turn_model_accounting(session_id)" not in bridge
 
 
 def test_grace_print_names_both_budget_legs_and_the_tripped_one(monkeypatch):

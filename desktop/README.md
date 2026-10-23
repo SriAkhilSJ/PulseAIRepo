@@ -1,5 +1,9 @@
 # CrusorAI IDE — Canonical Code OSS Fork
 
+> **Status:** current build and overlay contract
+> **Last reviewed:** 2026-10-23
+> **Verified against:** `590fe542306ef89547e7909b89da01a9c730e55c`
+
 `PulseAIRepo/desktop/` tracks two things:
 
 - **`vscode/`** — the canonical, vendored Code OSS checkout at the pinned commit. The full Crusor overlay is applied **in place**: `vscode/product.json`, `vscode/build/buildfile.ts`, and the branded platform resources under `vscode/resources/` are all committed as part of the fork.
@@ -32,10 +36,29 @@ npm install
 npm run typecheck-client
 npm run valid-layers-check
 npm run compile
+node scripts/emit-crusorai-bundle.mjs
 npm run gulp minify-vscode
 ```
 
 The crusorai worker entrypoint (`crusorAIWorkerMain`) is emitted as a desktop-only optimized bundle entry by **both** packaging paths: `vscode/build/buildfile.ts` (legacy gulp path) and `vscode/build/next/index.ts` (current esbuild path). String-addressed utility workers are not discovered from the workbench import graph, so each path lists the entry explicitly.
+
+## Active Agent pane and generated-output warning
+
+The active pane is native TypeScript:
+`crusorAIViewPane.ts` mounts `CrusorAIRenderer` directly. The repository-owned
+`crusor-webview/` app and native CopilotKit integration were removed in
+`7fd8ea61` and `f4f3a14e`; no standalone webview dev server belongs in the
+current startup path.
+
+At this commit Git tracks 594 files in the Crusor `out/` slice, including 541
+under `browser/media/crusorai-spa/`. No matching source or active loader exists;
+treat that subtree as orphaned build debt, never architecture or hand-edited
+source.
+
+`browser/BUILD_INFO.json` currently records source commit `0edce5c3`, the parent
+whose sources were compiled before commit `590fe542` checked in the artifacts.
+That provenance is expected for a build-output commit, but source hash/manifest
+checks and an actual app launch remain the authority.
 
 ## Branding & theme (Interface agent)
 
@@ -73,4 +96,4 @@ Remaining rebranding gaps are tracked in `docs/DESIGN/FORK_REBRANDING.md` §4.
 5. `workbench.common.main.ts` registers the cross-platform UI contribution; `workbench.desktop.main.ts` separately registers the utility-process sidecar so web builds never load Electron APIs.
 6. `vscode/build/buildfile.ts` (legacy gulp path) and `vscode/build/next/index.ts` (current esbuild path) each emit `crusorAIWorkerMain` as a desktop-only optimized bundle entry point; string-addressed utility workers are not discovered from the workbench import graph.
 7. Exactly five upstream **source** files are modified in the fork: product branding, the two registration files, and the two desktop bundle entry files (`build/buildfile.ts` for the legacy gulp path, `build/next/index.ts` for the current esbuild path). Eight platform icon files are intentional branding overlays, generated from `branding/crusorai-mark.svg`.
-8. Build outputs (`node_modules`, Electron binaries, `out-*`) produced inside `vscode/` are never committed — the vendored tree's nested `.gitignore` protects those, with **one deliberate exception**: the compiled Crusor panel `out/vs/workbench/contrib/crusorai/**` is tracked (nested `.gitignore:16-23`, minus `browser/media/crusorai-spa/`) so a fresh checkout boots a working panel instead of a silently missing one. `npm run compile` re-emits it, and since 2026-10-03 the task also re-emits any torn `.js` a flaky disk wrote (first 4 KB kept, the rest NUL-filled) rather than shipping a file that throws `SyntaxError` at runtime.
+8. Build outputs (`node_modules`, Electron binaries, `out-*`) produced inside `vscode/` are normally untracked — the vendored tree's nested `.gitignore` protects them. The deliberate exception is the compiled Crusor panel slice `out/vs/workbench/contrib/crusorai/**`, retained so a fresh checkout boots a panel instead of silently missing one. `npm run compile` re-emits it, and since 2026-10-03 the task also re-emits any torn `.js` a flaky disk wrote (first 4 KB kept, the rest NUL-filled) rather than shipping a file that throws `SyntaxError` at runtime. The currently tracked `browser/media/crusorai-spa/` subtree is anomalous orphaned output, not an additional supported source surface; resolve it explicitly rather than normalizing it into this invariant.

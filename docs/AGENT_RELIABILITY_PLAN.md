@@ -1,5 +1,11 @@
 # Agent reliability repair plan before VS Code Agent UI work
 
+> **Status:** historical repair plan and evidence from September 2026. “Merged”
+> below means its named changes landed; it does not make every planned
+> reliability/monitoring capability a current release gate. See
+> [`AGENT_CORE_CURRENT_STATE.md`](AGENT_CORE_CURRENT_STATE.md) for current
+> wiring and gaps.
+
 **Date:** 2026-09-11  
 **Evidence:** desktop Test-5 runs `test5-5` and `test5-6`; Hermes Agent comparisons at `e5032945cbebb64b8a819b66ec831c1906297b81` and `1bbb6e5bce56e721ab685af4cd87df21bbff4d35`
 **Status:** ✅ **MERGED** — PR #14 merged 2026-09-11T21:02:36Z. All 32 layers + provider-fetched output caps now on `main`.
