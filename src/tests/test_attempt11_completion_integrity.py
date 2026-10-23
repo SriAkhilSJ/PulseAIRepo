@@ -182,12 +182,18 @@ def test_terminal_subprocess_forces_utf8_transport(monkeypatch, tmp_path):
 
     captured = {}
 
+    import io
+
     class FakeProcess:
         pid = 123
         returncode = 0
 
-        def communicate(self, timeout=None):
-            return "Unicode output: 3√3 and r⁵\n", ""
+        def __init__(self):
+            self.stdout = io.StringIO("Unicode output: 3√3 and r⁵\n")
+            self.stderr = io.StringIO("")
+
+        def wait(self, timeout=None):
+            return self.returncode
 
     def fake_popen(command, **kwargs):
         captured.update(kwargs)
