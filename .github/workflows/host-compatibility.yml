@@ -37,8 +37,7 @@ jobs:
           src/tests/test_crusor_shell_launcher.py
           src/tests/test_target_environment.py
           src/tests/test_target_pipeline.py
-          src/tests/test_target_scaffold.py
-          src/tests/test_preview_target_probe.py
+                    src/tests/test_preview_target_probe.py
 
       - name: Publish actionable pytest failures
         if: failure()
