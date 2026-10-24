@@ -123,6 +123,10 @@ _EXPLICIT_CORRECTION_RE = re.compile(
     r"(?:change|adjust|correct|revise)\s+(?:that|it|the\s+(?:task|scope|request))\b)"
     r"|\b(?:instead\s+of|rather\s+than)\b"
 )
+_CORRECTION_PREFIX_RE = re.compile(
+    r"(?is)^\s*(?:actually|correction|to\s+clarify|instead|but|however)\b"
+    r"\s*[:;,\-–—]?\s*"
+)
 
 _PHATIC_WORDS = frozenset(
     "hi hey hello yo hiya howdy thanks thank thx ty ok okay kk cool nice great "
@@ -214,13 +218,15 @@ def _is_authorization(text: str) -> bool:
 
 
 def _instruction_payload(text: str) -> str:
-    """Drop an explicit reset label while preserving the user's task words."""
-    match = _EXPLICIT_REPLACEMENT_RE.search(text)
-    if match:
-        remainder = text[match.end():].lstrip(" \t:,-–—")
-        if remainder:
-            return remainder
-    return text
+    """Drop routing labels while preserving the full text in the contract."""
+    payload = text
+    for pattern in (_EXPLICIT_REPLACEMENT_RE, _CORRECTION_PREFIX_RE):
+        match = pattern.search(payload)
+        if match:
+            remainder = payload[match.end():].lstrip(" \t:,-–—")
+            if remainder:
+                payload = remainder
+    return payload
 
 
 def decide_interest_mode(instruction: str) -> tuple[InterestMode, ChangePolicy, str]:

@@ -32,6 +32,7 @@ from src.context.user_interest import (
         ("Can you implement this and verify it?", "act", "changes_requested"),
         ("Run the focused tests.", "act", "unspecified"),
         ("Run the tests without changing code.", "act", "no_changes"),
+        ("Actually, run the tests without changing code.", "act", "no_changes"),
         ("Review the parser and fix the boundary bug.", "act", "changes_requested"),
         ("Was the desktop test successful?", "answer", "unspecified"),
         ("Please explain how the router works.", "answer", "unspecified"),
@@ -116,6 +117,27 @@ def test_followup_is_scope_preserving_and_ack_does_not_replace_it():
     assert ack.latest_substantive_instruction == correction.latest_substantive_instruction
     assert ack.mode == correction.mode
     assert ack.change_policy == correction.change_policy
+
+
+def test_correction_prefix_does_not_hide_action_or_original_wording():
+    active = resolve_user_interest(
+        objective="Implement Agent Core.",
+        latest_instruction="Implement Agent Core.",
+        relationship="new",
+    )
+    correction = resolve_user_interest(
+        previous=active.to_state(),
+        objective=active.objective,
+        latest_instruction="Actually, run the tests without changing code.",
+        relationship="undetermined",
+    )
+
+    assert correction.relationship == "corrects"
+    assert correction.mode == "act"
+    assert correction.change_policy == "no_changes"
+    assert correction.latest_instruction == (
+        "Actually, run the tests without changing code."
+    )
 
 
 def test_unrelated_turn_does_not_replace_active_interest():
