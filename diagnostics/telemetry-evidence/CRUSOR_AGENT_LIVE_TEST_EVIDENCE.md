@@ -128,3 +128,12 @@ The scratch security-probe files were removed after validation.
 | Zero-exit masked-success edge case | Automated masked-success contracts, not claimed as live | **Passed (automated)** |
 | Typed verification evidence | Schema v1 evidence IDs persisted in runtime journal | **Passed** |
 | Clean teardown | Scratch probe removed | **Passed** |
+
+## 4. Desktop UI screenshot & runtime corroboration
+
+Desktop agent handoff analysis evaluated the active UI rendering during the live session:
+
+- **Build identity:** Build `10a6ce14` (containing Agent Core hardening commit `ec7897b5`) was active and executing.
+- **Visible safety receipt:** The bounded scanner emitted a visible **`context scan bounded`** degraded receipt in the Crusor UI.
+- **Workflow continuity:** The yellow warning message is expected safety behavior; the agent acknowledged the bounded context and proceeded smoothly without hanging or silently exceeding its configured limits.
+- **Honest qualification:** The screenshot captures the turn in **Thinking** state, confirming the bounded receipt appeared live during execution, while final completion and durable safety boundaries are corroborated by the SQLite journal rows, verification ledger, benchmark receipts, and test suite assertions.
