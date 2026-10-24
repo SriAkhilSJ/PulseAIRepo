@@ -79,7 +79,9 @@ def _journal_run(
 
     conn = sqlite3.connect(path)
     try:
-        encoded = conn.execute("SELECT payload_json FROM runtime_events ORDER BY seq LIMIT 1").fetchone()[0]
+        encoded = conn.execute(
+            "SELECT payload_json FROM runtime_events ORDER BY seq LIMIT 1"
+        ).fetchone()[0]
     finally:
         conn.close()
     return {
