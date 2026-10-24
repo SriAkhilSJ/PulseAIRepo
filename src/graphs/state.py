@@ -70,6 +70,11 @@ class AgentState(CopilotKitState, total=False):
     recovery_mode: bool
     current_task: str
     latest_instruction: str
+    # Versioned Agent Core contract: objective, latest steering, explicit
+    # constraints/evidence, and conservative act-vs-answer routing.  Kept as a
+    # JSON-safe dict so LangGraph checkpoints and desktop protocol projection
+    # remain backward compatible.
+    user_interest: dict[str, Any]
     task_status: str
     steps_completed: list[str]
     task_action: str

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from langchain_core.messages import SystemMessage, ToolMessage
 
+from src.context.user_interest import UserInterest, interest_from_state
 from src.graphs.state import AgentState
 from src.graphs.budget import _budget_exhausted
 
@@ -75,6 +76,10 @@ _STALL_CONTINUATION_NUDGE = (
     "[System: Continue now. Execute the required tool calls and only send your "
     "final answer after completing the task.]"
 )
+_ANSWER_CONTINUATION_NUDGE = (
+    "[System: Continue and complete the answer now. This is an answer/read-only "
+    "turn: do not make workspace changes or call side-effecting tools.]"
+)
 
 _FINISH_NUDGE = (
     "[System: You declared the task finished, but almost no real work has "
@@ -128,6 +133,26 @@ _ARTIFACT_NUDGE = (
     "the format cannot be produced in this environment, report the concrete "
     "blocker instead of claiming completion.]"
 )
+
+
+def _interest_text(state: AgentState) -> str:
+    """Source-faithful task focus used by every completion/evidence gate."""
+    focus = interest_from_state(state).focus_text()
+    return focus or str(state.get("current_task", "") or "")
+
+
+def _execution_requested(state: AgentState) -> bool:
+    """Whether completion should require execution rather than an answer."""
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None:
+        if (
+            interest.mode in {"answer", "social"}
+            or interest.relationship == "cancelled"
+        ):
+            return False
+        if interest.mode == "act":
+            return True
+    return _looks_like_execution_task(_interest_text(state))
 
 
 def _looks_like_copy_task(task: str) -> bool:
@@ -461,7 +486,12 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     to detect that is to look. Read-only, never raises (an unreadable
     workspace treats targets as missing rather than crashing the gate).
     """
-    task = state.get("current_task", "")
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None and (
+        not _execution_requested(state) or interest.change_policy == "no_changes"
+    ):
+        return []
+    task = _interest_text(state)
     is_copy = _looks_like_copy_task(task)
     app_named = _app_named_targets(task)
     targets = _deliverable_targets(task)
@@ -505,7 +535,7 @@ def _named_deliverables_exist(state: AgentState, workspace: str = ".") -> bool:
     execute_code/terminal without being falsely treated as "no work" merely
     because the delivery-only work counter intentionally excludes shell calls.
     """
-    task = state.get("current_task", "")
+    task = _interest_text(state)
     is_copy = _looks_like_copy_task(task)
     eligible: list[str] = []
     for target in _deliverable_targets(task):
@@ -629,7 +659,7 @@ def should_continue(state: AgentState):
         # do NOT let the turn finalize prematurely on no_tool_streak if finish nudges remain.
         # Force the model to stop monologuing and execute mutation tools.
         if (
-            _looks_like_execution_task(state.get("current_task", ""))
+            _execution_requested(state)
             and _tool_call_count(state) < 1
             and not _named_deliverables_exist(state, state.get("workspace", "."))
             and state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
@@ -690,7 +720,8 @@ def should_continue(state: AgentState):
         if (state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
                 and _deliverables_missing_on_disk(state, state.get("workspace", "."))):
             return "finish_gate"
-        if (_produced_code_deliverable(state)
+        if (_execution_requested(state)
+                and _produced_code_deliverable(state)
                 and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
                 and not _verification_ran_and_passed(state)):
             return "finish_gate"
@@ -702,7 +733,7 @@ def should_continue(state: AgentState):
     # finish_nudges) so the model actually acts; after the budget, allow
     # finalize.
     if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
-        if _looks_like_execution_task(state.get("current_task", "")):
+        if _execution_requested(state):
             if (
                 _tool_call_count(state) < 1
                 and not _named_deliverables_exist(
@@ -737,7 +768,7 @@ def should_continue(state: AgentState):
     # legitimately unplaceable file cannot deadlock the run.
     _missing = _deliverables_missing_on_disk(state, state.get("workspace", "."))
     if _missing:
-        _is_copy = _looks_like_copy_task(state.get("current_task", ""))
+        _is_copy = _looks_like_copy_task(_interest_text(state))
         if _is_copy or state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
             return "finish_gate"
 
@@ -758,7 +789,7 @@ def _verify_unsatisfied(state: AgentState) -> bool:
     """
     if state.get("verify_nudges", 0) >= _VERIFY_NUDGE_BUDGET:
         return False
-    if not _looks_like_execution_task(state.get("current_task", "")):
+    if not _execution_requested(state):
         return False
     # Hard gate (founder 2026-10-20): a produced code deliverable owes at
     # least one real verification pass before the turn may close, however
@@ -789,7 +820,7 @@ def _produced_code_deliverable(state: AgentState) -> bool:
     runtime to verify and stay on the existence contract)."""
     if _wrote_code_files(state):
         return True
-    task = state.get("current_task", "")
+    task = _interest_text(state)
     app_named = _app_named_targets(task)
     targets = [
         t for t in _deliverable_targets(task)
@@ -850,7 +881,8 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     every required domain must have a fresh successful receipt. Later receipts
     supersede earlier receipts only within their own domain.
     """
-    ui_task = _looks_like_ui_task(state.get("current_task", ""))
+    task_focus = _interest_text(state)
+    ui_task = _looks_like_ui_task(task_focus)
     receipts = _fresh_verification_messages(state)
     status = {
         "static": False,
@@ -953,7 +985,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         # ...but when the task ASKS for a screenshot/visual proof, the
         # snapshot cannot stand in for it (audit 2026-10-12): the requested
         # artifact is the receipt, so the screenshot domain is required too.
-        visual_proof = _task_asks_visual_proof(state.get("current_task", ""))
+        visual_proof = _task_asks_visual_proof(task_focus)
         status["visual_proof_required"] = visual_proof
         if visual_proof:
             required.append("screenshot")
@@ -1056,8 +1088,13 @@ def finish_gate_node(state: AgentState) -> dict:
             f"calls — re-prompting to act ({state.get('stall_continuations', 0) + 1}/2)",
             flush=True,
         )
+        nudge = (
+            _STALL_CONTINUATION_NUDGE
+            if _execution_requested(state)
+            else _ANSWER_CONTINUATION_NUDGE
+        )
         return {
-            "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE, additional_kwargs={"crusor_nudge": True})],
+            "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],
             "stall_continuations": state.get("stall_continuations", 0) + 1,
             "nudged_at_msg_count": len(state.get("messages") or []),
         }
@@ -1095,7 +1132,8 @@ def finish_gate_node(state: AgentState) -> dict:
     # never spends), and this branch kept re-emitting the verify nudge
     # while verify_nudges grew unbounded past every limit.
     if (
-        _produced_code_deliverable(state)
+        _execution_requested(state)
+        and _produced_code_deliverable(state)
         and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
         and (not _ran_verification(state) or _verification_failed(state))
     ):
@@ -1142,7 +1180,7 @@ def finish_gate_node(state: AgentState) -> dict:
             "plan_wrap_nudges": nudges + 1,
         }
     nudge = _FINISH_NUDGE
-    if _looks_like_copy_task(state.get("current_task", "")) and not _wrote_code_files(state):
+    if _looks_like_copy_task(_interest_text(state)) and not _wrote_code_files(state):
         nudge = _COPY_NUDGE
     return {
         "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],

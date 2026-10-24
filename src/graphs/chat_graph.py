@@ -42,6 +42,12 @@ from src.llm.repetition_guard import (
 )
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
+from src.context.user_interest import (
+    UserInterest,
+    interest_from_state,
+    render_user_interest,
+    resolve_user_interest,
+)
 from src.context.token_tracker import TokenTracker, TokenUsage
 
 # --- CopilotKit A2UI fixed-schema wiring (Crusor domain) ---
@@ -1433,6 +1439,65 @@ _FILE_DELIVERY_WORDS = frozenset({
     "update", "scaffold", "deliver",
 })
 
+# An answer/no-change turn may inspect local or public information, but it must
+# not acquire a side-effecting schema and accidentally turn an inquiry into
+# implementation. The same allowlist is copied into the SafeToolNode phase
+# config below, so provider quirks cannot bypass model-time binding.
+_READ_ONLY_INTEREST_TOOLS = frozenset({
+    "think", "verify", "clarify",
+    "read_file", "list_files", "search_files", "search_code",
+    "web_search", "web_fetch", "web_extract", "media_search",
+    "skills_list", "skill_view", "hub_search", "hub_list",
+    "session_search", "discover_host_capabilities", "open_preview",
+    "browser_navigate", "browser_snapshot", "browser_scroll", "browser_back",
+    "browser_console", "browser_get_images", "browser_screenshot",
+})
+_NO_CHANGE_ACTION_TOOLS = _READ_ONLY_INTEREST_TOOLS | frozenset({
+    # Explicit verification/execution without source mutation. Shell access is
+    # needed for user-requested tests; the contract and phase guidance still
+    # prohibit edit/generator/install commands.
+    "terminal", "run_terminal", "start_terminal", "check_terminal",
+    "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
+    "read_terminal_output", "typecheck_workspace", "verify_ui_workspace",
+    "verify_ui_routes", "detect_targets", "check_target_toolchains",
+    "verify_target_app", "device_screenshot", "device_ui", "device_logs",
+    "device_preview", "browser_click", "browser_type", "browser_press",
+})
+
+
+def _stored_user_interest(state: AgentState) -> UserInterest | None:
+    return UserInterest.from_state(state.get("user_interest"))
+
+
+def _active_interest_text(state: AgentState) -> str:
+    """Objective plus newest substantive steering, never a social ack."""
+    focus = interest_from_state(state).focus_text()
+    return focus or str(state.get("current_task", "") or "")
+
+
+def _read_only_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    return bool(interest is not None and interest.mode in {"answer", "social"})
+
+
+def _no_change_action_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    return bool(
+        interest is not None
+        and interest.mode == "act"
+        and interest.change_policy == "no_changes"
+    )
+
+
+def _execution_requested_by_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    if interest is not None:
+        if _read_only_interest(state) or interest.relationship == "cancelled":
+            return False
+        if interest.mode == "act":
+            return True
+    return _looks_like_execution_task(_active_interest_text(state))
+
 
 def _has_landed_file_delivery(state: AgentState) -> bool:
     """Whether this turn has a successful file-producing receipt."""
@@ -1447,8 +1512,10 @@ def _has_landed_file_delivery(state: AgentState) -> bool:
 
 def _requires_file_delivery(state: AgentState) -> bool:
     """Conservative task/plan signal for the pre-delivery loop guard."""
+    if _read_only_interest(state) or _no_change_action_interest(state):
+        return False
     text = " ".join([
-        str(state.get("current_task", "")),
+        _active_interest_text(state),
         *(str(step.get("description", "")) for step in state.get("plan", []) or []),
     ]).lower()
     return any(re.search(rf"\b{re.escape(word)}\b", text) for word in _FILE_DELIVERY_WORDS)
@@ -1572,6 +1639,18 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     except Exception:
         pass  # scoping must never break binding; worst case = today's surface
 
+    read_only_interest = _read_only_interest(state)
+    no_change_action_interest = _no_change_action_interest(state)
+    interest_allowlist = (
+        _READ_ONLY_INTEREST_TOOLS
+        if read_only_interest
+        else _NO_CHANGE_ACTION_TOOLS if no_change_action_interest else None
+    )
+    if interest_allowlist is not None:
+        resolved_names = [
+            name for name in resolved_names if name in interest_allowlist
+        ]
+
     # Tool cap: some models (notably DeepSeek) return empty tool_calls when
     # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.
     _max_env = os.getenv("CRUSORAI_MAX_TOOLS", "0").strip()
@@ -1609,7 +1688,29 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         and not _has_landed_file_delivery(state)
         and _workspace_is_effectively_empty(workspace)
     )
-    if _pre_delivery_stalled(state) or empty_autonomous_delivery:
+    if read_only_interest:
+        phase = type(phase)(
+            "read_only_interest",
+            frozenset(_READ_ONLY_INTEREST_TOOLS),
+            max_file_mutations_per_turn=0,
+            guidance=(
+                "READ-ONLY INTEREST: answer the user's inquiry from available "
+                "evidence. Do not edit files, run side-effecting commands, "
+                "delegate implementation, install anything, or create artifacts."
+            ),
+        )
+    elif no_change_action_interest:
+        phase = type(phase)(
+            "no_change_action",
+            frozenset(_NO_CHANGE_ACTION_TOOLS),
+            max_file_mutations_per_turn=0,
+            guidance=(
+                "NO-CHANGE ACTION: perform the requested inspection or "
+                "verification, but do not edit/create files, install software, "
+                "run generators, or delegate implementation."
+            ),
+        )
+    elif _pre_delivery_stalled(state) or empty_autonomous_delivery:
         # A fresh autonomous build has nothing useful to inspect. Hermes begins
         # headless jobs with action-capable tools; Crusor previously exposed 33
         # schemas and waited four paid observations before narrowing. Make the
@@ -2700,26 +2801,15 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         task_succeeded=True,
     )
 
-    # Store successful task in long-term memory.
-    current_task = state.get("current_task") or state.get("latest_instruction", "")
+    # Store and judge the resolved interest, not whichever human message was
+    # newest. A bare "ok" must not replace the objective, while a substantive
+    # correction must be visible to memory, feedback, and completion gates.
+    interest = interest_from_state(state)
+    current_task = interest.focus_text() or str(
+        state.get("current_task") or state.get("latest_instruction", "")
+    )
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
-    # Task-name discipline (owner leak, 2026-09-05): the deviation header
-    # printed "Ended incomplete: hi" on a file-listing turn — `current_task`
-    # was stale from the session's first prompt. The LAST USER MESSAGE in
-    # this turn's transcript is the only honest label; state fields are the
-    # fallback when the transcript is somehow empty.
-    for _msg in reversed(state.get("messages") or []):
-        if getattr(_msg, "type", "") == "human":
-            _raw = _msg.content
-            if isinstance(_raw, list):
-                _raw = " ".join(
-                    b.get("text", "") for b in _raw if isinstance(b, dict)
-                ) or str(_raw)
-            _text = str(_raw).strip()
-            if _text:
-                current_task = _text
-                break
 
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
@@ -2747,7 +2837,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # as unverified — never stamped completed. Non-code artifacts stay
     # exempt via _produced_code_deliverable's code/app bar.
     unverified = (
-        _looks_like_execution_task(current_task)
+        _execution_requested_by_interest(state)
         and not _verification_ran_and_passed(state)
         and _produced_code_deliverable(state)
     )
@@ -2764,7 +2854,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # execution task with no real work while budget remains; this check now
     # catches only the pure-monologue case it was written for.
     no_work_done = (
-        _looks_like_execution_task(current_task)
+        _execution_requested_by_interest(state)
         and not _any_tool_activity(state)
         and not _wrote_code_files(state)
         and not _named_deliverables_exist(state, state.get("workspace", "."))
@@ -2802,7 +2892,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         _acted_after_nudge = any(
             getattr(m, "tool_calls", None) for m in _msgs[_nudged_at:]
         )
-        ended_mid_task = not _acted_after_nudge
+        ended_mid_task = (
+            _execution_requested_by_interest(state) and not _acted_after_nudge
+        )
     # Audit 2026-10-12: the verdict is computed ONCE and used for both the
     # returned task_status and the console line. They used to disagree —
     # `no_work_done` flipped task_completed to False while the print still
@@ -4360,6 +4452,15 @@ def task_manager_node(
         state.get("messages") or []
     )
 
+    def _interest(objective: str, relationship: str) -> dict[str, Any]:
+        """Resolve schema-v1 intent state without another provider call."""
+        return resolve_user_interest(
+            previous=state.get("user_interest"),
+            objective=objective,
+            latest_instruction=latest_instruction,
+            relationship=relationship,  # type: ignore[arg-type]
+        ).to_state()
+
     if (
         is_plan_cancellation(latest_instruction)
         and state.get("plan_created")
@@ -4367,6 +4468,8 @@ def task_manager_node(
     ):
         return {
             "current_task": "",
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest("", "cancelled"),
             "plan": [],
             "plan_goal": "",
             "plan_created": False,
@@ -4390,14 +4493,17 @@ def task_manager_node(
         and state.get("plan_created")
         and state.get("plan")
     ):
+        approved_task = state.get(
+            "plan_goal",
+            state.get("current_task", ""),
+        )
         return {
             "execution_mode": "agent",
             "plan_approved": True,
             "task_action": "execute_approved_plan",
-            "current_task": state.get(
-                "plan_goal",
-                state.get("current_task", ""),
-            ),
+            "current_task": approved_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(approved_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
             "workspace": config["configurable"].get("workspace", "."),
         }
@@ -4407,6 +4513,8 @@ def task_manager_node(
             "task_action": "approval_without_plan",
             "task_status": "idle",
             "plan_approved": False,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
         }
 
@@ -4419,6 +4527,7 @@ def task_manager_node(
         return {
             "task_action": "revise_plan",
             "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "corrects"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
         }
 
@@ -4426,6 +4535,8 @@ def task_manager_node(
     if not current_task:
         return {
             "current_task": latest_instruction,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(latest_instruction, "new"),
             "task_status": "in_progress",
             "task_action": "new",
             "steps_completed": [],
@@ -4463,6 +4574,8 @@ def task_manager_node(
         if action == "new":
             return {
                 "current_task": updated_task,
+                "latest_instruction": latest_instruction,
+                "user_interest": _interest(updated_task, "replaces"),
                 "task_action": "new",
                 "task_status": "in_progress",
                 "steps_completed": [],
@@ -4496,7 +4609,12 @@ def task_manager_node(
                 "wrap_summary": 0,
                 "workspace": config["configurable"].get("workspace", "."),
             }
-        return {
+        # A normal acknowledgement changes no user-interest field. LangGraph
+        # preserves the existing contract from state, and keeping this return
+        # minimal retains the zero-cost D30 fast-path API. The one exception is
+        # resuming after an unrelated turn: restore the active objective's mode
+        # so the unrelated answer cannot strand the session in read-only state.
+        quick_update = {
             "current_task": updated_task,
             "task_action": action,
             "token_usage": state.get("token_usage", _zero_token_usage()),
@@ -4512,6 +4630,11 @@ def task_manager_node(
             "wrap_summary": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
+        prior_interest = _stored_user_interest(state)
+        if prior_interest is not None and prior_interest.relationship == "unrelated":
+            quick_update["latest_instruction"] = latest_instruction
+            quick_update["user_interest"] = _interest(updated_task, "continue")
+        return quick_update
 
     # ── Pre-LLM cancellation gate (task_manager) ──────────────
     session_id_tm = str(configurable.get("thread_id") or "default")
@@ -4519,6 +4642,8 @@ def task_manager_node(
     if _tc_tm.cancelled(session_id_tm):
         return {
             "current_task": current_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "continue"),
             "task_action": "cancelled",
             "task_status": "cancelled",
             "task_completed": False,
@@ -4538,6 +4663,11 @@ def task_manager_node(
     if classifier_mode != "on":
         return {
             "current_task": current_task,
+            "latest_instruction": latest_instruction,
+            # The optional relationship classifier is disabled, so report
+            # that uncertainty honestly while still preserving this steering
+            # for the main model.  No extra provider round trip is introduced.
+            "user_interest": _interest(current_task, "undetermined"),
             "task_action": "continue",
             "token_usage": state.get("token_usage", _zero_token_usage()),
             "turn_token_usage": _zero_token_usage(),
@@ -4608,6 +4738,8 @@ For "unrelated", preserve the existing active task exactly.
     if decision.action == "new":
         return {
             "current_task": updated_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(updated_task, "replaces"),
             "task_action": decision.action,
             "task_status": "in_progress",
             "steps_completed": [],
@@ -4636,6 +4768,8 @@ For "unrelated", preserve the existing active task exactly.
 
     return {
         "current_task": updated_task,
+        "latest_instruction": latest_instruction,
+        "user_interest": _interest(updated_task, decision.action),
         "task_action": decision.action,
         "token_usage": token_usage,
         "turn_token_usage": _merge_token_usage({}, [call_usage]),
@@ -4704,7 +4838,7 @@ def progress_node(
             ph.record_tool_memory(
                 memory_manager,
                 tool_name,
-                state.get("current_task", ""),
+                _active_interest_text(state),
                 result,
                 tool_args,
                 failed,
@@ -4924,7 +5058,7 @@ def recovery_limit_node(state: AgentState, config: RunnableConfig):
     # used for this task correlated with failure.
     try:
         get_context_engine(config).record_feedback(
-            success=False, task=state.get("current_task", "")
+            success=False, task=_active_interest_text(state)
         )
     except Exception:
         pass  # Feedback is best-effort; never block the graph
@@ -4991,7 +5125,8 @@ def planner_node(
             )],
         }
 
-    current_task = state.get("current_task", "")
+    interest = interest_from_state(state)
+    current_task = interest.focus_text() or str(state.get("current_task", "") or "")
     plan_created = state.get("plan_created", False)
 
     provider = _cfg(configurable, "provider", LLM_PROVIDER)
@@ -5050,9 +5185,13 @@ def planner_node(
     # model-tool footprint"). Feed the live agent Hermes' ground rules as a normal turn.
     from src.prompts.hermes.plan_learn import build_plan_prompt
 
+    plan_goal = interest.objective or current_task
+    # Keep Hermes' one-argument prompt path while making that argument the
+    # complete versioned contract rather than a stale task label.
+    current_task = render_user_interest(interest)
     return {
         "plan": [],
-        "plan_goal": current_task,
+        "plan_goal": plan_goal,
         "plan_created": False,
         "messages": [SystemMessage(content=build_plan_prompt(current_task))],
         "token_usage": _merge_token_usage(state.get("token_usage", {}), usages),
@@ -5190,7 +5329,7 @@ def plan_reviser_node(
 
     try:
         revised = revise_plan(
-            task=state.get("plan_goal", state.get("current_task", "")),
+            task=render_user_interest(interest_from_state(state)),
             plan=current_plan,
             revision=state.get("latest_instruction", ""),
             provider=_cfg(configurable, "provider", LLM_PROVIDER),
