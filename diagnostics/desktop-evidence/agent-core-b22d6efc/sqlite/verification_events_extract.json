@@ -1,0 +1,13 @@
+{
+  "verification_events": [],
+  "verification_state": [
+    {
+      "session_id": "session-5119b1d86d664021bd1b2d92529466a3",
+      "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+      "status": "unverified",
+      "event_id": null,
+      "edited_at": 1792915372.989332,
+      "changed_paths": "[\"C:\\\\Users\\\\Administrator\\\\Downloads\\\\testCRUSOR\\\\scratch\\\\cleanup_probe.py\"]"
+    }
+  ]
+}

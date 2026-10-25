@@ -1,0 +1,26 @@
+Branch: arena/a7c2c868-pulseairepo
+Target Implementation: b22d6efce922357ca7c04b3e59106db2da86849d
+Evidence-control HEAD: a18ec6ba73b849766047c20ef1c150b9828891b2
+Ancestry check (git merge-base --is-ancestor b22d6efc HEAD): 0 (PASSED)
+OS: Windows (win32)
+Python version: Python 3.11.9
+Node version: v24.18.0
+TypeScript renderer source stamp: 2026-10-25-41
+Emitted JavaScript renderer stamp: 2026-10-25-41
+SOURCES_HASH: 9f13da07532512350fc000a8b21039cedced820f1f295381e0f53e0987588d6c
+Recomputed source-manifest SHA-256 match: TRUE (STALE=false)
+App launch command: .\scripts\code.bat (desktop/vscode)
+Provider: custom
+Model: z-ai/glm-5.3-flash
+Disposable workspace: C:\Users\Administrator\Downloads\testCRUSOR
+Session IDs:
+- Scenario A: session-9b39ac231f68492a9ee0244c6df1fb47
+- Scenario B: session-38657324147f4b21909c9b086389affa
+- Scenario C: session-bd8c6488f6aa48248554c4102d7159f9
+- Scenario D: session-d0a8dac2821a404eaafcde13383ea18a
+- Scenario E: session-7101b65fcf214d53986e24b5f8232426
+- Scenario F: session-5119b1d86d664021bd1b2d92529466a3
+- Scenario G: terminal hydration test
+- Scenario I: terminal typed omission test
+Local time: 2026-10-25 01:08:00 -07:00
+Application-code files modified: NONE

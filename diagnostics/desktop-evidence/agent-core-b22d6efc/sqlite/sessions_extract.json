@@ -1,0 +1,62 @@
+[
+  {
+    "id": "session-38657324147f4b21909c9b086389affa",
+    "title": "Android toolchain check results",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792912605.7044895,
+    "last_active": 1792912662.8125553,
+    "message_count": 0
+  },
+  {
+    "id": "session-5119b1d86d664021bd1b2d92529466a3",
+    "title": "",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792915342.0692987,
+    "last_active": 1792915342.0692987,
+    "message_count": 0
+  },
+  {
+    "id": "session-7101b65fcf214d53986e24b5f8232426",
+    "title": "Verify Android Target App",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792915286.9866047,
+    "last_active": 1792915321.761363,
+    "message_count": 0
+  },
+  {
+    "id": "session-9b39ac231f68492a9ee0244c6df1fb47",
+    "title": "Check python version",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792912500.8448324,
+    "last_active": 1792912540.619342,
+    "message_count": 0
+  },
+  {
+    "id": "session-bd8c6488f6aa48248554c4102d7159f9",
+    "title": "hello in read only mode",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792913361.0744493,
+    "last_active": 1792913380.7909555,
+    "message_count": 0
+  },
+  {
+    "id": "session-d0a8dac2821a404eaafcde13383ea18a",
+    "title": "Single Run Python Exit Code",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792915121.98647,
+    "last_active": 1792915168.2319088,
+    "message_count": 0
+  }
+]
