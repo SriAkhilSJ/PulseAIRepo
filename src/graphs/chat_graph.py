@@ -1842,6 +1842,11 @@ def _turn_scoped_resets() -> dict[str, Any]:
         "stall_continuations": 0,
         "nudged_at_msg_count": -1,
         "turn_token_usage": _zero_token_usage(),
+        # Do not derive this from execution_trace: informational/unavailable
+        # receipts are intentionally absent from that progress ledger but are
+        # still real executions in the diagnostics report.
+        "turn_tool_execution_count": 0,
+        "turn_tool_execution_names": [],
     }
 
 
@@ -3094,7 +3099,23 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     except Exception:
         pass
     _trace = [a for a in (state.get("execution_trace") or []) if isinstance(a, dict)]
-    _tool_names = [str(a["tool"]) for a in _trace if a.get("tool")]
+    _progress_tool_names = [str(a["tool"]) for a in _trace if a.get("tool")]
+    _receipt_tool_names = [
+        str(name) for name in (state.get("turn_tool_execution_names") or []) if name
+    ]
+    _tool_names = _receipt_tool_names or _progress_tool_names
+    try:
+        _state_execution_count = int(state.get("turn_tool_execution_count", 0) or 0)
+    except (TypeError, ValueError):
+        _state_execution_count = 0
+    # Backward-compatible max: old checkpoints only have execution_trace; new
+    # checkpoints retain every ToolMessage receipt, including outcomes filtered
+    # from progress/recovery classification.
+    _tool_execution_count = max(
+        len(_trace),
+        len(_receipt_tool_names),
+        _state_execution_count,
+    )
     try:
         from src.observability import record_turn_receipt
         record_turn_receipt(
@@ -3106,7 +3127,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             output_tokens=int(completion_tokens or 0),
             estimated_cost_usd=float(cost_usd) if cost_usd is not None else None,
             duration_s=_duration_s,
-            tool_calls=len(_trace),
+            tool_calls=_tool_execution_count,
             tool_names=_tool_names or None,
             execution_mode=str(state.get("execution_mode") or ""),
             completed=task_succeeded,
@@ -3152,7 +3173,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             verification_status=_final_verification,
             receipts={
                 "task_status": verdict,
-                "tool_execution_count": len(_trace),
+                "tool_execution_count": _tool_execution_count,
                 "failed_step_count": len(failed_steps),
             },
         )
@@ -4880,6 +4901,10 @@ def progress_node(
     env_failures = state.get("env_failures", 0)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
     command_retries = dict(state.get("command_retries", {}))
+    turn_tool_execution_count = int(state.get("turn_tool_execution_count", 0) or 0)
+    turn_tool_execution_names = [
+        str(name) for name in (state.get("turn_tool_execution_names") or [])
+    ]
 
     latest_tools = ph.latest_tool_messages(messages)
     injected: list = []
@@ -4890,9 +4915,17 @@ def progress_node(
         result = str(message.content)
         tool_args = ph.find_tool_args(messages, message.tool_call_id)
 
+        # Receipt accounting is broader than progress accounting.  B/E desktop
+        # evidence at 1e05cc02 exposed the distinction: informational and
+        # unavailable tools really executed but classify_tool_outcome correctly
+        # omits them from execution_trace so they do not arm recovery.  Keep a
+        # separate turn-scoped ledger for final reports/observability.
+        turn_tool_execution_count += 1
+        turn_tool_execution_names.append(tool_name)
+
         outcome = ph.classify_tool_outcome(tool_name, result)
         if outcome == ph.OUTCOME_SKIP:
-            continue  # running/unavailable check: record NOTHING
+            continue  # no success/failure progress row
 
         processed_tools += 1
         failed = outcome == ph.OUTCOME_FAILED
@@ -5039,6 +5072,8 @@ def progress_node(
         "plan_created": plan_created,
         "replan_needed": replan_needed,
         "execution_trace": execution_trace,
+        "turn_tool_execution_count": turn_tool_execution_count,
+        "turn_tool_execution_names": turn_tool_execution_names,
         "env_failures": env_failures,
         "token_usage": total_usage.to_dict(),
     }

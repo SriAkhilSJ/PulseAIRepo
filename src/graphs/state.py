@@ -89,6 +89,11 @@ class AgentState(CopilotKitState, total=False):
     replan_needed: bool
     replan_count: int
     execution_trace: list[dict[str, Any]]
+    # Every current-turn ToolMessage receipt, including informational,
+    # unavailable, and still-running outcomes that execution_trace deliberately
+    # excludes from success/failure progress accounting.
+    turn_tool_execution_count: int
+    turn_tool_execution_names: list[str]
     task_completed: bool
     env_failures: int       # environment-level tool failures (pivot trigger)
     pivot_count: int        # strategy pivots performed (bounded)

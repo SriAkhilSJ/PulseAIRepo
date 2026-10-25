@@ -261,6 +261,8 @@ def test_d9_progress_node_success_path():
     assert out["failed_steps"] == []
     assert out["execution_trace"][0]["status"] == "success"
     assert out["execution_trace"][0]["tool"] == "run_terminal"
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["run_terminal"]
     assert isinstance(out["messages"][0], SystemMessage)
     assert out["messages"][0].content == ph.PROGRESS_REFLECTION_PROMPT
     assert "token_usage" in out
@@ -336,8 +338,38 @@ def test_d9_progress_node_running_check_records_nothing():
     assert out["execution_trace"] == []
     assert out["steps_completed"] == []
     assert out["failed_steps"] == []
+    # Running is not a success/failure progress row, but the poll really did
+    # execute and must remain visible in the authoritative report count.
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["check_terminal"]
     # A non-result must not create a phantom progress/reflection heartbeat.
     assert "messages" not in out
+
+
+def test_informational_tool_execution_counts_without_becoming_progress():
+    """Desktop evidence 1e05cc02: B executed this tool once, but the report
+    rendered zero because informational receipts are deliberately filtered out
+    of execution_trace.  Counting and progress classification are distinct."""
+    from src.graphs.chat_graph import progress_node
+
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "b1", "name": "check_target_toolchains",
+                 "args": {"target": "android"}},
+            ]),
+            ToolMessage(content="Target toolchains — Android SDK unavailable",
+                        tool_call_id="b1", name="check_target_toolchains"),
+        ],
+        "current_task": "inspect Android tools",
+    }
+
+    out = progress_node(state, _cfg())
+
+    assert out["execution_trace"] == []
+    assert out["steps_completed"] == []
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["check_target_toolchains"]
 
 
 # ---------------------------------------------------------------------

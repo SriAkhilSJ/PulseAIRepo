@@ -433,6 +433,8 @@ def test_task_manager_promotes_substantive_after_greeting_to_fresh_task(monkeypa
             "steps_completed": ["stale greeting step"],
             "failed_steps": ["stale greeting failure"],
             "execution_trace": [{"tool": "stale"}],
+            "turn_tool_execution_count": 4,
+            "turn_tool_execution_names": ["stale_tool"] * 4,
             "finish_nudges": 2,
             "verify_nudges": 2,
             "stall_continuations": 2,
@@ -448,6 +450,8 @@ def test_task_manager_promotes_substantive_after_greeting_to_fresh_task(monkeypa
     assert out["steps_completed"] == []
     assert out["failed_steps"] == []
     assert out["execution_trace"] == []
+    assert out["turn_tool_execution_count"] == 0
+    assert out["turn_tool_execution_names"] == []
     assert out["finish_nudges"] == 0
     assert out["verify_nudges"] == 0
     assert out["stall_continuations"] == 0

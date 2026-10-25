@@ -69,6 +69,9 @@ def test_ack_messages_skip_llm_and_continue(msg, monkeypatch):
         # gates and inherit the prior turn's nudge marker.
         "finish_nudges", "verify_nudges", "stall_continuations",
         "nudged_at_msg_count",
+        # Receipt accounting is also turn-scoped; prior executions must never
+        # be rendered as belonging to this acknowledgement/follow-up turn.
+        "turn_tool_execution_count", "turn_tool_execution_names",
     }
     assert out["token_usage"]["calls"] == 1  # no LLM call recorded
     assert out["iteration_used"] == 0
@@ -78,6 +81,8 @@ def test_ack_messages_skip_llm_and_continue(msg, monkeypatch):
     assert out["verify_nudges"] == 0
     assert out["stall_continuations"] == 0
     assert out["nudged_at_msg_count"] == -1
+    assert out["turn_tool_execution_count"] == 0
+    assert out["turn_tool_execution_names"] == []
 
 
 def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):

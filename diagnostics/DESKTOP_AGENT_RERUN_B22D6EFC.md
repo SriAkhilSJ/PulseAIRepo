@@ -208,8 +208,12 @@ diagnostics/desktop-evidence/agent-core-b22d6efc/
 
 `sessions.json` must map each scenario to its actual session ID, turn IDs when
 available, trace filename, report filename, screenshot(s), start/end times, and
-whether it is fresh or resumed. Discover IDs from the UI/log/new trace filename;
-never invent them.
+whether it is fresh or resumed. Use explicit fields `scenario`, `session_id`,
+`workspace`, `trace`, `report`, `screenshots`, `started_at`, `ended_at`, plus
+`fresh: true` for A–F/I or `mode: "resumed"` for G. An unavailable report may
+use `report: "UNAVAILABLE"`, but the trace and other raw receipts still need
+real filenames. Discover IDs from the UI/log/new trace filename; never invent
+them.
 
 After every scenario reaches a visible terminal state, copy the full current
 trace and finalized report from the disposable workspace:
@@ -372,8 +376,9 @@ Capture `screenshots/F-final.png` after finalization and a separate
 
 Use C's actual session; do not start a replacement.
 
-1. Record C trace line count, maximum step index, report step count, and report
-   header in `logs/G-before-restart.txt`.
+1. Record C trace line count, maximum step index, report step count, report
+   header, and `Trace prefix SHA-256` over the complete C JSONL bytes in
+   `logs/G-before-restart.txt`. Also record the workbench/backend process state.
 2. Fully quit both desktop workbench and backend.
 3. Record process absence.
 4. Relaunch the app from the same rebuilt checkout while appending complete logs
@@ -397,7 +402,9 @@ Required PASS evidence:
 - report immediately/currently represents G rather than reusing C's terminal
   receipt while work is in progress.
 
-Save post-run counts/header in `logs/G-after-restart.txt` and capture
+Save post-run counts/header and the same `Trace prefix SHA-256` computed over
+exactly the original C line count in `logs/G-after-restart.txt`; both prefix
+hashes must match. Record the relaunched process state and capture
 `screenshots/G-final.png`. A disabled or unavailable resume control is
 `UNAVAILABLE`, not PASS.
 
@@ -635,7 +642,23 @@ Save stdout/stderr and exit code to `logs/focused-tests.log`. This supplements
 but never replaces desktop evidence. If dependencies are unavailable, record
 `UNAVAILABLE`; do not omit the log silently.
 
-## 9. Final integrity, commit, and push
+## 9. Automated evidence gate
+
+From the repository root, run:
+
+```bash
+python scripts/validate_agent_core_desktop_evidence.py \
+  diagnostics/desktop-evidence/agent-core-b22d6efc \
+  --json-out diagnostics/desktop-evidence/agent-core-b22d6efc/validation.json
+```
+
+The command must exit `0`. Do not suppress an error or hand-edit
+`validation.json`: fix the evidence package or use the truthful scenario verdict
+(`FAIL`/`UNAVAILABLE`) that agrees with the raw artifacts. This gate checks
+artifact completeness and internal consistency; exit `0` does not convert a
+truthful `FAIL` or `UNAVAILABLE` into product acceptance.
+
+## 10. Final integrity, commit, and push
 
 Before staging:
 
@@ -645,13 +668,14 @@ Before staging:
 3. verify all committed JSON/JSONL parses;
 4. verify every screenshot hash;
 5. scan the evidence tree for credential patterns and I's raw marker;
-6. run `git status --short`;
-7. restore all application/generated/test side effects to active HEAD;
-8. confirm only `diagnostics/desktop-evidence/agent-core-b22d6efc/**` is new;
-9. stage only that directory;
-10. run `git diff --cached --check`;
-11. inspect `git diff --cached --name-status` and full staged diff;
-12. assert no path outside the evidence directory is staged.
+6. run the automated evidence gate above and retain `validation.json`;
+7. run `git status --short`;
+8. restore all application/generated/test side effects to active HEAD;
+9. confirm only `diagnostics/desktop-evidence/agent-core-b22d6efc/**` is new;
+10. stage only that directory;
+11. run `git diff --cached --check`;
+12. inspect `git diff --cached --name-status` and full staged diff;
+13. assert no path outside the evidence directory is staged.
 
 Commit with:
 
