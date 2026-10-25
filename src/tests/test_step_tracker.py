@@ -9,6 +9,7 @@ from src.runtime.step_tracker import (
     StepRecord,
     StepTracker,
     ToolExecutionRecord,
+    _step_record_from_dict,
     estimate_cost,
 )
 
@@ -164,17 +165,191 @@ class TestStepTracker(TestCase):
             cached_tokens=0,
             duration_s=1.0,
         )
-        self.tracker.record_tool_call(name="write_file", args={"path": "a.txt"}, status="success")
-        self.tracker.record_tool_call(name="write_file", args={"path": "b.txt"}, status="success")
+        self.tracker.record_tool_call(name="write_file", args={"path": "a.txt"}, status="proposed")
+        self.tracker.record_tool_call(name="write_file", args={"path": "b.txt"}, status="proposed")
         self.tracker.finish_step()
 
         perf = self.tracker.compute_performance_score()
         self.assertFalse(perf["metrics"]["telemetry_available"])
-        self.assertEqual(perf["breakdown"]["cache_score"], 25.0)
+        self.assertIsNone(perf["breakdown"]["cache_score"])
+        self.assertEqual(perf["metrics"]["scored_runtime_dimensions"], 2)
         self.assertGreaterEqual(perf["score"], 85.0)
         # Ensure false cache warning is not present in actionable ideas
         self.assertFalse(any("Enable Prompt Caching" in idea for idea in perf["actionable_ideas"]))
         self.assertTrue(any("Provider Telemetry Notice" in idea for idea in perf["actionable_ideas"]))
+
+    def test_measured_llm_duration_is_not_overwritten_by_wrapper_time(self):
+        self.tracker.start_step("ai")
+        self.tracker.record_llm_metrics(
+            model="test-model",
+            provider="custom",
+            input_tokens=100,
+            output_tokens=10,
+            duration_s=12.5,
+        )
+        finished = self.tracker.finish_step()
+
+        self.assertEqual(finished.duration_s, 12.5)
+        perf = self.tracker.compute_performance_score()
+        self.assertTrue(perf["metrics"]["duration_telemetry_available"])
+        self.assertEqual(perf["metrics"]["total_measured_duration_s"], 12.5)
+
+    def test_legacy_ai_success_rows_hydrate_as_proposals(self):
+        restored = _step_record_from_dict({
+            "session_id": "legacy",
+            "step_index": 1,
+            "node_name": "ai",
+            "started_at": 1.0,
+            "tool_calls": [{
+                "name": "write_file",
+                "args_summary": '{"path": "app.py"}',
+                "status": "success",
+            }],
+        })
+
+        self.assertEqual(restored.tool_calls[0].status, "proposed")
+
+    def test_proposals_do_not_count_as_executed_successes(self):
+        self.tracker.start_step("ai")
+        self.tracker.record_tool_call(
+            "write_file", {"path": "app.py", "content": "print('x')"},
+            status="proposed",
+        )
+        self.tracker.finish_step()
+
+        self.tracker.start_step("tools")
+        self.tracker.record_tool_call(
+            "write_file", {"path": "app.py", "content": "print('x')"},
+            status="failed", error="disk failed",
+        )
+        self.tracker.finish_step()
+
+        perf = self.tracker.compute_performance_score()
+        self.assertEqual(perf["metrics"]["tool_failure_rate_pct"], 100.0)
+        self.assertNotIn("app.py", self.tracker.marked_edits)
+
+    def test_trace_omits_tool_body_redacts_output_and_tracks_safe_path(self):
+        synthetic = "sk-test-secret-1234567890"
+        self.tracker.start_step("tools")
+        self.tracker.record_tool_call(
+            "write_file",
+            {"path": "scratch/probe.py", "content": synthetic},
+            status="success",
+            output=f"File written; token={synthetic}",
+        )
+        finished = self.tracker.finish_step()
+
+        record = finished.tool_calls[0]
+        stored_args = json.loads(record.args_summary)
+        self.assertEqual(stored_args["path"], "scratch/probe.py")
+        self.assertTrue(stored_args["content"]["__omitted__"])
+        self.assertNotIn(synthetic, record.args_summary)
+        self.assertNotIn(synthetic, record.output_preview)
+        self.assertIn("scratch/probe.py", self.tracker.marked_edits)
+
+    def test_current_interest_replaces_stale_greeting_in_report_state(self):
+        self.tracker.set_user_ask("hello")
+        state = {
+            "current_task": "Build the analytics app.",
+            "latest_instruction": "Only change the backend.",
+            "user_interest": {
+                "schema_version": 1,
+                "objective": "Build the analytics app.",
+                "latest_instruction": "Only change the backend.",
+                "latest_substantive_instruction": "Only change the backend.",
+                "mode": "act",
+                "change_policy": "changes_requested",
+                "relationship": "corrects",
+            },
+        }
+        self.tracker.start_step("ai", state=state)
+        self.tracker.finish_step()
+
+        self.assertIn("Build the analytics app", self.tracker.user_ask)
+        self.assertIn("Only change the backend", self.tracker.user_ask)
+        self.assertNotEqual(self.tracker.user_ask, "hello")
+
+    def test_restarted_tracker_hydrates_full_workspace_trace(self):
+        self.tracker.start_step("ai")
+        self.tracker.record_llm_metrics(
+            model="test-model", provider="custom", input_tokens=10,
+            output_tokens=1, duration_s=1.0,
+        )
+        self.tracker.finish_step()
+        self.tracker.start_step("tools")
+        self.tracker.record_tool_call(
+            "write_file",
+            {"path": "restored.py", "content": "print('restored')"},
+            status="success",
+        )
+        self.tracker.finish_step()
+
+        resumed = StepTracker("test_session_unit", workspace_root=self.tmpdir.name)
+        self.assertEqual(len(resumed.steps), 2)
+        self.assertEqual(resumed.marked_edits, ["restored.py"])
+        next_step = resumed.start_step("ai")
+        self.assertEqual(next_step.step_index, 3)
+
+    def test_report_marks_unknown_telemetry_na_and_never_claims_optimal(self):
+        self.tracker.set_user_ask("Build app.py")
+        self.tracker.start_step("ai")
+        self.tracker.record_tool_call(
+            "write_file", {"path": "app.py", "content": "print('x')"},
+            status="proposed",
+        )
+        self.tracker.finish_step()
+
+        perf = self.tracker.compute_performance_score()
+        self.assertEqual(perf["metrics"]["scored_runtime_dimensions"], 1)
+        self.assertEqual(perf["score"], 60.0)
+
+        report = (
+            Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Runtime Health Score", report)
+        self.assertIn("1/4 dimensions scored", report)
+        self.assertIn("/ 100", report)
+        self.assertIn("N/A (duration telemetry unavailable)", report)
+        self.assertNotIn("Optimal Performance", report)
+
+    def test_finalize_report_refreshes_authoritative_verdict_evidence(self):
+        self.tracker.set_user_ask("hello")
+        self.tracker.start_step("ai")
+        self.tracker.finish_step()
+        self.tracker.start_step("tools")
+        self.tracker.record_tool_call(
+            "write_file", {"path": "analytics.py", "content": "print('ok')"},
+            status="success",
+        )
+        self.tracker.finish_step()
+        self.tracker.finalize_report(
+            user_ask="Build analytics.py",
+            final_message="The file was created but tests failed.",
+            verification_status="failed",
+            receipts={"task_status": "unverified"},
+        )
+
+        report = (
+            Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Build analytics.py", report)
+        self.assertNotIn('User Ask:** *"hello"', report)
+        self.assertIn("Verification status is FAILED", report)
+        self.assertIn("| **Task verdict** | `unverified` |", report)
+        self.assertIn("| **Verification status** | `failed` |", report)
+        self.assertEqual(self.tracker.steps[-1].node_name, "finalize")
+        self.assertEqual(self.tracker.steps[-1].verification_status, "failed")
+        self.assertIn("FINAL_VERDICT: unverified", self.tracker.steps[-1].diagnostics)
+
+    def test_exit_code_parser_uses_final_authoritative_receipt(self):
+        from src.graphs.chat_graph import _extract_exit_code
+
+        self.assertEqual(
+            _extract_exit_code("Expected exit code 1.\nExit code: 0"),
+            0,
+        )
+        self.assertEqual(_extract_exit_code("process exited with -1"), -1)
+        self.assertIsNone(_extract_exit_code("completed without a code receipt"))
 
 
 if __name__ == "__main__":

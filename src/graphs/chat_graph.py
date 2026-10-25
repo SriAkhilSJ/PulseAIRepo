@@ -2684,7 +2684,10 @@ def ai_node(
     # Step Tracker: Record step metrics & diagnostics for local inspection
     try:
         from src.runtime.step_tracker import StepTracker
-        _tracker = StepTracker.get_tracker(session_id)
+        _tracker = StepTracker.get_tracker(
+            session_id,
+            workspace_root=str(configurable.get("workspace") or "."),
+        )
         _tracker.start_step("ai", state)
         _tracker.record_llm_metrics(
             model=call_model,
@@ -2695,7 +2698,11 @@ def ai_node(
             duration_s=round(time.time() - t_llm_start, 3),
         )
         for _tc in (getattr(result, "tool_calls", None) or []):
-            _tracker.record_tool_call(name=_tc.get("name", ""), args=_tc.get("args", {}))
+            _tracker.record_tool_call(
+                name=_tc.get("name", ""),
+                args=_tc.get("args", {}),
+                status="proposed",
+            )
         _tracker.finish_step()
     except Exception:
         pass
@@ -2826,6 +2833,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         _named_deliverables_exist,
         _produced_code_deliverable,
         _verification_ran_and_passed,
+        verification_status as gate_verification_status,
     )
     from src.graphs.progress_helpers import trailing_batch_failed
     # Production routes write_file never sees count too: an app generated
@@ -3087,6 +3095,45 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "thread_id": _final_thread_id,
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
     })
+
+    # Close the diagnostics report with the same authoritative interest,
+    # evidence status, and verdict used by Agent Core.  Earlier reports were
+    # exported only mid-step, so they could retain "hello", label proposals as
+    # successes, and miss the final verification state entirely.
+    try:
+        from src.runtime.step_tracker import StepTracker
+
+        _final_text = next(
+            (
+                str(getattr(message, "content", "") or "")
+                for message in reversed(state.get("messages") or [])
+                if isinstance(message, AIMessage)
+                and str(getattr(message, "content", "") or "").strip()
+            ),
+            "",
+        )
+        if lines:
+            _final_text = "\n".join(filter(None, [_final_text, "\n".join(lines)]))
+        _final_verification = (
+            "not_applicable"
+            if interest.mode in {"answer", "social"}
+            else gate_verification_status(state)
+        )
+        StepTracker.get_tracker(
+            _final_thread_id,
+            workspace_root=str(_turn_cfg.get("workspace") or "."),
+        ).finalize_report(
+            user_ask=current_task,
+            final_message=_final_text,
+            verification_status=_final_verification,
+            receipts={
+                "task_status": verdict,
+                "tool_execution_count": len(_trace),
+                "failed_step_count": len(failed_steps),
+            },
+        )
+    except Exception:
+        pass  # diagnostics never alter finalization
 
     # One verdict, one voice: this line and task_status below cannot disagree.
     print(f"[turn] finalize done: {verdict}", flush=True)
@@ -5390,6 +5437,17 @@ def _denied_command(tc) -> str:
     return f"\nDenied command: {command}" if command else ""
 
 
+def _extract_exit_code(content: str) -> int | None:
+    """Read the final explicit process exit receipt from tool output."""
+    matches = re.findall(
+        r"(?i)\b(?:exit\s+code|exited|exit)\s*(?::|=|with)?\s*(-?\d+)",
+        str(content or ""),
+    )
+    # Terminal receipts put the authoritative process code at the end; earlier
+    # stdout can discuss an expected exit code without being the process result.
+    return int(matches[-1]) if matches else None
+
+
 # Wrap ToolNode with safety guard
 from src.context.safety_guard import SafetyGuard
 
@@ -5704,16 +5762,44 @@ class SafeToolNode:
             # Step Tracker: Record executed tool outputs for diagnostics
             try:
                 from src.runtime.step_tracker import StepTracker
-                _trk = StepTracker.get_tracker(_cfg_sid)
+                _trk = StepTracker.get_tracker(
+                    _cfg_sid,
+                    workspace_root=str(_cfg_ws or "."),
+                )
                 _trk.start_step("tools", state)
                 _tool_dur = round(time.time() - _t_tool_start, 3)
                 if _trk._current_step:
                     _trk._current_step.tool_duration_s = _tool_dur
                     _trk._current_step.duration_s = _tool_dur
+                _calls_by_id = {
+                    str(tc.get("id") or ""): tc
+                    for tc in (tool_calls or [])
+                    if tc.get("id")
+                }
+                _calls_by_name: dict[str, list[dict]] = {}
+                for _tc in (tool_calls or []):
+                    _calls_by_name.setdefault(str(_tc.get("name") or "tool"), []).append(_tc)
+                _used_calls: set[int] = set()
                 for _m in (msg_list or []):
                     _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
                     _tcontent = str(getattr(_m, "content", "") or "")
+                    _call = _calls_by_id.get(str(getattr(_m, "tool_call_id", "") or ""))
+                    if _call is None:
+                        _call = next(
+                            (
+                                candidate
+                                for candidate in _calls_by_name.get(str(_tname), [])
+                                if id(candidate) not in _used_calls
+                            ),
+                            None,
+                        )
+                    if _call is not None:
+                        _used_calls.add(id(_call))
+                    _safe_args = (_call or {}).get("args", {})
+                    _exit_code = _extract_exit_code(_tcontent)
                     _is_err = getattr(_m, "status", None) == "error" or getattr(_m, "is_error", False)
+                    if _exit_code not in (None, 0):
+                        _is_err = True
                     if not _is_err:
                         _low = _tcontent.lower()
                         if _tname in ("read_file", "search_files", "list_files", "write_file", "edit_file"):
@@ -5726,8 +5812,11 @@ class SafeToolNode:
                             _is_err = _low.startswith("error:") or "traceback (most recent call last):" in _low
                     _trk.record_tool_call(
                         name=_tname,
+                        args=_safe_args if isinstance(_safe_args, dict) else {},
                         output=_tcontent,
                         status="failed" if _is_err else "success",
+                        exit_code=_exit_code,
+                        error=_tcontent if _is_err else None,
                     )
                 _trk.finish_step()
             except Exception:

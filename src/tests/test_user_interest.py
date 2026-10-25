@@ -54,6 +54,58 @@ def test_action_words_use_boundaries_not_substrings():
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        '"Run verify_target_app for target="android" and show the receipt."',
+        "“Run the focused tests.”",
+    ],
+)
+def test_balanced_ui_quote_wrappers_do_not_hide_directives(text):
+    interest = resolve_user_interest(
+        objective=text,
+        latest_instruction=text,
+        relationship="new",
+    )
+
+    assert interest.mode == "act"
+    assert interest.latest_instruction == text
+    assert interest.objective == text
+
+
+def test_negated_mutation_verb_is_constraint_not_authorization():
+    text = "Run android_doctor and report the result; do not install anything."
+    interest = resolve_user_interest(
+        objective=text,
+        latest_instruction=text,
+        relationship="new",
+    )
+
+    assert interest.mode == "act"
+    assert interest.change_policy == "unspecified"
+    assert any("do not install anything" in item for item in interest.constraints)
+
+    mixed = decide_interest_mode(
+        "Run the tests; do not install anything; then fix the parser."
+    )
+    assert mixed[:2] == ("act", "changes_requested")
+
+
+def test_general_no_and_scope_ending_are_preserved_as_constraints():
+    text = (
+        "Build a page with CSS gradient placeholders, no external images. "
+        "Do nothing else."
+    )
+    interest = resolve_user_interest(
+        objective=text,
+        latest_instruction=text,
+        relationship="new",
+    )
+
+    assert any("no external images" in item for item in interest.constraints)
+    assert any("Do nothing else" in item for item in interest.constraints)
+
+
+@pytest.mark.parametrize(
     ("text", "relationship"),
     [
         ("New task: explain the cache.", "replaces"),
@@ -300,8 +352,13 @@ def test_interest_changes_invalidate_context_hash():
     )
 
 
-def _config() -> dict:
-    return {"configurable": {"thread_id": "interest-test", "workspace": "."}}
+def _config(workspace: str = ".") -> dict:
+    return {
+        "configurable": {
+            "thread_id": "interest-test",
+            "workspace": str(workspace),
+        }
+    }
 
 
 def test_task_manager_first_turn_persists_interest_from_message(monkeypatch):
@@ -550,7 +607,7 @@ def test_no_change_action_can_verify_but_cannot_mutate(tmp_path):
     assert should_continue(state) == "finish_gate"
 
 
-def test_answer_continuation_nudge_does_not_require_tool_activity(monkeypatch):
+def test_answer_continuation_nudge_does_not_require_tool_activity(monkeypatch, tmp_path):
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     import src.graphs.chat_graph as cg
 
@@ -575,7 +632,7 @@ def test_answer_continuation_nudge_does_not_require_tool_activity(monkeypatch):
             "failed_steps": [],
             "plan": [],
         },
-        _config(),
+        _config(str(tmp_path)),
     )
 
     assert out["task_completed"] is True

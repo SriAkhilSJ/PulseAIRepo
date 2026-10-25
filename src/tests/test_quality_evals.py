@@ -79,6 +79,98 @@ def test_quality_evaluator_zero_mutation_failure_mode():
         assert any("Zero Mutation Failure" in gap for gap in report.identified_gaps)
 
 
+def test_verification_tool_name_is_not_misread_as_creation_intent():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        evaluator = UserAskQualityEvaluator(tmpdir)
+        report = evaluator.evaluate(
+            user_ask=(
+                'Run verify_target_app for target="android" and report the '
+                "full verification receipt."
+            ),
+            tool_records=[{
+                "name": "verify_target_app",
+                "args": '{"target": "android"}',
+                "status": "success",
+                "exit_code": 0,
+                "output": "verification passed",
+            }],
+            verification_status="passed",
+            final_assistant_message="Verification passed; receipt attached.",
+        )
+
+        assert not any(
+            "Zero Mutation Failure" in gap for gap in report.identified_gaps
+        )
+        assert report.pillars["deliverables"].score == 35.0
+
+
+def test_successful_temporary_write_remains_deliverable_evidence_after_cleanup():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tracker = StepTracker("cleanup-evidence", workspace_root=tmpdir)
+        tracker.set_user_ask("Create scratch/probe.py, test it, then remove it.")
+        tracker.start_step("tools")
+        tracker.record_tool_call(
+            "write_file",
+            {"path": "scratch/probe.py", "content": "print('ok')"},
+            status="success",
+        )
+        tracker.finish_step()
+
+        report = tracker.compute_quality_score()
+        assert "scratch/probe.py" in tracker.marked_edits
+        assert not any(
+            "Zero Mutation Failure" in gap for gap in report.identified_gaps
+        )
+
+
+def test_missing_mutation_verification_defaults_to_unavailable_not_passed():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        evaluator = UserAskQualityEvaluator(tmpdir)
+        report = evaluator.evaluate(
+            user_ask="Create app.py.",
+            marked_edits=["app.py"],
+            tool_records=[{
+                "name": "write_file",
+                "args": '{"path": "app.py"}',
+                "status": "success",
+                "exit_code": 0,
+            }],
+        )
+
+        assert any(
+            "Verification evidence is unavailable" in gap
+            for gap in report.identified_gaps
+        )
+        assert report.pillars["soundness"].score == 13.0
+
+
+def test_proposed_and_failed_writes_do_not_prove_a_deliverable():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        report = UserAskQualityEvaluator(tmpdir).evaluate(
+            user_ask="Create app.py.",
+            tool_records=[
+                {
+                    "name": "write_file",
+                    "args": '{"path": "app.py"}',
+                    "status": "proposed",
+                    "exit_code": None,
+                },
+                {
+                    "name": "write_file",
+                    "args": '{"path": "app.py"}',
+                    "status": "failed",
+                    "exit_code": 1,
+                },
+            ],
+            verification_status="failed",
+        )
+
+        assert any(
+            "Zero Mutation Failure" in gap for gap in report.identified_gaps
+        )
+        assert report.artifacts_inspected == []
+
+
 def test_quality_evaluator_negative_constraint_violation():
     """Evaluates when the user explicitly said 'no jQuery' or 'do not use external libraries' and agent violated it."""
     with tempfile.TemporaryDirectory() as tmpdir:

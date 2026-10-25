@@ -76,6 +76,17 @@ _ACTION_CLAUSE_RE = re.compile(
     rf"(?i)\b(?:and|then|also)\s+(?:please\s+)?(?:{_ACTION_VERBS})\b"
 )
 _MUTATION_RE = re.compile(rf"(?i)\b(?:{_MUTATION_VERBS})\b")
+# Mutation words inside an explicit prohibition are constraints, not positive
+# authorization.  Keep the original clause in the contract, but remove its
+# mutation verbs from the cheap routing hint before deciding change policy.
+_NEGATED_MUTATION_RE = re.compile(
+    rf"(?i)\b(?:do\s+not|don't|dont|never|avoid)\s+"
+    rf"(?:(?:attempt(?:ing)?|try(?:ing)?)\s+to\s+)?"
+    rf"(?:{_MUTATION_VERBS})\b"
+    rf"(?:\s+(?:anything|something|files?|code|software|packages?|dependencies))?"
+    rf"(?:\s+(?:or|and)\s+(?:{_MUTATION_VERBS})\b"
+    rf"(?:\s+(?:anything|something|files?|code|software|packages?|dependencies))?)*"
+)
 _INQUIRY_RE = re.compile(
     r"(?is)^\s*(?:please\s+)?(?:"
     r"what|why|how|when|where|which|who|whose|is|are|am|was|were|do|does|did|"
@@ -95,8 +106,9 @@ _READ_ONLY_RE = re.compile(
 )
 _CONSTRAINT_RE = re.compile(
     r"(?i)\b(?:must|mustn't|mustnt|required|require(?:d|s)?|only|exactly|never|"
-    r"do\s+not|don't|dont|without|avoid|exclude|except|at\s+least|at\s+most|"
-    r"no\s+pr|no\s+merge|no\s+deploy|stick\s+to|scope|preserve|keep)\b"
+    r"do\s+not|don't|dont|do\s+nothing\s+else|nothing\s+else|"
+    r"that(?:'s|\s+is)\s+all|without|avoid|exclude|except|at\s+least|at\s+most|"
+    r"no\b|stick\s+to|scope|preserve|keep)\b"
 )
 _OUTCOME_RE = re.compile(
     r"(?i)\b(?:add|answer|analy[sz]e|build|change|compare|create|deliver|edit|"
@@ -217,9 +229,27 @@ def _is_authorization(text: str) -> bool:
     return normalized in _AUTHORIZATION_PHRASES
 
 
+def _unwrap_routing_quotes(text: str) -> str:
+    """Remove one balanced UI/report quote wrapper for routing only.
+
+    Desktop bridges and copied prompts sometimes preserve the whole directive
+    as ``"Run ..."``.  The quotes are formatting, not semantic uncertainty.
+    The source string remains untouched in :class:`UserInterest`; only the
+    deterministic routing view is unwrapped.
+    """
+    value = str(text or "").strip()
+    pairs = {'"': '"', "'": "'", "“": "”", "‘": "’"}
+    closing = pairs.get(value[:1])
+    if closing and len(value) >= 2 and value.endswith(closing):
+        inner = value[1:-1].strip()
+        if inner:
+            return inner
+    return value
+
+
 def _instruction_payload(text: str) -> str:
     """Drop routing labels while preserving the full text in the contract."""
-    payload = text
+    payload = _unwrap_routing_quotes(text)
     for pattern in (_EXPLICIT_REPLACEMENT_RE, _CORRECTION_PREFIX_RE):
         match = pattern.search(payload)
         if match:
@@ -227,6 +257,12 @@ def _instruction_payload(text: str) -> str:
             if remainder:
                 payload = remainder
     return payload
+
+
+def _positive_mutation_requested(text: str) -> bool:
+    """Whether the instruction positively authorizes a workspace mutation."""
+    without_prohibitions = _NEGATED_MUTATION_RE.sub("", text)
+    return bool(_MUTATION_RE.search(without_prohibitions))
 
 
 def decide_interest_mode(instruction: str) -> tuple[InterestMode, ChangePolicy, str]:
@@ -256,7 +292,7 @@ def decide_interest_mode(instruction: str) -> tuple[InterestMode, ChangePolicy, 
         if no_changes:
             return "act", "no_changes", "explicit_action_no_change"
         changes: ChangePolicy = (
-            "changes_requested" if _MUTATION_RE.search(text) else "unspecified"
+            "changes_requested" if _positive_mutation_requested(text) else "unspecified"
         )
         return "act", changes, "explicit_action"
     if no_changes:
@@ -274,7 +310,7 @@ def infer_explicit_followup_relationship(instruction: str) -> TaskRelationship:
     task" and "actually ... instead" without turning vague prose into a
     fabricated relationship.
     """
-    text = str(instruction or "").strip()
+    text = _unwrap_routing_quotes(str(instruction or "").strip())
     if not text:
         return "undetermined"
     if _EXPLICIT_REPLACEMENT_RE.search(text):
