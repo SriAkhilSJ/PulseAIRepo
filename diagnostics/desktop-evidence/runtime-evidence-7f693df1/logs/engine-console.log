@@ -1,0 +1,52 @@
+[AgentHost:renderer] MessagePort acquired, creating client...
+Started local extension host with pid 22052.
+[CrusorAI Engine] engine root: workspace 'c:\Users\Administrator\Downloads\testCRUSOR' is outside the engine repo — resolved from the install tree to 'c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo'
+[CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None
+[CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None
+[CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) — boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')
+[CrusorAI Engine] [bridge] engine build: 1e05cc02 2026-10-25 01:10:39 -0700
+[AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false
+[CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) — panel is current
+[CrusorAI Engine] [preview] preview proxy already serving C:\Users\Administrator\Downloads\testCRUSOR at http://127.0.0.1:8931 — reusing it
+[AgentHost:renderer] Protocol connection established; clientId=65167c17-7f8c-41d5-b54d-bef1424a4f07
+[CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'
+[CrusorAI Engine] [ContextEngine] context window 1,048,576 for 'z-ai/glm-5.3-flash' (source: cache); token budget 996,148 (provider cap 996,148)
+
+=== Scenario A ===
+[CrusorAI Engine] 🔧  write_file {'content': 'monitoring-ok', 'path': 'monitoring_probe.txt'}
+[CrusorAI Engine]   ✅ Wrote file: monitoring_probe.txt
+[CrusorAI Engine] 🔧  terminal {'command': 'cd "c:/Users/Administrator/Downloads/testCRUSOR" && python -c "from pathlib import Path; assert Path(\'monitoring_probe.txt\').read_text() == \'monitoring-ok\'; print(\'verified\')"'}
+[CrusorAI Engine]   ✅ Ran command successfully: cd "c:/Users/Administrator/Downloads/testCRUSOR" && python -c "from pathlib import Path; assert Path('monitoring_probe.txt').read_text() == 'monitoring-ok'; print('verified')"
+[CrusorAI Engine] [turn] finalize entered: steps=2 failed=0 unverified=False ended_mid_task=False
+[CrusorAI Engine] [turn] finalize done: completed
+[CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=172.9s
+
+=== Scenario B ===
+[CrusorAI Engine] 🔧  terminal {'command': 'python -c "import sys; print(\'failure-probe\'); sys.exit(7)"'}
+[CrusorAI Engine]   ❌ Tool failed: terminal
+[CrusorAI Engine] [turn] finalize entered: steps=0 failed=1 unverified=False ended_mid_task=False
+[CrusorAI Engine] [turn] finalize done: completed
+[CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=37.3s
+
+=== Scenario C ===
+[CrusorAI Engine] 🔧  terminal {'command': 'python -c "import time; print(\'cancel-start\', flush=True); time.sleep(60); print(\'cancel-end\')"', 'timeout': 120}
+[CrusorAI Engine]   ✅ Ran command successfully: python -c "import time; print('cancel-start', flush=True); time.sleep(60); print('cancel-end')"
+[CrusorAI Engine] [turn] finalize entered: steps=1 failed=0 unverified=False ended_mid_task=False
+[CrusorAI Engine] [turn] finalize done: completed
+[CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=161.3s
+
+=== Scenario D ===
+[CrusorAI Engine] 🔧  read_file {'path': 'monitoring_probe.txt'}
+[CrusorAI Engine]   ✅ Read file: monitoring_probe.txt
+[CrusorAI Engine] [turn] finalize entered: steps=2 failed=0 unverified=False ended_mid_task=False
+[CrusorAI Engine] [turn] finalize done: completed
+[CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=8.1s
+
+=== Scenario E ===
+[CrusorAI Engine] 🔧  terminal {'command': 'python -c "import time; print(\'restart-start\', flush=True); time.sleep(120); print(\'restart-end\')"', 'timeout': 300}
+[CrusorAI Engine]   ✅ Ran command successfully: python -c "import time; print('restart-start', flush=True); time.sleep(120); print('restart-end')"
+[CrusorAI Engine] 🔧  verify {'actual_result': 'Command ran exactly once in the terminal tool. STDOUT: "restart-start" then "restart-end", exit code 0. No files modified.', 'expected_result': 'Command executed once, printing "restart-start", sleeping 120s, then printing "restart-end", exit code 0, no file changes.', 'step_description': 'Run the requested python sleep command exactly once', 'success': True}
+[CrusorAI Engine]   ✅ Completed tool: verify
+[CrusorAI Engine] [turn] finalize entered: steps=3 failed=0 unverified=False ended_mid_task=False
+[CrusorAI Engine] [turn] finalize done: completed
+[CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=266.9s

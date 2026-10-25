@@ -1,0 +1,62 @@
+[
+  {
+    "id": "session-212adb15b2db45a88df6ba5eba115659",
+    "title": "Python Failure Probe Exit Code",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792947094.1095574,
+    "last_active": 1792947145.9316125,
+    "message_count": 0
+  },
+  {
+    "id": "session-2711046427de4fa3a114a5fc1458a056",
+    "title": "run python sleep script once",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792947603.2526293,
+    "last_active": 1792947885.7283568,
+    "message_count": 0
+  },
+  {
+    "id": "session-6099561cc0ea4b3d91e33ef9039c6e80",
+    "title": "Read monitoring probe file content (2)",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792947582.5941498,
+    "last_active": 1792947611.8210878,
+    "message_count": 0
+  },
+  {
+    "id": "session-91cbee6899c641f88ff7444e19140243",
+    "title": "",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792946209.2244318,
+    "last_active": 1792946209.2244318,
+    "message_count": 0
+  },
+  {
+    "id": "session-aceeba425d254d10bc0e43a0b67d98ee",
+    "title": "Read monitoring probe file content",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792947510.239907,
+    "last_active": 1792947537.376655,
+    "message_count": 0
+  },
+  {
+    "id": "session-e2ce393edf81409b8c8a3e9e4d83db78",
+    "title": "",
+    "workspace": "c:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "source": "desktop",
+    "model": "",
+    "created_at": 1792947138.6840754,
+    "last_active": 1792947138.6840754,
+    "message_count": 0
+  }
+]
