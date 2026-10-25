@@ -1,6 +1,7 @@
 """Runtime service factory—one construction seam, isolated instances in tests."""
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,12 +21,17 @@ class RuntimeServices:
         self.journal.close()
         try:
             self.verification.close()
-        except Exception:
+        except Exception:  # noqa: BLE001,S110 - best-effort shutdown
             pass
 
 
+def _runtime_home() -> Path:
+    configured = os.getenv("CRUSORAI_HOME", "").strip()
+    return Path(configured).expanduser() if configured else Path.home() / ".crusorai"
+
+
 def create_runtime_services(home: str | Path | None = None) -> RuntimeServices:
-    root = Path(home or (Path.home() / ".crusorai"))
+    root = Path(home).expanduser() if home is not None else _runtime_home()
     root.mkdir(parents=True, exist_ok=True)
     return RuntimeServices(
         journal=EventJournal(root / "runtime_events.db"),
@@ -42,7 +48,7 @@ def get_runtime_services() -> RuntimeServices:
     if _default is None:
         with _lock:
             if _default is None:
-                root = Path.home() / ".crusorai"
+                root = _runtime_home()
                 _default = RuntimeServices(
                     journal=EventJournal(root / "runtime_events.db"),
                     verification=VerificationLedger(root / "verification.db"),

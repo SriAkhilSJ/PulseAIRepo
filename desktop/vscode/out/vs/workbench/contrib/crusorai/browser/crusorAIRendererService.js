@@ -36,6 +36,13 @@ import { mountCrusorAIRenderer, } from './crusorAIRenderer.js';
 function valueRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
 }
+function evidenceDegradation(evidence) {
+    if (!evidence || evidence.status === 'persisted') {
+        return undefined;
+    }
+    const missing = evidence.missing?.length ? ` Missing: ${evidence.missing.join(', ')}.` : '';
+    return `Agent Core evidence capture is ${evidence.status}.${missing} The runtime result is shown, but this turn's monitoring receipt is incomplete.`;
+}
 function toolState(status) {
     const value = status.toLowerCase();
     if (value.includes('fail') || value.includes('error') || value.includes('denied') || value.includes('cancel')) {
@@ -2145,7 +2152,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.contextStatus = undefined;
             this.llmStatus = undefined;
             this.llmHeads = undefined;
-            this.degraded = undefined;
+            this.degraded = evidenceDegradation(frame.evidence);
             this.voiceHeard = undefined;
             this.hadProviderAttempt = false;
             this.clearStallWatchdog();
@@ -2452,7 +2459,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.contextStatus = undefined;
             this.llmStatus = undefined;
             this.llmHeads = undefined;
-            this.degraded = undefined;
+            this.degraded = evidenceDegradation(frame.evidence);
             this.clearStallWatchdog();
             // --- Crusor notification: Response Ready (founder request 2026-09-21) ---
             // Show a native workbench notification when the agent finishes, so a
@@ -2476,7 +2483,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.contextStatus = undefined;
             this.llmStatus = undefined;
             this.llmHeads = undefined;
-            this.degraded = undefined;
+            this.degraded = evidenceDegradation(frame.evidence);
             this.clearStallWatchdog();
             this.notifyResponseReady(frame.error, true);
             this.requestSessionList();

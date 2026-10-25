@@ -19,7 +19,7 @@ import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/brows
 import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
-import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorExecutionMode, CrusorServerEvent, CrusorSessionMessage, CrusorTodoItem } from '../common/crusorAIProtocol.js';
+import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorEvidenceReceipt, CrusorExecutionMode, CrusorServerEvent, CrusorSessionMessage, CrusorTodoItem } from '../common/crusorAIProtocol.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
@@ -42,6 +42,12 @@ import {
 
 function valueRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
 	return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : undefined;
+}
+
+function evidenceDegradation(evidence: CrusorEvidenceReceipt | undefined): string | undefined {
+	if (!evidence || evidence.status === 'persisted') { return undefined; }
+	const missing = evidence.missing?.length ? ` Missing: ${evidence.missing.join(', ')}.` : '';
+	return `Agent Core evidence capture is ${evidence.status}.${missing} The runtime result is shown, but this turn's monitoring receipt is incomplete.`;
 }
 
 function toolState(status: string): CrusorAIToolState {
@@ -2113,7 +2119,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
 			this.llmHeads = undefined;
-			this.degraded = undefined;
+			this.degraded = evidenceDegradation(frame.evidence);
 			this.voiceHeard = undefined;
 
 			this.hadProviderAttempt = false;
@@ -2390,7 +2396,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
 			this.llmHeads = undefined;
-			this.degraded = undefined;
+			this.degraded = evidenceDegradation(frame.evidence);
 			this.clearStallWatchdog();
 			// --- Crusor notification: Response Ready (founder request 2026-09-21) ---
 			// Show a native workbench notification when the agent finishes, so a
@@ -2413,7 +2419,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.contextStatus = undefined;
 			this.llmStatus = undefined;
 			this.llmHeads = undefined;
-			this.degraded = undefined;
+			this.degraded = evidenceDegradation(frame.evidence);
 			this.clearStallWatchdog();
 			this.notifyResponseReady(frame.error, true);
 			this.requestSessionList();

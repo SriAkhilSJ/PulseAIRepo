@@ -131,12 +131,25 @@ export type CrusorA2UIOperation =
 	| { readonly version?: string; readonly updateDataModel: { readonly surfaceId: string; readonly path?: string; readonly value: unknown } }
 	| { readonly version?: string; readonly deleteSurface: { readonly surfaceId: string } };
 
+export interface CrusorEvidenceReceipt {
+	readonly status: 'persisted' | 'degraded' | 'unavailable';
+	readonly evidence_id?: string | null;
+	readonly lifecycle_status: 'in_progress' | 'completed' | 'cancelled' | 'failed' | 'watchdog' | 'interrupted' | 'unknown';
+	readonly manifest_path?: string | null;
+	readonly manifest_sha256?: string | null;
+	readonly journal_terminal_seq?: number | null;
+	readonly journal_chain_valid?: boolean | null;
+	readonly missing?: readonly string[];
+	readonly error?: string | null;
+}
+
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
 	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean } } & CrusorIdentity)
 	| ({ readonly type: 'session_deleted'; readonly deleted: boolean } & CrusorIdentity)
-	| ({ readonly type: 'turn_started' } & CrusorIdentity)
+	| ({ readonly type: 'turn_started'; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
+	| ({ readonly type: 'turn_lifecycle'; readonly lifecycle_status: 'started' | 'completed' | 'cancelled' | 'failed' | 'watchdog' | 'interrupted'; readonly journal_seq?: number; readonly journal_event_hash?: string; readonly evidence_id?: string; readonly completed?: boolean; readonly cancelled?: boolean } & CrusorIdentity)
 	| ({ readonly type: 'token'; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'token_retract'; readonly chars: number } & CrusorIdentity)
 	| ({ readonly type: 'reasoning'; readonly text: string } & CrusorIdentity)
@@ -157,9 +170,9 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'subagent_background_completed'; readonly subagent_id?: string; readonly child_thread_id?: string; readonly text: string; readonly description?: string } & CrusorIdentity)
 	| ({ readonly type: 'telemetry'; readonly input?: number; readonly output?: number; readonly cache?: number; readonly cost?: number } & CrusorIdentity)
 	| ({ readonly type: 'checkpoint_event'; readonly checkpoint_hash?: string; readonly checkpoints?: readonly unknown[]; readonly restore?: unknown } & CrusorIdentity)
-	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean } & CrusorIdentity)
-	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false } & CrusorIdentity)
-	| ({ readonly type: 'runtime_degraded'; readonly reason: string } & CrusorIdentity)
+	| ({ readonly type: 'turn_done'; readonly message?: string; readonly completed: boolean; readonly cancelled: boolean; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
+	| ({ readonly type: 'turn_failed'; readonly error: string; readonly completed: false; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
+	| ({ readonly type: 'runtime_degraded'; readonly reason: string; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
 		| ({ readonly type: 'voice_text'; readonly ok: boolean; readonly text?: string; readonly error?: string } & CrusorIdentity)
 | ({ readonly type: 'context_status'; readonly phase: string; readonly message: string; readonly severity?: string; readonly usage_percent?: number; readonly last_prompt_tokens?: number; readonly threshold_tokens?: number; readonly context_length?: number } & CrusorIdentity)
 	| { readonly type: 'events_replay'; readonly session_id: string; readonly events: readonly unknown[] }

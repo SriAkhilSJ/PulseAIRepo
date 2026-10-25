@@ -12,7 +12,6 @@ import os
 import queue
 import sys
 import threading
-import uuid
 
 #: How long a turn may wait for the event forwarder to drain before the
 #: terminal frame goes out anyway (see _flush_events).
@@ -41,6 +40,7 @@ from src.bridge.protocol import (
     encode, error_frame, hello,
 )
 from src.bridge.turn_watchdog import TurnLiveness, run_stall_watchdog
+from src.runtime.evidence_capture import TurnEvidenceRecorder
 from src.runtime.identity import TurnIdentity, normalize_id
 
 ENGINE_VERSION = "0.2.0-runtime"
@@ -596,6 +596,12 @@ class BridgeServer:
             "message.agent.chunk": "token",
             "message.agent.retract": "token_retract",
             "verification.updated": "verification_updated",
+            "turn.started": "turn_lifecycle",
+            "turn.completed": "turn_lifecycle",
+            "turn.cancelled": "turn_lifecycle",
+            "turn.failed": "turn_lifecycle",
+            "turn.watchdog": "turn_lifecycle",
+            "turn.interrupted": "turn_lifecycle",
         }.get(kind)
         if target is None:
             return event if kind in {
@@ -633,6 +639,15 @@ class BridgeServer:
             return {**base, "text": str(payload.get("text") or payload.get("chunk") or "")}
         if target == "token_retract":
             return {**base, "chars": max(0, int(payload.get("chars") or 0))}
+        if target == "turn_lifecycle":
+            return {
+                **base,
+                **payload,
+                "type": "turn_lifecycle",
+                "lifecycle_status": kind.removeprefix("turn."),
+                "journal_seq": event.get("seq"),
+                "journal_event_hash": event.get("event_hash"),
+            }
         if target == "verification_updated":
             return {
                 **base,
@@ -653,32 +668,56 @@ class BridgeServer:
     def _project_stored_events(cls, events: list[dict]) -> list[dict]:
         return [projected for event in events if (projected := cls._project_stored_event(event))]
 
-    def _emit_stall_release(self, identity: TurnIdentity, force_ended: threading.Event,
-                            budget: float) -> None:
-        """Watchdog release: one honest receipt, then a synthetic turn_done.
+    def _emit_stall_release(
+        self,
+        identity: TurnIdentity,
+        force_ended: threading.Event,
+        budget: float,
+        evidence: TurnEvidenceRecorder | None = None,
+    ) -> None:
+        """Watchdog release with one durable watchdog terminal receipt.
 
         Only reachable when a full budget window passed with zero relayed
         engine events (see turn_watchdog.run_stall_watchdog), i.e. the turn
         is silent, not merely slow.
         """
-        force_ended.set()
+        if evidence is not None:
+            if not evidence.reserve_terminal(
+                "watchdog", on_reserved=force_ended.set
+            ):
+                # Graph completion won the race before the watchdog could
+                # claim terminal authority; its ordinary terminal is truth.
+                return
+        else:
+            force_ended.set()
         print(
             f"[bridge] turn STALL watchdog fired after {budget:.0f}s "
             "with no engine activity - releasing the session",
             file=sys.stderr, flush=True,
         )
+        message = (
+            f"The engine produced no activity for {budget:.0f}s, so the "
+            "watchdog ended the turn. The reply above is what the engine "
+            "produced; send another message to continue."
+        )
+        evidence_done = self._finalize_evidence(
+            evidence,
+            status="watchdog",
+            completed=False,
+            cancelled=False,
+            message=message,
+            reason=f"no_engine_activity_for_{budget:.0f}s",
+        )
         self.emit({
             "type": "runtime_degraded", **identity.event_fields(),
             "reason": f"turn stalled: no engine activity for {budget:.0f}s (watchdog)",
+            "evidence": evidence_done,
         })
         self.emit({
             "type": "turn_done", **identity.event_fields(),
-            "message": (
-                f"The engine produced no activity for {budget:.0f}s, so the "
-                "watchdog ended the turn. The reply above is what the engine "
-                "produced; send another message to continue."
-            ),
+            "message": message,
             "completed": False, "cancelled": False, "stub": False,
+            "evidence": evidence_done,
         })
 
     def _lineage_root(self, session_id: str) -> str | None:
@@ -828,10 +867,68 @@ class BridgeServer:
             time.sleep(0.02)
         return max(int(getattr(q, "unfinished_tasks", 0) or 0), 0)
 
+    @staticmethod
+    def _evidence_unavailable(error: object) -> dict:
+        from src.utils.redact import redact_sensitive_text
+
+        return {
+            "status": "unavailable",
+            "evidence_id": None,
+            "lifecycle_status": "unknown",
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "journal_terminal_seq": None,
+            "journal_chain_valid": None,
+            "missing": ["capture_service"],
+            "error": redact_sensitive_text(
+                f"{type(error).__name__}: {error}",
+                force=True,
+                redact_url_credentials=True,
+            )[:500],
+        }
+
+    def _finalize_evidence(
+        self,
+        recorder: TurnEvidenceRecorder | None,
+        **kwargs,
+    ) -> dict:
+        if recorder is None:
+            return self._evidence_unavailable(
+                "capture service did not start"
+            )
+        try:
+            return recorder.finalize(**kwargs).to_dict()
+        except Exception as exc:  # noqa: BLE001 - monitoring must fail open
+            print(
+                f"[bridge] evidence finalization failed: {exc!r}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return self._evidence_unavailable(exc)
+
     def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None) -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
 
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
+        evidence: TurnEvidenceRecorder | None = None
+        evidence_started: dict
+        try:
+            evidence = TurnEvidenceRecorder.begin(
+                identity=identity,
+                workspace=workspace,
+                prompt=text,
+                mode=mode,
+            )
+            evidence_started = evidence.current_receipt().to_dict()
+        except Exception as exc:  # noqa: BLE001 - evidence must fail open
+            # Evidence is fail-open by contract: expose the degradation on the
+            # protocol, but never prevent the requested turn from running.
+            evidence_started = self._evidence_unavailable(exc)
+            print(
+                f"[bridge] evidence capture unavailable at turn start: {exc!r}",
+                file=sys.stderr,
+                flush=True,
+            )
         # faulthandler.dump_traceback_later() returns None, so track the flag
         # explicitly: the scheduled dump must always be cancelled after the
         # turn, and the echo branch must not leak it either.
@@ -885,7 +982,9 @@ class BridgeServer:
                 terminal=_terminal,
                 liveness=_liveness,
                 budget_env=os.environ.get("CRUSORAI_TURN_STALL_TIMEOUT_S", "").strip(),
-                fire=lambda budget: self._emit_stall_release(identity, _force_ended, budget),
+                fire=lambda budget: self._emit_stall_release(
+                    identity, _force_ended, budget, evidence
+                ),
             )
 
         threading.Thread(target=_stall_watchdog, name="crusorai-turn-watchdog", daemon=True).start()
@@ -894,7 +993,23 @@ class BridgeServer:
         turn_controls.begin(sid)
         set_active_session(sid)
         try:
-            self.emit({"type": "turn_started", **identity.event_fields(), "timestamp": identity.created_at})
+            self.emit({
+                "type": "turn_started",
+                **identity.event_fields(),
+                "timestamp": identity.created_at,
+                "evidence": evidence_started,
+            })
+            if evidence_started.get("status") in {"degraded", "unavailable"}:
+                self.emit({
+                    "type": "runtime_degraded",
+                    **identity.event_fields(),
+                    "reason": (
+                        "Agent Core evidence capture is "
+                        f"{evidence_started.get('status')}; the turn will "
+                        "continue, but monitoring coverage is incomplete."
+                    ),
+                    "evidence": evidence_started,
+                })
             if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() == "echo":
                 # Test seam (CRUSORAI_ECHO_DELAY_MS): simulate an in-flight turn
                 # that honours a cancel request, mirroring real turn semantics.
@@ -909,10 +1024,21 @@ class BridgeServer:
                     while _time.monotonic() < deadline and not turn_controls.cancelled(sid):
                         _time.sleep(0.05)
                     if turn_controls.cancelled(sid):
-                        self.emit({
+                        cancel_message = "Operation cancelled by the user."
+                        _terminal.set()
+                        evidence_done = self._finalize_evidence(
+                            evidence,
+                            status="cancelled",
+                            completed=False,
+                            cancelled=True,
+                            message=cancel_message,
+                            reason="user_cancelled",
+                        )
+                        _emit_terminal({
                             "type": "turn_done", **identity.event_fields(),
-                            "message": "Operation cancelled by the user.",
+                            "message": cancel_message,
                             "completed": False, "cancelled": True, "stub": False,
+                            "evidence": evidence_done,
                         })
                         return
                 # Say that no model was called, in the transcript, BEFORE the echo lands. Without
@@ -935,9 +1061,18 @@ class BridgeServer:
                 })
                 self._touch_turn(sid, text)
                 _terminal.set()
-                self.emit({
+                evidence_done = self._finalize_evidence(
+                    evidence,
+                    status="completed",
+                    completed=True,
+                    cancelled=False,
+                    message=text,
+                    reason="echo_test_runner",
+                )
+                _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
                     "message": text, "completed": True, "stub": False,
+                    "evidence": evidence_done,
                 })
                 return
 
@@ -1014,11 +1149,29 @@ class BridgeServer:
                         })
                 task_completed = bool(getattr(result, "completed", True))
                 _terminal.set()
+                lifecycle_status = (
+                    "cancelled"
+                    if cancelled
+                    else ("completed" if task_completed else "failed")
+                )
+                evidence_done = self._finalize_evidence(
+                    evidence,
+                    status=lifecycle_status,
+                    completed=task_completed and not cancelled,
+                    cancelled=cancelled,
+                    message=str(result),
+                    reason=(
+                        "user_cancelled"
+                        if cancelled
+                        else ("" if task_completed else "graph_returned_incomplete")
+                    ),
+                )
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
                     "message": str(result),
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
+                    "evidence": evidence_done,
                 })
                 # Hermes auto-title rule: only after a FULL exchange — a completed,
                 # uncancelled turn. The titler runs async and pushes session_info.
@@ -1061,20 +1214,76 @@ class BridgeServer:
                 if turn_controls.cancelled(sid):
                     self._touch_turn(sid, text)
                     _terminal.set()
+                    cancel_message = "Operation cancelled by the user."
+                    evidence_done = self._finalize_evidence(
+                        evidence,
+                        status="cancelled",
+                        completed=False,
+                        cancelled=True,
+                        message=cancel_message,
+                        error=str(exc),
+                        reason="user_cancelled_during_exception",
+                    )
                     _emit_terminal({
                         "type": "turn_done", **identity.event_fields(),
-                        "message": "Operation cancelled by the user.",
+                        "message": cancel_message,
                         "completed": False, "cancelled": True, "stub": False,
+                        "evidence": evidence_done,
                     })
                 else:
                     self._touch_turn(sid, text)
                     _terminal.set()
+                    evidence_done = self._finalize_evidence(
+                        evidence,
+                        status="failed",
+                        completed=False,
+                        cancelled=False,
+                        error=str(exc),
+                        reason="graph_exception",
+                    )
                     _emit_terminal({
                         "type": "turn_failed", **identity.event_fields(),
                         "error": str(exc), "completed": False,
+                        "evidence": evidence_done,
                     })
                     print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
+        except Exception as exc:  # noqa: BLE001 - terminal boundary
+            # Setup/import/echo-seam failures occur outside the graph try block
+            # above. They still own a durable failed receipt and one terminal
+            # protocol frame rather than dying as an invisible worker thread.
+            _terminal.set()
+            evidence_done = self._finalize_evidence(
+                evidence,
+                status="failed",
+                completed=False,
+                cancelled=False,
+                error=str(exc),
+                reason="bridge_turn_exception",
+            )
+            _emit_terminal({
+                "type": "turn_failed", **identity.event_fields(),
+                "error": str(exc), "completed": False,
+                "evidence": evidence_done,
+            })
+            print(
+                f"[bridge] turn setup FAILED after "
+                f"{_time.monotonic() - _turn_t0:.1f}s: {exc!r}",
+                file=sys.stderr,
+                flush=True,
+            )
         finally:
+            _terminal.set()
+            if evidence is not None and evidence.receipt is None:
+                # Covers interruption during setup/teardown and BaseException
+                # paths. Idempotence makes this a no-op after every ordinary
+                # terminal route and after watchdog release.
+                self._finalize_evidence(
+                    evidence,
+                    status="interrupted",
+                    completed=False,
+                    cancelled=False,
+                    reason="turn_owner_exited_without_terminal",
+                )
             if diagnostics_enabled:
                 import faulthandler
                 faulthandler.cancel_dump_traceback_later()

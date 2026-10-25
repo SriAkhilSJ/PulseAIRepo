@@ -203,8 +203,15 @@ class StepTracker:
         self.final_assistant_message: str = ""
         self.verification_receipts: dict[str, Any] = {}
 
-        # System-wide trace directory
-        self.system_trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+        # System-wide trace directory. Keep it on the same explicit runtime
+        # root as the journal/verification/evidence services.
+        configured_home = os.environ.get("CRUSORAI_HOME", "").strip()
+        runtime_home = (
+            Path(configured_home).expanduser()
+            if configured_home
+            else Path(os.path.expanduser("~")) / ".crusorai"
+        )
+        self.system_trace_dir = runtime_home / "traces"
         self.system_trace_dir.mkdir(parents=True, exist_ok=True)
         self.system_trace_file = self.system_trace_dir / f"{self.session_id}.jsonl"
         self.latest_symlink = self.system_trace_dir / "latest.jsonl"
@@ -1085,7 +1092,13 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
         except Exception:
             pass
 
-    trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+    configured_home = os.environ.get("CRUSORAI_HOME", "").strip()
+    runtime_home = (
+        Path(configured_home).expanduser()
+        if configured_home
+        else Path(os.path.expanduser("~")) / ".crusorai"
+    )
+    trace_dir = runtime_home / "traces"
     if not session_id:
         latest_file = trace_dir / "latest.jsonl"
         if latest_file.exists():

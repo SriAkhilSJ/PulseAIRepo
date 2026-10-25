@@ -118,15 +118,14 @@ def test_tool_transaction_never_executes_when_intent_persistence_fails(monkeypat
     class Services:
         journal = BrokenJournal()
     monkeypatch.setattr("src.runtime.factory.get_runtime_services", lambda: Services())
-    try:
-        tool_middleware.execute_tool_transaction(
-            name="write_file", args={"path": "x"}, tool_call_id="tc",
-            config={"configurable": {"thread_id": "s", "workspace": "."}},
-            invoke=lambda: called.append(True),
-        )
-        assert False, "persistence failure must raise"
-    except RuntimeError:
-        pass
+    outcome = tool_middleware.execute_tool_transaction(
+        name="write_file", args={"path": "x"}, tool_call_id="tc",
+        config={"configurable": {"thread_id": "s", "workspace": "."}},
+        invoke=lambda: called.append(True),
+    )
+    assert outcome.status == "error"
+    assert outcome.result_seq is None
+    assert "not executed" in outcome.content
     assert called == []
 
 
