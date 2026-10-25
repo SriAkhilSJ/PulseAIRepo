@@ -303,6 +303,29 @@ class StepTracker:
         if receipts:
             self.verification_receipts = dict(receipts)
 
+    def begin_turn(self, *, user_ask: str = "") -> None:
+        """Invalidate the prior turn's terminal receipt before new work starts.
+
+        Step history is session-scoped and remains append-only, but a verdict is
+        turn-scoped.  Without this boundary, every mid-turn report for turn N+1
+        presents turn N's verdict/counts under ``Authoritative Completion
+        Evidence``.  Desktop evidence bd057959 captured exactly that shape for
+        cleanup scenario F: its report still said D ``failed`` and one executed
+        tool because F had not reached a finalize row yet.
+        """
+        if user_ask:
+            self.set_user_ask(user_ask)
+        self.final_assistant_message = ""
+        self.verification_status = "pending"
+        self.verification_receipts = {
+            "task_status": "in_progress",
+            "tool_execution_count": None,
+            "failed_step_count": None,
+        }
+        # Refresh immediately so an interrupted turn cannot leave the previous
+        # verdict looking current merely because no AI/tool step was persisted.
+        self._export_markdown_report()
+
     def finalize_report(
         self,
         *,
@@ -447,6 +470,12 @@ class StepTracker:
         )
         if cache_reported is not None:
             self._current_step.cache_reported = bool(cache_reported)
+        elif self._current_step.cached_tokens > 0:
+            # A positive cache-hit count is itself provider telemetry.  Never
+            # overwrite that fact merely because the gateway/provider label
+            # contains "velona": bd057959 then rendered every call as N/A
+            # while scoring the same 240,384 cached tokens numerically.
+            self._current_step.cache_reported = True
         elif is_velona:
             self._current_step.cache_reported = False
         else:
@@ -659,7 +688,13 @@ class StepTracker:
         )
 
         total_input_tokens = sum(s.input_tokens for s in self.steps)
-        total_cached_tokens = sum(s.cached_tokens for s in self.steps)
+        cache_metered_steps = [
+            s
+            for s in self.steps
+            if s.input_tokens > 0 and getattr(s, "cache_reported", True)
+        ]
+        cache_metered_input_tokens = sum(s.input_tokens for s in cache_metered_steps)
+        total_cached_tokens = sum(s.cached_tokens for s in cache_metered_steps)
 
         # AI rows describe proposals.  Only tool-node rows are executions and
         # may contribute success/failure evidence.
@@ -696,39 +731,22 @@ class StepTracker:
         )
 
         # 2. Cache Score (Max 25 pts)
-        # Check if cache telemetry is supported / reported by the upstream provider/gateway.
-        # When using Velona or an OpenAI-compatible router that omits input_token_details,
-        # cached_tokens is 0 on the wire even if KV-caching operates upstream.
-        custom_base = os.environ.get("CUSTOM_BASE_URL", "").lower()
-        velona_base = os.environ.get("VELONA_BASE_URL", "").lower()
-        is_velona_session = (
-            "velona" in custom_base
-            or "velona" in velona_base
-            or any("velona" in (s.provider or "").lower() for s in self.steps)
-            or any(not getattr(s, "cache_reported", True) for s in self.steps)
-        )
-
-        has_cache_telemetry = (
-            total_cached_tokens > 0
-            or (not is_velona_session and any(s.provider in ("openai", "anthropic", "deepseek", "groq") for s in self.steps))
-        )
-
-        if total_cached_tokens > 0:
-            cache_hit_rate = total_cached_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
+        # Score only rows that explicitly carry provider cache telemetry. A
+        # provider/gateway label is not evidence either way: positive cache
+        # counts prove reporting, while explicitly unreported rows stay out of
+        # both numerator and denominator. This keeps aggregate and per-row
+        # displays mathematically consistent.
+        if cache_metered_input_tokens > 0:
+            cache_hit_rate = total_cached_tokens / cache_metered_input_tokens
             cache_score = 5.0 + (cache_hit_rate * 20.0)
             telemetry_available = True
-        elif is_velona_session or not has_cache_telemetry:
-            # Upstream provider/gateway (e.g. Velona) does not return
-            # input_token_details metadata.  Exclude the dimension rather than
-            # awarding a hidden perfect score for unavailable evidence.
+        else:
+            # Upstream provider/gateway does not return input_token_details.
+            # Exclude the dimension rather than awarding a hidden perfect
+            # score for unavailable evidence.
             cache_hit_rate = 0.0
             cache_score = None
             telemetry_available = False
-        else:
-            # Direct provider that supports telemetry reported 0 cached tokens (actual cache miss)
-            cache_hit_rate = 0.0
-            cache_score = 5.0
-            telemetry_available = True
 
         # 3. Correctness & Error Score (Max 25 pts when an execution occurred)
         error_score = (
@@ -766,7 +784,7 @@ class StepTracker:
         # Actionable Optimization Ideas
         ideas = []
         if telemetry_available:
-            if cache_hit_rate < 0.60 and total_input_tokens > 20000:
+            if cache_hit_rate < 0.60 and cache_metered_input_tokens > 20000:
                 ideas.append("⚡ **Enable Prompt Caching:** Your prompt cache hit rate is below 60%. Ensure your system persona and tool definitions are placed at the static prefix to prevent cache-busting.")
         else:
             ideas.append(
@@ -810,6 +828,8 @@ class StepTracker:
                 "duration_telemetry_available": duration_telemetry_available,
                 "duration_telemetry_complete": duration_telemetry_complete,
                 "cache_hit_rate_pct": round(cache_hit_rate * 100, 1),
+                "reported_cached_tokens": total_cached_tokens,
+                "cache_metered_input_tokens": cache_metered_input_tokens,
                 "telemetry_available": telemetry_available,
                 "scored_runtime_dimensions": len(scored_components),
                 "total_runtime_dimensions": 4,
@@ -876,7 +896,7 @@ class StepTracker:
             quality = self.compute_quality_score()
             total_tokens_in = sum(s.input_tokens for s in self.steps)
             total_tokens_out = sum(s.output_tokens for s in self.steps)
-            cached_tokens = sum(s.cached_tokens for s in self.steps)
+            cached_tokens = int(perf["metrics"]["reported_cached_tokens"])
             total_time = float(perf["metrics"]["total_measured_duration_s"])
             total_cost = perf["metrics"]["total_cost_usd"]
             total_cost_label = (
@@ -911,12 +931,12 @@ class StepTracker:
             md.append(f"| **Task verdict** | `{task_verdict}` |")
             md.append(f"| **Verification status** | `{self.verification_status}` |")
             md.append(
-                "| **Executed tool records** | "
+                "| **Current-turn executed tool records** | "
                 + (f"{execution_count}" if execution_count is not None else "N/A")
                 + " |"
             )
             md.append(
-                "| **Failed steps** | "
+                "| **Current-task failed steps** | "
                 + (f"{failed_step_count}" if failed_step_count is not None else "N/A")
                 + " |"
             )
@@ -1129,7 +1149,7 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
     quality = tracker.compute_quality_score(inferred_user_ask)
     total_tokens_in = sum(s.input_tokens for s in tracker.steps)
     total_tokens_out = sum(s.output_tokens for s in tracker.steps)
-    cached_tokens = sum(s.cached_tokens for s in tracker.steps)
+    cached_tokens = int(perf["metrics"]["reported_cached_tokens"])
     total_time = float(perf["metrics"]["total_measured_duration_s"])
 
     cache_val_str = (

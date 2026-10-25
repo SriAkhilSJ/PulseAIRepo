@@ -885,6 +885,22 @@ def test_workbench_carries_a_freshness_stamp_next_to_the_engine_chip():
     assert "STALE" in renderer
     assert "Workbench UI build" in renderer
 
+    # The committed bundle must actually be emitted from the stamped source.
+    # bd057959 exposed source `2026-10-19-38` paired with compiled
+    # `2026-10-23-39`; the source hash stayed green because it never verifies
+    # generated JS. A rebuild from that checkout would move the visible stamp
+    # backwards and could never satisfy the desktop freshness protocol.
+    bundle = (
+        FORK / "out" / "vs" / "workbench" / "contrib" / "crusorai"
+        / "browser" / "crusorAIRenderer.js"
+    ).read_text(encoding="utf-8")
+    source_stamp = re.search(r"CRUSORAI_UI_STAMP = '([^']+)'", renderer)
+    bundle_stamp = re.search(r"CRUSORAI_UI_STAMP = '([^']+)'", bundle)
+    assert source_stamp and bundle_stamp
+    assert bundle_stamp.group(1) == source_stamp.group(1), (
+        "committed renderer JS must carry the exact source freshness stamp"
+    )
+
 
 def test_stall_watchdog_is_inactivity_based_not_wall_clock():
     """Field log 2026-09-08: 'turn STALL watchdog fired after 600s with no
@@ -1058,7 +1074,7 @@ def test_ui_stamp_bumped_for_the_preview_chrome_round():
     dated 10-16 and false-flagged STALE against the 10-15 stamp.
     """
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "const CRUSORAI_UI_STAMP = '2026-10-19-38';" in renderer, (
+    assert "const CRUSORAI_UI_STAMP = '2026-10-24-40';" in renderer, (
         "a stale out/ must be flaggable against this UI round"
     )
 def test_install_cancel_flip_rides_the_patch_signature():
@@ -1248,7 +1264,7 @@ def test_ui_stamp_bumped_for_the_plan_disclosure_round():
     """The freshness stamp bumps with EVERY workbench UI round — a stale
     out/ shows an older date on the chip (see CRUSORAI_UI_STAMP)."""
     renderer = _text("browser", "crusorAIRenderer.ts")
-    assert "CRUSORAI_UI_STAMP = '2026-10-19-38'" in renderer
+    assert "CRUSORAI_UI_STAMP = '2026-10-24-40'" in renderer
 
 
 def test_plan_card_renders_a_task_list_never_arg_json():

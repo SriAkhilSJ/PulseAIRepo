@@ -1821,6 +1821,30 @@ def _zero_token_usage() -> dict[str, Any]:
     return TokenUsage().to_dict()
 
 
+def _turn_scoped_resets() -> dict[str, Any]:
+    """Fresh safety/gate state for every user turn.
+
+    These counters bound retries *within* one turn.  Letting a resumed
+    checkpoint carry them into the next prompt makes behavior depend on what
+    the previous prompt spent: desktop evidence bd057959 showed later prompts
+    skipping finish laps because the first prompt had already consumed the
+    budget.  Keep active-task history separately; reset only turn-local valves.
+    """
+    return {
+        "iteration_used": 0,
+        "grace_done": 0,
+        "budget_warning_done": 0,
+        "incomplete_response_retries": 0,
+        "plan_wrap_nudges": 0,
+        "wrap_summary": 0,
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+        "stall_continuations": 0,
+        "nudged_at_msg_count": -1,
+        "turn_token_usage": _zero_token_usage(),
+    }
+
+
 def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsage]) -> dict[str, Any]:
     """Merge a list of TokenUsage records into an existing state snapshot."""
     total = TokenUsage.from_dict(existing)
@@ -4532,6 +4556,7 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4552,6 +4577,7 @@ def task_manager_node(
             "latest_instruction": latest_instruction,
             "user_interest": _interest(approved_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4563,6 +4589,7 @@ def task_manager_node(
             "latest_instruction": latest_instruction,
             "user_interest": _interest(current_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
         }
 
     if (
@@ -4576,6 +4603,7 @@ def task_manager_node(
             "latest_instruction": latest_instruction,
             "user_interest": _interest(current_task, "corrects"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
         }
 
     # First turn: there is no previous active task.
@@ -4606,7 +4634,7 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
-            "turn_token_usage": _zero_token_usage(),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4616,6 +4644,20 @@ def task_manager_node(
     # the aux client is constructed AFTER this check — a quick-path turn
     # costs zero LLM anything, not even client setup.)
     quick = _quick_task_decision(current_task, latest_instruction)
+    if quick is None:
+        # The central interest resolver has one more deterministic reset that
+        # the text-only D30 helper cannot see: a substantive instruction after
+        # a social/phatic objective (for example, `hello` then `Create ...`).
+        # Treat that resolved replacement as a genuinely new task so stale
+        # steps, failures, plans, and receipts from the greeting are reset too.
+        # This remains zero-provider-call and also covers explicit multi-line
+        # `New task:` messages that the conservative one-line quick path skips.
+        resolved = _interest(current_task, "undetermined")
+        if resolved.get("relationship") == "replaces":
+            quick = (
+                "new",
+                str(resolved.get("objective") or latest_instruction),
+            )
     if quick is not None:
         action, updated_task = quick
         if action == "new":
@@ -4642,18 +4684,10 @@ def task_manager_node(
                 "task_completed": False,
                 "prior_attempts": [],
                 "token_usage": _zero_token_usage(),
-                "turn_token_usage": _zero_token_usage(),
-                # Safety budgets are turn-scoped even when checkpoint state is
-                # resumed (same law as run_agent/stream_agent initial state).
-                # Without this reset an ack/reset after an exhausted turn
-                # inherited iteration_used>=budget + grace_done and the next
-                # turn entered toolless and finalized instantly.
-                "iteration_used": 0,
-                "grace_done": 0,
-                "budget_warning_done": 0,
-                "incomplete_response_retries": 0,
-                "plan_wrap_nudges": 0,
-                "wrap_summary": 0,
+                # Every retry/nudge valve is turn-scoped. Without this reset,
+                # a resumed task inherits whichever channels the prior turn
+                # spent and behaves differently for the same instruction.
+                **_turn_scoped_resets(),
                 "workspace": config["configurable"].get("workspace", "."),
             }
         # A normal acknowledgement changes no user-interest field. LangGraph
@@ -4665,16 +4699,9 @@ def task_manager_node(
             "current_task": updated_task,
             "task_action": action,
             "token_usage": state.get("token_usage", _zero_token_usage()),
-            # Turn-scoped budget reset (see the "new" branch above): a bare
-            # ack re-prompt after a budget-exhausted turn must get a fresh
-            # budget, not inherit the spent one from the checkpoint.
-            "turn_token_usage": _zero_token_usage(),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
-            "incomplete_response_retries": 0,
-            "plan_wrap_nudges": 0,
-            "wrap_summary": 0,
+            # A bare ack/continue gets every turn-local valve back, not only
+            # the token-iteration budget.
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
         prior_interest = _stored_user_interest(state)
@@ -4695,6 +4722,7 @@ def task_manager_node(
             "task_status": "cancelled",
             "task_completed": False,
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4716,11 +4744,10 @@ def task_manager_node(
             # for the main model.  No extra provider round trip is introduced.
             "user_interest": _interest(current_task, "undetermined"),
             "task_action": "continue",
+            "task_status": "in_progress",
+            "task_completed": False,
             "token_usage": state.get("token_usage", _zero_token_usage()),
-            "turn_token_usage": _zero_token_usage(),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4806,10 +4833,10 @@ For "unrelated", preserve the existing active task exactly.
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": token_usage,
+            **_turn_scoped_resets(),
+            # Preserve the classifier call in this turn's metering after the
+            # generic zeroed reset above.
             "turn_token_usage": _merge_token_usage({}, [call_usage]),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4818,11 +4845,11 @@ For "unrelated", preserve the existing active task exactly.
         "latest_instruction": latest_instruction,
         "user_interest": _interest(updated_task, decision.action),
         "task_action": decision.action,
+        "task_status": "in_progress",
+        "task_completed": False,
         "token_usage": token_usage,
+        **_turn_scoped_resets(),
         "turn_token_usage": _merge_token_usage({}, [call_usage]),
-        "iteration_used": 0,
-        "grace_done": 0,
-        "budget_warning_done": 0,
         "workspace": config["configurable"].get("workspace", "."),
     }
 
@@ -6789,6 +6816,22 @@ graph = builder.compile(
 # =========================================================
 # NORMAL INVOCATION
 # =========================================================
+def _begin_diagnostic_turn(thread_id: str, workspace: str, message: str) -> None:
+    """Invalidate the previous turn's terminal report before graph work.
+
+    Diagnostics are best-effort and can never block a user turn.
+    """
+    try:
+        from src.runtime.step_tracker import StepTracker
+
+        StepTracker.get_tracker(
+            thread_id,
+            workspace_root=workspace,
+        ).begin_turn(user_ask=message)
+    except Exception:
+        pass
+
+
 def invoke_agent(
     message: str,
     thread_id: str = "default",
@@ -6815,6 +6858,7 @@ def invoke_agent(
             "recursion_limit": _recursion_limit(),
         }
 
+        _begin_diagnostic_turn(thread_id, workspace, message)
         result = graph.invoke(
             {
                 "messages": [
@@ -6822,14 +6866,9 @@ def invoke_agent(
                 ],
                 "latest_instruction": message,
                 "execution_mode": execution_mode,
-                # Safety budgets are turn-scoped even when checkpoint state is resumed.
-                "iteration_used": 0,
-                "grace_done": 0,
-                "budget_warning_done": 0,
-                "incomplete_response_retries": 0,
-                "plan_wrap_nudges": 0,
-                "wrap_summary": 0,
-                "turn_token_usage": _zero_token_usage(),
+                # Safety/gate budgets are turn-scoped even when checkpoint
+                # state is resumed (all channels, not only token iteration).
+                **_turn_scoped_resets(),
             },
             config=config,
         )
@@ -6913,6 +6952,7 @@ def stream_agent(
             "recursion_limit": _recursion_limit(),
         }
 
+        _begin_diagnostic_turn(thread_id, workspace, message)
         final_response = ""
         turn_completed: bool | None = None
         current_step = 0
@@ -6922,15 +6962,9 @@ def stream_agent(
             "messages": [HumanMessage(content=message)],
             "latest_instruction": message,
             "execution_mode": execution_mode,
-            # Safety budgets are turn-scoped even when checkpoint state is resumed.
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
-            "incomplete_response_retries": 0,
-            "plan_wrap_nudges": 0,
-            "nudged_at_msg_count": -1,
-                "wrap_summary": 0,
-            "turn_token_usage": _zero_token_usage(),
+            # Safety/gate budgets are turn-scoped even when checkpoint
+            # state is resumed (all channels, not only token iteration).
+            **_turn_scoped_resets(),
         }
         if initial_plan is not None:
             initial_state.update({

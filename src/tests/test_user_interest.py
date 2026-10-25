@@ -245,6 +245,31 @@ def test_explicit_new_task_resets_old_scope():
     assert new.steering == ()
 
 
+def test_first_substantive_instruction_replaces_a_phatic_objective():
+    greeting = resolve_user_interest(
+        objective="hello",
+        latest_instruction="hello",
+        relationship="new",
+    )
+    instruction = (
+        'Create scratch/interest_probe.py containing only print("interest-ok"), '
+        "run it, and do nothing else."
+    )
+    resolved = resolve_user_interest(
+        previous=greeting.to_state(),
+        objective=greeting.objective,
+        latest_instruction=instruction,
+        relationship="undetermined",
+    )
+
+    assert greeting.mode == "social"
+    assert resolved.relationship == "replaces"
+    assert resolved.objective == instruction
+    assert resolved.latest_substantive_instruction == instruction
+    assert resolved.focus_text() == instruction
+    assert "hello" not in resolved.focus_text().casefold()
+
+
 def test_explicit_replacement_resets_active_scope_without_a_classifier_call():
     old = resolve_user_interest(
         objective="Implement login. Never touch billing.",
@@ -386,6 +411,49 @@ def test_task_manager_first_turn_persists_interest_from_message(monkeypatch):
     assert out["user_interest"]["change_policy"] == "changes_requested"
 
 
+def test_task_manager_promotes_substantive_after_greeting_to_fresh_task(monkeypatch):
+    import src.graphs.chat_graph as cg
+
+    monkeypatch.delenv("CRUSORAI_TASK_CLASSIFIER", raising=False)
+    greeting = resolve_user_interest(
+        objective="hello",
+        latest_instruction="hello",
+        relationship="new",
+    )
+    instruction = (
+        'Create scratch/interest_probe.py containing only print("interest-ok"), '
+        "run it, and do nothing else."
+    )
+    out = cg.task_manager_node(
+        {
+            "messages": [],
+            "current_task": "hello",
+            "latest_instruction": instruction,
+            "user_interest": greeting.to_state(),
+            "steps_completed": ["stale greeting step"],
+            "failed_steps": ["stale greeting failure"],
+            "execution_trace": [{"tool": "stale"}],
+            "finish_nudges": 2,
+            "verify_nudges": 2,
+            "stall_continuations": 2,
+            "nudged_at_msg_count": 99,
+            "token_usage": {},
+        },
+        _config(),
+    )
+
+    assert out["task_action"] == "new"
+    assert out["current_task"] == instruction
+    assert out["user_interest"]["objective"] == instruction
+    assert out["steps_completed"] == []
+    assert out["failed_steps"] == []
+    assert out["execution_trace"] == []
+    assert out["finish_nudges"] == 0
+    assert out["verify_nudges"] == 0
+    assert out["stall_continuations"] == 0
+    assert out["nudged_at_msg_count"] == -1
+
+
 def test_default_followup_updates_interest_with_zero_classifier_calls(monkeypatch):
     import src.graphs.chat_graph as cg
 
@@ -409,6 +477,10 @@ def test_default_followup_updates_interest_with_zero_classifier_calls(monkeypatc
             "latest_instruction": "Only touch Agent Core and verify with tests.",
             "user_interest": initial.to_state(),
             "token_usage": {},
+            "finish_nudges": 2,
+            "verify_nudges": 2,
+            "stall_continuations": 2,
+            "nudged_at_msg_count": 77,
         },
         _config(),
     )
@@ -420,6 +492,11 @@ def test_default_followup_updates_interest_with_zero_classifier_calls(monkeypatc
         "Only touch Agent Core"
     )
     assert any("Only touch" in item for item in out["user_interest"]["constraints"])
+    assert out["task_status"] == "in_progress"
+    assert out["finish_nudges"] == 0
+    assert out["verify_nudges"] == 0
+    assert out["stall_continuations"] == 0
+    assert out["nudged_at_msg_count"] == -1
 
 
 def test_quick_ack_preserves_latest_substantive_interest(monkeypatch):
@@ -605,6 +682,67 @@ def test_no_change_action_can_verify_but_cannot_mutate(tmp_path):
     assert cg._requires_file_delivery(state) is False
     assert _deliverables_missing_on_disk(state, str(tmp_path)) == []
     assert should_continue(state) == "finish_gate"
+
+
+def test_no_change_action_finalizes_after_a_real_tool_receipt(monkeypatch, tmp_path):
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    import src.graphs.chat_graph as cg
+    from src.graphs.gates import should_continue
+
+    prompt = "Run python --version and report the exit code. Do not modify files."
+    interest = resolve_user_interest(
+        objective=prompt,
+        latest_instruction=prompt,
+        relationship="new",
+    )
+    state = {
+        "current_task": prompt,
+        "latest_instruction": prompt,
+        "user_interest": interest.to_state(),
+        "workspace": str(tmp_path),
+        "messages": [
+            HumanMessage(content=prompt),
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "terminal",
+                    "args": {"command": "python --version"},
+                    "id": "cmd-1",
+                }],
+            ),
+            ToolMessage(
+                content="Python 3.14.0\nExit code: 0",
+                name="terminal",
+                tool_call_id="cmd-1",
+            ),
+            AIMessage(content="Python 3.14.0; exit code 0."),
+        ],
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+        "stall_continuations": 0,
+        "nudged_at_msg_count": -1,
+        "iteration_used": 2,
+        "steps_completed": ["Ran command: python --version"],
+        "failed_steps": [],
+        "execution_trace": [{"tool": "terminal", "status": "success"}],
+        "plan": [],
+    }
+
+    assert interest.change_policy == "no_changes"
+    assert should_continue(state) == "finalize"
+
+    monkeypatch.setattr(cg, "memory_manager", None)
+    final = cg.finalize_node(
+        state,
+        {
+            "configurable": {
+                "thread_id": "readonly-action-finalize",
+                "workspace": str(tmp_path),
+            }
+        },
+    )
+    assert final["task_completed"] is True
+    assert final["task_status"] == "completed"
 
 
 def test_answer_continuation_nudge_does_not_require_tool_activity(monkeypatch, tmp_path):

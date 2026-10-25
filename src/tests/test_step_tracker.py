@@ -73,6 +73,33 @@ class TestStepTracker(TestCase):
         report = (Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md").read_text(encoding="utf-8")
         self.assertIn(f"${expected:.4f} USD", report)
         self.assertNotIn("$1.00/$3.00", report)
+        self.assertIn("**N/A** (Provider Velona/Gateway omits", report)
+        perf = self.tracker.compute_performance_score()
+        self.assertFalse(perf["metrics"]["telemetry_available"])
+        self.assertEqual(perf["metrics"]["reported_cached_tokens"], 0)
+
+    def test_positive_gateway_cache_tokens_are_reported_not_n_a(self):
+        self.tracker.start_step("ai")
+        self.tracker.record_llm_metrics(
+            model="z-ai/glm-5.3-flash",
+            provider="velona",
+            input_tokens=12_000,
+            output_tokens=100,
+            cached_tokens=9_000,
+            duration_s=2.0,
+        )
+        finished = self.tracker.finish_step()
+
+        self.assertTrue(finished.cache_reported)
+        perf = self.tracker.compute_performance_score()
+        self.assertTrue(perf["metrics"]["telemetry_available"])
+        self.assertEqual(perf["metrics"]["reported_cached_tokens"], 9_000)
+        self.assertEqual(perf["metrics"]["cache_hit_rate_pct"], 75.0)
+        report = (
+            Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("**75.0%** (9,000 cached)", report)
+        self.assertIn("| 75% |", report)
 
     def test_unpriced_step_report_says_unknown_not_zero_dollars(self):
         with patch("src.telemetry.call_ledger.load_rate_card", return_value={}):
@@ -340,6 +367,35 @@ class TestStepTracker(TestCase):
         self.assertEqual(self.tracker.steps[-1].node_name, "finalize")
         self.assertEqual(self.tracker.steps[-1].verification_status, "failed")
         self.assertIn("FINAL_VERDICT: unverified", self.tracker.steps[-1].diagnostics)
+
+    def test_begin_turn_invalidates_the_prior_terminal_receipt(self):
+        self.tracker.finalize_report(
+            user_ask="Run the failure probe.",
+            final_message="Exit code 3.",
+            verification_status="unverified",
+            receipts={
+                "task_status": "failed",
+                "tool_execution_count": 1,
+                "failed_step_count": 1,
+            },
+        )
+        before = (
+            Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("| **Task verdict** | `failed` |", before)
+
+        self.tracker.begin_turn(
+            user_ask="Create, run, remove, and confirm cleanup_probe.py is absent."
+        )
+        after = (
+            Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("cleanup_probe.py", after)
+        self.assertIn("| **Task verdict** | `in_progress` |", after)
+        self.assertIn("| **Verification status** | `pending` |", after)
+        self.assertIn("| **Current-turn executed tool records** | N/A |", after)
+        self.assertIn("| **Current-task failed steps** | N/A |", after)
+        self.assertNotIn("| **Task verdict** | `failed` |", after)
 
     def test_exit_code_parser_uses_final_authoritative_receipt(self):
         from src.graphs.chat_graph import _extract_exit_code

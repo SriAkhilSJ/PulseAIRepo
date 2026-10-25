@@ -76,7 +76,12 @@ function emit(dir) {
 		});
 		const diags = (res.diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '));
 		if (diags.length) { console.error(`DIAG ${rel}: ${diags.join('; ')}`); process.exitCode = 1; }
-		fs.writeFileSync(out, res.outputText);
+		// Keep committed generated files whitespace-clean and reproducible.
+		// transpileModule can preserve a source line break as `, \n` in a
+		// multiline call; that fails the repository's mandatory diff check even
+		// though the token is semantically inert.
+		const outputText = res.outputText.replace(/[ \t]+$/gm, '');
+		fs.writeFileSync(out, outputText);
 		count += 1;
 	}
 }

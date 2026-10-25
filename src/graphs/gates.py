@@ -582,6 +582,30 @@ def _deliverable_candidates(workspace: str, target: str):
     return candidates
 
 
+def _completion_activity_missing(state: AgentState) -> bool:
+    """Whether an action turn still owes its first concrete action.
+
+    Mutation-capable delivery tasks keep the deliberately strict work-tool /
+    on-disk-artifact bar.  A ``no_changes`` action cannot satisfy that bar by
+    design: mutation tools are not bound.  For those turns, any executed tool
+    receipt is the honest progress boundary (terminal checks, target
+    inspection, reads, searches, and verification all qualify).
+
+    Desktop evidence bd057959 exposed the mismatch: ``python --version`` ran
+    successfully with exit 0, then the mutation-only gate issued two
+    impossible work nudges and finalization falsely returned ``failed``.
+    """
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None and interest.change_policy == "no_changes":
+        return not _any_tool_activity(state)
+    return (
+        _tool_call_count(state) < 1
+        and not _named_deliverables_exist(
+            state, state.get("workspace", ".")
+        )
+    )
+
+
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
     if bool(getattr(last_message, "additional_kwargs", {}).get("crusor_cancelled")):
@@ -655,13 +679,15 @@ def should_continue(state: AgentState):
         if _repetition:
             return "finalize"
 
-        # Hard Gate: If this is an execution/creation task and NO work tools have executed,
-        # do NOT let the turn finalize prematurely on no_tool_streak if finish nudges remain.
-        # Force the model to stop monologuing and execute mutation tools.
+        # Hard Gate: If this is an execution/creation task and NO eligible
+        # action has executed, do NOT let the turn finalize prematurely on
+        # no_tool_streak while finish nudges remain. Delivery tasks still owe
+        # mutation/on-disk evidence; explicitly no-change tasks owe a real
+        # read/check/terminal receipt instead (their mutation tools are
+        # intentionally unavailable).
         if (
             _execution_requested(state)
-            and _tool_call_count(state) < 1
-            and not _named_deliverables_exist(state, state.get("workspace", "."))
+            and _completion_activity_missing(state)
             and state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
             and not _budget_exhausted(state)
         ):
@@ -727,20 +753,17 @@ def should_continue(state: AgentState):
             return "finish_gate"
         return "finalize"
 
-    # Finish gate: an execution task that ends with NO deliverable-producing
-    # tool call is an early stop, not completion (probe/scratchpad calls like
-    # think/list_files don't count as work). Nudge once (bounded via
-    # finish_nudges) so the model actually acts; after the budget, allow
-    # finalize.
+    # Finish gate: an execution task that ends with NO eligible action is an
+    # early stop, not completion. Mutation-capable delivery tasks owe a work
+    # tool or named on-disk artifact. Explicit no-change actions instead owe
+    # one real tool receipt; requiring a mutation there is impossible and
+    # caused successful inspection/command turns to fail after extra laps.
     if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
-        if _execution_requested(state):
-            if (
-                _tool_call_count(state) < 1
-                and not _named_deliverables_exist(
-                    state, state.get("workspace", ".")
-                )
-            ):
-                return "finish_gate"
+        if (
+            _execution_requested(state)
+            and _completion_activity_missing(state)
+        ):
+            return "finish_gate"
 
     # Verify gate: code files were written but the code is NOT proven
     # sound — either no verification tool ran, or the last verification

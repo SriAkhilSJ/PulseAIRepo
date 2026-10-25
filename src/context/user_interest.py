@@ -452,6 +452,14 @@ def resolve_user_interest(
     if prior is not None and relationship in {"continue", "undetermined"}:
         if explicit_relationship in {"corrects", "replaces"}:
             relationship = explicit_relationship
+        elif prior.mode == "social" and mode not in {"social", "undetermined"}:
+            # A greeting is conversational setup, not a durable mission.  The
+            # first substantive answer/action after "hello" therefore becomes
+            # the objective without paying the optional relationship
+            # classifier.  Desktop evidence bd057959 showed the old merge as
+            # `hello Latest user direction: Create ...`, contradicting the
+            # report's claim that the greeting had been cleanly replaced.
+            relationship = "replaces"
     if (
         prior is not None
         and relationship == "replaces"
