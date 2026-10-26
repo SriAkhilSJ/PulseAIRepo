@@ -24,13 +24,13 @@ jobs:
 
     steps:
       - name: Check out the exact triggering commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
 
@@ -66,9 +66,37 @@ jobs:
           --poll-seconds 60
           --max-wait-seconds 19800
 
+      - name: Publish redacted orchestration failure
+        if: failure()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("github-kaggle-results/orchestration_receipt.json")
+          if path.is_file():
+              receipt = json.loads(path.read_text(encoding="utf-8"))
+              reason = str(receipt.get("fatal_error") or "unspecified failure")
+              phases = [
+                  f"{phase.get('name')}={phase.get('status')}"
+                  for phase in receipt.get("phases", [])
+              ]
+          else:
+              reason = "orchestration receipt was not created"
+              phases = []
+          escaped = reason.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error file=.github/workflows/kaggle-colibri-agent-core.yml,title=Redacted Kaggle orchestration failure::{escaped}")
+          summary = ["## Kaggle Colibri orchestration", "", f"**Result:** `{reason}`"]
+          if phases:
+              summary.extend(["", "**Bounded phases:** `" + ", ".join(phases) + "`"])
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(summary) + "\n")
+          PY
+
       - name: Upload bounded receipts and Kaggle output
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: kaggle-colibri-agent-core-${{ github.run_id }}
           path: github-kaggle-results/

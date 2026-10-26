@@ -131,11 +131,13 @@ def test_branch_workflow_never_exposes_secrets_to_prs_or_repository():
     assert "[kaggle-colibri]" in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "--expected-pulseai-commit ${{ github.sha }}" in workflow
-    assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in workflow
-    assert "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065" in workflow
+    assert "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09" in workflow
+    assert "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1" in workflow
     assert (
-        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
+        "actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4" in workflow
     )
+    assert "Publish redacted orchestration failure" in workflow
+    assert "Redacted Kaggle orchestration failure" in workflow
     assert "get_quota" not in workflow
     assert "kernel_logs" not in workflow
 
