@@ -1,0 +1,71 @@
+{
+  "schema": "pulseai-colibri-model-selection/v1",
+  "selected": {
+    "catalog_id": "qwen36-35b",
+    "name": "Qwen3.6-35B-A3B",
+    "api_model_id": "qwen3.6-colibri",
+    "family": "qwen36",
+    "model_repository": "Kreuzzelg/qwen36-35b-a3b-colibri-i4-gs64",
+    "model_revision_policy": "Resolve main once at run start, record the immutable Hugging Face commit, and download that commit.",
+    "colibri_repository": "https://github.com/JustVugg/colibri.git",
+    "colibri_commit": "e0db083cdc9e563e0766cc6fc661ef23c32298e0",
+    "license": "Apache-2.0",
+    "total_parameters_billion": 35,
+    "active_parameters_billion_approx": 3,
+    "quantization": "int4-gs64",
+    "disk_gb_decimal": 23.1,
+    "ram_min_gb": 10,
+    "ram_good_gb": 20,
+    "dense_gb": 3.5,
+    "engine_default_context_tokens": 8192,
+    "engine_max_context_tokens": 262144,
+    "initial_test_context_tokens": 65536,
+    "initial_long_context_probe_tokens_approx": 16384,
+    "native_tool_calls": true,
+    "registry_tools_flag_at_pinned_commit": false,
+    "registry_metadata_note": "The pinned qwen36 FamilyCapabilities.tools bit is false even though docs/api.md and the qwen36 gateway renderer support native tool calls; every run must pass the behavioral tool-call probe.",
+    "thinking_mode": true,
+    "cuda_tier": true
+  },
+  "selection_reasons": [
+    "Colibri registers a 262144-token maximum for the qwen36 family.",
+    "The gateway implements Qwen3.6 native tool-call and tool-response translation; because the pinned family registry's descriptive tools bit is stale/false, the run treats only the behavioral probe as proof.",
+    "The pre-converted int4-gs64 checkpoint is materially smaller than Colibri's larger high-context families.",
+    "Only 10 of 40 layers use full attention, giving a better long-context state curve than the all-attention Qwen3-Coder alternative on Kaggle-class host memory.",
+    "The CUDA expert tier supports NVIDIA devices while retaining a CPU fallback that is visible in logs rather than silently claimed as GPU execution."
+  ],
+  "operating_policy": {
+    "start_tokens": 65536,
+    "promote_to_131072_only_after": [
+      "Colibri's machine-local resource plan succeeds.",
+      "The 65536-token endpoint and Agent Core probes complete.",
+      "Observed host memory headroom remains safe."
+    ],
+    "never_infer": "The 262144-token architectural ceiling is not evidence that a particular Kaggle allocation successfully served 262144 tokens."
+  },
+  "alternatives": [
+    {
+      "catalog_id": "qwen3-coder-30b",
+      "name": "Qwen3-Coder-30B-A3B",
+      "decision": "not selected for the first high-context run",
+      "reason": "Its 19.4 GB checkpoint and coding specialization are attractive, but all 48 layers use full attention, so long-context KV state is a worse fit for a typical Kaggle host-memory envelope."
+    },
+    {
+      "catalog_id": "deepseek-v4-flash-reap",
+      "name": "DeepSeek V4 Flash REAP 150B",
+      "decision": "not selected",
+      "reason": "The 84.7 GB checkpoint exceeds the conservative storage budget for this first reproducible Kaggle lane."
+    },
+    {
+      "catalog_id": "qwen38-flash-next",
+      "name": "Qwen3.8-Flash-Next",
+      "decision": "not selected",
+      "reason": "The 185.6 GB checkpoint does not fit the intended Kaggle notebook storage envelope."
+    }
+  ],
+  "source_basis": {
+    "colibri_catalog": "c/setup_catalog.py at the pinned Colibri commit",
+    "family_limits": "c/family_registry.py at the pinned Colibri commit",
+    "engine_and_tools": "docs/qwen36.md, docs/api.md, c/openai_server.py, and c/tests/test_qwen36_chat_template.py at the pinned Colibri commit"
+  }
+}
