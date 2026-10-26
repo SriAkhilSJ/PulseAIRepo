@@ -76,15 +76,20 @@ round-trip pass rather than trusting that metadata bit.
 
 The inspected stdio candidate is `mtrakretech/kaggle-mcp` v3.1 at commit
 `bb8c9539a0efe966000fb59d15be12aef2912df2`. It exposes 74 tools, including
-`get_quota`, `push_notebook`, `kernel_status`, `kernel_logs`, `kernel_files`, and
+`list_my_kernels`, `push_notebook`, `kernel_status`, `kernel_logs`, `kernel_files`, and
 `kernel_output`. It is community software, not Kaggle's official remote MCP.
 
-Install it outside this repository and pin the inspected revision:
+A compatibility check with Kaggle CLI 1.8.4 found that the candidate's advertised
+`get_quota` tool shells out to the nonexistent `kaggle quota` command. **Do not use that
+result as a quota or GPU gate.** The supported kernel commands reach the current CLI/API
+path; actual authentication, quota, allocation, and execution still require live receipts.
+
+Install it outside this repository and pin both inspected revisions:
 
 ```bash
 git clone https://github.com/mtrakretech/kaggle-mcp.git /absolute/path/kaggle-mcp
 git -C /absolute/path/kaggle-mcp checkout bb8c9539a0efe966000fb59d15be12aef2912df2
-python -m pip install -r /absolute/path/kaggle-mcp/requirements.txt
+python -m pip install "requests>=2.28" "kaggle==1.8.4"
 python /absolute/path/kaggle-mcp/kaggle_mcp.py --list-tools
 ```
 
@@ -106,23 +111,27 @@ Configure PulseAI in the **test workspace's ignored** `.crusorai/mcp.json`:
 }
 ```
 
-Leave credentials out of that file. The MCP subprocess inherits securely exported
-`KAGGLE_USERNAME` / `KAGGLE_KEY` / `KAGGLE_API_TOKEN`, or it can use a mode-600
-`~/.kaggle/kaggle.json`.
+Leave credentials out of that file. This candidate needs `KAGGLE_USERNAME` plus either
+`KAGGLE_KEY` or `KAGGLE_API_TOKEN`, inherited from the launching environment, or the
+matching values in a mode-600 `~/.kaggle/kaggle.json`.
 
 After authentication, the guarded tool sequence is:
 
-1. `mcp_kaggle_get_quota` — require positive GPU quota.
-2. `mcp_kaggle_push_notebook` with:
+1. `mcp_kaggle_list_my_kernels` with `limit: 1` — require a successful authenticated
+   response. This proves account access, not available GPU quota.
+2. Treat GPU quota as **unknown** because Kaggle CLI 1.8.4 has no quota command. Do not
+   infer availability from tool discovery or kernel metadata; proceed only when spending
+   the account's GPU allocation is authorized, and let the kernel receipt prove allocation.
+3. `mcp_kaggle_push_notebook` with:
    - `path`: the absolute path to `kaggle/colibri_agent_core.ipynb`
    - `name`: `pulseai-colibri-agent-core`
    - `gpu`: `true`
    - `tpu`: `false`
    - `internet`: `true`
    - `private`: `true`
-3. `mcp_kaggle_kernel_status` until a terminal state.
-4. `mcp_kaggle_kernel_logs` for build/model/runtime diagnosis.
-5. `mcp_kaggle_kernel_files`, then `mcp_kaggle_kernel_output` to retrieve the result
+4. `mcp_kaggle_kernel_status` until a terminal state.
+5. `mcp_kaggle_kernel_logs` for build/model/runtime diagnosis.
+6. `mcp_kaggle_kernel_files`, then `mcp_kaggle_kernel_output` to retrieve the result
    archive and SHA-256 sidecar.
 
 `push_notebook` generates account-specific kernel metadata itself. The checked-in

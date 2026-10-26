@@ -24,6 +24,16 @@ def test_model_selection_manifest_pins_colibri_and_high_context_model():
     assert selected["disk_gb_decimal"] < 30
 
 
+def test_mcp_runbook_rejects_the_candidate_broken_quota_command():
+    runbook = (PACKAGE / "README.md").read_text(encoding="utf-8")
+
+    assert '"kaggle==1.8.4"' in runbook
+    assert "nonexistent `kaggle quota` command" in runbook
+    assert "`mcp_kaggle_list_my_kernels`" in runbook
+    assert "Treat GPU quota as **unknown**" in runbook
+    assert "`mcp_kaggle_get_quota` — require positive GPU quota" not in runbook
+
+
 def test_agent_response_receipt_requires_sentinel_and_grounded_defect(tmp_path):
     frames = tmp_path / "frames.jsonl"
     rows = [
