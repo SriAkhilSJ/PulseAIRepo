@@ -142,9 +142,10 @@ After authentication, the guarded tool sequence is:
 ### GitHub Actions secret bridge
 
 `.github/workflows/kaggle-colibri-agent-core.yml` is restricted to this session branch,
-has no pull-request trigger, and uses `contents: read`. Repository secrets
-`KAGGLE_USERNAME` and `KAGGLE_API_TOKEN` are scoped only to the MCP orchestration step.
-A push runs the expensive job only when its commit message contains `[kaggle-colibri]`;
+has no pull-request trigger, and uses `contents: read`. The public Kaggle account handle is
+pinned as `sriakhilsj`; only repository secret `KAGGLE_API_TOKEN` is scoped to the MCP
+orchestration step. A push runs the expensive job only when its commit message contains
+`[kaggle-colibri]`;
 the job uploads bounded receipts and downloaded kernel output as a 14-day Actions
 artifact. It never commits evidence, model weights, or credentials to Git.
 

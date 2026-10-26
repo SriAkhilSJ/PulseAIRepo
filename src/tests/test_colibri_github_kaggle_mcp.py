@@ -126,7 +126,8 @@ def test_branch_workflow_never_exposes_secrets_to_prs_or_repository():
     assert "arena/a7c2c868-pulseairepo" in workflow
     assert "contents: read" in workflow
     assert "persist-credentials: false" in workflow
-    assert "secrets.KAGGLE_USERNAME" in workflow
+    assert "KAGGLE_USERNAME: sriakhilsj" in workflow
+    assert "secrets.KAGGLE_USERNAME" not in workflow
     assert "secrets.KAGGLE_API_TOKEN" in workflow
     assert "[kaggle-colibri]" in workflow
     assert "ref: ${{ github.sha }}" in workflow
