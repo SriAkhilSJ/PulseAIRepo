@@ -76,13 +76,14 @@ round-trip pass rather than trusting that metadata bit.
 
 The inspected stdio candidate is `mtrakretech/kaggle-mcp` v3.1 at commit
 `bb8c9539a0efe966000fb59d15be12aef2912df2`. It exposes 74 tools, including
-`list_my_kernels`, `push_notebook`, `kernel_status`, `kernel_logs`, `kernel_files`, and
-`kernel_output`. It is community software, not Kaggle's official remote MCP.
+`list_my_kernels`, `push_notebook`, `kernel_status`, `kernel_files`, and `kernel_output`.
+It is community software, not Kaggle's official remote MCP.
 
 A compatibility check with Kaggle CLI 1.8.4 found that the candidate's advertised
-`get_quota` tool shells out to the nonexistent `kaggle quota` command. **Do not use that
-result as a quota or GPU gate.** The supported kernel commands reach the current CLI/API
-path; actual authentication, quota, allocation, and execution still require live receipts.
+`get_quota` and `kernel_logs` tools shell out to nonexistent `kaggle quota` and
+`kaggle kernels logs` commands. **Do not use either tool as evidence.** The supported
+kernel commands reach the current CLI/API path; actual authentication, quota, allocation,
+and execution still require live receipts.
 
 Install it outside this repository and pin both inspected revisions:
 
@@ -130,13 +131,22 @@ After authentication, the guarded tool sequence is:
    - `internet`: `true`
    - `private`: `true`
 4. `mcp_kaggle_kernel_status` until a terminal state.
-5. `mcp_kaggle_kernel_logs` for build/model/runtime diagnosis.
-6. `mcp_kaggle_kernel_files`, then `mcp_kaggle_kernel_output` to retrieve the result
-   archive and SHA-256 sidecar.
+5. `mcp_kaggle_kernel_files`, then `mcp_kaggle_kernel_output` to retrieve the result
+   archive and SHA-256 sidecar. Build/model/runtime diagnostics are inside that archive;
+   do not call the candidate's incompatible `kernel_logs` tool.
 
 `push_notebook` generates account-specific kernel metadata itself. The checked-in
 `kernel-metadata.template.json` is only for a manual Kaggle CLI fallback; replace
 `KAGGLE_USERNAME` outside Git before using it.
+
+### GitHub Actions secret bridge
+
+`.github/workflows/kaggle-colibri-agent-core.yml` is restricted to this session branch,
+has no pull-request trigger, and uses `contents: read`. Repository secrets
+`KAGGLE_USERNAME` and `KAGGLE_API_TOKEN` are scoped only to the MCP orchestration step.
+A push runs the expensive job only when its commit message contains `[kaggle-colibri]`;
+the job uploads bounded receipts and downloaded kernel output as a 14-day Actions
+artifact. It never commits evidence, model weights, or credentials to Git.
 
 ## Local validation (no GPU claim)
 

@@ -1,0 +1,77 @@
+name: Kaggle Colibri Agent Core
+
+on:
+  push:
+    branches:
+      - arena/a7c2c868-pulseairepo
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kaggle-colibri-agent-core
+  cancel-in-progress: false
+
+jobs:
+  private-gpu-probe:
+    name: Private Kaggle GPU probe
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.head_commit.message, '[kaggle-colibri]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out the exact triggering commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Kaggle client
+        run: >-
+          python -m pip install --disable-pip-version-check
+          kaggle==1.8.4 requests==2.32.5
+
+      - name: Check out audited Kaggle MCP revision
+        env:
+          KAGGLE_MCP_COMMIT: bb8c9539a0efe966000fb59d15be12aef2912df2
+        run: |
+          set -euo pipefail
+          git init /tmp/kaggle-mcp
+          git -C /tmp/kaggle-mcp remote add origin https://github.com/mtrakretech/kaggle-mcp.git
+          git -C /tmp/kaggle-mcp fetch --depth=1 origin "$KAGGLE_MCP_COMMIT"
+          git -C /tmp/kaggle-mcp checkout --detach FETCH_HEAD
+          test "$(git -C /tmp/kaggle-mcp rev-parse HEAD)" = "$KAGGLE_MCP_COMMIT"
+          test "$(python /tmp/kaggle-mcp/kaggle_mcp.py --list-tools | python -c 'import json,sys; print(len(json.load(sys.stdin)))')" = 74
+
+      - name: Run authenticated private GPU notebook through MCP
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: >-
+          python -m benchmarks.colibri_agent_core.github_kaggle_mcp
+          --mcp-script /tmp/kaggle-mcp/kaggle_mcp.py
+          --notebook benchmarks/colibri_agent_core/kaggle/colibri_agent_core.ipynb
+          --output-dir github-kaggle-results
+          --kernel-name pulseai-colibri-agent-core-${{ github.run_id }}
+          --expected-pulseai-commit ${{ github.sha }}
+          --poll-seconds 60
+          --max-wait-seconds 19800
+
+      - name: Upload bounded receipts and Kaggle output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: kaggle-colibri-agent-core-${{ github.run_id }}
+          path: github-kaggle-results/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
