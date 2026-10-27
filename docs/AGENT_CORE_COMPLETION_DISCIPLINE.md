@@ -79,4 +79,17 @@ If any condition fails, the same final call must report what is incomplete and f
 | Runner ceiling | Calls `N-1` and `N` allowed; `N+1` stops |
 | Existing trajectory guard | Included in the green focused gate and unchanged |
 
-A bounded live rerun is permitted only after the broader provider-free and scoped static checks pass. Its sanitized receipt belongs in `docs/AGENT_CORE_PERFORMANCE_EVIDENCE.md`.
+## Bounded live receipt
+
+After all provider-free checks passed, GitHub Actions run
+[`40477838008`](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40477838008)
+used the existing write-only `CUSTOM_API_KEY` with `z-ai/glm-5.3-flash`. The genuine task
+completed successfully in **6 of 8 provider calls** and 32 seconds: all six independent tests
+passed, tests stayed unchanged, production code changed, six tools completed, and no budget
+stop fired. Because the agent completed naturally two calls early, the call-8 reserve event
+was correctly absent.
+
+The workflow's overall conclusion is red only because its temporary grader incorrectly made
+that fallback event mandatory even for early completion; every task-quality and budget check
+passed. No paid rerun was used to manufacture a reserve event. The full sanitized receipt and
+caveat are recorded in `docs/AGENT_CORE_PERFORMANCE_EVIDENCE.md`.
