@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import json
 import re
+import urllib.error
 
 from scripts import probe_velona_models as probe_module
 
@@ -107,6 +109,54 @@ def test_basic_probe_retries_one_transient_read_timeout():
     assert evidence["sentinel_preserved"] is True
     assert evidence["attempts"] == 2
     assert calls == 2
+
+
+def test_request_honors_one_bounded_429_retry(monkeypatch):
+    instance = probe_module.VelonaModelProbe(
+        base_url="https://velona.example/v1",
+        api_key="test-secret-value",
+        main_model="z-ai/glm-5.3-flash",
+        aux_model="qwen/qwen3.7-flash",
+        timeout=1,
+    )
+    calls = 0
+    sleeps = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"choices": []}'
+
+    def fake_urlopen(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                429,
+                "rate limited",
+                {"Retry-After": "0"},
+                io.BytesIO(b'{"error":{"code":"rate_limit_exceeded"}}'),
+            )
+        return Response()
+
+    monkeypatch.setattr(probe_module.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(probe_module.time, "sleep", sleeps.append)
+
+    payload, _elapsed = instance._request(
+        {"model": "m", "messages": [{"role": "user", "content": "x"}]}
+    )
+
+    assert payload == {"choices": []}
+    assert calls == 2
+    assert sleeps == [0.5]
 
 
 def test_failed_phases_redact_the_exact_api_key():

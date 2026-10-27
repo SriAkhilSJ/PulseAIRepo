@@ -319,7 +319,15 @@ def _probe_chat_candidate(
             last_error = "HTTP 200 response failed the exact management classification"
         except urllib.error.HTTPError as exc:
             last_error = f"HTTP {exc.code}"
-            if exc.code < 500:
+            retryable = exc.code in {408, 409, 425, 429} or exc.code >= 500
+            if retryable and attempt == 0:
+                try:
+                    delay = float(exc.headers.get("Retry-After") or 5.0)
+                except (TypeError, ValueError):
+                    delay = 5.0
+                time.sleep(max(0.5, min(delay, 15.0)))
+                continue
+            if not retryable:
                 break
         except Exception as exc:  # noqa: BLE001 - bounded classification only
             last_error = type(exc).__name__

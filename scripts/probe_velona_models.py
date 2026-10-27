@@ -140,13 +140,30 @@ class VelonaModelProbe:
             method="POST",
         )
         started = time.monotonic()
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
-                status = int(response.status)
-                raw = response.read()
-        except urllib.error.HTTPError as exc:
-            detail = exc.read(4096).decode("utf-8", errors="replace")
-            raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:  # noqa: S310
+                    status = int(response.status)
+                    raw = response.read()
+                break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read(4096).decode("utf-8", errors="replace")
+                retryable = exc.code in {408, 409, 425, 429} or exc.code >= 500
+                if retryable and attempt == 0:
+                    try:
+                        delay = float(exc.headers.get("Retry-After") or 5.0)
+                    except (TypeError, ValueError):
+                        delay = 5.0
+                    time.sleep(max(0.5, min(delay, 30.0)))
+                    continue
+                raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+            except (TimeoutError, urllib.error.URLError):
+                if attempt == 0:
+                    time.sleep(0.4)
+                    continue
+                raise
+        else:  # pragma: no cover - the loop either breaks or raises
+            raise AssertionError("unreachable")
         elapsed = time.monotonic() - started
         if status != 200:
             raise RuntimeError(f"chat endpoint returned HTTP {status}")
