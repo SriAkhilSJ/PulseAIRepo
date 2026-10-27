@@ -161,7 +161,10 @@ def test_live_diagnostic_workflow_is_read_only_and_bounded():
     assert "persist-credentials: false" in workflow
     assert "KAGGLE_USERNAME: sriakhilsj" in workflow
     assert "secrets.KAGGLE_API_TOKEN" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "kernel_slug:" in workflow
     assert "pulseai-colibri-agent-core-40455009090" in workflow
+    assert '--kernel-slug "$KERNEL_SLUG"' in workflow
     assert "--capture-seconds 30" in workflow
     assert "--max-bytes 262144" in workflow
     assert "--max-tail-chars 12000" in workflow
