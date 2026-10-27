@@ -43,6 +43,7 @@ jobs:
           --wait-for-logs-seconds 20
           --max-bytes 262144
           --max-tail-chars 12000
+          --max-highlight-chars 12000
 
       - name: Publish redacted live diagnostics
         if: always()
@@ -60,7 +61,9 @@ jobs:
               result = json.loads(path.read_text(encoding="utf-8"))
           session = result.get("session") or {}
           gpu = (result.get("quota") or {}).get("gpu") or {}
-          tail = str((result.get("log") or {}).get("tail") or "")
+          log = result.get("log") or {}
+          highlights = str(log.get("highlights") or "")
+          tail = str(log.get("tail") or "")
           reason = str(result.get("error") or "")
           headline = (
               f"status={result.get('status')} kernel={session.get('status', 'unknown')} "
@@ -69,7 +72,7 @@ jobs:
           def escape(value):
               return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title=Kaggle live status::{escape(headline)}")
-          detail = tail or reason or "No log bytes were returned"
+          detail = highlights or tail or reason or "No log bytes were returned"
           chunks = [detail[index:index + 3000] for index in range(0, len(detail), 3000)]
           for index, chunk in enumerate(chunks, start=1):
               title = f"Bounded redacted Kaggle log tail {index}/{len(chunks)}"

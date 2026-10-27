@@ -37,7 +37,27 @@ def test_redacted_bounded_log_tail_removes_credentials_and_terminal_controls():
     assert "bearer-secret" not in tail
     assert "\x1b" not in tail and "\x00" not in tail
     assert tail.startswith("[... bounded prefix omitted ...]")
-    assert len(tail) <= 1240
+    assert len(tail) <= 1200
+
+
+def test_log_highlights_capture_phase_errors_and_remain_bounded():
+    source = (
+        "prefix "
+        + ("x" * 800)
+        + '\n"error": "first exact failure",\n"name": "long_context"\n'
+        + ("y" * 4000)
+        + '\n"error": "second exact failure",\n'
+        + '"name": "tool_result_round_trip"\n'
+        + ("z" * 800)
+    )
+
+    highlights = diagnostics._log_highlights(source, 3000, radius=500)
+
+    assert "first exact failure" in highlights
+    assert "second exact failure" in highlights
+    assert "long_context" in highlights
+    assert "tool_result_round_trip" in highlights
+    assert len(highlights) <= 3000
 
 
 def test_chunk_capture_is_bounded_and_preserves_suffix():
@@ -145,6 +165,8 @@ def test_live_diagnostic_workflow_is_read_only_and_bounded():
     assert "--capture-seconds 30" in workflow
     assert "--max-bytes 262144" in workflow
     assert "--max-tail-chars 12000" in workflow
+    assert "--max-highlight-chars 12000" in workflow
+    assert "detail = highlights or tail" in workflow
     assert "[kaggle-logs]" in workflow
     assert "html.escape(detail)" in workflow
     assert "actions/upload-artifact" not in workflow

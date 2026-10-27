@@ -21,6 +21,14 @@ _ASSIGNMENT_PATTERN = re.compile(
 _ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _JSON_DATA_PATTERN = re.compile(r'(?<!\\)"data"\s*:\s*("(?:\\.|[^"\\])*")')
+_HIGHLIGHT_TERMS = (
+    '"name": "tool_result_round_trip"',
+    '"name": "long_context"',
+    '"name": "colibri_endpoint_probe"',
+    "queue_timeout",
+    "CUDA VRAM tier",
+    "[qtier]",
+)
 
 
 def _utc_now() -> str:
@@ -149,8 +157,36 @@ def _clean_log_tail(text: str, secrets: tuple[str, ...], max_chars: int) -> str:
             lines.append(line)
     compact = "\n".join(lines)
     if len(compact) > max_chars:
-        compact = "[... bounded prefix omitted ...]\n" + compact[-max_chars:]
+        marker = "[... bounded prefix omitted ...]\n"
+        compact = marker + compact[-(max_chars - len(marker)) :]
     return compact
+
+
+def _log_highlights(text: str, max_chars: int, radius: int = 1200) -> str:
+    """Return merged bounded neighborhoods around actionable runner terms."""
+    intervals: list[tuple[int, int]] = []
+    for term in _HIGHLIGHT_TERMS:
+        start = 0
+        while True:
+            index = text.find(term, start)
+            if index < 0:
+                break
+            intervals.append((max(0, index - radius), min(len(text), index + radius)))
+            start = index + len(term)
+    if not intervals:
+        return ""
+    merged: list[list[int]] = []
+    for start, end in sorted(intervals):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    chunks = [text[start:end].strip() for start, end in merged]
+    result = "\n\n[... next diagnostic neighborhood ...]\n\n".join(chunks)
+    if len(result) > max_chars:
+        marker = "[... bounded highlights truncated ...]\n"
+        result = result[: max_chars - len(marker)] + marker
+    return result
 
 
 class _DeadlineExpired(Exception):
@@ -262,6 +298,8 @@ def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
                     response.close()
 
             decoded, records_decoded = _decode_structured_log(raw)
+            cleaned = _clean_log_tail(decoded, secrets, args.max_bytes)
+            highlights = _log_highlights(cleaned, args.max_highlight_chars)
             tail = _clean_log_tail(decoded, secrets, args.max_tail_chars)
             receipt["log"] = {
                 "content_type": (
@@ -275,6 +313,8 @@ def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
                 "deadline_reached": deadline_reached,
                 "records_decoded": records_decoded,
                 "retained_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                "highlights": highlights,
+                "highlight_chars": len(highlights),
                 "tail": tail,
                 "tail_chars": len(tail),
             }
@@ -297,6 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wait-for-logs-seconds", type=int, default=20)
     parser.add_argument("--max-bytes", type=int, default=256 * 1024)
     parser.add_argument("--max-tail-chars", type=int, default=12_000)
+    parser.add_argument("--max-highlight-chars", type=int, default=12_000)
     return parser
 
 
@@ -310,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--max-bytes must be within 1024..1048576")
     if not 1000 <= args.max_tail_chars <= 20_000:
         raise SystemExit("--max-tail-chars must be within 1000..20000")
+    if not 1000 <= args.max_highlight_chars <= 20_000:
+        raise SystemExit("--max-highlight-chars must be within 1000..20000")
     receipt = collect_diagnostics(args)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

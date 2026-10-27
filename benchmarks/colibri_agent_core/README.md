@@ -152,9 +152,10 @@ artifact. It never commits evidence, model weights, or credentials to Git.
 For a running or terminal private kernel, `.github/workflows/kaggle-live-diagnostics.yml`
 uses the official SDK's session-status, accelerator-quota, and log-stream endpoints. A
 `[kaggle-logs]` commit reads for at most 30 seconds, retains only a rolling 256 KiB suffix,
-decodes persisted structured worker records, redacts credentials and terminal controls,
-and publishes only a 12,000-character tail in bounded check annotations. It is read-only
-and does not interrupt the kernel.
+decodes persisted structured worker records, and redacts credentials and terminal controls.
+It publishes at most 12,000 characters of actionable phase neighborhoods (or the terminal
+tail when no known phase is present) in bounded check annotations. It is read-only and does
+not interrupt the kernel.
 
 ## Local validation (no GPU claim)
 
