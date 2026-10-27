@@ -42,18 +42,36 @@ This explains the observed read/terminal-only trajectories and why the final evi
 | “Do not modify the tests” cancelled “build the app.” | An independent positive mutation request wins while the protected artifact remains a recorded constraint. | Scoped immutability is not a global no-change instruction. |
 | First turn exposed reads and terminals without a deliverable. | The exact benchmark entry state resolves to `forced_delivery` with only `write_file`. | File delivery becomes structurally available before exploration or verification. |
 | Failed build could have been described as successful. | Call 12 remained tool-free, evidence readiness was false, and both runs ended `completed=false`. | Completion discipline remained honest under a harder failure mode. |
+| The desktop `terminal` alias was classified like `run_terminal`, but failed aliases did not enter recovery, clear recovery, or count identical retries. | Both terminal names now share recovery and repeated-command accounting. | A provider/tool dialect cannot bypass bounded failure recovery. |
+| Fuzzy tool-name repair ran only after safety and permission checks. | Names are canonicalized before phase, permission, and safety policy; incomplete provider responses are still rejected before any execution lookup. | A typo cannot be treated as unknown/default-safe and become a real shell or file tool after policy has already run. |
+| Execution phases published a mutation-count field that no executor consumed. | The ghost field is removed; the real bind-time and execution-time allowlists remain the policy contract. | Monitoring now describes enforceable behavior, while legal same-phase batching stays available. |
 
-Explicit no-change commands such as “run the tests without changing code” remain `no_changes`; the fix does not weaken read-only requests.
+Explicit no-change commands such as “run the tests without changing code” remain `no_changes`; the fixes do not weaken read-only requests.
+
+## Renewed current-source comparison
+
+The whole control path was rechecked against current source rather than product descriptions:
+
+| Repository | Source inspected | Relevant executable behavior |
+|---|---|---|
+| OpenCode | [`86976449`](https://github.com/anomalyco/opencode/tree/86976449c40d48f2731553a024f74552593d1764) | The max-step request keeps stable tool definitions but forces `toolChoice: "none"`; permission rules use deny precedence and an explicit ask/allow/deny table. |
+| OpenHands SDK | [`d0d9d813`](https://github.com/OpenHands/software-agent-sdk/tree/d0d9d81324210414462fb676b377e0563a08a0cb) | Action batches stop at the first finish action; conversations enforce iteration/stuck bounds; the optional goal judge reopens work unless transcript evidence supports completion. |
+| Gemini CLI | [`363a1311`](https://github.com/google-gemini/gemini-cli/tree/363a13119a57354f469732577518b9d6b319d1d6) | Pending tool calls deterministically return to the model inside a 100-turn bound; policy and tool activation are structural. |
+| Cline | [`775d0398`](https://github.com/cline/cline/tree/775d0398039977ca5447ed39c1a7f178df69aa87) | Terminal completion tools, optional required-completion policy, bounded reminders, and per-tool/wildcard policy keep completion and permission explicit. |
+| Codex | [`b6ad8ea1`](https://github.com/openai/codex/tree/b6ad8ea1fcd5562a7d3003887930be7d84824307) | Policy-filtered tool specs execute and resample; only an assistant response without pending tool work completes the turn. |
+
+The common source-level pattern is structural policy plus deterministic result continuation and bounded completion recovery. Crusor now applies that pattern through forced first delivery, bind/execution allowlists, pending-call dispatch before budget closure, evidence-gated finish recovery, repeated-trajectory termination, and an inclusive tool-free final slot. No SprintBoard file name, expected answer, provider, or model is present in those controls.
 
 ## Local evidence
 
 - edited modules and regressions compile with Python 3.11;
-- focused interest/autonomous/completion gate: **155 passed**;
-- expanded routing, artifact, finalization, progress, and trajectory gate: **240 passed**;
-- full provider-free suite: **2,781 passed, 31 failed, 26 skipped, 1 xfailed**;
-- 30 persistent failures match the known unrelated baseline; the one additional LSP timeout passed immediately in an isolated rerun (**1 passed**), confirming an environment-sensitive startup rather than a product regression;
-- the exact state containing runtime diagnostics plus a hidden immutable test now binds only `write_file`;
-- adding a real user file makes the workspace non-empty again;
+- focused progress, policy, autonomous-runtime, routing, and completion gate: **133 passed**;
+- full provider-free suite: **2,784 passed, 30 failed, 26 skipped, 1 xfailed**;
+- all 30 failures match the documented unrelated generated-desktop/environment baseline; the prior transient LSP timeout did not recur;
+- a fuzzy terminal alias carrying a recursive-delete command is stopped by `SafetyGuard` before execution, and the protected file remains unchanged;
+- the desktop `terminal` alias now enters recovery, clears same-command recovery, and receives the same third-identical-failure nudge as `run_terminal`;
+- Python compilation, scoped whitespace, credential, and diff-aware Ruff checks pass with **0 new findings**;
+- the exact state containing runtime diagnostics plus a hidden immutable test still binds only `write_file`;
 - no provider-specific branch, prompt answer, expected application content, or model name is hardcoded in Agent Core.
 
-No third provider run was made. Another paid full-stack attempt requires explicit user approval after this provider-free correction. The temporary workflow was removed, and no pull request, merge, deployment, or failed site commit was created.
+At this provider-free checkpoint, no new live run or temporary workflow has been created. One strictly bounded key-backed run is authorized next; it must retain independent grading and be removed afterward. No pull request, merge, deployment, or failed site commit exists.

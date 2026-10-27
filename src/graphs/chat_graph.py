@@ -1709,7 +1709,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         phase = type(phase)(
             "read_only_interest",
             frozenset(_READ_ONLY_INTEREST_TOOLS),
-            max_file_mutations_per_turn=0,
             guidance=(
                 "READ-ONLY INTEREST: answer the user's inquiry from available "
                 "evidence. Do not edit files, run side-effecting commands, "
@@ -1720,7 +1719,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         phase = type(phase)(
             "no_change_action",
             frozenset(_NO_CHANGE_ACTION_TOOLS),
-            max_file_mutations_per_turn=0,
             guidance=(
                 "NO-CHANGE ACTION: perform the requested inspection or "
                 "verification, but do not edit/create files, install software, "
@@ -1739,7 +1737,6 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         names = [name for name in resolved_names if name in forced]
         phase = type(phase)(
             "forced_delivery", frozenset(forced),
-            max_file_mutations_per_turn=2,
             guidance=(
                 "DIRECT DELIVERY PHASE: this task requires files and no file has "
                 "landed. Exploration and verification are disabled until a real "
@@ -1788,15 +1785,17 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "any exact file that may be reopened for repair."
         )
         phase = type(phase)(
-            phase_name, frozenset(verification_tools),
-            max_file_mutations_per_turn=2, guidance=guidance,
+            phase_name, frozenset(verification_tools), guidance=guidance,
         )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
     configurable["execution_phase"] = phase.name
     configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
-    configurable["phase_max_file_mutations"] = phase.max_file_mutations_per_turn
+    # Retire the old mutation-count metadata: it was never consumed by the
+    # executor and falsely advertised a limit. The enforceable policy is the
+    # binding + execution-time allowlist above; batching within it stays legal.
+    configurable.pop("phase_max_file_mutations", None)
     configurable["phase_guidance"] = phase.guidance
     # Dynamic agent list (OpenCode builds the task tool's description
     # from the live registry): refresh the delegate tools' descriptions
@@ -5034,7 +5033,7 @@ def progress_node(
             # appends as a SystemMessage routed back to the model BEFORE the
             # next ai call, and a count == 3 means it fires exactly once per
             # fingerprint.
-            if tool_name in ("run_terminal", "execute_code") and tool_args:
+            if tool_name in ("run_terminal", "terminal", "execute_code") and tool_args:
                 fingerprint = ph.command_fingerprint(tool_name, tool_args)
                 if fingerprint:
                     command_retries[fingerprint] = command_retries.get(fingerprint, 0) + 1
@@ -5950,12 +5949,12 @@ class SafeToolNode:
         # it) so result pairing stays consistent for the next model call.
         from src.graphs.parallel_tools import repair_tool_call_ids
         _repaired_tcs, _ids_changed = repair_tool_call_ids(tool_calls)
+        tool_calls = _repaired_tcs
         _repaired_ai = None
         if _ids_changed:
-            tool_calls = _repaired_tcs
             _repaired_ai = AIMessage(
                 content=last_msg.content,
-                tool_calls=_repaired_tcs,
+                tool_calls=tool_calls,
                 id=getattr(last_msg, "id", None),
             )
 
@@ -6086,6 +6085,19 @@ class SafeToolNode:
                 )
                 for tc in tool_calls
             ])
+
+        # Canonicalize names before phase, permission, and SafetyGuard checks.
+        # Repairing only at the executor boundary lets an alias or typo be
+        # approved as an unknown (default-safe) name and then turn into a real
+        # shell/file tool after policy has already run. Incomplete responses
+        # above are rejected without touching the tool registry at all.
+        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
+        if _names_changed:
+            _repaired_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=tool_calls,
+                id=getattr(last_msg, "id", None),
+            )
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.
@@ -6567,20 +6579,11 @@ class SafeToolNode:
                 return _cancelled_result()
             return _with_repaired(self._node.invoke(state, config)["messages"])
         # ── hermes turn_tool_validation (agent/turn_tool_validation.py +
-        # agent_runtime_helpers.repair_tool_call #33007): repair model-emitted
-        # tool names BEFORE validating, then answer unrepairable names with
-        # tool-role error results carrying the catalog. Field receipt (owner
-        # log 2026-09-08): the model called `terminal` — hermes' own shell
-        # tool name (terminal_tool.py name="terminal") — and `Bash`; both
-        # fell through unknown, the model flailed (dir -R, ls /d/...), and
-        # the turn died "Ended unverified".
-        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
-        if _names_changed:
-            _repaired_ai = AIMessage(
-                content=last_msg.content,
-                tool_calls=tool_calls,
-                id=getattr(last_msg, "id", None),
-            )
+        # agent_runtime_helpers.repair_tool_call #33007): model-emitted names
+        # were repaired above, before every policy check. Unrepairable names
+        # now receive tool-role errors carrying the catalog. Field receipt
+        # (owner log 2026-09-08): `terminal`/`Bash` dialect drift otherwise
+        # made the model flail until the turn ended unverified.
         if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
             return _with_repaired(self._execute_durable(tool_calls, config))
 

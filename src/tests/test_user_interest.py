@@ -630,7 +630,7 @@ def test_answer_interest_cannot_bind_mutation_or_delegation_tools(tmp_path):
         "delegate_to_subagent", "hub_install",
     } & bound
     assert config["configurable"]["execution_phase"] == "read_only_interest"
-    assert config["configurable"]["phase_max_file_mutations"] == 0
+    assert "phase_max_file_mutations" not in config["configurable"]
 
 
 def test_answer_interest_does_not_trigger_delivery_or_completion_work(tmp_path):

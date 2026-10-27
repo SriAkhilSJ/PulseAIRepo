@@ -19,12 +19,12 @@ pinned in src/tests/test_progress_helpers.py):
   result TAIL (300), successes the HEAD (300), full_output the head 2000;
   storage is best-effort (never raises);
 - failures: tool_failures increments for ANY failed tool;
-  recovery_attempts increments for run_terminal/check_terminal failures,
-  and for other tools ONLY while already in recovery_mode;
+  recovery_attempts increments for terminal/run_terminal/check_terminal
+  failures, and for other tools ONLY while already in recovery_mode;
   recovery_mode/recovery_command are set by the FIRST run/check failure
   (later failures do not steal the command slot);
-- success on run_terminal clears recovery ONLY when the command equals
-  the stored recovery_command (same-operation rule);
+- success on terminal/run_terminal clears recovery ONLY when the command
+  equals the stored recovery_command (same-operation rule);
 - write_file successes emit diff.show + files.changed; edit_file emits
   files.changed; no other tool emits events;
 - step labels are deduped by exact string before appending;
@@ -342,7 +342,7 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
         "env_failure": classify_env_failure(result),
     }
 
-    if tool_name == "run_terminal":
+    if tool_name in {"run_terminal", "terminal"}:
         command = tool_args.get("command", "unknown command")
         updates["recovery_attempts_inc"] = 1
         if not recovery_mode:
@@ -629,10 +629,10 @@ def success_step_label(tool_name: str, tool_args: dict,
 def resolve_recovery_on_success(tool_name: str, tool_args: dict,
                                 recovery_mode: bool,
                                 recovery_command: Optional[str]):
-    """Same-operation rule: a run_terminal success clears recovery only
-    when its command IS the stored recovery_command."""
+    """Same-operation rule: a terminal-equivalent success clears recovery
+    only when its command IS the stored recovery_command."""
     if (
-        tool_name == "run_terminal"
+        tool_name in {"run_terminal", "terminal"}
         and recovery_mode
         and recovery_command is not None
         and tool_args.get("command", "unknown command") == recovery_command

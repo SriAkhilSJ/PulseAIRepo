@@ -27,7 +27,6 @@ class ExecutionPhase:
     # None = no tool hiding (hermes discipline). Only chat_graph's
     # state-driven phases ever construct a non-None allowlist.
     allowed: frozenset[str] | None
-    max_file_mutations_per_turn: int = 0
     guidance: str = ""
 
 

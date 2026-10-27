@@ -166,6 +166,15 @@ def test_d9_build_failure_terminal_variants():
                   "recovery_mode": True, "recovery_command": "make",
                   "env_failure": False}
 
+    # ``terminal`` is a first-class alias in the bound registry, so it must
+    # enter the same recovery state rather than falling through as a generic
+    # tool failure.
+    alias_failure, alias_updates = ph.build_failure(
+        "terminal", "boom output", {"command": "make"}, False, None,
+    )
+    assert alias_failure == f
+    assert alias_updates == up
+
     # already in recovery: command slot NOT stolen
     f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},
                              True, "make")
@@ -221,6 +230,9 @@ def test_d9_recovery_clears_only_same_command():
     mode, cmd = ph.resolve_recovery_on_success(
         "run_terminal", {"command": "make clean"}, True, "make")
     assert (mode, cmd) == (True, "make")
+    mode, cmd = ph.resolve_recovery_on_success(
+        "terminal", {"command": "make"}, True, "make")
+    assert (mode, cmd) == (False, None)
     mode, cmd = ph.resolve_recovery_on_success(
         "read_file", {"path": "a.py"}, True, "make")
     assert (mode, cmd) == (True, "make")
@@ -379,6 +391,8 @@ def test_informational_tool_execution_counts_without_becoming_progress():
 def test_r3_1_command_fingerprint_extracts_and_normalizes():
     assert ph.command_fingerprint("run_terminal", {"command": "  mkdir -p /tmp/x  "}) \
         == "mkdir -p /tmp/x"
+    assert ph.command_fingerprint("terminal", {"command": "  mkdir -p /tmp/x  "}) \
+        == "mkdir -p /tmp/x"
     assert ph.command_fingerprint("execute_code", {"code": "  npm run build "}) \
         == "npm run build"
     assert ph.command_fingerprint("run_terminal", {"cmd": "path/to/script.ps1"}) \
@@ -418,6 +432,38 @@ def test_r3_1_identical_failure_injects_nudge_at_third_attempt():
                if "failed the same" in m.content]
     assert len(nudges3) == 1
     assert "run_terminal" in nudges3[0].content and "3 times" in nudges3[0].content
+
+
+def test_r3_1_terminal_alias_tracks_identical_failures():
+    """The desktop-facing alias cannot bypass the same-command loop guard."""
+    from src.graphs.chat_graph import progress_node
+
+    calls = [
+        {"id": f"alias-{index}", "name": "terminal",
+         "args": {"command": "npm test"}}
+        for index in range(3)
+    ]
+    messages = [AIMessage(content="", tool_calls=calls)]
+    messages.extend(
+        ToolMessage(
+            content="command failed\nexit code: 1",
+            tool_call_id=call["id"],
+            name="terminal",
+        )
+        for call in calls
+    )
+
+    out = progress_node(
+        {"messages": messages, "current_task": "run the tests"}, _cfg()
+    )
+
+    assert out["recovery_mode"] is True
+    assert out["recovery_attempts"] == 3
+    assert out["command_retries"]["npm test"] == 3
+    nudges = [message for message in out["messages"]
+              if "failed the same" in message.content]
+    assert len(nudges) == 1
+    assert "terminal" in nudges[0].content
 
 
 def test_r3_1_different_commands_do_not_share_a_retry_counter():
