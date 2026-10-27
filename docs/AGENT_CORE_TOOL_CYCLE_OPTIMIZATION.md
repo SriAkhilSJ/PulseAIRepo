@@ -83,5 +83,23 @@ The nonzero full-suite totals are reported rather than hidden by deselection. Th
 baseline proves those failures predate this optimization; five extra working-tree failures
 come from generated desktop files that this Agent Core change deliberately leaves untouched.
 
-A live-key test is intentionally last: implementation correctness and regressions must pass
-without spending provider credits before one bounded genuine Agent Core turn is attempted.
+## Bounded live result
+
+Only after the keyless gate passed, GitHub Actions run
+[`40472303151`](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40472303151)
+used the existing write-only `CUSTOM_API_KEY` with the generic `custom` provider and
+`z-ai/glm-5.3-flash`. The secret was normalized in runner memory, never printed, and not
+persisted in evidence.
+
+| Live check | Sanitized result |
+|---|---|
+| Direct PulseAI factory response | Non-empty response received (5 characters; content withheld) |
+| Genuine bridge turn | `turn_done`, `completed=true` |
+| Provider activity | 3 `llm.request` and 3 `llm.response` frames |
+| Agent execution | 2 tool starts/ends plus a verification update |
+| Delivered evidence | `live-agent-core-proof.txt` matched the exact requested content |
+| Bounds | No budget/no-delivery stop; 3 of at most 5 Agent Core calls; 35,358 input tokens at final telemetry |
+| Credential evidence | `api_key_persisted=false` |
+
+The temporary secret-bearing workflow was removed immediately after this receipt; no provider-
+specific application code, PR, merge, or deployment was created.
