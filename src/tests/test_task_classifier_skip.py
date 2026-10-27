@@ -64,11 +64,25 @@ def test_ack_messages_skip_llm_and_continue(msg, monkeypatch):
         "turn_token_usage", "iteration_used", "grace_done",
         "budget_warning_done",
         "incomplete_response_retries", "plan_wrap_nudges", "wrap_summary",
+        # Completion/verification/stall valves are turn-scoped too. Reusing
+        # their spent values made later prompts in the same session skip
+        # gates and inherit the prior turn's nudge marker.
+        "finish_nudges", "verify_nudges", "stall_continuations",
+        "nudged_at_msg_count",
+        # Receipt accounting is also turn-scoped; prior executions must never
+        # be rendered as belonging to this acknowledgement/follow-up turn.
+        "turn_tool_execution_count", "turn_tool_execution_names",
     }
     assert out["token_usage"]["calls"] == 1  # no LLM call recorded
     assert out["iteration_used"] == 0
     assert out["grace_done"] == 0
     assert out["budget_warning_done"] == 0
+    assert out["finish_nudges"] == 0
+    assert out["verify_nudges"] == 0
+    assert out["stall_continuations"] == 0
+    assert out["nudged_at_msg_count"] == -1
+    assert out["turn_tool_execution_count"] == 0
+    assert out["turn_tool_execution_names"] == []
 
 
 def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
@@ -86,6 +100,10 @@ def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
     st["incomplete_response_retries"] = 2
     st["plan_wrap_nudges"] = 1
     st["wrap_summary"] = 1
+    st["finish_nudges"] = 2
+    st["verify_nudges"] = 2
+    st["stall_continuations"] = 2
+    st["nudged_at_msg_count"] = 99
     out = cg.task_manager_node(st, _cfg())
     assert out["task_action"] == "continue"
     assert out["iteration_used"] == 0
@@ -94,6 +112,10 @@ def test_ack_after_exhausted_turn_gets_fresh_budget(monkeypatch):
     assert out["wrap_summary"] == 0
     assert out["plan_wrap_nudges"] == 0
     assert out["incomplete_response_retries"] == 0
+    assert out["finish_nudges"] == 0
+    assert out["verify_nudges"] == 0
+    assert out["stall_continuations"] == 0
+    assert out["nudged_at_msg_count"] == -1
     assert out["turn_token_usage"] == cg._zero_token_usage()
 
 

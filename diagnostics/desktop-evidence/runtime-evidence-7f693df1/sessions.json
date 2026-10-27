@@ -1,0 +1,57 @@
+[
+  {
+    "scenario": "A",
+    "session_id": "session-91cbee6899c641f88ff7444e19140243",
+    "prompt": "Create monitoring_probe.txt containing exactly monitoring-ok. Run python -c \"from pathlib import Path; assert Path('monitoring_probe.txt').read_text() == 'monitoring-ok'; print('verified')\" exactly once. Then report what happened. Do nothing else.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "tool_calls": ["write_file", "terminal"],
+    "file_created": "monitoring_probe.txt",
+    "status": "PASS"
+  },
+  {
+    "scenario": "B",
+    "session_id": "session-212adb15b2db45a88df6ba5eba115659",
+    "title": "Python Failure Probe Exit Code",
+    "prompt": "Run python -c \"import sys; print('failure-probe'); sys.exit(7)\" exactly once. Do not retry it. Do not modify files. Report the exact exit code.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "tool_calls": ["terminal"],
+    "exit_code": 7,
+    "status": "PASS"
+  },
+  {
+    "scenario": "C",
+    "session_id": "session-e2ce393edf81409b8c8a3e9e4d83db78",
+    "prompt": "Run python -c \"import time; print('cancel-start', flush=True); time.sleep(60); print('cancel-end')\" exactly once. Do not modify files.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "tool_calls": ["terminal"],
+    "status": "PASS"
+  },
+  {
+    "scenario": "D",
+    "session_id": "session-aceeba425d254d10bc0e43a0b67d98ee",
+    "title": "Read monitoring probe file content",
+    "prompt": "Read monitoring_probe.txt and report its exact content. Do not modify files.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "not_applicable",
+    "tool_calls": ["read_file"],
+    "status": "PASS"
+  },
+  {
+    "scenario": "E",
+    "session_id": "session-2711046427de4fa3a114a5fc1458a056",
+    "title": "run python sleep script once",
+    "prompt": "Run python -c \"import time; print('restart-start', flush=True); time.sleep(120); print('restart-end')\" exactly once. Do not modify files. Follow-up: Report whether the prior interrupted turn was recovered. Do not modify files.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "not_applicable",
+    "tool_calls": ["think", "terminal", "verify"],
+    "status": "PASS"
+  }
+]

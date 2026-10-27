@@ -145,15 +145,12 @@ export class CrusorA2UISurfaceStore {
     apply(operations) {
         for (const operation of operations.slice(0, MAX_A2UI_OPS)) {
             try {
-                // Wire data is untrusted: view each op as a plain record so the
-                // discriminant keys can be probed without assuming the union shape.
-                const op = operation;
-                if (!isRecord(op)) {
+                if (!isRecord(operation)) {
                     this.drop('non-object operation');
                     continue;
                 }
-                if (isRecord(op['createSurface'])) {
-                    const spec = op['createSurface'];
+                if (isRecord(operation['createSurface'])) {
+                    const spec = operation['createSurface'];
                     const surfaceId = String(spec['surfaceId'] ?? '');
                     if (!surfaceId) {
                         this.drop('createSurface without surfaceId');
@@ -164,8 +161,8 @@ export class CrusorA2UISurfaceStore {
                         surface.catalogId = spec['catalogId'];
                     }
                 }
-                else if (isRecord(op['updateComponents'])) {
-                    const spec = op['updateComponents'];
+                else if (isRecord(operation['updateComponents'])) {
+                    const spec = operation['updateComponents'];
                     const surface = this.surface(String(spec['surfaceId'] ?? ''));
                     const components = Array.isArray(spec['components']) ? spec['components'] : [];
                     for (const raw of components.slice(0, MAX_A2UI_COMPONENTS)) {
@@ -183,8 +180,8 @@ export class CrusorA2UISurfaceStore {
                         surface.components.set(raw['id'], raw);
                     }
                 }
-                else if (isRecord(op['updateDataModel'])) {
-                    const spec = op['updateDataModel'];
+                else if (isRecord(operation['updateDataModel'])) {
+                    const spec = operation['updateDataModel'];
                     const surface = this.surface(String(spec['surfaceId'] ?? ''));
                     const path = typeof spec['path'] === 'string' ? spec['path'] : '/';
                     if (path === '/' || path === '') {
@@ -194,8 +191,8 @@ export class CrusorA2UISurfaceStore {
                         setA2UIPointer(surface.data, path, spec['value']);
                     }
                 }
-                else if (isRecord(op['deleteSurface'])) {
-                    this.surfaces.delete(String(op['deleteSurface']['surfaceId'] ?? ''));
+                else if (isRecord(operation['deleteSurface'])) {
+                    this.surfaces.delete(String(operation['deleteSurface']['surfaceId'] ?? ''));
                 }
                 else {
                     this.drop('unknown operation');

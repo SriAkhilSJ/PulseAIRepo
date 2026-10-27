@@ -1,0 +1,13 @@
+{
+  "verification_events": [],
+  "verification_state": [
+    {
+      "session_id": "session-91cbee6899c641f88ff7444e19140243",
+      "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+      "status": "unverified",
+      "event_id": null,
+      "edited_at": 1792946281.2437022,
+      "changed_paths": "[\"C:\\\\Users\\\\Administrator\\\\Downloads\\\\testCRUSOR\\\\monitoring_probe.txt\"]"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+Scenario G hydration verified via StepTracker:
+- Hydrated 2 pre-restart steps cleanly from workspace trace
+- Post-restart step index continued monotonically at step 3
+- Read-only inspection of scratch/interest_probe.py succeeded with zero mutations

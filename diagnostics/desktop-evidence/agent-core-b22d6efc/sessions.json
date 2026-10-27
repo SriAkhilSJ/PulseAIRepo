@@ -1,0 +1,68 @@
+[
+  {
+    "scenario": "A",
+    "session_id": "session-9b39ac231f68492a9ee0244c6df1fb47",
+    "title": "Check python version",
+    "prompt": "“Run python --version and report the exit code. Do not modify files.”",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "benchmark_score": "87.5 / 100",
+    "fresh": true
+  },
+  {
+    "scenario": "B",
+    "session_id": "session-38657324147f4b21909c9b086389affa",
+    "title": "Android toolchain check results",
+    "prompt": "Run check_target_toolchains for target android and report exactly what is missing. Do not modify files. Do not install anything.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "benchmark_score": "85.6 / 100",
+    "fresh": true
+  },
+  {
+    "scenario": "C",
+    "session_id": "session-bd8c6488f6aa48248554c4102d7159f9",
+    "title": "hello in read only mode",
+    "prompt": "Create scratch/interest_probe.py containing only print(\"interest-ok\"), run it, and do nothing else.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "unverified",
+    "verification_status": "unverified",
+    "benchmark_score": "84.0 / 100",
+    "fresh": true
+  },
+  {
+    "scenario": "D",
+    "session_id": "session-d0a8dac2821a404eaafcde13383ea18a",
+    "title": "Single Run Python Exit Code",
+    "prompt": "Run python -c \"import sys; print('failure-probe'); sys.exit(3)\" exactly once. Do not retry it. Do not modify files. Report the exact exit code.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "benchmark_score": "74.6 / 100",
+    "fresh": true
+  },
+  {
+    "scenario": "E",
+    "session_id": "session-7101b65fcf214d53986e24b5f8232426",
+    "title": "Verify Android Target App",
+    "prompt": "Run verify_target_app for target=\"android\" with start_emulator=False and keep_running=False. Report the receipt verbatim. Do not modify files. Do not install anything. Do not create anything.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "completed",
+    "verification_status": "unverified",
+    "benchmark_score": "77.8 / 100",
+    "fresh": true
+  },
+  {
+    "scenario": "F",
+    "session_id": "session-5119b1d86d664021bd1b2d92529466a3",
+    "title": "",
+    "prompt": "Create scratch/cleanup_probe.py containing print(\"cleanup-ok\"), run it, remove it before finishing, and confirm it is absent. The required final state is that the file is absent.",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+    "task_verdict": "in_progress",
+    "verification_status": "unverified",
+    "benchmark_score": "85.4 / 100",
+    "fresh": true
+  }
+]

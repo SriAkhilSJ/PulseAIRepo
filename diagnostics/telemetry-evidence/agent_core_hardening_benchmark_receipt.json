@@ -1,0 +1,98 @@
+{
+  "journal": {
+    "after": {
+      "database_bytes": 90112,
+      "median_ms": 2.2229,
+      "p95_ms": 12.3359,
+      "payload_bytes": 180,
+      "writes": 200
+    },
+    "after_contains_body": false,
+    "after_contains_opaque_secret": false,
+    "after_contains_prefixed_secret": false,
+    "before": {
+      "database_bytes": 10137600,
+      "median_ms": 10.0045,
+      "p95_ms": 36.49,
+      "payload_bytes": 50165,
+      "writes": 200
+    },
+    "before_contains_body": true,
+    "before_contains_opaque_secret": true,
+    "before_contains_prefixed_secret": true,
+    "database_byte_reduction_percent": 99.11,
+    "payload_byte_reduction_percent": 99.64,
+    "small_event": {
+      "after": {
+        "database_bytes": 73728,
+        "median_ms": 1.8209,
+        "p95_ms": 2.7568,
+        "payload_bytes": 86,
+        "writes": 200
+      },
+      "before": {
+        "database_bytes": 73728,
+        "median_ms": 1.7389,
+        "p95_ms": 2.4672,
+        "payload_bytes": 86,
+        "writes": 200
+      },
+      "median_delta_ms": 0.082
+    }
+  },
+  "model_api_cost": {
+    "claim": "Persistence hardening does not change model prompts, model tokens, or provider pricing.",
+    "provider_calls_made_by_benchmark": 0,
+    "provider_cost_usd": 0.0,
+    "provider_tokens_used_by_benchmark": 0
+  },
+  "priority_scan": {
+    "all_prefixes_equal": true,
+    "median_ms": 53.8136,
+    "p95_ms": 62.3049,
+    "runs": 8,
+    "selected_prefix": [
+      "m000.py",
+      "m001.py",
+      "m002.py",
+      "m003.py",
+      "m004.py",
+      "m005.py",
+      "m006.py",
+      "m007.py",
+      "m008.py",
+      "m009.py"
+    ],
+    "unique_prefixes": 1
+  },
+  "sanitizer_cpu": {
+    "body_heavy_tool_intent": {
+      "median_delta_us": -112.65,
+      "safe_shape_redact_json": {
+        "median_us": 146.8,
+        "p95_us": 277.2
+      },
+      "unsafe_json_only": {
+        "median_us": 259.45,
+        "p95_us": 562.9
+      }
+    },
+    "small_verification_event": {
+      "median_delta_us": 73.8,
+      "safe_redact_json": {
+        "median_us": 81.8,
+        "p95_us": 182.6
+      },
+      "unsafe_json_only": {
+        "median_us": 8.0,
+        "p95_us": 9.6
+      }
+    }
+  },
+  "workload": {
+    "journal_writes": 200,
+    "sanitizer_iterations": 2000,
+    "scan_runs": 8,
+    "tool_body_characters": 50059
+  }
+}

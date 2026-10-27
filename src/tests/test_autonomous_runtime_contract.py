@@ -153,6 +153,53 @@ def test_empty_autonomous_delivery_exposes_only_write_file(tmp_path, monkeypatch
     names = [tool.name for tool in chat_graph._resolve_bound_tools(state, config)]
     assert names == ["write_file"]
     assert config["configurable"]["execution_phase"] == "forced_delivery"
+    guidance = config["configurable"]["phase_guidance"].lower()
+    assert "batch" in guidance and "same response" in guidance
+
+
+def test_runtime_diagnostics_and_scoped_test_constraint_keep_fresh_delivery_forced(
+    tmp_path,
+):
+    """Runtime-owned evidence must not masquerade as a user's input project.
+
+    A positive build request also remains mutable when one named test artifact
+    is protected. Together these are the real headless full-stack entry shape.
+    """
+    from src.context.user_interest import resolve_user_interest
+    from src.graphs import chat_graph
+
+    (tmp_path / "diagnostics" / "traces").mkdir(parents=True)
+    (tmp_path / "diagnostics" / "traces" / "session.jsonl").write_text("{}\n")
+    (tmp_path / ".acceptance").mkdir()
+    (tmp_path / ".acceptance" / "test_app.py").write_text("# immutable\n")
+
+    prompt = "Build the full-stack app; do not modify the immutable tests."
+    interest = resolve_user_interest(
+        objective=prompt,
+        latest_instruction=prompt,
+        relationship="new",
+    )
+    config = {
+        "configurable": {
+            "approval_policy": "workspace_session",
+            "workspace": str(tmp_path),
+        }
+    }
+    state = {
+        "current_task": prompt,
+        "user_interest": interest.to_state(),
+        "plan": [],
+        "execution_trace": [],
+        "iteration_used": 0,
+    }
+
+    assert chat_graph._workspace_is_effectively_empty(tmp_path) is True
+    names = [tool.name for tool in chat_graph._resolve_bound_tools(state, config)]
+    assert names == ["write_file"]
+    assert config["configurable"]["execution_phase"] == "forced_delivery"
+
+    (tmp_path / "server.py").write_text("# user delivery\n")
+    assert chat_graph._workspace_is_effectively_empty(tmp_path) is False
 
 
 def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_path, monkeypatch):

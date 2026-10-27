@@ -126,6 +126,28 @@ def test_hermes_dialect_name_is_repaired_and_executed(tmp_path):
     assert "repair-e2e" in executed[0].content
 
 
+def test_repaired_terminal_name_is_safety_checked_before_execution(tmp_path):
+    """A fuzzy alias must not become dangerous only after policy has run."""
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    (protected / "keep.txt").write_text("keep", encoding="utf-8")
+    node = _node(tmp_path)
+    state = {"messages": [AIMessage(content="", tool_calls=[
+        {
+            "name": "run terminal",
+            "args": {"command": "rm -rf protected"},
+            "id": "dangerous-alias",
+        },
+    ])]}
+
+    results = node(state, _config(tmp_path))["messages"]
+
+    assert (protected / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert len(results) == 1
+    assert isinstance(results[0], AIMessage)
+    assert "confirmation" in str(results[0].content).lower()
+
+
 def test_progress_printer_prints_fresh_labels_not_the_stale_tail():
     """Field log 2026-09-08: the printer showed steps_completed[-1] — a check
     on a running process classifies SKIP and records nothing, so the STALE

@@ -13,8 +13,8 @@ Hermes: IterationBudget.consume() (agent/iteration_budget.py) gates the
 NEXT MODEL CALL, never the execution of already-emitted tool calls —
 turn_iteration_prep.py:108: "Fires at the top of the NEXT iteration, so
 the budget-crossing request completes first." The budget still concludes
-the run: after the dispatched tools, ai_node re-enters unbound (grace
-nudge) and the text answer finalizes. One bounded grace lap.
+the run: after the dispatched tools, ai_node uses the inclusive reserved
+final slot without tools and the text answer finalizes.
 """
 from __future__ import annotations
 
@@ -48,6 +48,12 @@ def test_pending_tool_call_dispatches_at_budget(monkeypatch):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "5")
     route = should_continue(_state(_tool_call_state(), iteration_used=5))
     assert route == "tools", "a bound pending call executes even at the cap"
+
+
+def test_pending_tool_call_dispatches_before_reserved_final_slot(monkeypatch):
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "5")
+    route = should_continue(_state(_tool_call_state(), iteration_used=4))
+    assert route == "tools", "the reserve must not drop an already-emitted call"
 
 
 def test_grace_text_still_finalizes_at_budget(monkeypatch):

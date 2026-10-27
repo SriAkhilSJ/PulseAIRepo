@@ -1,0 +1,20 @@
+Branch: arena/a7c2c868-pulseairepo
+Monitoring implementation commit: 7f693df1dddd1c1603d11ed2d85c9cc55225b617
+Engine build: 1e05cc0205c9f065a192fbf41079cce83203696a
+Engine build timestamp: 2026-10-25 01:10:39 -0700
+Desktop UI status: compiled workbench matches the pulled crusorai sources (sha256) — panel is current (STALE=false)
+OS: Windows (win32)
+Python version: Python 3.11.9
+Node version: v24.18.0
+App launch command: .\scripts\code.bat (desktop/vscode)
+Provider: custom
+Model: z-ai/glm-5.3-flash (via https://velona.in/v1)
+Workspace: C:\Users\Administrator\Downloads\testCRUSOR
+Captured sessions:
+- Scenario A: session-91cbee6899c641f88ff7444e19140243
+- Scenario B: session-212adb15b2db45a88df6ba5eba115659
+- Scenario C: session-e2ce393edf81409b8c8a3e9e4d83db78
+- Scenario D: session-aceeba425d254d10bc0e43a0b67d98ee, session-6099561cc0ea4b3d91e33ef9039c6e80
+- Scenario E: session-2711046427de4fa3a114a5fc1458a056
+Local time: 2026-10-25 10:18:00 -07:00
+Application-code files modified: NONE

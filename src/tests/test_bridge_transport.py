@@ -9,6 +9,7 @@ Every test here is deterministic — no LLM calls, no API keys, no network.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -273,7 +274,11 @@ time.sleep(0.3)
 # ------------------------------------------------- 4. fake delayed turn emits progress + turn_done
 
 def test_echo_turn_emits_progress_then_turn_done(tmp_path):
-    proc = _spawn_bridge({"CRUSORAI_BRIDGE_RUNNER": "echo"})
+    proc = _spawn_bridge({
+        "CRUSORAI_BRIDGE_RUNNER": "echo",
+        "CRUSORAI_HOME": str(tmp_path / "runtime"),
+        "CRUSORAI_EVIDENCE_DIR": str(tmp_path / "evidence"),
+    })
     try:
         _send(proc, {"type": "hello", "protocol": PROTOCOL_VERSION})
         hello = _read_frames(proc, lambda f: f.get("type") == "hello")[-1]
@@ -291,6 +296,17 @@ def test_echo_turn_emits_progress_then_turn_done(tmp_path):
         assert "token" in kinds, kinds
         assert kinds[-1] == "turn_done", kinds
         assert frames[-1]["completed"] is True
+        started = next(frame for frame in frames if frame["type"] == "turn_started")
+        assert started["evidence"]["lifecycle_status"] == "in_progress"
+        assert started["evidence"]["journal_chain_valid"] is True
+        terminal_evidence = frames[-1]["evidence"]
+        assert terminal_evidence["lifecycle_status"] == "completed"
+        assert terminal_evidence["journal_terminal_seq"] is not None
+        manifest_path = Path(terminal_evidence["manifest_path"])
+        assert manifest_path.is_file()
+        manifest_bytes = manifest_path.read_bytes()
+        assert hashlib.sha256(manifest_bytes).hexdigest() == terminal_evidence["manifest_sha256"]
+        assert json.loads(manifest_bytes)["lifecycle"]["status"] == "completed"
 
         # The echo turn must announce that it is an echo. A user running the provider-free guard
         # otherwise watches their own sentence come back as the answer and reasonably concludes the

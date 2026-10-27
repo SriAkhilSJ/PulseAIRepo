@@ -1,0 +1,4 @@
+Nonce: agent-core-omission-4f9e8a12b3c4d5e67890abcdef123456
+Derivation: SYNTHETIC_ONLY_DO_NOT_USE_ + sha256(nonce)[:32]
+Marker byte length: 58
+Marker SHA-256: eae8a869a62431d00b85e528ab462d7087e451a1b7c6a6456aceff80283a5cc8

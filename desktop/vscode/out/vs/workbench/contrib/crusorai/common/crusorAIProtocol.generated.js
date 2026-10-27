@@ -80,6 +80,7 @@ export const CRUSOR_AI_SERVER_EVENTS = [
     'tool_output',
     'turn_done',
     'turn_failed',
+    'turn_lifecycle',
     'turn_started',
     'verification_updated',
     'voice_text',

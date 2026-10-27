@@ -514,15 +514,26 @@ def _record_verification_result(
     config: RunnableConfig, workspace: str, command: str, exit_code: int, output: str
 ) -> None:
     try:
-        session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+        configurable = (config or {}).get("configurable", {})
+        session_id = str(configurable.get("thread_id", "default"))
         from src.runtime.factory import get_runtime_services
-        evidence = get_runtime_services().verification.record_command(
+        from src.runtime.verification_events import journal_verification_update
+        services = get_runtime_services()
+        evidence = services.verification.record_command(
             session_id=session_id, workspace=workspace, command=command,
             exit_code=exit_code, output=output,
         )
         if evidence:
+            update = journal_verification_update(
+                services,
+                evidence,
+                session_id=session_id,
+                workspace=workspace,
+                evidence_kind="command",
+                turn_id=str(configurable.get("turn_id") or "") or None,
+            )
             from src.dashboard.event_bus import event_bus
-            event_bus.emit("verification.updated", {**evidence, "thread_id": session_id})
+            event_bus.emit("verification.updated", {**update, "thread_id": session_id})
     except Exception as exc:
         try:
             from src.dashboard.event_bus import event_bus

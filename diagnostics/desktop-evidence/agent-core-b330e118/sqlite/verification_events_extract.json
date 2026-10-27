@@ -1,0 +1,21 @@
+{
+  "verification_events": [],
+  "verification_state": [
+    {
+      "session_id": "session-9365ea03848c463eb49bd383b0ffdf26",
+      "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+      "status": "unverified",
+      "event_id": null,
+      "edited_at": 1792907855.053819,
+      "changed_paths": "[\"C:\\\\Users\\\\Administrator\\\\Downloads\\\\testCRUSOR\\\\scratch\\\\interest_probe.py\"]"
+    },
+    {
+      "session_id": "session-2a5f33eb7d8c42d59bdf5ca05d2822fb",
+      "workspace": "C:\\Users\\Administrator\\Downloads\\testCRUSOR",
+      "status": "unverified",
+      "event_id": null,
+      "edited_at": 1792908485.9796789,
+      "changed_paths": "[\"C:\\\\Users\\\\Administrator\\\\Downloads\\\\testCRUSOR\\\\scratch\\\\cleanup_probe.py\"]"
+    }
+  ]
+}

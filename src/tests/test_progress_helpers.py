@@ -166,6 +166,15 @@ def test_d9_build_failure_terminal_variants():
                   "recovery_mode": True, "recovery_command": "make",
                   "env_failure": False}
 
+    # ``terminal`` is a first-class alias in the bound registry, so it must
+    # enter the same recovery state rather than falling through as a generic
+    # tool failure.
+    alias_failure, alias_updates = ph.build_failure(
+        "terminal", "boom output", {"command": "make"}, False, None,
+    )
+    assert alias_failure == f
+    assert alias_updates == up
+
     # already in recovery: command slot NOT stolen
     f, up = ph.build_failure("run_terminal", "x", {"command": "make2"},
                              True, "make")
@@ -222,6 +231,9 @@ def test_d9_recovery_clears_only_same_command():
         "run_terminal", {"command": "make clean"}, True, "make")
     assert (mode, cmd) == (True, "make")
     mode, cmd = ph.resolve_recovery_on_success(
+        "terminal", {"command": "make"}, True, "make")
+    assert (mode, cmd) == (False, None)
+    mode, cmd = ph.resolve_recovery_on_success(
         "read_file", {"path": "a.py"}, True, "make")
     assert (mode, cmd) == (True, "make")
 
@@ -261,6 +273,8 @@ def test_d9_progress_node_success_path():
     assert out["failed_steps"] == []
     assert out["execution_trace"][0]["status"] == "success"
     assert out["execution_trace"][0]["tool"] == "run_terminal"
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["run_terminal"]
     assert isinstance(out["messages"][0], SystemMessage)
     assert out["messages"][0].content == ph.PROGRESS_REFLECTION_PROMPT
     assert "token_usage" in out
@@ -336,8 +350,38 @@ def test_d9_progress_node_running_check_records_nothing():
     assert out["execution_trace"] == []
     assert out["steps_completed"] == []
     assert out["failed_steps"] == []
+    # Running is not a success/failure progress row, but the poll really did
+    # execute and must remain visible in the authoritative report count.
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["check_terminal"]
     # A non-result must not create a phantom progress/reflection heartbeat.
     assert "messages" not in out
+
+
+def test_informational_tool_execution_counts_without_becoming_progress():
+    """Desktop evidence 1e05cc02: B executed this tool once, but the report
+    rendered zero because informational receipts are deliberately filtered out
+    of execution_trace.  Counting and progress classification are distinct."""
+    from src.graphs.chat_graph import progress_node
+
+    state = {
+        "messages": [
+            AIMessage(content="", tool_calls=[
+                {"id": "b1", "name": "check_target_toolchains",
+                 "args": {"target": "android"}},
+            ]),
+            ToolMessage(content="Target toolchains — Android SDK unavailable",
+                        tool_call_id="b1", name="check_target_toolchains"),
+        ],
+        "current_task": "inspect Android tools",
+    }
+
+    out = progress_node(state, _cfg())
+
+    assert out["execution_trace"] == []
+    assert out["steps_completed"] == []
+    assert out["turn_tool_execution_count"] == 1
+    assert out["turn_tool_execution_names"] == ["check_target_toolchains"]
 
 
 # ---------------------------------------------------------------------
@@ -346,6 +390,8 @@ def test_d9_progress_node_running_check_records_nothing():
 
 def test_r3_1_command_fingerprint_extracts_and_normalizes():
     assert ph.command_fingerprint("run_terminal", {"command": "  mkdir -p /tmp/x  "}) \
+        == "mkdir -p /tmp/x"
+    assert ph.command_fingerprint("terminal", {"command": "  mkdir -p /tmp/x  "}) \
         == "mkdir -p /tmp/x"
     assert ph.command_fingerprint("execute_code", {"code": "  npm run build "}) \
         == "npm run build"
@@ -386,6 +432,38 @@ def test_r3_1_identical_failure_injects_nudge_at_third_attempt():
                if "failed the same" in m.content]
     assert len(nudges3) == 1
     assert "run_terminal" in nudges3[0].content and "3 times" in nudges3[0].content
+
+
+def test_r3_1_terminal_alias_tracks_identical_failures():
+    """The desktop-facing alias cannot bypass the same-command loop guard."""
+    from src.graphs.chat_graph import progress_node
+
+    calls = [
+        {"id": f"alias-{index}", "name": "terminal",
+         "args": {"command": "npm test"}}
+        for index in range(3)
+    ]
+    messages = [AIMessage(content="", tool_calls=calls)]
+    messages.extend(
+        ToolMessage(
+            content="command failed\nexit code: 1",
+            tool_call_id=call["id"],
+            name="terminal",
+        )
+        for call in calls
+    )
+
+    out = progress_node(
+        {"messages": messages, "current_task": "run the tests"}, _cfg()
+    )
+
+    assert out["recovery_mode"] is True
+    assert out["recovery_attempts"] == 3
+    assert out["command_retries"]["npm test"] == 3
+    nudges = [message for message in out["messages"]
+              if "failed the same" in message.content]
+    assert len(nudges) == 1
+    assert "terminal" in nudges[0].content
 
 
 def test_r3_1_different_commands_do_not_share_a_retry_counter():

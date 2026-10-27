@@ -26,6 +26,14 @@ from typing import Any, Optional
 from src.runtime.quality_evaluator import UserAskQualityEvaluator, QualityReport
 
 _TRACE_LOCK = threading.Lock()
+_ARTIFACT_MUTATION_TOOLS = frozenset({
+    "write_file", "edit_file", "copy_file", "generate_image", "media_download",
+})
+_ARTIFACT_PATH_KEYS = (
+    "path", "file_path", "filename", "destination", "dest", "dst",
+    "target_path", "output_path",
+)
+
 
 def estimate_cost(model_name: str, input_tokens: int, output_tokens: int, cached_tokens: int = 0,
                   *, cache_reported: bool = False) -> float | None:
@@ -45,7 +53,7 @@ def estimate_cost(model_name: str, input_tokens: int, output_tokens: int, cached
 class ToolExecutionRecord:
     name: str
     args_summary: str = ""
-    status: str = "success"  # success, failed, timeout, denied
+    status: str = "success"  # proposed, success, failed, timeout, denied
     duration_ms: float = 0.0
     exit_code: Optional[int] = None
     output_preview: str = ""
@@ -90,6 +98,85 @@ class StepRecord:
         return d
 
 
+def _step_record_from_dict(raw: dict[str, Any]) -> StepRecord:
+    """Load current and legacy JSONL rows through one compatibility seam."""
+    node_name = str(raw.get("node_name") or "")
+    known_tool_fields = set(ToolExecutionRecord.__dataclass_fields__)
+    tool_calls = []
+    for item in raw.get("tool_calls", []) or []:
+        if not isinstance(item, dict):
+            continue
+        normalized = {
+            key: value for key, value in item.items() if key in known_tool_fields
+        }
+        # Legacy trace rows used ``args``/``output``.  Normalize them through
+        # the same persistence boundary as live records so resumed diagnostics
+        # neither lose artifact paths nor hydrate secrets/file bodies.
+        stored_args = normalized.get("args_summary", item.get("args", ""))
+        parsed_args = stored_args if isinstance(stored_args, dict) else None
+        if isinstance(stored_args, str):
+            try:
+                candidate = json.loads(stored_args)
+                if isinstance(candidate, dict):
+                    parsed_args = candidate
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        if isinstance(parsed_args, dict):
+            from src.runtime.persistence import sanitize_tool_arguments
+
+            normalized["args_summary"] = json.dumps(
+                sanitize_tool_arguments(parsed_args),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        else:
+            from src.utils.redact import redact_sensitive_text
+
+            normalized["args_summary"] = redact_sensitive_text(
+                str(stored_args or ""),
+                force=True,
+                redact_url_credentials=True,
+            )[:500]
+        if "output_preview" not in normalized and "output" in item:
+            from src.utils.redact import redact_sensitive_text
+
+            normalized["output_preview"] = redact_sensitive_text(
+                str(item.get("output") or ""),
+                force=True,
+                redact_url_credentials=True,
+            )[:150]
+        # An AI row can only request a tool.  Old rows wrote the dataclass
+        # default ``success`` here even though execution had not happened.
+        if node_name == "ai":
+            normalized["status"] = "proposed"
+        tool_calls.append(ToolExecutionRecord(**normalized))
+    return StepRecord(
+        session_id=str(raw.get("session_id") or "default"),
+        step_index=int(raw.get("step_index") or 0),
+        node_name=node_name,
+        started_at=float(raw.get("started_at") or 0.0),
+        ended_at=float(raw.get("ended_at") or 0.0),
+        duration_s=float(raw.get("duration_s") or 0.0),
+        llm_duration_s=float(raw.get("llm_duration_s") or 0.0),
+        tool_duration_s=float(raw.get("tool_duration_s") or 0.0),
+        model=str(raw.get("model") or ""),
+        provider=str(raw.get("provider") or ""),
+        input_tokens=int(raw.get("input_tokens") or 0),
+        output_tokens=int(raw.get("output_tokens") or 0),
+        cached_tokens=int(raw.get("cached_tokens") or 0),
+        cache_reported=bool(raw.get("cache_reported", True)),
+        cache_hit_ratio=float(raw.get("cache_hit_ratio") or 0.0),
+        tokens_per_second=float(raw.get("tokens_per_second") or 0.0),
+        estimated_cost_usd=raw.get("estimated_cost_usd"),
+        tool_calls=tool_calls,
+        verification_status=str(raw.get("verification_status") or "not_applicable"),
+        compaction_active=bool(raw.get("compaction_active", False)),
+        plan_progress=str(raw.get("plan_progress") or ""),
+        user_ask=str(raw.get("user_ask") or ""),
+        diagnostics=list(raw.get("diagnostics") or []),
+    )
+
+
 class StepTracker:
     """Session-scoped tracker that records granular step metrics and auto-diagnoses bottlenecks."""
 
@@ -111,12 +198,20 @@ class StepTracker:
         self.start_time = time.time()
         self.user_ask: str = ""
         self.marked_edits: list[str] = []
-        self.verification_status: str = "passed"
+        # Unknown evidence must never begin life as a passing verdict.
+        self.verification_status: str = "not_applicable"
         self.final_assistant_message: str = ""
         self.verification_receipts: dict[str, Any] = {}
 
-        # System-wide trace directory
-        self.system_trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+        # System-wide trace directory. Keep it on the same explicit runtime
+        # root as the journal/verification/evidence services.
+        configured_home = os.environ.get("CRUSORAI_HOME", "").strip()
+        runtime_home = (
+            Path(configured_home).expanduser()
+            if configured_home
+            else Path(os.path.expanduser("~")) / ".crusorai"
+        )
+        self.system_trace_dir = runtime_home / "traces"
         self.system_trace_dir.mkdir(parents=True, exist_ok=True)
         self.system_trace_file = self.system_trace_dir / f"{self.session_id}.jsonl"
         self.latest_symlink = self.system_trace_dir / "latest.jsonl"
@@ -129,6 +224,76 @@ class StepTracker:
         self.workspace_diag_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_traces_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_trace_file = self.workspace_traces_dir / f"{self.session_id}.jsonl"
+        self._hydrate_existing_trace()
+
+    def _hydrate_existing_trace(self) -> None:
+        """Resume one session's report state after a process restart.
+
+        The JSONL file is append-only, but the old tracker restarted its
+        in-memory counters at zero.  Reports could therefore describe only the
+        newest 35 rows while the same session trace held 146.  Hydration makes
+        the report and append-only call history agree.
+        """
+        if not self.workspace_trace_file.exists():
+            return
+        loaded: list[StepRecord] = []
+        try:
+            for line in self.workspace_trace_file.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines():
+                if not line.strip():
+                    continue
+                raw = json.loads(line)
+                if str(raw.get("session_id") or self.session_id) != self.session_id:
+                    continue
+                loaded.append(_step_record_from_dict(raw))
+        except Exception:
+            # Diagnostics must never prevent the agent from starting.  A bad
+            # legacy row remains on disk for audit, while the live run starts a
+            # fresh in-memory view.
+            return
+        if not loaded:
+            return
+        self.steps = loaded
+        # Use record count, not legacy step_index: resumed files can contain
+        # duplicate indices from earlier process restarts.
+        self._step_counter = len(loaded)
+        self.user_ask = next(
+            (step.user_ask for step in reversed(loaded) if step.user_ask), ""
+        )
+        self.verification_status = next(
+            (
+                step.verification_status
+                for step in reversed(loaded)
+                if step.verification_status != "not_applicable"
+            ),
+            "not_applicable",
+        )
+        # Reconstruct durable artifact evidence as well as counters.  Without
+        # this, restarting between a successful write and finalization could
+        # turn the same append-only trace into a false zero-mutation verdict.
+        for step in loaded:
+            for call in step.tool_calls:
+                if (
+                    call.status != "success"
+                    or call.name not in _ARTIFACT_MUTATION_TOOLS
+                ):
+                    continue
+                try:
+                    safe_args = json.loads(call.args_summary)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if not isinstance(safe_args, dict):
+                    continue
+                for key in _ARTIFACT_PATH_KEYS:
+                    value = safe_args.get(key)
+                    if (
+                        isinstance(value, str)
+                        and value
+                        and value not in self.marked_edits
+                    ):
+                        self.marked_edits.append(value)
+                        break
 
     def set_user_ask(self, user_ask: str) -> None:
         """Set or update the user's prompt instruction."""
@@ -145,6 +310,60 @@ class StepTracker:
         if receipts:
             self.verification_receipts = dict(receipts)
 
+    def begin_turn(self, *, user_ask: str = "") -> None:
+        """Invalidate the prior turn's terminal receipt before new work starts.
+
+        Step history is session-scoped and remains append-only, but a verdict is
+        turn-scoped.  Without this boundary, every mid-turn report for turn N+1
+        presents turn N's verdict/counts under ``Authoritative Completion
+        Evidence``.  Desktop evidence bd057959 captured exactly that shape for
+        cleanup scenario F: its report still said D ``failed`` and one executed
+        tool because F had not reached a finalize row yet.
+        """
+        if user_ask:
+            self.set_user_ask(user_ask)
+        self.final_assistant_message = ""
+        self.verification_status = "pending"
+        self.verification_receipts = {
+            "task_status": "in_progress",
+            "tool_execution_count": None,
+            "failed_step_count": None,
+        }
+        # Refresh immediately so an interrupted turn cannot leave the previous
+        # verdict looking current merely because no AI/tool step was persisted.
+        self._export_markdown_report()
+
+    def finalize_report(
+        self,
+        *,
+        user_ask: str = "",
+        final_message: str = "",
+        verification_status: str = "not_applicable",
+        receipts: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Refresh the durable report from the graph's final authoritative state."""
+        if user_ask:
+            self.set_user_ask(user_ask)
+        if final_message:
+            self.set_final_message(final_message)
+        self.verification_status = str(verification_status or "not_applicable")
+        if receipts:
+            self.set_verification_receipts(receipts)
+        # Persist the terminal evidence itself.  A report-only refresh leaves
+        # trace replays unable to distinguish verified completion from the old
+        # default ``not_applicable`` rows.
+        if self._current_step is None:
+            final_step = self.start_step("finalize")
+            final_step.verification_status = self.verification_status
+            diagnostics = []
+            verdict = str((receipts or {}).get("task_status") or "").strip()
+            if verdict:
+                diagnostics.append(f"FINAL_VERDICT: {verdict}")
+            self.finish_step(diagnostics)
+        else:
+            # Never clobber an in-flight record merely to refresh diagnostics.
+            self._export_markdown_report()
+
     def start_step(self, node_name: str, state: Optional[dict[str, Any]] = None) -> StepRecord:
         """Called when a LangGraph node starts executing."""
         self._step_counter += 1
@@ -154,19 +373,54 @@ class StepTracker:
         compaction_flag = False
 
         if state:
-            v_status = str(state.get("verification_status") or "not_applicable")
+            explicit_v_status = state.get("verification_status")
+            if explicit_v_status:
+                v_status = str(explicit_v_status)
+            else:
+                try:
+                    from src.context.user_interest import UserInterest
+
+                    active_interest = UserInterest.from_state(state.get("user_interest"))
+                    if active_interest is not None and active_interest.mode in {
+                        "answer", "social",
+                    }:
+                        v_status = "not_applicable"
+                    else:
+                        from src.graphs.gates import verification_status as gate_status
+
+                        v_status = str(gate_status(state))
+                except Exception:
+                    v_status = "not_applicable"
             self.verification_status = v_status
-            if not self.user_ask:
-                # Extract initial user ask from task or messages
-                task_candidate = state.get("current_task") or state.get("latest_instruction") or state.get("task")
-                if task_candidate:
-                    self.user_ask = str(task_candidate).strip()
-                elif "messages" in state and state["messages"]:
-                    for m in state["messages"]:
-                        m_type = getattr(m, "type", None) or type(m).__name__.lower()
-                        if "human" in m_type or "user" in m_type:
-                            self.user_ask = str(getattr(m, "content", "")).strip()
-                            break
+
+            # Prefer the current versioned interest on every turn.  The old
+            # first-value-wins behavior left reports titled "hello" while the
+            # same session was building an analytics application.
+            interest_text = ""
+            try:
+                from src.context.user_interest import UserInterest
+
+                active_interest = UserInterest.from_state(state.get("user_interest"))
+                if active_interest is not None:
+                    interest_text = active_interest.focus_text()
+            except Exception:
+                interest_text = ""
+            task_candidate = (
+                interest_text
+                or state.get("latest_instruction")
+                or state.get("current_task")
+                or state.get("task")
+            )
+            if task_candidate:
+                self.user_ask = str(task_candidate).strip()
+            elif not self.user_ask and "messages" in state and state["messages"]:
+                # Legacy states have no interest contract.  The newest human
+                # request is more relevant than the first greeting.
+                for m in reversed(state["messages"]):
+                    m_type = getattr(m, "type", None) or type(m).__name__.lower()
+                    if "human" in m_type or "user" in m_type:
+                        self.user_ask = str(getattr(m, "content", "")).strip()
+                        break
 
             if state.get("marked_edits"):
                 for edit_path in state["marked_edits"]:
@@ -223,6 +477,12 @@ class StepTracker:
         )
         if cache_reported is not None:
             self._current_step.cache_reported = bool(cache_reported)
+        elif self._current_step.cached_tokens > 0:
+            # A positive cache-hit count is itself provider telemetry.  Never
+            # overwrite that fact merely because the gateway/provider label
+            # contains "velona": bd057959 then rendered every call as N/A
+            # while scoring the same 240,384 cached tokens numerically.
+            self._current_step.cache_reported = True
         elif is_velona:
             self._current_step.cache_reported = False
         else:
@@ -259,14 +519,45 @@ class StepTracker:
         if not self._current_step:
             return
 
+        safe_args: dict[str, Any] = {}
         if isinstance(args, dict):
-            args_str = ", ".join(f"{k}={repr(v)[:50]}" for k, v in args.items())
-        else:
-            args_str = str(args)[:100]
+            from src.runtime.persistence import sanitize_tool_arguments
 
-        out_preview = str(output or "").strip()
+            safe_args = sanitize_tool_arguments(args)
+            args_str = json.dumps(safe_args, ensure_ascii=False, sort_keys=True)
+            if len(args_str) > 2_000:
+                # Keep path identity and argument shape, never a partial JSON
+                # string that the evaluator cannot parse.
+                path_keys = {
+                    key: safe_args[key]
+                    for key in _ARTIFACT_PATH_KEYS
+                    if key in safe_args
+                }
+                path_keys["__omitted_keys__"] = sorted(
+                    key for key in safe_args if key not in path_keys
+                )
+                args_str = json.dumps(path_keys, ensure_ascii=False, sort_keys=True)
+        else:
+            from src.utils.redact import redact_sensitive_text
+
+            args_str = redact_sensitive_text(
+                str(args or ""), force=True, redact_url_credentials=True
+            )[:500]
+
+        from src.utils.redact import redact_sensitive_text
+
+        out_preview = redact_sensitive_text(
+            str(output or "").strip(), force=True, redact_url_credentials=True
+        )
         if len(out_preview) > 150:
             out_preview = out_preview[:140] + "..."
+        safe_error = (
+            redact_sensitive_text(
+                str(error), force=True, redact_url_credentials=True
+            )[:500]
+            if error
+            else None
+        )
 
         rec = ToolExecutionRecord(
             name=name,
@@ -275,10 +566,20 @@ class StepTracker:
             duration_ms=round(duration_ms, 2),
             exit_code=exit_code,
             output_preview=out_preview,
-            error=error,
+            error=safe_error,
         )
         self._current_step.tool_calls.append(rec)
         self._current_step.tool_duration_s += round(duration_ms / 1000.0, 3)
+
+        # Successful execution receipts feed quality evaluation directly.  Do
+        # not wait for a later graph lap to copy marked_edits into state; a
+        # one-call write-and-finish turn must still prove its artifact.
+        if status == "success" and name in _ARTIFACT_MUTATION_TOOLS:
+            for key in _ARTIFACT_PATH_KEYS:
+                value = safe_args.get(key)
+                if isinstance(value, str) and value and value not in self.marked_edits:
+                    self.marked_edits.append(value)
+                    break
 
     def finish_step(self, custom_diagnostics: Optional[list[str]] = None) -> StepRecord:
         """Finalize the current step, run automatic bottleneck checks, and persist."""
@@ -287,7 +588,14 @@ class StepTracker:
 
         step = self._current_step
         step.ended_at = time.time()
-        step.duration_s = round(step.ended_at - step.started_at, 3)
+        # Tracking starts after providers and tool batches return.  Wrapper
+        # elapsed time therefore measures tracker overhead, not operation
+        # latency; only explicit provider/tool measurements are evidence.
+        step.duration_s = round(max(
+            float(step.duration_s or 0.0),
+            float(step.llm_duration_s or 0.0),
+            float(step.tool_duration_s or 0.0),
+        ), 3)
 
         # Performance Diagnostic Rules
         if step.node_name == "ai":
@@ -316,6 +624,8 @@ class StepTracker:
                 )
 
         for tc in step.tool_calls:
+            if tc.status == "proposed":
+                continue
             if tc.status != "success" or (tc.exit_code is not None and tc.exit_code != 0):
                 step.diagnostics.append(
                     f"❌ TOOL_FAILURE: '{tc.name}' failed (exit {tc.exit_code}): {tc.error or tc.output_preview}"
@@ -364,13 +674,43 @@ class StepTracker:
             return {"score": 100, "grade": "A+", "breakdown": {}}
 
         total_steps = len(self.steps)
-        total_duration = sum(s.duration_s for s in self.steps)
-        avg_step_duration = total_duration / total_steps if total_steps > 0 else 0
+        duration_values = [
+            max(
+                float(s.duration_s or 0.0),
+                float(s.llm_duration_s or 0.0),
+                float(s.tool_duration_s or 0.0),
+            )
+            for s in self.steps
+            if s.node_name in {"ai", "tools"}
+        ]
+        measured_durations = [value for value in duration_values if value > 0]
+        expected_duration_steps = len(duration_values)
+        total_duration = sum(measured_durations)
+        avg_step_duration = (
+            total_duration / len(measured_durations) if measured_durations else 0.0
+        )
+        duration_telemetry_available = bool(measured_durations)
+        duration_telemetry_complete = bool(expected_duration_steps) and (
+            len(measured_durations) == expected_duration_steps
+        )
 
         total_input_tokens = sum(s.input_tokens for s in self.steps)
-        total_cached_tokens = sum(s.cached_tokens for s in self.steps)
+        cache_metered_steps = [
+            s
+            for s in self.steps
+            if s.input_tokens > 0 and getattr(s, "cache_reported", True)
+        ]
+        cache_metered_input_tokens = sum(s.input_tokens for s in cache_metered_steps)
+        total_cached_tokens = sum(s.cached_tokens for s in cache_metered_steps)
 
-        all_tool_calls = [tc for s in self.steps for tc in s.tool_calls]
+        # AI rows describe proposals.  Only tool-node rows are executions and
+        # may contribute success/failure evidence.
+        all_tool_calls = [
+            tc
+            for s in self.steps
+            if s.node_name == "tools"
+            for tc in s.tool_calls
+        ]
         failed_tool_calls = [
             tc
             for tc in all_tool_calls
@@ -381,55 +721,63 @@ class StepTracker:
         )
 
         ai_steps = [s for s in self.steps if s.node_name == "ai"]
-        multi_tool_steps = [s for s in ai_steps if len(s.tool_calls) > 1]
+        proposal_steps = [s for s in ai_steps if s.tool_calls]
+        multi_tool_steps = [s for s in proposal_steps if len(s.tool_calls) > 1]
         batch_rate = (
-            len(multi_tool_steps) / len(ai_steps) if len(ai_steps) > 0 else 1.0
+            len(multi_tool_steps) / len(proposal_steps) if proposal_steps else 0.0
         )
 
-        # 1. Latency Score (Max 25 pts)
-        latency_score = max(5.0, min(25.0, 25.0 - (max(0.0, avg_step_duration - 3.0) * 0.9)))
+        # 1. Latency Score (Max 25 pts when telemetry exists)
+        latency_score = (
+            max(5.0, min(
+                25.0,
+                25.0 - (max(0.0, avg_step_duration - 3.0) * 0.9),
+            ))
+            if duration_telemetry_available
+            else None
+        )
 
         # 2. Cache Score (Max 25 pts)
-        # Check if cache telemetry is supported / reported by the upstream provider/gateway.
-        # When using Velona or an OpenAI-compatible router that omits input_token_details,
-        # cached_tokens is 0 on the wire even if KV-caching operates upstream.
-        custom_base = os.environ.get("CUSTOM_BASE_URL", "").lower()
-        velona_base = os.environ.get("VELONA_BASE_URL", "").lower()
-        is_velona_session = (
-            "velona" in custom_base
-            or "velona" in velona_base
-            or any("velona" in (s.provider or "").lower() for s in self.steps)
-            or any(not getattr(s, "cache_reported", True) for s in self.steps)
-        )
-
-        has_cache_telemetry = (
-            total_cached_tokens > 0
-            or (not is_velona_session and any(s.provider in ("openai", "anthropic", "deepseek", "groq") for s in self.steps))
-        )
-
-        if total_cached_tokens > 0:
-            cache_hit_rate = total_cached_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
+        # Score only rows that explicitly carry provider cache telemetry. A
+        # provider/gateway label is not evidence either way: positive cache
+        # counts prove reporting, while explicitly unreported rows stay out of
+        # both numerator and denominator. This keeps aggregate and per-row
+        # displays mathematically consistent.
+        if cache_metered_input_tokens > 0:
+            cache_hit_rate = total_cached_tokens / cache_metered_input_tokens
             cache_score = 5.0 + (cache_hit_rate * 20.0)
             telemetry_available = True
-        elif is_velona_session or not has_cache_telemetry:
-            # Upstream provider/gateway (e.g. Velona) does not return input_token_details metadata.
-            # Do NOT dock 20 points from the agent health score; the prefix layout is active upstream.
-            cache_hit_rate = 0.0
-            cache_score = 25.0
-            telemetry_available = False
         else:
-            # Direct provider that supports telemetry reported 0 cached tokens (actual cache miss)
+            # Upstream provider/gateway does not return input_token_details.
+            # Exclude the dimension rather than awarding a hidden perfect
+            # score for unavailable evidence.
             cache_hit_rate = 0.0
-            cache_score = 5.0
-            telemetry_available = True
+            cache_score = None
+            telemetry_available = False
 
-        # 3. Correctness & Error Score (Max 25 pts)
-        error_score = max(0.0, 25.0 - (tool_failure_rate * 100.0))
+        # 3. Correctness & Error Score (Max 25 pts when an execution occurred)
+        error_score = (
+            max(0.0, 25.0 - (tool_failure_rate * 100.0))
+            if all_tool_calls
+            else None
+        )
 
-        # 4. Batching & Concurrency Score (Max 25 pts)
-        batch_score = 15.0 + (batch_rate * 10.0)
+        # 4. Batching & Concurrency Score (only when tools were proposed;
+        # answer-only AI calls have nothing to batch and are not failures)
+        batch_score = 15.0 + (batch_rate * 10.0) if proposal_steps else None
 
-        total_score = round(latency_score + cache_score + error_score + batch_score, 1)
+        # Normalize only across dimensions backed by evidence.  This preserves
+        # a 0-100 runtime scale without treating N/A latency/cache/tool data as
+        # perfect (the source of the old "Optimal" + zero-duration reports).
+        scored_components = [
+            score
+            for score in (latency_score, cache_score, error_score, batch_score)
+            if score is not None
+        ]
+        total_score = round(
+            (sum(scored_components) / (25.0 * len(scored_components))) * 100.0,
+            1,
+        ) if scored_components else 0.0
 
         if total_score >= 90:
             grade = "A (Elite)"
@@ -443,35 +791,59 @@ class StepTracker:
         # Actionable Optimization Ideas
         ideas = []
         if telemetry_available:
-            if cache_hit_rate < 0.60 and total_input_tokens > 20000:
+            if cache_hit_rate < 0.60 and cache_metered_input_tokens > 20000:
                 ideas.append("⚡ **Enable Prompt Caching:** Your prompt cache hit rate is below 60%. Ensure your system persona and tool definitions are placed at the static prefix to prevent cache-busting.")
         else:
-            if total_input_tokens > 20000:
-                ideas.append("ℹ️ **Provider Telemetry Notice:** Active gateway (Velona / custom router) omits `input_token_details` in completion chunks. Static prefix layout is maintained upstream at the server layer.")
+            ideas.append(
+                "ℹ️ **Provider Telemetry Notice:** The active gateway omits "
+                "`input_token_details`; cache effectiveness is N/A, not a "
+                "perfect-cache result."
+            )
 
-        if avg_step_duration > 15.0:
+        if not duration_telemetry_available:
+            ideas.append(
+                "ℹ️ **Latency Telemetry Notice:** No measured provider/tool "
+                "duration is available; latency is N/A, not zero."
+            )
+        elif avg_step_duration > 15.0:
             ideas.append("⏱️ **Reduce Turn Latency:** Consider using a direct-API caching provider (e.g. DeepSeek V3 or Claude Sonnet) or narrowing the active toolset.")
         if len(failed_tool_calls) > 0:
             ideas.append(f"🔧 **Tool Error Remediation:** {len(failed_tool_calls)} tool calls failed. Check environment setup, missing dependencies, or file paths.")
-        if batch_rate < 0.30 and len(ai_steps) > 4:
+        if batch_rate < 0.30 and len(proposal_steps) > 4:
             ideas.append("📦 **Encourage Parallel Tool Calling & PTC:** The model is emitting tools serially. Add prompt examples demonstrating multi-file writes in a single assistant turn.")
 
         if not ideas:
-            ideas.append("🎉 **Optimal Performance:** Agent execution is fast, cache-aligned, and error-free.")
+            ideas.append(
+                "ℹ️ **Measured Runtime Signals:** No runtime issue was detected "
+                "in the available telemetry. This is not a task-completion verdict."
+            )
 
         return {
             "score": total_score,
             "grade": grade,
             "breakdown": {
-                "latency_score": round(latency_score, 1),
-                "cache_score": round(cache_score, 1),
-                "correctness_score": round(error_score, 1),
-                "batching_score": round(batch_score, 1),
+                "latency_score": round(latency_score, 1) if latency_score is not None else None,
+                "cache_score": round(cache_score, 1) if cache_score is not None else None,
+                "correctness_score": round(error_score, 1) if error_score is not None else None,
+                "batching_score": round(batch_score, 1) if batch_score is not None else None,
             },
             "metrics": {
                 "avg_step_duration_s": round(avg_step_duration, 2),
+                "total_measured_duration_s": round(total_duration, 3),
+                "measured_duration_steps": len(measured_durations),
+                "expected_duration_steps": expected_duration_steps,
+                "duration_telemetry_available": duration_telemetry_available,
+                "duration_telemetry_complete": duration_telemetry_complete,
                 "cache_hit_rate_pct": round(cache_hit_rate * 100, 1),
+                "reported_cached_tokens": total_cached_tokens,
+                "cache_metered_input_tokens": cache_metered_input_tokens,
                 "telemetry_available": telemetry_available,
+                "scored_runtime_dimensions": len(scored_components),
+                "total_runtime_dimensions": 4,
+                "provisional": (
+                    len(scored_components) < 4
+                    or not duration_telemetry_complete
+                ),
                 "tool_failure_rate_pct": round(tool_failure_rate * 100, 1),
                 "total_cost_usd": self._known_total_cost_usd(),
                 "priced_calls": sum(
@@ -487,8 +859,15 @@ class StepTracker:
         """Evaluate output quality, deliverable fulfillment, and constraint adherence against user prompt."""
         ask_text = user_ask or self.user_ask or ""
         all_tool_calls = [
-            {"name": tc.name, "args": tc.args_summary, "status": tc.status, "exit_code": tc.exit_code}
+            {
+                "name": tc.name,
+                "args": tc.args_summary,
+                "status": tc.status,
+                "exit_code": tc.exit_code,
+                "output": tc.output_preview,
+            }
             for s in self.steps
+            if s.node_name == "tools"
             for tc in s.tool_calls
         ]
         runtime_perf = self.compute_performance_score()
@@ -524,8 +903,8 @@ class StepTracker:
             quality = self.compute_quality_score()
             total_tokens_in = sum(s.input_tokens for s in self.steps)
             total_tokens_out = sum(s.output_tokens for s in self.steps)
-            cached_tokens = sum(s.cached_tokens for s in self.steps)
-            total_time = sum(s.duration_s for s in self.steps)
+            cached_tokens = int(perf["metrics"]["reported_cached_tokens"])
+            total_time = float(perf["metrics"]["total_measured_duration_s"])
             total_cost = perf["metrics"]["total_cost_usd"]
             total_cost_label = (
                 f"**${total_cost:.4f} USD**"
@@ -545,6 +924,29 @@ class StepTracker:
             md.append(f"**Generated At:** `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`  ")
             if self.user_ask:
                 md.append(f"**User Ask:** *\"{self.user_ask}\"*  ")
+            md.append("")
+            md.append("---")
+            md.append("## Authoritative Completion Evidence")
+            md.append("")
+            task_verdict = str(
+                self.verification_receipts.get("task_status") or "pending/unavailable"
+            )
+            execution_count = self.verification_receipts.get("tool_execution_count")
+            failed_step_count = self.verification_receipts.get("failed_step_count")
+            md.append("| Evidence | Value |")
+            md.append("| :--- | :--- |")
+            md.append(f"| **Task verdict** | `{task_verdict}` |")
+            md.append(f"| **Verification status** | `{self.verification_status}` |")
+            md.append(
+                "| **Current-turn executed tool records** | "
+                + (f"{execution_count}" if execution_count is not None else "N/A")
+                + " |"
+            )
+            md.append(
+                "| **Current-task failed steps** | "
+                + (f"{failed_step_count}" if failed_step_count is not None else "N/A")
+                + " |"
+            )
             md.append("")
             md.append("---")
             md.append("## 🏆 Champion Agent Unified Scorecard")
@@ -573,17 +975,54 @@ class StepTracker:
             md.append("")
             md.append(f"| Metric | Result | Target |")
             md.append(f"| :--- | :--- | :--- |")
-            md.append(f"| **Runtime Health Score** | **{perf['score']} / 25** (`{perf['grade']}`) | $\\ge 85$ (Grade A) |")
-            md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step) | $<5.0$s / step |")
+            runtime_validity = (
+                "provisional; "
+                f"{perf['metrics']['scored_runtime_dimensions']}/"
+                f"{perf['metrics']['total_runtime_dimensions']} dimensions scored; "
+                f"duration {perf['metrics']['measured_duration_steps']}/"
+                f"{perf['metrics']['expected_duration_steps']} operation rows"
+                if perf["metrics"]["provisional"]
+                else "all 4 dimensions measured"
+            )
+            md.append(f"| **Runtime Health Score** | **{perf['score']} / 100** (`{perf['grade']}`; {runtime_validity}) | $\\ge 85$ (Grade A) |")
+            duration_label = (
+                f"{total_time:.1f}s measured across "
+                f"{perf['metrics']['measured_duration_steps']}/"
+                f"{perf['metrics']['expected_duration_steps']} operation rows "
+                f"(avg {perf['metrics']['avg_step_duration_s']}s/measured row)"
+                if perf["metrics"]["duration_telemetry_available"]
+                else "N/A (no measured provider/tool duration)"
+            )
+            md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps; {duration_label} | $<5.0$s / measured step |")
             md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
             md.append(f"| **Prompt Cache Hit Rate** | {cache_val_str} | $\\ge 70\\%$ |")
             md.append(f"| **Estimated Cost** | {total_cost_label} | $< $0.05 / task |")
             md.append("")
             md.append("### Runtime Sub-Scores")
-            md.append(f"- **Latency Efficiency:** `{perf['breakdown']['latency_score']} / 25`")
-            md.append(f"- **Prompt Cache Stability:** `{perf['breakdown']['cache_score']} / 25`")
-            md.append(f"- **Tool Correctness & Safety:** `{perf['breakdown']['correctness_score']} / 25`")
-            md.append(f"- **Batching & Concurrency:** `{perf['breakdown']['batching_score']} / 25`")
+            latency_label = (
+                f"{perf['breakdown']['latency_score']} / 25"
+                if perf["metrics"]["duration_telemetry_available"]
+                else "N/A (duration telemetry unavailable)"
+            )
+            md.append(f"- **Latency Efficiency:** `{latency_label}`")
+            cache_label = (
+                f"{perf['breakdown']['cache_score']} / 25"
+                if perf["metrics"]["telemetry_available"]
+                else "N/A (provider cache telemetry unavailable)"
+            )
+            md.append(f"- **Prompt Cache Stability:** `{cache_label}`")
+            correctness_label = (
+                f"{perf['breakdown']['correctness_score']} / 25"
+                if perf["breakdown"]["correctness_score"] is not None
+                else "N/A (no executed tool outcomes)"
+            )
+            batching_label = (
+                f"{perf['breakdown']['batching_score']} / 25"
+                if perf["breakdown"]["batching_score"] is not None
+                else "N/A (no AI tool-proposal rows)"
+            )
+            md.append(f"- **Tool Correctness & Safety:** `{correctness_label}`")
+            md.append(f"- **Batching & Concurrency:** `{batching_label}`")
             md.append("")
             md.append("---")
             md.append("## 💡 Actionable Improvement Ideas (How to Compete with Sharks)")
@@ -595,13 +1034,16 @@ class StepTracker:
             md.append("---")
             md.append("## 📜 Step-by-Step Execution Log")
             md.append("")
-            md.append("| Step | Node | Duration | Tokens (In/Out) | Cache % | Tools Executed & Status |")
+            md.append("| Step | Node | Duration | Tokens (In/Out) | Cache % | Tool Proposals / Executions |")
             md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
 
             for s in self.steps:
                 tools_str = ""
                 for tc in s.tool_calls:
-                    icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
+                    if tc.status == "proposed":
+                        icon = "↗"
+                    else:
+                        icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
                     tools_str += f"`{icon} {tc.name}` "
                 if not tools_str:
                     tools_str = "*None*"
@@ -616,7 +1058,13 @@ class StepTracker:
                 else:
                     cache_str = "-"
                 tok_str = f"{s.input_tokens:,} / {s.output_tokens:,}" if s.input_tokens > 0 else "-"
-                md.append(f"| **{s.step_index}** | `{s.node_name}` | {s.duration_s:.2f}s | {tok_str} | {cache_str} | {tools_str} |")
+                effective_duration = max(
+                    float(s.duration_s or 0.0),
+                    float(s.llm_duration_s or 0.0),
+                    float(s.tool_duration_s or 0.0),
+                )
+                duration_str = f"{effective_duration:.2f}s" if effective_duration > 0 else "N/A"
+                md.append(f"| **{s.step_index}** | `{s.node_name}` | {duration_str} | {tok_str} | {cache_str} | {tools_str} |")
 
             md_content = "\n".join(md)
 
@@ -644,7 +1092,13 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
         except Exception:
             pass
 
-    trace_dir = Path(os.path.expanduser("~")) / ".crusorai" / "traces"
+    configured_home = os.environ.get("CRUSORAI_HOME", "").strip()
+    runtime_home = (
+        Path(configured_home).expanduser()
+        if configured_home
+        else Path(os.path.expanduser("~")) / ".crusorai"
+    )
+    trace_dir = runtime_home / "traces"
     if not session_id:
         latest_file = trace_dir / "latest.jsonl"
         if latest_file.exists():
@@ -694,36 +1148,12 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
         return
 
     tracker = StepTracker(session_id)
-    tracker.steps = [
-        StepRecord(
-            session_id=session_id,
-            step_index=r.get("step_index", i + 1),
-            node_name=r.get("node_name", ""),
-            started_at=r.get("started_at", 0),
-            ended_at=r.get("ended_at", 0),
-            duration_s=r.get("duration_s", 0),
-            llm_duration_s=r.get("llm_duration_s", 0),
-            tool_duration_s=r.get("tool_duration_s", 0),
-            model=r.get("model", ""),
-            provider=r.get("provider", ""),
-            input_tokens=r.get("input_tokens", 0),
-            output_tokens=r.get("output_tokens", 0),
-            cached_tokens=r.get("cached_tokens", 0),
-            cache_hit_ratio=r.get("cache_hit_ratio", 0),
-            tokens_per_second=r.get("tokens_per_second", 0),
-            estimated_cost_usd=r.get("estimated_cost_usd", 0),
-            tool_calls=[ToolExecutionRecord(**tc) for tc in r.get("tool_calls", [])],
-            verification_status=r.get("verification_status", "not_applicable"),
-            compaction_active=r.get("compaction_active", False),
-            diagnostics=r.get("diagnostics", []),
-            user_ask=r.get("user_ask", ""),
-        )
-        for i, r in enumerate(records)
-    ]
+    tracker.steps = [_step_record_from_dict(r) for r in records]
+    tracker._step_counter = len(tracker.steps)
 
     inferred_user_ask = user_ask
     if not inferred_user_ask:
-        for r in records:
+        for r in reversed(records):
             if r.get("user_ask"):
                 inferred_user_ask = r["user_ask"]
                 break
@@ -732,8 +1162,8 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
     quality = tracker.compute_quality_score(inferred_user_ask)
     total_tokens_in = sum(s.input_tokens for s in tracker.steps)
     total_tokens_out = sum(s.output_tokens for s in tracker.steps)
-    cached_tokens = sum(s.cached_tokens for s in tracker.steps)
-    total_time = sum(s.duration_s for s in tracker.steps)
+    cached_tokens = int(perf["metrics"]["reported_cached_tokens"])
+    total_time = float(perf["metrics"]["total_measured_duration_s"])
 
     cache_val_str = (
         f"{perf['metrics']['cache_hit_rate_pct']}% ({cached_tokens:,} tokens cached)"
@@ -747,12 +1177,37 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
     print(f"• UNIFIED BENCHMARK SCORE : {quality.unified_score}/100 [{quality.unified_grade}]")
     print(f"• 🎯 Output Quality Score : {quality.quality_score}/100 [{quality.quality_grade}]")
     print(f"• ⚡ Runtime Health Score : {perf['score']}/100 [{perf['grade']}]")
-    print(f"• Total Steps & Duration  : {len(tracker.steps)} steps in {total_time:.1f}s (avg {perf['metrics']['avg_step_duration_s']}s/step)")
-    print(f"• Total Tokens & Cost     : {total_tokens_in:,} in / {total_tokens_out:,} out (${perf['metrics']['total_cost_usd']:.4f} USD)")
+    duration_label = (
+        f"{total_time:.1f}s measured across "
+        f"{perf['metrics']['measured_duration_steps']}/"
+        f"{perf['metrics']['expected_duration_steps']} operation rows"
+        if perf["metrics"]["duration_telemetry_available"]
+        else "N/A"
+    )
+    cost_value = perf["metrics"]["total_cost_usd"]
+    cost_label = f"${cost_value:.4f} USD" if cost_value is not None else "Unknown"
+    print(f"• Total Steps & Duration  : {len(tracker.steps)} steps; {duration_label}")
+    print(f"• Total Tokens & Cost     : {total_tokens_in:,} in / {total_tokens_out:,} out ({cost_label})")
     print(f"• Prompt Cache Hit Rate   : {cache_val_str}")
     print("-" * 80)
     print(f"  Quality Pillars: Deliverables: {quality.pillars['deliverables'].score}/35 | Constraints: {quality.pillars['constraints'].score}/25 | Soundness: {quality.pillars['soundness'].score}/25 | Polish: {quality.pillars['presentation'].score}/15")
-    print(f"  Runtime Pillars: Latency: {perf['breakdown']['latency_score']}/25 | Cache: {perf['breakdown']['cache_score']}/25 | Tools: {perf['breakdown']['correctness_score']}/25 | Batching: {perf['breakdown']['batching_score']}/25")
+    latency_cli = (
+        f"{perf['breakdown']['latency_score']}/25"
+        if perf["metrics"]["duration_telemetry_available"] else "N/A"
+    )
+    cache_cli = (
+        f"{perf['breakdown']['cache_score']}/25"
+        if perf["metrics"]["telemetry_available"] else "N/A"
+    )
+    correctness_cli = (
+        f"{perf['breakdown']['correctness_score']}/25"
+        if perf["breakdown"]["correctness_score"] is not None else "N/A"
+    )
+    batching_cli = (
+        f"{perf['breakdown']['batching_score']}/25"
+        if perf["breakdown"]["batching_score"] is not None else "N/A"
+    )
+    print(f"  Runtime Pillars: Latency: {latency_cli} | Cache: {cache_cli} | Tools: {correctness_cli} | Batching: {batching_cli}")
     print("=" * 80)
 
     print(f"{'#':<3} | {'Node':<10} | {'Time':<6} | {'Tokens (In/Out)':<16} | {'Cache %':<8} | {'Tools Executed / Status':<28}")
@@ -761,7 +1216,10 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
     for s in tracker.steps:
         tools_str = ""
         for tc in s.tool_calls:
-            icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
+            if tc.status == "proposed":
+                icon = "↗"
+            else:
+                icon = "✅" if tc.status == "success" and (tc.exit_code is None or tc.exit_code == 0) else "❌"
             tools_str += f"{icon} {tc.name} "
         if not tools_str:
             tools_str = "(no tools)"
@@ -776,7 +1234,13 @@ def print_step_report(session_id: Optional[str] = None, user_ask: Optional[str] 
         else:
             c_hit = "-"
         tok_str = f"{s.input_tokens}/{s.output_tokens}"
-        print(f"{s.step_index:<3} | {s.node_name:<10} | {s.duration_s:<5.2f}s | {tok_str:<16} | {c_hit:<8} | {tools_str:<28}")
+        effective_duration = max(
+            float(s.duration_s or 0.0),
+            float(s.llm_duration_s or 0.0),
+            float(s.tool_duration_s or 0.0),
+        )
+        duration_cli = f"{effective_duration:.2f}s" if effective_duration > 0 else "N/A"
+        print(f"{s.step_index:<3} | {s.node_name:<10} | {duration_cli:<6} | {tok_str:<16} | {c_hit:<8} | {tools_str:<28}")
 
     print("\n" + "=" * 80)
     print(" 💡 ACTIONABLE IMPROVEMENT IDEAS (Saved to diagnostics/ folder):")

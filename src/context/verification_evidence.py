@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.runtime.persistence import sanitize_for_persistence
+
 _STATUS = {"passed", "failed", "stale", "unverified", "unavailable"}
 _VERIFY_RE = re.compile(
     r"(?:^|\s)(pytest|python\s+-m\s+pytest|npm\s+(?:run\s+)?(?:test|lint|typecheck|build)|"
@@ -184,11 +186,17 @@ class VerificationLedger:
         summary = (output or "").strip()
         if len(summary) > 2000:
             summary = summary[:600] + "\n... omitted ...\n" + summary[-1400:]
+        # The evidence database is a durable replay boundary of its own. It
+        # cannot rely on the runtime journal (or on live-output preferences)
+        # to protect commands and captured output.
+        safe = sanitize_for_persistence({"command": command, "output": summary})
+        safe_command = str(safe["command"])
+        safe_summary = str(safe["output"])
         ws = str(Path(workspace).resolve())
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "INSERT INTO verification_events(created_at,session_id,workspace,command,kind,scope,status,exit_code,output) VALUES(?,?,?,?,?,?,?,?,?)",
-                (now, session_id, ws, command, kind, scope, status, int(exit_code), summary),
+                (now, session_id, ws, safe_command, kind, scope, status, int(exit_code), safe_summary),
             )
             event_id = int(cur.lastrowid)
             self._conn.execute(
@@ -196,13 +204,15 @@ class VerificationLedger:
                 "ON CONFLICT(session_id,workspace) DO UPDATE SET status=excluded.status,event_id=excluded.event_id,edited_at=NULL,changed_paths='[]'",
                 (session_id, ws, status, event_id),
             )
-        return {"status": status, "kind": kind, "scope": scope, "command": command,
+        return {"status": status, "kind": kind, "scope": scope, "command": safe_command,
                 "exit_code": int(exit_code), "event_id": event_id, "workspace": ws}
 
     def mark_edited(self, *, session_id: str, workspace: str, paths: list[str]) -> dict:
         ws = str(Path(workspace).resolve())
         now = time.time()
-        clean = sorted({str(p) for p in paths if p})[-200:]
+        clean_raw = sorted({str(p) for p in paths if p})[-200:]
+        safe_paths = sanitize_for_persistence(clean_raw)
+        clean = [str(path) for path in safe_paths]
         with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT status,changed_paths FROM verification_state WHERE session_id=? AND workspace=?",
@@ -242,12 +252,17 @@ class VerificationLedger:
             "changed_paths": json.loads(row["changed_paths"] or "[]"),
         }
 
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
     def mark_unavailable(self, *, session_id: str, workspace: str, reason: str) -> dict:
         ws = str(Path(workspace).resolve())
+        safe_reason = str(sanitize_for_persistence(reason[:500]))
         with self._lock, self._conn:
             self._conn.execute(
                 "INSERT INTO verification_state(session_id,workspace,status,event_id,edited_at,changed_paths) VALUES(?,?,'unavailable',NULL,NULL,?) "
                 "ON CONFLICT(session_id,workspace) DO UPDATE SET status='unavailable',changed_paths=excluded.changed_paths",
-                (session_id, ws, json.dumps([reason[:500]])),
+                (session_id, ws, json.dumps([safe_reason])),
             )
-        return {"status": "unavailable", "workspace": ws, "reason": reason}
+        return {"status": "unavailable", "workspace": ws, "reason": safe_reason}

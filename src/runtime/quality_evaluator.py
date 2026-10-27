@@ -66,6 +66,35 @@ FILE_DELIVERABLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_STRONG_WORKSPACE_MUTATION_RE = re.compile(
+    r"(?i)\b(?:add|apply|change|create|delete|develop|edit|fix|implement|"
+    r"migrate|modify|refactor|remove|rename|repair|replace|scaffold|touch|"
+    r"update|write)\b"
+)
+_LEADING_BUILD_RE = re.compile(
+    r"(?is)^\s*[\"'“‘]?\s*(?:(?:please|now|just|only)\s+)?(?:"
+    r"build\b(?!\s*,)|"
+    r"(?:can|could|would|will)\s+you\s+(?:please\s+)?build\b|"
+    r"i\s+(?:want|need|would\s+like)\s+you\s+to\s+build\b)"
+)
+
+
+def _requests_workspace_mutation(user_ask: str) -> bool:
+    """Conservative evaluator hint; execution nouns are not mutation intent.
+
+    In particular, ``verify_target_app`` and "launch the app" must not become
+    creation requests merely because they contain the substring ``app``.
+    """
+    from src.context.user_interest import decide_interest_mode
+
+    mode, change_policy, _ = decide_interest_mode(user_ask)
+    if mode != "act" or change_policy != "changes_requested":
+        return False
+    return bool(
+        _STRONG_WORKSPACE_MUTATION_RE.search(user_ask)
+        or _LEADING_BUILD_RE.search(user_ask)
+    )
+
 
 @dataclass
 class PillarScore:
@@ -136,7 +165,7 @@ class UserAskQualityEvaluator:
         runtime_score: float = 85.0,
         marked_edits: Optional[list[str]] = None,
         tool_records: Optional[list[dict[str, Any]]] = None,
-        verification_status: str = "passed",
+        verification_status: str = "not_applicable",
         final_assistant_message: str = "",
         verification_receipts: Optional[dict[str, Any]] = None,
     ) -> QualityReport:
@@ -150,27 +179,35 @@ class UserAskQualityEvaluator:
         all_artifacts = set(marked_edits)
         for tr in tool_records:
             name = tr.get("name", "")
+            if tr.get("status") != "success" or tr.get("exit_code") not in (None, 0):
+                continue
             args = tr.get("args") or {}
             if isinstance(args, str):
                 try:
                     args = json.loads(args)
                 except Exception:
                     args = {}
-            if name in ("write_file", "edit_file", "generate_image", "media_download"):
-                path_val = args.get("path") or args.get("filename") or args.get("file_path")
+            if name in (
+                "write_file", "edit_file", "copy_file", "generate_image",
+                "media_download",
+            ):
+                path_val = (
+                    args.get("path")
+                    or args.get("filename")
+                    or args.get("file_path")
+                    or args.get("destination")
+                    or args.get("dest")
+                    or args.get("dst")
+                    or args.get("target_path")
+                    or args.get("output_path")
+                )
                 if path_val:
                     all_artifacts.add(str(path_val))
 
-        # Check if the prompt requested creating or modifying software
-        is_creation_intent = any(
-            marker in user_ask.lower()
-            for marker in (
-                "build", "create", "implement", "make", "scaffold", "write",
-                "develop", "add", "fix", "setup", "craft", "design", "compose",
-                "generate", "construct", "app", "application", "server", "api",
-                "dashboard", "portfolio", "timer", "component", "screen"
-            )
-        )
+        # Check whether workspace mutation was actually requested.  Nouns such
+        # as "app" and tool names such as verify_target_app are not permission
+        # to create files.
+        is_creation_intent = _requests_workspace_mutation(user_ask)
 
         # -----------------------------------------------------------------
         # Pillar 1: Requirement & Deliverable Fulfillment (35.0 pts)
@@ -487,7 +524,7 @@ class UserAskQualityEvaluator:
             return PillarScore("Verification & Soundness", 0.0, 25.0, "fail", details, deductions)
 
         # 1. Overall Status check (from gates / evidence ledger)
-        status_clean = (verification_status or "passed").lower()
+        status_clean = (verification_status or "not_applicable").lower()
         if status_clean == "passed":
             details.append("Verification status verified as PASSED in evidence ledger.")
         elif status_clean == "stale":
@@ -496,6 +533,12 @@ class UserAskQualityEvaluator:
         elif status_clean in ("failed", "unverified"):
             score -= 12.0
             deductions.append(f"Verification status is {status_clean.upper()} (-12.0 pts)")
+        elif status_clean in ("not_applicable", "unknown", "") and is_creation_intent:
+            score -= 12.0
+            deductions.append(
+                "Verification evidence is unavailable for a workspace-mutation "
+                "task (-12.0 pts)"
+            )
 
         # 2. Check for tool failure exit codes in verification tools
         test_tools = [

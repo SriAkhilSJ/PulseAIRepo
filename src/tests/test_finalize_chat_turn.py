@@ -62,6 +62,35 @@ def test_successful_work_run_stamps_nothing(_no_memory):
     assert out["task_status"] == "completed"
 
 
+def test_finalize_report_counts_filtered_informational_execution(_no_memory, monkeypatch):
+    """A real informational receipt counts even though it intentionally does
+    not become a success/failure progress entry in execution_trace."""
+    from src.graphs import chat_graph
+    from src.runtime.step_tracker import StepTracker
+
+    captured = {}
+
+    class _Tracker:
+        def finalize_report(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        StepTracker,
+        "get_tracker",
+        classmethod(lambda cls, session_id="default", workspace_root=None: _Tracker()),
+    )
+    state = _chat_state()
+    state.update({
+        "current_task": "Check Android tooling without modifying files.",
+        "execution_trace": [],
+        "turn_tool_execution_count": 1,
+    })
+
+    chat_graph.finalize_node(state, {"configurable": {"thread_id": "count-info"}})
+
+    assert captured["receipts"]["tool_execution_count"] == 1
+
+
 def test_work_run_never_carries_the_signoff_tail(_no_memory):
     """The "--- / *Need any tweaks? Just let me know!*" tail is dead. No
     finalize message may contain invented sign-off voice, on any outcome."""

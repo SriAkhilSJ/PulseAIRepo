@@ -1,0 +1,18 @@
+Branch: arena/a7c2c868-pulseairepo
+Tested implementation commit: b330e11883fff988f607d8c751b786201df4289e
+Evidence-base HEAD: e5fae967a8aa31d77cd4d635e0607350705bab1b
+Ancestry check (git merge-base --is-ancestor b330e118 HEAD): 0 (PASSED)
+OS: Windows (win32)
+Python version: Python 3.11.9
+Node version: v24.18.0
+App launch command: .\scripts\code.bat (desktop/vscode)
+UI Render status: e5fae967 (ui 2026-10-23-39 STALE)
+Provider: custom
+Model: z-ai/glm-5.3-flash
+Disposable workspace: C:\Users\Administrator\Downloads\testCRUSOR
+Captured sessions:
+- session-233aabe588a347b5919c67783b1e203f
+- session-9365ea03848c463eb49bd383b0ffdf26
+- session-2a5f33eb7d8c42d59bdf5ca05d2822fb
+Local time: 2026-10-24 23:20:00 -07:00
+Application-code files modified: NONE

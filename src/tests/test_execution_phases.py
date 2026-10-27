@@ -26,7 +26,7 @@ def test_base_phase_is_neutral_no_matter_what_words_the_plan_uses():
         assert phase.name == "general"
         assert phase.allowed is None
         assert phase.guidance == ""
-        assert phase.max_file_mutations_per_turn == 0
+        assert not hasattr(phase, "max_file_mutations_per_turn")
         # state is not even an input — the signature is the pin
         assert "state" not in inspect.signature(base_phase).parameters
 
@@ -59,8 +59,9 @@ def test_state_driven_phases_still_construct_real_allowlists():
     """chat_graph's STATE-driven phases (forced delivery, verification
     reserve) are the only non-None allowed sources; the value type keeps
     supporting them."""
-    phase = ExecutionPhase("forced_delivery", frozenset({"write_file"}),
-                           max_file_mutations_per_turn=2, guidance="DIRECT DELIVERY")
+    phase = ExecutionPhase(
+        "forced_delivery", frozenset({"write_file"}), guidance="DIRECT DELIVERY"
+    )
     assert phase.allowed == frozenset({"write_file"})
     assert base_phase().allowed is None
 

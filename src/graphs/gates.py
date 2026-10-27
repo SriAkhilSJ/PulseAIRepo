@@ -13,16 +13,20 @@ Layering: gates <- state, budget (budget provides _budget_exhausted).
 """
 from __future__ import annotations
 
-import re
-
-import os
+import hashlib
+import json
 import re
 from pathlib import Path
 
 from langchain_core.messages import SystemMessage, ToolMessage
 
+from src.context.user_interest import UserInterest, interest_from_state
 from src.graphs.state import AgentState
 from src.graphs.budget import _budget_exhausted
+from src.graphs.verification_helpers import (
+    classify_env_failure,
+    command_fingerprint,
+)
 
 
 # =========================================================
@@ -74,6 +78,10 @@ _INCOMPLETE_RESPONSE_NUDGE = (
 _STALL_CONTINUATION_NUDGE = (
     "[System: Continue now. Execute the required tool calls and only send your "
     "final answer after completing the task.]"
+)
+_ANSWER_CONTINUATION_NUDGE = (
+    "[System: Continue and complete the answer now. This is an answer/read-only "
+    "turn: do not make workspace changes or call side-effecting tools.]"
 )
 
 _FINISH_NUDGE = (
@@ -130,6 +138,44 @@ _ARTIFACT_NUDGE = (
 )
 
 
+def _interest_text(state: AgentState) -> str:
+    """Source-faithful task focus used by every completion/evidence gate."""
+    focus = interest_from_state(state).focus_text()
+    return focus or str(state.get("current_task", "") or "")
+
+
+def _deliverable_source_text(state: AgentState) -> str:
+    """Active task text with line structure retained for file-ledger syntax.
+
+    ``UserInterest.focus_text()`` intentionally normalizes whitespace. That is
+    useful for semantic routing but destroys whether ``server.py`` appeared as
+    an exact bullet or merely in prose. The raw state fields retain that syntax.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for key in ("current_task", "latest_instruction"):
+        value = str(state.get(key, "") or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        parts.append(value)
+    return "\n".join(parts) if parts else _interest_text(state)
+
+
+def _execution_requested(state: AgentState) -> bool:
+    """Whether completion should require execution rather than an answer."""
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None:
+        if (
+            interest.mode in {"answer", "social"}
+            or interest.relationship == "cancelled"
+        ):
+            return False
+        if interest.mode == "act":
+            return True
+    return _looks_like_execution_task(_interest_text(state))
+
+
 def _looks_like_copy_task(task: str) -> bool:
     t = (task or "").lower()
     return any(marker in t for marker in _COPY_TASK_MARKERS)
@@ -146,6 +192,29 @@ _NAMED_DELIVERABLE_EXTENSIONS = (
 _NAMED_DELIVERABLE_RE = re.compile(
     r"[A-Za-z0-9_./\\-]+\.(?:" + "|".join(_NAMED_DELIVERABLE_EXTENSIONS) + r")\b",
     re.IGNORECASE,
+)
+# A bare code filename is ambiguous in prose (``Next.js`` is a framework),
+# but not when the user puts the filename itself in a markdown/numbered file
+# ledger. Preserve that provenance rather than weakening the conservative
+# bare-name rule globally.
+_LISTED_DELIVERABLE_RE = re.compile(
+    r"^\s*(?:[-*+]|\d+[.)])\s+[`'\"]?"
+    r"(?P<target>[A-Za-z0-9_./\\-]+\.(?:"
+    + "|".join(_NAMED_DELIVERABLE_EXTENSIONS)
+    + r"))[`'\"]?\s*(?:(?:—|–|:)\s+.+|[.,;])?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_DELIVERABLE_LEDGER_HEADER_RE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:deliverables?|artifacts?|output\s+files?|required\s+files?)\b|"
+    r"\b(?:file|project)\s+(?:list|structure|layout)\b|"
+    r"\bfiles?\s*(?:to\s+(?:create|write|deliver|produce|include)|:)|"
+    r"\b(?:create|deliver|write|produce|include|return|save)\b.{0,100}\bfiles?\b"
+    r")"
+)
+_NON_DELIVERY_LEDGER_HEADER_RE = re.compile(
+    r"(?i)\b(?:technology|tech\s+stack|frameworks?|dependencies|"
+    r"ignore|exclude|do\s+not\s+create)\b"
 )
 
 _NAMED_APP_RE = re.compile(
@@ -183,6 +252,44 @@ def _deliverable_targets(task: str) -> list[str]:
             targets.append(name)
     return targets
 
+
+def _listed_deliverable_targets(task: str) -> list[str]:
+    """Path entries in a list explicitly introduced as files/deliverables.
+
+    Requiring the nearby heading is what distinguishes ``- server.py`` under
+    "Required files" from ``- Next.js`` under "Technology stack".
+    """
+    targets: list[str] = []
+    seen: set[str] = set()
+    ledger_context = False
+    in_ledger = False
+    for line in str(task or "").replace("\r\n", "\n").split("\n"):
+        match = _LISTED_DELIVERABLE_RE.fullmatch(line)
+        if match is not None:
+            if not (ledger_context or in_ledger):
+                continue
+            in_ledger = True
+            name = match.group("target").replace("\\", "/").lstrip("./")
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                targets.append(name)
+            continue
+        if not line.strip():
+            # Markdown commonly separates a heading and its list by one blank
+            # line; do not lose the explicit context there.
+            continue
+        if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", line):
+            ledger_context = False
+            in_ledger = False
+            continue
+        ledger_context = bool(
+            _DELIVERABLE_LEDGER_HEADER_RE.search(line)
+            and not _NON_DELIVERY_LEDGER_HEADER_RE.search(line)
+        )
+        in_ledger = False
+    return targets
+
+
 # Verify gate (Test-2 fix): an execution task that WROTE code files but
 # never ran a verification tool must not finalize. Test 2 shipped ~15
 # syntax/type bugs because writes were blind — nothing forced a check
@@ -200,6 +307,16 @@ _VERIFY_TOOL_NAMES = frozenset({
     # Multi-platform receipts (src/targets/): a target build/verify receipt is
     # the native analogue of the UI pipeline above.
     "build_target", "verify_target_app", "device_ui", "device_screenshot", "device_logs",
+})
+_VERIFICATION_COMMAND_TOKENS = (
+    "pytest", "unittest", " test", "npm test", "typecheck", "tsc ",
+    " lint", " build", "cargo check", "go test", " analyze",
+)
+_FAILED_CHECK_TOOLS = frozenset({
+    "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes",
+    "build_target", "verify_target_app",
+    "browser_navigate", "browser_snapshot", "browser_screenshot",
+    "run_terminal", "terminal",
 })
 
 # UI/frontend deliverables: for these, typecheck alone proves nothing at
@@ -315,6 +432,65 @@ def _looks_like_execution_task(task: str) -> bool:
 _WORK_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file",
 })
+
+
+def _verification_trace_key(item: dict) -> tuple[str, str] | None:
+    """Stable identity for a concrete executable verification obligation."""
+    tool_name = str(item.get("tool") or "")
+    if tool_name not in _FAILED_CHECK_TOOLS:
+        return None
+    args = item.get("args") if isinstance(item.get("args"), dict) else {}
+    canonical_tool = "terminal" if tool_name in {"terminal", "run_terminal"} else tool_name
+    if canonical_tool == "terminal":
+        command = command_fingerprint(tool_name, args) or ""
+        if not command or not any(token in command for token in _VERIFICATION_COMMAND_TOKENS):
+            return None
+        identity = command
+    else:
+        identity = json.dumps(args, sort_keys=True, default=str, separators=(",", ":"))
+    digest = hashlib.sha256(identity.encode("utf-8", "replace")).hexdigest()[:20]
+    return f"{canonical_tool}:{digest}", canonical_tool
+
+
+def _unresolved_failed_verification_checks(state: AgentState) -> list[dict[str, object]]:
+    """Failed checks that have not passed again with the same identity.
+
+    A mutation marks repair as landed but deliberately does not erase the debt:
+    only a successful rerun of the exact failed check can do that. A different,
+    weaker green command therefore cannot overwrite a stronger red receipt.
+    Environmental failures are excluded because source mutation is not their
+    valid recovery path.
+    """
+    debts: dict[str, dict[str, object]] = {}
+    for index, item in enumerate(state.get("execution_trace", []) or []):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("tool") in _WORK_TOOLS
+            and item.get("status") == "success"
+        ):
+            for debt in debts.values():
+                debt["repair_landed"] = True
+            continue
+        identity = _verification_trace_key(item)
+        if identity is None:
+            continue
+        fingerprint, canonical_tool = identity
+        status = str(item.get("status") or "").lower()
+        result = str(item.get("result") or "")
+        if status in {"failed", "error", "failure"}:
+            if classify_env_failure(result):
+                continue
+            debts[fingerprint] = {
+                "fingerprint": fingerprint,
+                "tool": canonical_tool,
+                "failed_at": index,
+                "repair_landed": False,
+            }
+        elif status in {"success", "succeeded", "completed"}:
+            debts.pop(fingerprint, None)
+    return sorted(debts.values(), key=lambda item: int(item["failed_at"]))
+
 
 # R3-4: the evidence ledger classifies the task as
 #   unverified — no verification ran, or the last result failed;
@@ -450,20 +626,25 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     disk under `workspace`. Empty list = no named targets or all present.
 
     Deliberately conservative to avoid false positives: a bare filename
-    in prose ("build a chat app with Next.js" would otherwise match
-    "Next.js") only counts as a named deliverable for COPY tasks — where
-    the whole point is placing one specific file. Non-copy (MDX-style)
-    tasks must name a PATH containing a slash, e.g.
-    "src/components/ui/hero-futuristic.tsx".
+    mentioned in prose ("build a chat app with Next.js" would otherwise
+    match "Next.js") is ignored unless the task is a COPY task, the suffix
+    names a non-code artifact, or the filename is an exact entry in a
+    markdown/numbered file ledger. Path-shaped targets remain explicit.
 
     Disk I/O is the outcome-checking exception to gates' purity: E2's
     failure was a run that proudly finished with 0 files — the only way
     to detect that is to look. Read-only, never raises (an unreadable
     workspace treats targets as missing rather than crashing the gate).
     """
-    task = state.get("current_task", "")
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None and (
+        not _execution_requested(state) or interest.change_policy == "no_changes"
+    ):
+        return []
+    task = _deliverable_source_text(state)
     is_copy = _looks_like_copy_task(task)
     app_named = _app_named_targets(task)
+    listed = {name.lower() for name in _listed_deliverable_targets(task)}
     targets = _deliverable_targets(task)
     for name in app_named:
         if name not in targets:
@@ -472,17 +653,17 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     for target in targets:
         if not target:
             continue
+        target_key = target.replace("\\", "/").lstrip("./").lower()
         if not is_copy and "/" not in target and "\\" not in target:
             # A bare code-ish filename in prose can be a library/version token
             # (the historical `Next.js` false positive), so keep requiring a
-            # path for code. A requested non-code artifact such as report.pdf,
-            # analysis.xlsx, or slides.pptx is unambiguously a deliverable and
-            # should be protected even at the workspace root. An app-named
-            # target ("app called flutterdemo") is a project DIRECTORY the
-            # task exists to generate — equally unambiguous.
+            # path unless the user made it an exact ledger entry. A requested
+            # non-code artifact such as report.pdf or slides.pptx is already
+            # unambiguous. An app-named target is a project directory.
             if (
                 Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS
                 and target not in app_named
+                and target_key not in listed
             ):
                 continue
         exists = False
@@ -505,13 +686,18 @@ def _named_deliverables_exist(state: AgentState, workspace: str = ".") -> bool:
     execute_code/terminal without being falsely treated as "no work" merely
     because the delivery-only work counter intentionally excludes shell calls.
     """
-    task = state.get("current_task", "")
+    task = _deliverable_source_text(state)
     is_copy = _looks_like_copy_task(task)
+    listed = {name.lower() for name in _listed_deliverable_targets(task)}
     eligible: list[str] = []
     for target in _deliverable_targets(task):
         has_dir = "/" in target or "\\" in target
+        target_key = target.replace("\\", "/").lstrip("./").lower()
         if not is_copy and not has_dir:
-            if Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS:
+            if (
+                Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS
+                and target_key not in listed
+            ):
                 continue
         eligible.append(target)
     if not eligible:
@@ -550,6 +736,70 @@ def _deliverable_candidates(workspace: str, target: str):
         ):
             candidates.append(ws / sub / bare)
     return candidates
+
+
+def _completion_activity_missing(state: AgentState) -> bool:
+    """Whether an action turn still owes its first concrete action.
+
+    Mutation-capable delivery tasks keep the deliberately strict work-tool /
+    on-disk-artifact bar.  A ``no_changes`` action cannot satisfy that bar by
+    design: mutation tools are not bound.  For those turns, any executed tool
+    receipt is the honest progress boundary (terminal checks, target
+    inspection, reads, searches, and verification all qualify).
+
+    Desktop evidence bd057959 exposed the mismatch: ``python --version`` ran
+    successfully with exit 0, then the mutation-only gate issued two
+    impossible work nudges and finalization falsely returned ``failed``.
+    """
+    interest = UserInterest.from_state(state.get("user_interest"))
+    if interest is not None and interest.change_policy == "no_changes":
+        return not _any_tool_activity(state)
+    return (
+        _tool_call_count(state) < 1
+        and not _named_deliverables_exist(
+            state, state.get("workspace", ".")
+        )
+    )
+
+
+def _completion_evidence_ready(state: AgentState) -> bool:
+    """Whether a reserved final response may carry a completed verdict.
+
+    This is deliberately stricter than a model saying "done". Execution tasks
+    need concrete activity, every named deliverable, fresh required
+    verification, no unrecovered trailing failure, and no open plan step. The
+    result only controls budget-cut attribution; it never skips the final model
+    response itself.
+    """
+    if state.get("execution_mode") == "ask":
+        return True
+    if not _execution_requested(state):
+        return True
+    if not _any_tool_activity(state):
+        return False
+    if _deliverables_missing_on_disk(state, state.get("workspace", ".")):
+        return False
+    # The reserve is not a shortcut around the verification gate. Technical
+    # execution earns a clean wrap only from a fresh, recognized passing
+    # receipt; unlike _verify_unsatisfied, this has no nudge-budget escape.
+    if not _verification_ran_and_passed(state):
+        return False
+    plan = state.get("plan") or []
+    if plan and any(step.get("status") != "completed" for step in plan):
+        return False
+    from src.graphs.progress_helpers import trailing_batch_failed
+
+    if trailing_batch_failed(state.get("messages") or []):
+        return False
+    nudged_at = state.get("nudged_at_msg_count")
+    if isinstance(nudged_at, int) and nudged_at >= 0:
+        messages = state.get("messages") or []
+        if not any(
+            getattr(message, "tool_calls", None)
+            for message in messages[nudged_at:]
+        ):
+            return False
+    return True
 
 
 def should_continue(state: AgentState):
@@ -625,13 +875,15 @@ def should_continue(state: AgentState):
         if _repetition:
             return "finalize"
 
-        # Hard Gate: If this is an execution/creation task and NO work tools have executed,
-        # do NOT let the turn finalize prematurely on no_tool_streak if finish nudges remain.
-        # Force the model to stop monologuing and execute mutation tools.
+        # Hard Gate: If this is an execution/creation task and NO eligible
+        # action has executed, do NOT let the turn finalize prematurely on
+        # no_tool_streak while finish nudges remain. Delivery tasks still owe
+        # mutation/on-disk evidence; explicitly no-change tasks owe a real
+        # read/check/terminal receipt instead (their mutation tools are
+        # intentionally unavailable).
         if (
-            _looks_like_execution_task(state.get("current_task", ""))
-            and _tool_call_count(state) < 1
-            and not _named_deliverables_exist(state, state.get("workspace", "."))
+            _execution_requested(state)
+            and _completion_activity_missing(state)
             and state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
             and not _budget_exhausted(state)
         ):
@@ -690,26 +942,24 @@ def should_continue(state: AgentState):
         if (state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET
                 and _deliverables_missing_on_disk(state, state.get("workspace", "."))):
             return "finish_gate"
-        if (_produced_code_deliverable(state)
+        if (_execution_requested(state)
+                and _produced_code_deliverable(state)
                 and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
                 and not _verification_ran_and_passed(state)):
             return "finish_gate"
         return "finalize"
 
-    # Finish gate: an execution task that ends with NO deliverable-producing
-    # tool call is an early stop, not completion (probe/scratchpad calls like
-    # think/list_files don't count as work). Nudge once (bounded via
-    # finish_nudges) so the model actually acts; after the budget, allow
-    # finalize.
+    # Finish gate: an execution task that ends with NO eligible action is an
+    # early stop, not completion. Mutation-capable delivery tasks owe a work
+    # tool or named on-disk artifact. Explicit no-change actions instead owe
+    # one real tool receipt; requiring a mutation there is impossible and
+    # caused successful inspection/command turns to fail after extra laps.
     if state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
-        if _looks_like_execution_task(state.get("current_task", "")):
-            if (
-                _tool_call_count(state) < 1
-                and not _named_deliverables_exist(
-                    state, state.get("workspace", ".")
-                )
-            ):
-                return "finish_gate"
+        if (
+            _execution_requested(state)
+            and _completion_activity_missing(state)
+        ):
+            return "finish_gate"
 
     # Verify gate: code files were written but the code is NOT proven
     # sound — either no verification tool ran, or the last verification
@@ -737,7 +987,7 @@ def should_continue(state: AgentState):
     # legitimately unplaceable file cannot deadlock the run.
     _missing = _deliverables_missing_on_disk(state, state.get("workspace", "."))
     if _missing:
-        _is_copy = _looks_like_copy_task(state.get("current_task", ""))
+        _is_copy = _looks_like_copy_task(_interest_text(state))
         if _is_copy or state.get("finish_nudges", 0) < _FINISH_NUDGE_BUDGET:
             return "finish_gate"
 
@@ -758,7 +1008,7 @@ def _verify_unsatisfied(state: AgentState) -> bool:
     """
     if state.get("verify_nudges", 0) >= _VERIFY_NUDGE_BUDGET:
         return False
-    if not _looks_like_execution_task(state.get("current_task", "")):
+    if not _execution_requested(state):
         return False
     # Hard gate (founder 2026-10-20): a produced code deliverable owes at
     # least one real verification pass before the turn may close, however
@@ -789,7 +1039,7 @@ def _produced_code_deliverable(state: AgentState) -> bool:
     runtime to verify and stay on the existence contract)."""
     if _wrote_code_files(state):
         return True
-    task = state.get("current_task", "")
+    task = _deliverable_source_text(state)
     app_named = _app_named_targets(task)
     targets = [
         t for t in _deliverable_targets(task)
@@ -850,8 +1100,10 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     every required domain must have a fresh successful receipt. Later receipts
     supersede earlier receipts only within their own domain.
     """
-    ui_task = _looks_like_ui_task(state.get("current_task", ""))
+    task_focus = _interest_text(state)
+    ui_task = _looks_like_ui_task(task_focus)
     receipts = _fresh_verification_messages(state)
+    failed_check_debts = _unresolved_failed_verification_checks(state)
     status = {
         "static": False,
         "typecheck": False,
@@ -859,6 +1111,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "navigate": False,
         "snapshot": False,
         "screenshot": False,
+        "failed_checks": not failed_check_debts,
     }
     seen: set[str] = set()
     all_messages = list(state.get("messages", []))
@@ -910,14 +1163,9 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             status["static"] = passed
         elif name in {"run_terminal", "terminal"}:
             command = str(tool_args(message).get("command", "")).lower()
-            is_check = any(token in command for token in (
-                "pytest", " test", "npm test", "typecheck", "tsc ",
-                " lint", " build", "cargo check", "go test",
-                # flutter/dart analyze is THE static check of its stack;
-                # without the token a lone `flutter analyze` never
-                # registered as a check at all.
-                " analyze",
-            ))
+            is_check = any(
+                token in command for token in _VERIFICATION_COMMAND_TOKENS
+            )
             if is_check:
                 status["static"] = "exit code: 0" in low
         elif name == "browser_navigate":
@@ -943,7 +1191,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     integrity_issues = audit_workspace(workspace) if workspace else []
     status["integrity"] = not integrity_issues
 
-    required = ["static", "integrity"]
+    required = ["static", "integrity", "failed_checks"]
     if ui_task:
         # UI verification: requires successful navigation AND at least one of
         # DOM snapshot or visual screenshot (either proves page rendered).
@@ -953,7 +1201,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         # ...but when the task ASKS for a screenshot/visual proof, the
         # snapshot cannot stand in for it (audit 2026-10-12): the requested
         # artifact is the receipt, so the screenshot domain is required too.
-        visual_proof = _task_asks_visual_proof(state.get("current_task", ""))
+        visual_proof = _task_asks_visual_proof(task_focus)
         status["visual_proof_required"] = visual_proof
         if visual_proof:
             required.append("screenshot")
@@ -964,6 +1212,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "required": required,
         "missing": missing,
         "integrity_issues": [issue.describe() for issue in integrity_issues[:20]],
+        "failed_check_debts": failed_check_debts,
         "ran_any": bool(seen),
         "passed": not missing,
     }
@@ -1056,8 +1305,13 @@ def finish_gate_node(state: AgentState) -> dict:
             f"calls — re-prompting to act ({state.get('stall_continuations', 0) + 1}/2)",
             flush=True,
         )
+        nudge = (
+            _STALL_CONTINUATION_NUDGE
+            if _execution_requested(state)
+            else _ANSWER_CONTINUATION_NUDGE
+        )
         return {
-            "messages": [SystemMessage(content=_STALL_CONTINUATION_NUDGE, additional_kwargs={"crusor_nudge": True})],
+            "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],
             "stall_continuations": state.get("stall_continuations", 0) + 1,
             "nudged_at_msg_count": len(state.get("messages") or []),
         }
@@ -1095,7 +1349,8 @@ def finish_gate_node(state: AgentState) -> dict:
     # never spends), and this branch kept re-emitting the verify nudge
     # while verify_nudges grew unbounded past every limit.
     if (
-        _produced_code_deliverable(state)
+        _execution_requested(state)
+        and _produced_code_deliverable(state)
         and state.get("verify_nudges", 0) < _VERIFY_NUDGE_BUDGET
         and (not _ran_verification(state) or _verification_failed(state))
     ):
@@ -1142,7 +1397,7 @@ def finish_gate_node(state: AgentState) -> dict:
             "plan_wrap_nudges": nudges + 1,
         }
     nudge = _FINISH_NUDGE
-    if _looks_like_copy_task(state.get("current_task", "")) and not _wrote_code_files(state):
+    if _looks_like_copy_task(_interest_text(state)) and not _wrote_code_files(state):
         nudge = _COPY_NUDGE
     return {
         "messages": [SystemMessage(content=nudge, additional_kwargs={"crusor_nudge": True})],

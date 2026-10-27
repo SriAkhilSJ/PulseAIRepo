@@ -3,6 +3,8 @@
 CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named **Crusor**. The repository contains the desktop IDE, the Python agent runtime, the versioned stdio bridge between them, and a browser-based UI lab used to develop and verify Crusor surfaces.
 
 > **Project status:** active prototype. The runtime and desktop integration have broad regression coverage, but this is not yet a production-ready multi-user service. The legacy web dashboard is intended for trusted local development only.
+>
+> **Agent Core status (2026-10-27):** the latest bounded full-stack run is an honest **FAIL** (4/5 acceptance tests; SQLite persistence failed). The subsequent durable verification-repair loop is provider-free tested but has not been revalidated with a live model. Start with [`core.md`](core.md) for the implementation, rationale, exact evidence, and remaining verification; use [`docs/CRUSOR_FULLSTACK_BENCHMARK.md`](docs/CRUSOR_FULLSTACK_BENCHMARK.md) for the immutable run history.
 
 ## What is in this repository
 
@@ -51,6 +53,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Workspace-safe file and terminal tools with approval and mutation controls.
 - Media sourcing for UI work: `media_search` (Openverse + Wikimedia Commons keyless, Pexels via `PEXELS_API_KEY`) and `media_download` (validated binary download into the workspace) — the agent can put real product photos/videos into the sites it builds instead of broken placeholders (`skills/media-sourcing`).
 - Verification gates for changed code, including syntax, type-check, test, UI evidence, and unresolved local dependency/source-reference checks.
+- Durable failed-check repair: a concrete non-environment verification failure creates identity-scoped debt; Agent Core requires a landed file mutation before rechecking, and only the same failed check passing clears the debt. A weaker green command cannot authorize completion.
 - Task-aware bounded context assembly (32 layers, the pluggable Hermes-parity `ContextEngine` ABC), repository maps, hybrid chunk retrieval, landed-write payload compaction, and a bounded verification reserve within the existing token/iteration ceilings.
 - Usage-driven compaction: the engine owns the compaction decision from the provider's ACTUAL token usage (75% of the real window), tightens the history budget toward the lean tail while pressure persists, and re-arms after relaxation.
 - Prompt-cache prefix audit with **cache-break detection** (a regression of the stable prefix — >5% and >~2000 tokens below the session peak — is a latched `runtime.cache_break` receipt naming the offending layer) and a unified `get_status()` telemetry surface.
@@ -64,6 +67,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 - Multi-provider support for Groq, OpenAI-compatible endpoints (including Velona), Gemini, and NVIDIA.
 - **Aux provider routing**: Management-class calls (compression, titling, memory review) automatically use the cheap tier by default (`provider="cheap"`). Configure via `CRUSORAI_CHEAP_API_KEY`, `CRUSORAI_CHEAP_BASE_URL`, `CRUSORAI_CHEAP_MODEL` env vars. Override with `AUX_LLM_PROVIDER` / `AUX_LLM_MODEL`.
 - Reliability benchmark drivers for deterministic echo, real bridge, and CDP-controlled IDE runs.
+- Headless bridge outcomes retain bounded request/tool timing receipts and publish Actions monitoring as standalone, secret-redacted JSON annotations below GitHub's truncation limit.
 - Interactive sessions ask before guarded mutations; explicitly headless benchmark sessions can use a workspace-scoped approval policy and still fail closed for sensitive, escaping, warned, or non-file operations.
 - Hermes parity: tool names, prompt text, plan cards, and UI rendering match hermes desktop app behavior.
 - Provider-fetched output caps (no hardcoded 8,192 limit; cap from provider response).
@@ -79,7 +83,19 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
-> **Reliability status (2026-08-27):** Attempts 11 and 12 remain immutable end-to-end product **FAIL** evidence; later repairs do not reclassify those historical runs. Accepted provider-free Windows evidence `1b7ce9e1` validates the bounded verification, context-compaction, and source-integrity repair (183/183 focused and 7/7 protocol tests, zero provider traffic). Native-capability evidence `fc26086a` passed its deterministic checks, and final Agent/Manager CDP evidence `43cf8296` passed the shared desktop renderer and responsive Manager flow. Four-mode desktop evidence `1a6451bc` subsequently passed 65/65 focused tests, all typecheck/layer/compile checks, and 16/16 raw-CDP checks for the functional Agent, Plan, Debug, and Ask selector. All of these validations made zero provider requests. See the [phased agent-strengthening plan](docs/CRUSOR_AGENT_STRENGTHENING_PLAN.md), [Agent UI adaptation](docs/CRUSOR_AGENT_UI_ADAPTATION.md), [Attempt-11 independent review](docs/TEST5_ATTEMPT11_REVIEW.md), and [product-delivery repair](docs/ATTEMPT11_PRODUCT_DELIVERY_REPAIR.md). Historical evidence remains immutable; provider-backed retries remain unauthorized.
+> **Reliability status (2026-10-27):** historical failed runs remain immutable. The newest authorized full-stack run (`40576857348`) produced all five required files and passed 4/5 tests, but failed SQLite persistence with `sqlite3.OperationalError: no such table: tasks`; no site was accepted or committed. The general follow-up repair at `f8108ccd` enforces mutation-before-recheck, exact-check debt clearing, same-response file batching, and bounded monitoring annotations. Provider-free evidence is 33/33 affected tests and 2,801 passing tests in a clean detached full-suite run, with the same 25 failing test identities as clean `main` and 0 new failures. No live run has tested the follow-up repair yet, so end-to-end status remains **FAIL / not revalidated**, not PASS. See [`core.md`](core.md) and the [full-stack benchmark record](docs/CRUSOR_FULLSTACK_BENCHMARK.md).
+
+## Recent Changes 2026-10-27 — Verification repair and retrievable monitoring
+
+| Area | Change | Verification |
+|---|---|---|
+| **Failed-check debt** | Non-environment verification failures are keyed by a normalized, hashed check identity. Edits do not erase debt; only the exact check passing does. | Weaker-pass, exact-clear, repeated routing, and environment-exclusion regressions |
+| **Repair/recheck routing** | `verification_repair_required` exposes narrow source mutation without verifier tools; a landed mutation moves to `verification_recheck_required`, where mutation tools are withheld. | Affected files **33/33 passed** |
+| **Bounded delivery** | Forced and missing-delivery guidance batches independent named files in the same response instead of serializing obvious outputs across calls. | Forced/missing-delivery contracts passed |
+| **CI evidence** | Bridge outcomes publish separate summary/request/tool JSON annotations, each independently parseable, redacted, allowlisted, and capped at 3,500 characters. | Privacy, completeness, malformed-field, and hard-bound tests passed |
+| **Live status** | The evidence run produced all required files but failed one SQLite persistence test. The repair above has provider-free evidence only. | Clean branch: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; clean `main` has the same 25 failures |
+
+Full rationale and remaining acceptance work: [`core.md`](core.md).
 
 ## Recent Changes 2026-10-13 — OTel Observability (PR #24) + Champion Evaluator Proof
 
@@ -411,14 +427,20 @@ The desktop boundary is deliberate: browser/workbench code talks to a typed host
 - Session cancellation is checked before model retries and tool execution.
 - Mutations can create shadow checkpoints for recovery.
 - Completion gates distinguish successful verification from failed, stale, skipped, or unavailable evidence.
+- A concrete non-environment failed check remains completion-blocking across edits and unrelated green checks until the same check identity succeeds.
+- CI monitoring selects only bounded summary/request/tool receipt fields and redacts configured secret values; prompts, commands, arguments, file bodies, and full results are omitted.
 - Secrets belong in `.env` or the operating-system environment, never in tracked files.
 
 These controls reduce risk; they do not make arbitrary model-generated commands safe. Review permissions and diffs before using Crusor on important workspaces.
 
 ## Documentation map
 
+- [`core.md`](core.md) — current Agent Core implementation, rationale, evidence, limitations, and next verification
+- [`docs/CRUSOR_FULLSTACK_BENCHMARK.md`](docs/CRUSOR_FULLSTACK_BENCHMARK.md) — immutable bounded full-stack run history and corrective analysis
+- [`docs/AGENT_CORE_COMPLETION_DISCIPLINE.md`](docs/AGENT_CORE_COMPLETION_DISCIPLINE.md) — inclusive provider-call budget, evidence gate, and failed-check follow-up
+- [`docs/AGENT_CORE_RUNTIME_EVIDENCE.md`](docs/AGENT_CORE_RUNTIME_EVIDENCE.md) — durable runtime evidence and CI publication boundaries
 - [`desktop/README.md`](desktop/README.md) — canonical fork and build invariants
-- [`crusor-webview/README.md`](crusor-webview/README.md) — CopilotKit webview host and AG-UI wiring
+- [`docs/CRUSOR_AGENT_UI_ADAPTATION.md`](docs/CRUSOR_AGENT_UI_ADAPTATION.md) — CopilotKit webview host, AG-UI wiring, and desktop adaptation
 - [`docs/MULTI_PLATFORM_TARGETS.md`](docs/MULTI_PLATFORM_TARGETS.md) — mobile/desktop/Android target architecture, the best repos to build on, and the CI pipelines
 - [`docs/pipelines/`](docs/pipelines/) — copy-ready GitHub Actions templates for android, ios, flutter, react-native, tauri, and electron
 - [`docs/P2-roadmap.md`](docs/P2-roadmap.md) — product milestones and approved amendments
@@ -438,7 +460,7 @@ These controls reduce risk; they do not make arbitrary model-generated commands 
 - [`DESKTOP_AGENT_INSTRUCTIONS.md`](DESKTOP_AGENT_INSTRUCTIONS.md) — desktop agent operating instructions
 - [`DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md`](DESKTOP_AGENT_LIVE_VERIFICATION_PROMPT_UI.md) — live verification prompt for desktop agent
 - [`COPILOTKIT_VERIFICATION.md`](COPILOTKIT_VERIFICATION.md) — CopilotKit/Crusor agent render verification: defects found, root causes, and evidence
-- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — start here for a new agent: current state, what was done, what is still open
+- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — historical CopilotKit/desktop handoff; use `core.md` for current Agent Core status
 - [`CTO_AUDIT_CrusorAI.md`](CTO_AUDIT_CrusorAI.md) and [`ARCHITECTURE_REVIEW.md`](ARCHITECTURE_REVIEW.md) — historical audits; verify dates before treating recommendations as current
 
 ## Development rules
@@ -480,23 +502,22 @@ The engine has shipped 2,139 `def test_` functions across 40+ D-rounds. These ar
 | **Project creation** | the terminal | No scaffold tools (deleted 2026-10-18): the agent creates projects with `create-next-app` / `flutter create` / `create-expo-app` / `create-tauri-app` behind the approval dock. |
 | **SDK installation** | `src/tools/toolchain_install.py` | `install_toolchain` installs a missing SDK before creation (Flutter → `~/.crusorai/sdks/flutter`, Android cmdline-tools + JDK into the standard SDK root, Node/JDK/Rust via winget/brew; Xcode is macOS-only and refuses honestly elsewhere). Fixed recipes — the model picks which SDK, never the commands; the permission layer asks first. The approval card carries the **[Install]** button (click → install → agent continues the same task), the running card streams a real 0→100 loader (download bytes / extract counts / package-manager output — never invented numbers), and `ui_test_kit=true` lands the UI-testing raw materials in the same approval (scrcpy + Maestro for mobile, Playwright Chromium for web, tauri-driver for Tauri) — Crusor sets up the whole environment, not just the SDK. |
 | **Safety** | `src/context/safety_guard.py` | Workspace path validation, destructive operation approval gates, `$()`/backtick escalation to approval, session cancellation checks. |
-| **Verification** | `src/context/verification_evidence.py` | Completion gates distinguishing successful/failed/stale/skipped/unavailable evidence. Edited-file invalidation. |
+| **Verification** | `src/graphs/gates.py`, `src/graphs/chat_graph.py`, `src/context/verification_evidence.py` | Completion gates distinguish successful/failed/stale/skipped/unavailable evidence. Failed executable checks create durable identity-scoped debt; routing requires mutation before recheck, and only the exact check passing clears it. |
 | **Bridge Protocol** | `src/bridge/protocol.py` | Versioned newline-delimited JSON (v2). 33 client methods, 34 server events. Host tool requests, safety requests, sub-agent lifecycle (`subagent_list`, `subagent_background_completed`), skills-hub and one-shot envelopes, telemetry, workspace binding. |
 | **Desktop IDE** | `desktop/vscode/src/vs/workbench/contrib/crusorai/` | Copilot-hidden Crusor-only UI. Four execution modes (Agent/Plan/Debug/Ask). Manager editor. Agent panel. Tool rendering (`crusorAIRenderer.ts:133` ordered parts timeline with inline `reasoning` slots). Composer `+` menu → centered Hub dialog (Marketplace / Connectors / My Skills / One-Shot). Crusor Preview window + proxy. Workbench host. Desktop sidecar. CDP-verified: 10/10 runtime checks, 65/65 pytest, all typecheck/layer/compile. Recompiled 2026-10-03 at `545360f1`. |
 | **UI Lab** | `preview-lab/` | Browser harness for the Crusor Preview flow (real feature code, mocked model turn). Deterministic replay data. Desktop-syntax check bridge. |
 
 ### Test coverage
 
-- **369 Python source files**, **187 test files** in `src/tests/` (2,139 test functions)
-- Provider-free validation: 183/183 focused + 65/65 pytest + 16/16 CDP
-- Desktop compile, typecheck-client, valid-layers, syntax: all green
-- Protocol generation check: green
-- UI build + test:ui: green
-- Post `6ec29027` sample: bridge + protocol + boundary + branding + preview + icons green; full suite ~1753 passed with only the known pre-existing failures (see above)
+- Current Agent Core affected-file gate: **33/33 passed**.
+- Current clean full provider-free suite: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; failure identities are the same set as clean `main` (**0 new failures**).
+- The latest full-stack provider-backed run remains **4/5 failed**; provider-free regressions do not reclassify it.
+- Desktop compile/CDP claims remain tied to their recorded desktop evidence; this sandbox did not regenerate native desktop proof.
+- Protocol generation, UI builds, and historical focused suites retain their own dated receipts in the linked documentation.
 
 ### What the P2 roadmap covers next
 
-The engine is completed work. The fork never edits its logic. The [P2 roadmap](docs/P2-roadmap.md) is locked and additive:
+Agent Core is active, bounded runtime code and continues to receive evidence-driven reliability fixes. The [P2 roadmap](docs/P2-roadmap.md) remains the product roadmap:
 
 - **Phase 0:** Fork rebranding, bridge v2 wiring, skeleton contribution
 - **M1:** Chat round-trip through the real engine (cards, auto-restart)

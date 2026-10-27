@@ -45,6 +45,7 @@ from src.context.task_types import TaskType  # P9: re-exported for existing impo
 from src.context import layer_policy  # P9: scoring/dedup/placement/compression/budget
 from src.context import ambiguity, plan_messages  # P10: detector + planner builders
 from src.context.usage_pressure import UsagePressure
+from src.context.user_interest import interest_from_state, render_user_interest
 from src.context.feedback_memory import (
     FEEDBACK_COMPACT_AT,
     FEEDBACK_COMPACT_TO,
@@ -1489,7 +1490,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     # a future layer reading a new key fails loudly here, not silently
     # stale there.
     _HASHED_STATE_KEYS: frozenset[str] = frozenset({
-        "current_task", "latest_instruction", "workspace",
+        "current_task", "latest_instruction", "user_interest", "workspace",
         "_autonomous_workspace",
         "plan", "plan_goal",
         "steps_completed", "failed_steps",
@@ -1567,9 +1568,16 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     ) -> list[BaseMessage]:
         """Adaptive, hierarchical, deduplicated context assembly."""
 
-        # 1. Classify task
-        task = state.get("current_task", "")
+        # 1. Resolve the user's active interest, then classify/retrieve against
+        # that focus rather than a stale first-turn label.  This adds no model
+        # call: the contract preserves the objective and latest steering while
+        # the main model remains the semantic decision-maker.
+        interest = interest_from_state(state)
+        task = interest.focus_text() or str(state.get("current_task", "") or "")
         self._current_task = task
+        effective_state = dict(state)
+        effective_state["user_interest"] = interest.to_state()
+        effective_state["current_task"] = task
         if self._classifier is None:
             self._classifier = _get_shared_classifier(
                 allow_embedding_compute=self._allow_embedding_compute
@@ -1578,14 +1586,14 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
         # 2. Differential state check — #10: the ONE hash computation of the
         # turn; _build_context_layers and the inner builder reuse the slot.
-        self._active_state_hash = self._hash_state(state)
+        self._active_state_hash = self._hash_state(effective_state)
         current_hash = self._active_state_hash
         rebuild_all = current_hash != self._last_state_hash
 
         # 3. Build layers (task-aware + differential cache)
         if rebuild_all:
             self._layer_cache.clear()
-        raw_layers = self._build_context_layers(state, task_type)
+        raw_layers = self._build_context_layers(effective_state, task_type)
 
         # 4. Score relevance
         scored = self._score_and_sort_layers(raw_layers, task, task_type)
@@ -2297,18 +2305,13 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         return build_git_context_layer(state)
 
     def _task_layer(self, state: dict[str, Any]) -> SystemMessage:
-        """Layer 1: What is the user trying to do?"""
-        current_task = state.get("current_task", "")
-        latest_instruction = state.get("latest_instruction", "")
+        """Layer 1: versioned user-interest contract for the main model."""
+        interest = interest_from_state(state)
+        content = render_user_interest(interest) + "\n"
 
-        content = "=== CURRENT TASK ===\n"
-
-        if current_task:
-            content += f"Overall goal: {current_task}\n"
-        if latest_instruction:
-            content += f"Latest instruction: {latest_instruction}\n"
-
-        low = f"{current_task}\n{latest_instruction}".lower()
+        # Keep the pre-existing copy-first optimization keyed to user-authored
+        # focus text.  It is an execution hint, not part of the resolver.
+        low = interest.focus_text().lower()
         if "_provided/" in low and "copy_file" in low:
             content += (
                 "\nCOPY-FIRST DELIVERY RULE:\n"

@@ -56,6 +56,47 @@ def test_nextjs_prose_is_not_mistaken_for_bare_output(tmp_path):
     assert _deliverables_missing_on_disk(state, str(tmp_path)) == []
 
 
+def test_bullet_listed_root_code_files_are_explicit_deliverables(tmp_path):
+    task = """Build a web service with Next.js documentation references.
+
+    Deliver exactly these files at the workspace root:
+    - server.py
+    - index.html
+    - styles.css
+    - app.js
+    - README.md
+    """
+    state = state_for(task, tmp_path)
+
+    assert _deliverables_missing_on_disk(state, str(tmp_path)) == [
+        "server.py", "index.html", "styles.css", "app.js", "README.md",
+    ]
+
+    for name in ("server.py", "index.html", "styles.css", "app.js"):
+        (tmp_path / name).write_text("content", encoding="utf-8")
+
+    assert _deliverables_missing_on_disk(state, str(tmp_path)) == ["README.md"]
+
+
+def test_prose_bullet_is_not_mistaken_for_a_root_file_ledger(tmp_path):
+    task = """Build a chat app with Next.js.
+    - Use app.js to explain the browser bundle in the documentation.
+    """
+    state = state_for(task, tmp_path)
+    assert _deliverables_missing_on_disk(state, str(tmp_path)) == []
+
+
+def test_technology_stack_bullet_is_not_a_root_file_ledger(tmp_path):
+    task = """Build a chat application.
+
+    Use this technology stack:
+    - Next.js
+    - TypeScript
+    """
+    state = state_for(task, tmp_path)
+    assert _deliverables_missing_on_disk(state, str(tmp_path)) == []
+
+
 def test_app_called_name_is_a_directory_deliverable(tmp_path):
     """Field 2026-10-19: 'Create a Flutter app called flutterdemo' — the
     generated project FOLDER is the deliverable. The extension-based

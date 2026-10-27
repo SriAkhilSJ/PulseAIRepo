@@ -120,7 +120,7 @@ const RAW_TOOL_MARKUP = /^\s*(?:<\/?\s*(?:dots_function_call|exec|invoke|command
 // screenshot header is the only build evidence support gets, and four
 // same-day ships once shared '2026-10-16', making a stale renderer
 // indistinguishable from a current one (field 2026-10-16).
-const CRUSORAI_UI_STAMP = '2026-10-23-39';
+const CRUSORAI_UI_STAMP = '2026-10-25-42';
 function markdownCopy(text, slot) {
     const root = element('div', 'crusorai-assistant-copy crusorai-md');
     if (slot) {
@@ -257,6 +257,34 @@ function markdownCopy(text, slot) {
 // watched happen; a copy button does something they actually want. Clipboard
 // write never throws into the panel (best-effort), and the label flashes
 // Copied so the click is confirmed without a dialog.
+// Hermes port (components/chat/activity-timer.ts): seconds tick on a 1s
+// heartbeat WITHOUT re-rendering the panel -- the ticker surgically updates
+// only .crusorai-elapsed nodes in place, so a full transcript rebuild (which
+// would reset scroll and disclosure state) never happens on a clock tick.
+function formatElapsedSeconds(seconds) {
+    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+let elapsedTicker;
+function elapsedSpan(originMs) {
+    const span = element('span', 'crusorai-scaffold-meta crusorai-elapsed');
+    const origin = typeof originMs === 'number' && originMs > 0 ? originMs : Date.now();
+    datasetSet(span, 'origin', String(origin));
+    span.textContent = formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - origin) / 1000)));
+    if (elapsedTicker === undefined) {
+        elapsedTicker = window.setInterval(() => {
+            for (const node of document.querySelectorAll('span.crusorai-elapsed')) {
+                const nodeOrigin = Number(node.dataset.origin || '0');
+                if (nodeOrigin > 0) {
+                    node.textContent = formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - nodeOrigin) / 1000)));
+                }
+            }
+        }, 1000);
+    }
+    return span;
+}
+function datasetSet(node, key, value) {
+    node.dataset[key] = value;
+}
 function copyButton(text, host) {
     // Hermes port (ui/copy-button.tsx): an ICON action, not a text line --
     // copy glyph, tooltip title, 1.5s check-flash on success, error state on
@@ -399,6 +427,28 @@ function resultOutput(tool) {
     const value = record(tool.result);
     const parts = [value?.output, value?.stdout, value?.stderr].filter(part => typeof part === 'string' && part.length > 0);
     return boundedText(parts.length ? parts.join(parts.length > 1 ? '\n' : '') : tool.result);
+}
+function stateLabel(state) {
+    if (state === 'passed') {
+        return 'Passed';
+    }
+    if (state === 'failed') {
+        return 'Failed';
+    }
+    if (state === 'approval') {
+        return 'Approval';
+    }
+    if (state === 'running') {
+        return 'Running';
+    }
+    return 'Queued';
+}
+function statusGlyph(state) {
+    if (state === 'running') {
+        return element('span', 'crusorai-mini-spinner');
+    }
+    const name = state === 'passed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'approval' ? 'shield' : 'circle-outline';
+    return icon(name);
 }
 function labeledPayload(label, value) {
     return element('div', 'crusorai-tool-field', element('span', 'crusorai-tool-field-label', label), element('pre', 'crusorai-tool-pre', boundedText(value)));
@@ -2021,12 +2071,11 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // counted +a −r next to the filename — earned from the result, so it
     // appears when the edit lands, never while running.
     const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
-    const titleMain = element('span', undefined, titleSpan, subtitle, 
-    // (Sub-agent rows never reach here — they returned as the
-    // taskToolCard above, whose mode/type/description already covers
-    // what the generic k=v chips would repeat; founder screenshot
-    // 2026-10-15: 'Delegate mode=research subagent_type=research'.)
-    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+    const titleMain = element('span', undefined, titleSpan, subtitle,
+    // The sub-agent card carries mode/type/description itself; the
+    // generic k=v chips would only repeat it (founder screenshot
+    // 2026-10-15: 'Delegate mode=research subagent_type=research').
+    ...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -2234,7 +2283,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
-        const summary = element('summary', 'crusorai-tool-run-summary', 
+        const summary = element('summary', 'crusorai-tool-run-summary',
         // The disclosure arrow LEADS the header (founder
         // 2026-10-17: arrow marks at the start — "⌄ Terminal
         // 3", not "Terminal 3 ⌄"); the global collapsible-arrow

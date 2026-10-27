@@ -44,9 +44,9 @@ def test_warning_threshold_default_90_percent(monkeypatch):
     assert bg._budget_warning_threshold() == 27  # min(27.0, 29)
 
 
-def test_warning_threshold_stays_strictly_before_the_wall(monkeypatch):
+def test_warning_threshold_stays_before_final_response_reserve(monkeypatch):
     monkeypatch.setenv("AGENT_ITERATION_BUDGET", "10")
-    assert bg._budget_warning_threshold() == 9
+    assert bg._budget_warning_threshold() == 8
     monkeypatch.setenv("AGENT_BUDGET_WARNING_RATIO", "0.5")
     assert bg._budget_warning_threshold() == 5
 
@@ -105,14 +105,14 @@ def _sent_text(llm):
     return " ".join(str(m.content) for m in msgs)
 
 
-def test_checkpoint_warning_fires_at_threshold(monkeypatch):
-    llm = _patch(monkeypatch, budget=4)  # threshold = min(3.6, 3) = 3
+def test_checkpoint_warning_fires_before_reserved_final_slot(monkeypatch):
+    llm = _patch(monkeypatch, budget=4)  # threshold = min(3.6, 2) = 2
     out = cg.ai_node(
-        {"iteration_used": 3, "current_task": "fix bug", "messages": []}, _config()
+        {"iteration_used": 2, "current_task": "fix bug", "messages": []}, _config()
     )
     text = _sent_text(llm)
     assert "ITERATION BUDGET CHECKPOINT" in text
-    assert "You have used 3 of 4 iterations" in text
+    assert "You have used 2 of 4 iterations" in text
     assert "do not stop solely because of this warning" in text
     assert out["budget_warning_done"] == 1
 
@@ -120,7 +120,7 @@ def test_checkpoint_warning_fires_at_threshold(monkeypatch):
 def test_checkpoint_warning_silent_under_threshold(monkeypatch):
     llm = _patch(monkeypatch, budget=4)
     out = cg.ai_node(
-        {"iteration_used": 2, "current_task": "fix bug", "messages": []}, _config()
+        {"iteration_used": 1, "current_task": "fix bug", "messages": []}, _config()
     )
     assert "ITERATION BUDGET CHECKPOINT" not in _sent_text(llm)
     assert out["budget_warning_done"] == 0
@@ -131,7 +131,7 @@ def test_checkpoint_warning_is_one_shot(monkeypatch):
     llm = _patch(monkeypatch, budget=4)
     out = cg.ai_node(
         {
-            "iteration_used": 3,
+            "iteration_used": 2,
             "budget_warning_done": 1,
             "current_task": "fix bug",
             "messages": [],

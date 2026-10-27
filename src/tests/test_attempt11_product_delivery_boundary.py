@@ -7,7 +7,10 @@ from langchain_core.messages import AIMessage, ToolMessage
 from src.context.compaction import compact_file_mutation_arguments
 from src.context.workspace_integrity import audit_workspace
 from src.graphs import budget
-from src.graphs.gates import _verification_receipt_status
+from src.graphs.gates import (
+    _unresolved_failed_verification_checks,
+    _verification_receipt_status,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -229,22 +232,252 @@ def test_reserve_phase_narrows_to_dependency_repair_and_verification(monkeypatch
     assert "scaffold_nextjs" not in names
     assert "VERIFICATION FIRST-CHECK PHASE" in config["configurable"]["phase_guidance"]
 
-    # A real failed receipt, rather than budget pressure alone, re-opens only
-    # targeted inspection/repair tools for the next model decision.
+    # A concrete failed check creates durable verification debt. The next
+    # decision must inspect/mutate; rerunning checks unchanged is unavailable.
+    failure_text = "❌ typecheck_workspace: src/app.ts(1,1) error TS1000"
     state["messages"].extend([
         AIMessage(content="", tool_calls=[{
             "id": "check", "name": "typecheck_workspace", "args": {},
         }]),
         ToolMessage(
-            content="❌ typecheck_workspace: src/app.ts(1,1) error TS1000",
+            content=failure_text,
             name="typecheck_workspace", tool_call_id="check", status="error",
         ),
     ])
+    state["execution_trace"].append({
+        "tool": "typecheck_workspace", "args": {},
+        "status": "failed", "result": failure_text,
+    })
     repair_config = {"configurable": {"workspace": str(tmp_path)}}
     repair_names = {
         tool.name for tool in chat_graph._resolve_bound_tools(state, repair_config)
     }
-    assert repair_config["configurable"]["execution_phase"] == "verification_repair"
-    assert {"read_file", "edit_file", "run_terminal", "typecheck_workspace"} <= repair_names
+    assert repair_config["configurable"]["execution_phase"] == "verification_repair_required"
+    assert {"read_file", "edit_file", "write_file"} <= repair_names
+    assert "run_terminal" not in repair_names
+    assert "typecheck_workspace" not in repair_names
     assert "list_files" not in repair_names
-    assert "VERIFICATION REPAIR PHASE" in repair_config["configurable"]["phase_guidance"]
+    assert "FAILED VERIFICATION REPAIR PHASE" in repair_config["configurable"]["phase_guidance"]
+
+    # One landed repair flips the structural phase to an exact recheck. Source
+    # mutation is no longer offered until the failed check is rerun.
+    state["messages"].extend([
+        AIMessage(content="", tool_calls=[{
+            "id": "repair", "name": "edit_file",
+            "args": {"path": "src/app.ts", "old_text": "1", "new_text": "2"},
+        }]),
+        ToolMessage(
+            content="Edited file: src/app.ts", name="edit_file",
+            tool_call_id="repair",
+        ),
+    ])
+    state["execution_trace"].append({
+        "tool": "edit_file", "args": {"path": "src/app.ts"},
+        "status": "success", "result": "Edited file: src/app.ts",
+    })
+    recheck_config = {"configurable": {"workspace": str(tmp_path)}}
+    recheck_names = {
+        tool.name for tool in chat_graph._resolve_bound_tools(state, recheck_config)
+    }
+    assert recheck_config["configurable"]["execution_phase"] == "verification_recheck_required"
+    assert {"run_terminal", "typecheck_workspace"} <= recheck_names
+    assert "edit_file" not in recheck_names
+    assert "read_file" not in recheck_names
+    assert "EXACT VERIFICATION RECHECK PHASE" in recheck_config["configurable"]["phase_guidance"]
+
+
+def test_different_passing_check_cannot_erase_failed_check_debt(tmp_path):
+    failed_command = "python -m unittest discover -s tests -p 'test_*.py' -v"
+    weaker_command = "python -m unittest tests.test_health -v"
+    (tmp_path / "server.py").write_text("print('service')\n", encoding="utf-8")
+    state = {
+        "workspace": str(tmp_path),
+        "current_task": "Build and test a Python service",
+        "steps_completed": ["Wrote file: server.py", "Edited file: server.py"],
+        "messages": [
+            AIMessage(content="", tool_calls=[{
+                "id": "full-fail", "name": "terminal",
+                "args": {"command": failed_command},
+            }]),
+            ToolMessage(
+                content="sqlite3.OperationalError: no such table: records\nExit code: 1",
+                name="terminal", tool_call_id="full-fail", status="error",
+            ),
+            AIMessage(content="", tool_calls=[{
+                "id": "fix", "name": "edit_file",
+                "args": {"path": "server.py", "old_text": "service", "new_text": "fixed"},
+            }]),
+            ToolMessage(
+                content="Edited file: server.py", name="edit_file",
+                tool_call_id="fix",
+            ),
+            AIMessage(content="", tool_calls=[{
+                "id": "weak-pass", "name": "terminal",
+                "args": {"command": weaker_command},
+            }]),
+            ToolMessage(
+                content="Ran 1 test\nOK\nExit code: 0",
+                name="terminal", tool_call_id="weak-pass",
+            ),
+        ],
+        "execution_trace": [
+            {
+                "tool": "terminal", "args": {"command": failed_command},
+                "status": "failed",
+                "result": "sqlite3.OperationalError: no such table: records\nExit code: 1",
+            },
+            {
+                "tool": "edit_file", "args": {"path": "server.py"},
+                "status": "success", "result": "Edited file: server.py",
+            },
+            {
+                "tool": "terminal", "args": {"command": weaker_command},
+                "status": "success", "result": "Ran 1 test\nOK\nExit code: 0",
+            },
+        ],
+    }
+
+    debt = _unresolved_failed_verification_checks(state)
+
+    assert len(debt) == 1
+    assert debt[0]["tool"] == "terminal"
+    assert debt[0]["repair_landed"] is True
+    receipt = _verification_receipt_status(state)
+    assert receipt["static"] is True, "the weaker check did run cleanly"
+    assert receipt["failed_checks"] is False
+    assert "failed_checks" in receipt["missing"]
+    assert receipt["passed"] is False
+
+    state["messages"].extend([
+        AIMessage(content="", tool_calls=[{
+            "id": "full-pass", "name": "terminal",
+            "args": {"command": failed_command},
+        }]),
+        ToolMessage(
+            content="Ran 5 tests\nOK\nExit code: 0",
+            name="terminal", tool_call_id="full-pass",
+        ),
+    ])
+    state["execution_trace"].append({
+        "tool": "terminal", "args": {"command": failed_command},
+        "status": "success", "result": "Ran 5 tests\nOK\nExit code: 0",
+    })
+    assert _unresolved_failed_verification_checks(state) == []
+    assert _verification_receipt_status(state)["passed"] is True
+
+
+def test_environment_failure_does_not_create_source_repair_debt():
+    state = {
+        "execution_trace": [{
+            "tool": "terminal",
+            "args": {"command": "python -m unittest discover"},
+            "status": "failed",
+            "result": "python: command not found\nExit code: 127",
+        }],
+    }
+    assert _unresolved_failed_verification_checks(state) == []
+
+
+def test_verification_debt_helpers_do_not_import_provider_stack(monkeypatch):
+    """Lean gate-only CI must not pull planner or optional provider SDKs."""
+    monkeypatch.setitem(sys.modules, "src.graphs.progress_helpers", None)
+    state = {
+        "execution_trace": [{
+            "tool": "terminal",
+            "args": {"command": "python -m pytest -q"},
+            "status": "failed",
+            "result": "1 failed\nExit code: 1",
+        }],
+    }
+
+    debt = _unresolved_failed_verification_checks(state)
+
+    assert len(debt) == 1
+    assert debt[0]["tool"] == "terminal"
+
+
+def test_autonomous_missing_root_deliverable_precedes_verification(tmp_path, monkeypatch):
+    """A named file ledger is an obligation, not optional prompt prose."""
+    import src.graphs.chat_graph as chat_graph
+
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "12")
+    monkeypatch.setenv("AGENT_VERIFICATION_ITERATION_RESERVE", "4")
+    task = """Build a complete web application.
+
+    Deliver exactly these files at the workspace root:
+    - server.py
+    - index.html
+    """
+    (tmp_path / "server.py").write_text("print('ready')\n", encoding="utf-8")
+    state = {
+        "workspace": str(tmp_path),
+        "current_task": task,
+        "latest_instruction": task,
+        "steps_completed": ["Wrote file: server.py"],
+        "iteration_used": 8,
+        "turn_token_usage": {"total_tokens": 1000},
+        "messages": [
+            AIMessage(content="", tool_calls=[{
+                "id": "landed", "name": "write_file",
+                "args": {"path": "server.py", "content": "print('ready')\n"},
+            }]),
+            ToolMessage(
+                content="Wrote file: server.py", name="write_file",
+                tool_call_id="landed",
+            ),
+        ],
+        "execution_trace": [{"tool": "write_file", "status": "success"}],
+        "plan": [],
+    }
+    config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+
+    names = {tool.name for tool in chat_graph._resolve_bound_tools(state, config)}
+
+    assert config["configurable"]["execution_phase"] == "missing_delivery"
+    assert {"write_file", "read_file"} <= names
+    assert "terminal" not in names and "run_terminal" not in names
+    assert "index.html" in config["configurable"]["phase_guidance"]
+    guidance = config["configurable"]["phase_guidance"].lower()
+    assert "batch" in guidance and "same response" in guidance
+
+    (tmp_path / "index.html").write_text("<!doctype html>\n", encoding="utf-8")
+    complete_config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+    complete_names = {
+        tool.name for tool in chat_graph._resolve_bound_tools(state, complete_config)
+    }
+    assert complete_config["configurable"]["execution_phase"] == "verification_first_check"
+    assert "terminal" in complete_names or "run_terminal" in complete_names
+
+
+def test_missing_named_app_directory_keeps_terminal_generator_available(tmp_path):
+    """File reconciliation must not deadlock project-directory generators."""
+    import src.graphs.chat_graph as chat_graph
+
+    (tmp_path / "README.md").write_text("workspace input\n", encoding="utf-8")
+    task = "Create a Flutter app called flutterdemo"
+    state = {
+        "workspace": str(tmp_path),
+        "current_task": task,
+        "latest_instruction": task,
+        "steps_completed": [],
+        "iteration_used": 0,
+        "turn_token_usage": {"total_tokens": 0},
+        "messages": [],
+        "execution_trace": [],
+        "plan": [],
+    }
+    config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+
+    names = {tool.name for tool in chat_graph._resolve_bound_tools(state, config)}
+
+    assert config["configurable"]["execution_phase"] == "general"
+    assert "terminal" in names or "run_terminal" in names

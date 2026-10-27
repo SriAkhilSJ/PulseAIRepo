@@ -42,6 +42,12 @@ from src.llm.repetition_guard import (
 )
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
+from src.context.user_interest import (
+    UserInterest,
+    interest_from_state,
+    render_user_interest,
+    resolve_user_interest,
+)
 from src.context.token_tracker import TokenTracker, TokenUsage
 
 # --- CopilotKit A2UI fixed-schema wiring (Crusor domain) ---
@@ -615,19 +621,23 @@ from src.dashboard.event_bus import event_bus
 # P0-D: state, budget, and gate machinery extracted to focused modules.
 from src.graphs.state import AgentState, ExecutionMode, TaskDecision
 from src.graphs.budget import (
+    _FINAL_RESPONSE_RESERVE_REQUEST,
     _MAX_ITERATIONS_SUMMARY_REQUEST,
     _iteration_budget,
     _recursion_limit,
     _budget_exhausted,
+    _final_response_reserve_reached,
     _verification_reserve_reached,
 )
 from src.graphs.gates import (
+    _completion_evidence_ready,
     _deliverable_targets,
     _deliverables_missing_on_disk,
     _looks_like_copy_task,
     _looks_like_execution_task,
     _verify_unsatisfied,
     _ran_verification,
+    _unresolved_failed_verification_checks,
     _verification_ran_and_passed,
     _wrote_code_files,
     finish_gate_node,
@@ -1433,6 +1443,65 @@ _FILE_DELIVERY_WORDS = frozenset({
     "update", "scaffold", "deliver",
 })
 
+# An answer/no-change turn may inspect local or public information, but it must
+# not acquire a side-effecting schema and accidentally turn an inquiry into
+# implementation. The same allowlist is copied into the SafeToolNode phase
+# config below, so provider quirks cannot bypass model-time binding.
+_READ_ONLY_INTEREST_TOOLS = frozenset({
+    "think", "verify", "clarify",
+    "read_file", "list_files", "search_files", "search_code",
+    "web_search", "web_fetch", "web_extract", "media_search",
+    "skills_list", "skill_view", "hub_search", "hub_list",
+    "session_search", "discover_host_capabilities", "open_preview",
+    "browser_navigate", "browser_snapshot", "browser_scroll", "browser_back",
+    "browser_console", "browser_get_images", "browser_screenshot",
+})
+_NO_CHANGE_ACTION_TOOLS = _READ_ONLY_INTEREST_TOOLS | frozenset({
+    # Explicit verification/execution without source mutation. Shell access is
+    # needed for user-requested tests; the contract and phase guidance still
+    # prohibit edit/generator/install commands.
+    "terminal", "run_terminal", "start_terminal", "check_terminal",
+    "stop_terminal", "list_terminal_processes", "cleanup_terminal_processes",
+    "read_terminal_output", "typecheck_workspace", "verify_ui_workspace",
+    "verify_ui_routes", "detect_targets", "check_target_toolchains",
+    "verify_target_app", "device_screenshot", "device_ui", "device_logs",
+    "device_preview", "browser_click", "browser_type", "browser_press",
+})
+
+
+def _stored_user_interest(state: AgentState) -> UserInterest | None:
+    return UserInterest.from_state(state.get("user_interest"))
+
+
+def _active_interest_text(state: AgentState) -> str:
+    """Objective plus newest substantive steering, never a social ack."""
+    focus = interest_from_state(state).focus_text()
+    return focus or str(state.get("current_task", "") or "")
+
+
+def _read_only_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    return bool(interest is not None and interest.mode in {"answer", "social"})
+
+
+def _no_change_action_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    return bool(
+        interest is not None
+        and interest.mode == "act"
+        and interest.change_policy == "no_changes"
+    )
+
+
+def _execution_requested_by_interest(state: AgentState) -> bool:
+    interest = _stored_user_interest(state)
+    if interest is not None:
+        if _read_only_interest(state) or interest.relationship == "cancelled":
+            return False
+        if interest.mode == "act":
+            return True
+    return _looks_like_execution_task(_active_interest_text(state))
+
 
 def _has_landed_file_delivery(state: AgentState) -> bool:
     """Whether this turn has a successful file-producing receipt."""
@@ -1447,8 +1516,10 @@ def _has_landed_file_delivery(state: AgentState) -> bool:
 
 def _requires_file_delivery(state: AgentState) -> bool:
     """Conservative task/plan signal for the pre-delivery loop guard."""
+    if _read_only_interest(state) or _no_change_action_interest(state):
+        return False
     text = " ".join([
-        str(state.get("current_task", "")),
+        _active_interest_text(state),
         *(str(step.get("description", "")) for step in state.get("plan", []) or []),
     ]).lower()
     return any(re.search(rf"\b{re.escape(word)}\b", text) for word in _FILE_DELIVERY_WORDS)
@@ -1486,14 +1557,28 @@ def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
 
 
 def _workspace_is_effectively_empty(workspace: Any) -> bool:
-    """Whether a fresh delivery workspace has no user-visible input files."""
+    """Whether a fresh delivery workspace has no task-owned input files.
+
+    Agent Core creates ``diagnostics/`` before the first model call. Counting
+    that runtime-owned trace as user content disables the fresh-workspace
+    forced-delivery phase and exposes exploration/shell tools before any file
+    can land. Dot-prefixed runtime/test fixtures are ignored for the same
+    reason; any other visible file still makes the workspace non-empty.
+    """
     from pathlib import Path
+
     root = Path(workspace)
     try:
-        return not any(
-            path.is_file() and not any(part.startswith(".") for part in path.relative_to(root).parts)
-            for path in root.rglob("*")
-        )
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            parts = path.relative_to(root).parts
+            if any(part.startswith(".") for part in parts):
+                continue
+            if parts and parts[0] == "diagnostics":
+                continue
+            return False
+        return True
     except (OSError, ValueError):
         return False
 
@@ -1572,6 +1657,18 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     except Exception:
         pass  # scoping must never break binding; worst case = today's surface
 
+    read_only_interest = _read_only_interest(state)
+    no_change_action_interest = _no_change_action_interest(state)
+    interest_allowlist = (
+        _READ_ONLY_INTEREST_TOOLS
+        if read_only_interest
+        else _NO_CHANGE_ACTION_TOOLS if no_change_action_interest else None
+    )
+    if interest_allowlist is not None:
+        resolved_names = [
+            name for name in resolved_names if name in interest_allowlist
+        ]
+
     # Tool cap: some models (notably DeepSeek) return empty tool_calls when
     # overwhelmed by 40+ schemas. CRUSORAI_MAX_TOOLS=0 disables the cap.
     _max_env = os.getenv("CRUSORAI_MAX_TOOLS", "0").strip()
@@ -1609,7 +1706,65 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         and not _has_landed_file_delivery(state)
         and _workspace_is_effectively_empty(workspace)
     )
-    if _pre_delivery_stalled(state) or empty_autonomous_delivery:
+    # Reconcile the user's explicit output ledger against disk before entering
+    # a terminal-only verification reserve. This is intentionally state-derived
+    # and provider-agnostic: a large byte count proves activity, not delivery.
+    missing_candidates = (
+        _deliverables_missing_on_disk(state, str(workspace)) if autonomous else []
+    )
+    # This phase's allowlist can directly create files. Directory deliverables
+    # such as generated mobile/desktop projects still need terminal/toolchain
+    # generators and remain on the normal execution path.
+    missing_deliverables = [
+        target for target in missing_candidates if Path(target).suffix
+    ]
+    delivery_mutation_tools = {
+        "write_file", "edit_file", "copy_file", "execute_code",
+        "generate_image", "media_download",
+    }
+    delivery_tools = {
+        "read_file", "list_files", "search_files", "search_code",
+        *delivery_mutation_tools,
+    }
+    delivery_available = any(
+        name in delivery_mutation_tools for name in resolved_names
+    )
+    verification_check_tools = {
+        "terminal", "run_terminal", "start_terminal", "check_terminal",
+        "read_terminal_output", "stop_terminal", "typecheck_workspace",
+        "verify_ui_workspace", "verify_ui_routes",
+        "build_target", "verify_target_app", "detect_targets",
+        "check_target_toolchains",
+    }
+    verification_mutation_tools = {
+        "read_file", "search_files", "search_code",
+        "write_file", "edit_file", "copy_file",
+    }
+    verification_debts = _unresolved_failed_verification_checks(state)
+    failed_check_repair_needed = any(
+        not bool(item.get("repair_landed")) for item in verification_debts
+    )
+    if read_only_interest:
+        phase = type(phase)(
+            "read_only_interest",
+            frozenset(_READ_ONLY_INTEREST_TOOLS),
+            guidance=(
+                "READ-ONLY INTEREST: answer the user's inquiry from available "
+                "evidence. Do not edit files, run side-effecting commands, "
+                "delegate implementation, install anything, or create artifacts."
+            ),
+        )
+    elif no_change_action_interest:
+        phase = type(phase)(
+            "no_change_action",
+            frozenset(_NO_CHANGE_ACTION_TOOLS),
+            guidance=(
+                "NO-CHANGE ACTION: perform the requested inspection or "
+                "verification, but do not edit/create files, install software, "
+                "run generators, or delegate implementation."
+            ),
+        )
+    elif _pre_delivery_stalled(state) or empty_autonomous_delivery:
         # A fresh autonomous build has nothing useful to inspect. Hermes begins
         # headless jobs with action-capable tools; Crusor previously exposed 33
         # schemas and waited four paid observations before narrowing. Make the
@@ -1621,13 +1776,71 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         names = [name for name in resolved_names if name in forced]
         phase = type(phase)(
             "forced_delivery", frozenset(forced),
-            max_file_mutations_per_turn=2,
             guidance=(
                 "DIRECT DELIVERY PHASE: this task requires files and no file has "
                 "landed. Exploration and verification are disabled until a real "
-                "file exists. Call write_file NOW with a complete minimal "
-                "baseline. Additional files and dependencies can be handled on "
-                "the next iteration."
+                "file exists. Call write_file NOW with complete output. When the "
+                "task names multiple independent files, batch every complete "
+                "write_file call in the SAME response; do not serialize obvious "
+                "deliverables across paid iterations."
+            ),
+        )
+    elif missing_deliverables and delivery_available:
+        # A verifier can validate only what exists. Keep file-producing tools
+        # available and structurally withhold terminal/check tools until every
+        # explicit output is present; otherwise a bounded run can spend its
+        # entire reserve repeatedly testing an incomplete delivery.
+        names = [name for name in resolved_names if name in delivery_tools]
+        visible = missing_deliverables[:8]
+        missing_label = ", ".join(f"`{name}`" for name in visible)
+        if len(missing_deliverables) > len(visible):
+            missing_label += f", and {len(missing_deliverables) - len(visible)} more"
+        phase = type(phase)(
+            "missing_delivery", frozenset(delivery_tools),
+            guidance=(
+                "MISSING DELIVERY PHASE: the user's explicit output obligations "
+                f"are not complete on disk. Missing: {missing_label}. Batch all "
+                "independent missing outputs in the SAME response and create or "
+                "copy them NOW; do not serialize one obvious file per iteration. "
+                "Inspect only source material needed to place them. Terminal and "
+                "verification tools are disabled because checks cannot prove an "
+                "output that was never delivered."
+            ),
+        )
+    elif verification_debts and failed_check_repair_needed:
+        # A concrete non-environment verification failure is an objective repair
+        # obligation. Do not let the model spend another bounded action rerunning
+        # checks unchanged; first land a source mutation informed by the receipt.
+        names = [
+            name for name in resolved_names
+            if name in verification_mutation_tools
+        ]
+        phase = type(phase)(
+            "verification_repair_required",
+            frozenset(verification_mutation_tools),
+            guidance=(
+                "FAILED VERIFICATION REPAIR PHASE: a concrete executable check "
+                "failed and has not been repaired. Terminal and verification "
+                "tools are disabled for this decision. Inspect only evidence-"
+                "named source, make the smallest relevant file mutation NOW, and "
+                "do not claim the failure is resolved until the exact check passes."
+            ),
+        )
+    elif verification_debts:
+        # A repair landed, but edits never erase a red receipt. Only the exact
+        # failed command/tool identity can discharge its durable verification
+        # debt; a different weaker green check is deliberately insufficient.
+        names = [
+            name for name in resolved_names if name in verification_check_tools
+        ]
+        phase = type(phase)(
+            "verification_recheck_required",
+            frozenset(verification_check_tools),
+            guidance=(
+                "EXACT VERIFICATION RECHECK PHASE: a repair has landed for a "
+                "previously failed executable check. Mutation and broad inspection "
+                "are disabled. Rerun the SAME failed test/build/typecheck command "
+                "now. A different or weaker passing check does not clear this debt."
             ),
         )
     elif (
@@ -1641,19 +1854,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         # inspection tools: Attempt 12 spent its reserve reading instead of
         # discovering a concrete failure. Once a check fails, re-open narrow
         # inspect/repair tools so the receipt can drive a targeted correction.
-        first_check_tools = {
-            "terminal", "run_terminal", "start_terminal", "check_terminal",
-            "read_terminal_output", "stop_terminal", "typecheck_workspace",
-            "verify_ui_workspace", "verify_ui_routes",
-            "build_target", "verify_target_app", "detect_targets",
-            "check_target_toolchains",
-        }
-        repair_tools = first_check_tools | {
-            "read_file", "search_files", "search_code", "write_file",
-            "edit_file", "copy_file",
-        }
+        repair_tools = verification_check_tools | verification_mutation_tools
         verification_attempted = _ran_verification(state)
-        verification_tools = repair_tools if verification_attempted else first_check_tools
+        verification_tools = (
+            repair_tools if verification_attempted else verification_check_tools
+        )
         names = [name for name in resolved_names if name in verification_tools]
         phase_name = (
             "verification_repair" if verification_attempted else "verification_first_check"
@@ -1670,15 +1875,17 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "any exact file that may be reopened for repair."
         )
         phase = type(phase)(
-            phase_name, frozenset(verification_tools),
-            max_file_mutations_per_turn=2, guidance=guidance,
+            phase_name, frozenset(verification_tools), guidance=guidance,
         )
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
     configurable["execution_phase"] = phase.name
     configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
-    configurable["phase_max_file_mutations"] = phase.max_file_mutations_per_turn
+    # Retire the old mutation-count metadata: it was never consumed by the
+    # executor and falsely advertised a limit. The enforceable policy is the
+    # binding + execution-time allowlist above; batching within it stays legal.
+    configurable.pop("phase_max_file_mutations", None)
     configurable["phase_guidance"] = phase.guidance
     # Dynamic agent list (OpenCode builds the task tool's description
     # from the live registry): refresh the delegate tools' descriptions
@@ -1718,6 +1925,35 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
 def _zero_token_usage() -> dict[str, Any]:
     """Return an empty token usage snapshot."""
     return TokenUsage().to_dict()
+
+
+def _turn_scoped_resets() -> dict[str, Any]:
+    """Fresh safety/gate state for every user turn.
+
+    These counters bound retries *within* one turn.  Letting a resumed
+    checkpoint carry them into the next prompt makes behavior depend on what
+    the previous prompt spent: desktop evidence bd057959 showed later prompts
+    skipping finish laps because the first prompt had already consumed the
+    budget.  Keep active-task history separately; reset only turn-local valves.
+    """
+    return {
+        "iteration_used": 0,
+        "grace_done": 0,
+        "budget_warning_done": 0,
+        "incomplete_response_retries": 0,
+        "plan_wrap_nudges": 0,
+        "wrap_summary": 0,
+        "finish_nudges": 0,
+        "verify_nudges": 0,
+        "stall_continuations": 0,
+        "nudged_at_msg_count": -1,
+        "turn_token_usage": _zero_token_usage(),
+        # Do not derive this from execution_trace: informational/unavailable
+        # receipts are intentionally absent from that progress ledger but are
+        # still real executions in the diagnostics report.
+        "turn_tool_execution_count": 0,
+        "turn_tool_execution_names": [],
+    }
 
 
 def _merge_token_usage(existing: dict[str, Any] | None, additions: list[TokenUsage]) -> dict[str, Any]:
@@ -1922,20 +2158,21 @@ def ai_node(
     from src.tools.shadow_checkpoints import begin_agent_turn
     begin_agent_turn()
 
-    # D40: iteration budget. Once exhausted, tools are hidden and the model
-    # may only produce text (the hermes grace call). The FIRST exhausted call
-    # carries the grace nudge; a model that keeps hallucinating tool calls
-    # still cannot — no tools are bound — and the catalog rejection answers
-    # any echoed name for one bounded lap before should_continue finalizes
-    # the text. iteration_used increments on BOTH paths so budget accounting
-    # is monotonic. Pending REAL calls from the budget-crossing request are
-    # dispatched first (gates.should_continue — hermes loop law), so the
-    # grace call always follows executed work instead of replacing it.
+    # D40: inclusive iteration budget. The final configured provider slot is
+    # tool-free, following OpenCode's max-step shape, so an N-call boundary
+    # includes its closing response instead of requiring an N+1 grace request.
+    # Legacy checkpoints already at the wall retain the Hermes compatibility
+    # grace. iteration_used remains monotonic. Any pending real tool calls from
+    # an older budget-crossing checkpoint still dispatch before that grace.
     iteration_used = int(state.get("iteration_used", 0))
     budget_exhausted = _budget_exhausted(state)
+    final_response_slot = _final_response_reserve_reached(state)
+    completion_evidence_ready = (
+        final_response_slot and _completion_evidence_ready(state)
+    )
     grace_done = bool(state.get("grace_done", 0))
-    # True when THIS call is the first budget-exhausted request: hermes'
-    # iteration-summary call (full history + user request + no tools).
+    # True when THIS call is the first tool-free closing request: either the
+    # inclusive reserved final slot or a legacy already-exhausted grace call.
     grace_summary_lap1 = False
 
     # Use the Context Engine to build clean, organized messages.
@@ -2050,6 +2287,7 @@ def ai_node(
     if (
         execution_mode != "ask"
         and not budget_exhausted
+        and not final_response_slot
         and not budget_warning_fired
     ):
         from src.graphs.budget import _budget_warning_threshold
@@ -2109,8 +2347,8 @@ def ai_node(
     # lap runs toolless with the summary request, so a cut turn ALWAYS gets
     # a closing answer instead of ending on a bare tool card.
     wrap_summary = bool(state.get("wrap_summary"))
-    if budget_exhausted or wrap_summary:
-        call_llm = llm  # summary call: NO tools (hermes _iteration_summary_chat_kwargs)
+    if budget_exhausted or wrap_summary or final_response_slot:
+        call_llm = llm  # closing call: NO tools (OpenCode/Hermes shape)
         if not grace_done:
             # hermes handle_max_iterations (chat_completion_helpers.py:2101):
             # the summary request rides as a USER message appended to the
@@ -2120,7 +2358,32 @@ def ai_node(
             # exploring..." + a raw text tool_call after 111s of real work,
             # and the turn finalized "completed" on that nonsense.
             grace_summary_lap1 = True
-            if wrap_summary and not budget_exhausted:
+            if final_response_slot:
+                print(
+                    "[final-reserve] using inclusive final provider slot "
+                    f"{iteration_used + 1}/{_iteration_budget()} "
+                    f"(evidence_ready={completion_evidence_ready})",
+                    flush=True,
+                )
+                messages = messages + [
+                    HumanMessage(content=_FINAL_RESPONSE_RESERVE_REQUEST)
+                ]
+                try:
+                    event_bus.emit("context.status", {
+                        "thread_id": session_id,
+                        "phase": "final_response_reserve",
+                        "severity": "info",
+                        "message": (
+                            "Using the final reserved provider call for a "
+                            "tool-free completion response."
+                        ),
+                        "iteration": iteration_used + 1,
+                        "budget": _iteration_budget(),
+                        "completion_evidence_ready": completion_evidence_ready,
+                    })
+                except Exception:
+                    pass
+            elif wrap_summary and not budget_exhausted:
                 from src.graphs.budget import _PLAN_WRAP_SUMMARY_REQUEST
                 print(
                     "[grace] Task list complete but no closing answer was "
@@ -2349,7 +2612,7 @@ def ai_node(
                     if _room:
                         allowed = max(512, min(allowed, _room))
                     call_llm = bind_generation(max_tokens=allowed)
-            if budget_exhausted or wrap_summary or execution_mode == "ask":
+            if budget_exhausted or wrap_summary or final_response_slot or execution_mode == "ask":
                 call_llm = llm
                 # Failover must also be no-tools safe — strip tool pairs so
                 # strict providers don't 400 on "Tool messages found but no
@@ -2583,7 +2846,10 @@ def ai_node(
     # Step Tracker: Record step metrics & diagnostics for local inspection
     try:
         from src.runtime.step_tracker import StepTracker
-        _tracker = StepTracker.get_tracker(session_id)
+        _tracker = StepTracker.get_tracker(
+            session_id,
+            workspace_root=str(configurable.get("workspace") or "."),
+        )
         _tracker.start_step("ai", state)
         _tracker.record_llm_metrics(
             model=call_model,
@@ -2594,7 +2860,11 @@ def ai_node(
             duration_s=round(time.time() - t_llm_start, 3),
         )
         for _tc in (getattr(result, "tool_calls", None) or []):
-            _tracker.record_tool_call(name=_tc.get("name", ""), args=_tc.get("args", {}))
+            _tracker.record_tool_call(
+                name=_tc.get("name", ""),
+                args=_tc.get("args", {}),
+                status="proposed",
+            )
         _tracker.finish_step()
     except Exception:
         pass
@@ -2654,7 +2924,8 @@ def ai_node(
         "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
         "incomplete_response_retries": incomplete_retries,
-        "grace_done": 1 if budget_exhausted else grace_done,
+        "grace_done": 1 if (budget_exhausted or final_response_slot) else grace_done,
+        "wrap_summary": 1 if (wrap_summary or completion_evidence_ready) else 0,
         "budget_warning_done": 1 if budget_warning_fired else int(
             state.get("budget_warning_done", 0) or 0
         ),
@@ -2700,26 +2971,15 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         task_succeeded=True,
     )
 
-    # Store successful task in long-term memory.
-    current_task = state.get("current_task") or state.get("latest_instruction", "")
+    # Store and judge the resolved interest, not whichever human message was
+    # newest. A bare "ok" must not replace the objective, while a substantive
+    # correction must be visible to memory, feedback, and completion gates.
+    interest = interest_from_state(state)
+    current_task = interest.focus_text() or str(
+        state.get("current_task") or state.get("latest_instruction", "")
+    )
     steps_completed = state.get("steps_completed", [])
     failed_steps = state.get("failed_steps", [])
-    # Task-name discipline (owner leak, 2026-09-05): the deviation header
-    # printed "Ended incomplete: hi" on a file-listing turn — `current_task`
-    # was stale from the session's first prompt. The LAST USER MESSAGE in
-    # this turn's transcript is the only honest label; state fields are the
-    # fallback when the transcript is somehow empty.
-    for _msg in reversed(state.get("messages") or []):
-        if getattr(_msg, "type", "") == "human":
-            _raw = _msg.content
-            if isinstance(_raw, list):
-                _raw = " ".join(
-                    b.get("text", "") for b in _raw if isinstance(b, dict)
-                ) or str(_raw)
-            _text = str(_raw).strip()
-            if _text:
-                current_task = _text
-                break
 
     # Feedback loop: record FAILURE if the task ended with failed steps,
     # otherwise success. (Previously success was recorded unconditionally,
@@ -2736,6 +2996,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         _named_deliverables_exist,
         _produced_code_deliverable,
         _verification_ran_and_passed,
+        verification_status as gate_verification_status,
     )
     from src.graphs.progress_helpers import trailing_batch_failed
     # Production routes write_file never sees count too: an app generated
@@ -2747,7 +3008,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # as unverified — never stamped completed. Non-code artifacts stay
     # exempt via _produced_code_deliverable's code/app bar.
     unverified = (
-        _looks_like_execution_task(current_task)
+        _execution_requested_by_interest(state)
         and not _verification_ran_and_passed(state)
         and _produced_code_deliverable(state)
     )
@@ -2764,7 +3025,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # execution task with no real work while budget remains; this check now
     # catches only the pure-monologue case it was written for.
     no_work_done = (
-        _looks_like_execution_task(current_task)
+        _execution_requested_by_interest(state)
         and not _any_tool_activity(state)
         and not _wrote_code_files(state)
         and not _named_deliverables_exist(state, state.get("workspace", "."))
@@ -2802,7 +3063,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         _acted_after_nudge = any(
             getattr(m, "tool_calls", None) for m in _msgs[_nudged_at:]
         )
-        ended_mid_task = not _acted_after_nudge
+        ended_mid_task = (
+            _execution_requested_by_interest(state) and not _acted_after_nudge
+        )
     # Audit 2026-10-12: the verdict is computed ONCE and used for both the
     # returned task_status and the console line. They used to disagree —
     # `no_work_done` flipped task_completed to False while the print still
@@ -2970,7 +3233,23 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     except Exception:
         pass
     _trace = [a for a in (state.get("execution_trace") or []) if isinstance(a, dict)]
-    _tool_names = [str(a["tool"]) for a in _trace if a.get("tool")]
+    _progress_tool_names = [str(a["tool"]) for a in _trace if a.get("tool")]
+    _receipt_tool_names = [
+        str(name) for name in (state.get("turn_tool_execution_names") or []) if name
+    ]
+    _tool_names = _receipt_tool_names or _progress_tool_names
+    try:
+        _state_execution_count = int(state.get("turn_tool_execution_count", 0) or 0)
+    except (TypeError, ValueError):
+        _state_execution_count = 0
+    # Backward-compatible max: old checkpoints only have execution_trace; new
+    # checkpoints retain every ToolMessage receipt, including outcomes filtered
+    # from progress/recovery classification.
+    _tool_execution_count = max(
+        len(_trace),
+        len(_receipt_tool_names),
+        _state_execution_count,
+    )
     try:
         from src.observability import record_turn_receipt
         record_turn_receipt(
@@ -2982,7 +3261,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             output_tokens=int(completion_tokens or 0),
             estimated_cost_usd=float(cost_usd) if cost_usd is not None else None,
             duration_s=_duration_s,
-            tool_calls=len(_trace),
+            tool_calls=_tool_execution_count,
             tool_names=_tool_names or None,
             execution_mode=str(state.get("execution_mode") or ""),
             completed=task_succeeded,
@@ -2995,6 +3274,45 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "thread_id": _final_thread_id,
         "suggestions": [{"text": s} for s in reflection.get("suggestions", [])],
     })
+
+    # Close the diagnostics report with the same authoritative interest,
+    # evidence status, and verdict used by Agent Core.  Earlier reports were
+    # exported only mid-step, so they could retain "hello", label proposals as
+    # successes, and miss the final verification state entirely.
+    try:
+        from src.runtime.step_tracker import StepTracker
+
+        _final_text = next(
+            (
+                str(getattr(message, "content", "") or "")
+                for message in reversed(state.get("messages") or [])
+                if isinstance(message, AIMessage)
+                and str(getattr(message, "content", "") or "").strip()
+            ),
+            "",
+        )
+        if lines:
+            _final_text = "\n".join(filter(None, [_final_text, "\n".join(lines)]))
+        _final_verification = (
+            "not_applicable"
+            if interest.mode in {"answer", "social"}
+            else gate_verification_status(state)
+        )
+        StepTracker.get_tracker(
+            _final_thread_id,
+            workspace_root=str(_turn_cfg.get("workspace") or "."),
+        ).finalize_report(
+            user_ask=current_task,
+            final_message=_final_text,
+            verification_status=_final_verification,
+            receipts={
+                "task_status": verdict,
+                "tool_execution_count": _tool_execution_count,
+                "failed_step_count": len(failed_steps),
+            },
+        )
+    except Exception:
+        pass  # diagnostics never alter finalization
 
     # One verdict, one voice: this line and task_status below cannot disagree.
     print(f"[turn] finalize done: {verdict}", flush=True)
@@ -4360,6 +4678,15 @@ def task_manager_node(
         state.get("messages") or []
     )
 
+    def _interest(objective: str, relationship: str) -> dict[str, Any]:
+        """Resolve schema-v1 intent state without another provider call."""
+        return resolve_user_interest(
+            previous=state.get("user_interest"),
+            objective=objective,
+            latest_instruction=latest_instruction,
+            relationship=relationship,  # type: ignore[arg-type]
+        ).to_state()
+
     if (
         is_plan_cancellation(latest_instruction)
         and state.get("plan_created")
@@ -4367,6 +4694,8 @@ def task_manager_node(
     ):
         return {
             "current_task": "",
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest("", "cancelled"),
             "plan": [],
             "plan_goal": "",
             "plan_created": False,
@@ -4382,6 +4711,7 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4390,15 +4720,19 @@ def task_manager_node(
         and state.get("plan_created")
         and state.get("plan")
     ):
+        approved_task = state.get(
+            "plan_goal",
+            state.get("current_task", ""),
+        )
         return {
             "execution_mode": "agent",
             "plan_approved": True,
             "task_action": "execute_approved_plan",
-            "current_task": state.get(
-                "plan_goal",
-                state.get("current_task", ""),
-            ),
+            "current_task": approved_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(approved_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4407,7 +4741,10 @@ def task_manager_node(
             "task_action": "approval_without_plan",
             "task_status": "idle",
             "plan_approved": False,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "continue"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
         }
 
     if (
@@ -4419,13 +4756,17 @@ def task_manager_node(
         return {
             "task_action": "revise_plan",
             "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "corrects"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
         }
 
     # First turn: there is no previous active task.
     if not current_task:
         return {
             "current_task": latest_instruction,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(latest_instruction, "new"),
             "task_status": "in_progress",
             "task_action": "new",
             "steps_completed": [],
@@ -4448,7 +4789,7 @@ def task_manager_node(
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": _zero_token_usage(),
-            "turn_token_usage": _zero_token_usage(),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4458,11 +4799,27 @@ def task_manager_node(
     # the aux client is constructed AFTER this check — a quick-path turn
     # costs zero LLM anything, not even client setup.)
     quick = _quick_task_decision(current_task, latest_instruction)
+    if quick is None:
+        # The central interest resolver has one more deterministic reset that
+        # the text-only D30 helper cannot see: a substantive instruction after
+        # a social/phatic objective (for example, `hello` then `Create ...`).
+        # Treat that resolved replacement as a genuinely new task so stale
+        # steps, failures, plans, and receipts from the greeting are reset too.
+        # This remains zero-provider-call and also covers explicit multi-line
+        # `New task:` messages that the conservative one-line quick path skips.
+        resolved = _interest(current_task, "undetermined")
+        if resolved.get("relationship") == "replaces":
+            quick = (
+                "new",
+                str(resolved.get("objective") or latest_instruction),
+            )
     if quick is not None:
         action, updated_task = quick
         if action == "new":
             return {
                 "current_task": updated_task,
+                "latest_instruction": latest_instruction,
+                "user_interest": _interest(updated_task, "replaces"),
                 "task_action": "new",
                 "task_status": "in_progress",
                 "steps_completed": [],
@@ -4482,36 +4839,31 @@ def task_manager_node(
                 "task_completed": False,
                 "prior_attempts": [],
                 "token_usage": _zero_token_usage(),
-                "turn_token_usage": _zero_token_usage(),
-                # Safety budgets are turn-scoped even when checkpoint state is
-                # resumed (same law as run_agent/stream_agent initial state).
-                # Without this reset an ack/reset after an exhausted turn
-                # inherited iteration_used>=budget + grace_done and the next
-                # turn entered toolless and finalized instantly.
-                "iteration_used": 0,
-                "grace_done": 0,
-                "budget_warning_done": 0,
-                "incomplete_response_retries": 0,
-                "plan_wrap_nudges": 0,
-                "wrap_summary": 0,
+                # Every retry/nudge valve is turn-scoped. Without this reset,
+                # a resumed task inherits whichever channels the prior turn
+                # spent and behaves differently for the same instruction.
+                **_turn_scoped_resets(),
                 "workspace": config["configurable"].get("workspace", "."),
             }
-        return {
+        # A normal acknowledgement changes no user-interest field. LangGraph
+        # preserves the existing contract from state, and keeping this return
+        # minimal retains the zero-cost D30 fast-path API. The one exception is
+        # resuming after an unrelated turn: restore the active objective's mode
+        # so the unrelated answer cannot strand the session in read-only state.
+        quick_update = {
             "current_task": updated_task,
             "task_action": action,
             "token_usage": state.get("token_usage", _zero_token_usage()),
-            # Turn-scoped budget reset (see the "new" branch above): a bare
-            # ack re-prompt after a budget-exhausted turn must get a fresh
-            # budget, not inherit the spent one from the checkpoint.
-            "turn_token_usage": _zero_token_usage(),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
-            "incomplete_response_retries": 0,
-            "plan_wrap_nudges": 0,
-            "wrap_summary": 0,
+            # A bare ack/continue gets every turn-local valve back, not only
+            # the token-iteration budget.
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
+        prior_interest = _stored_user_interest(state)
+        if prior_interest is not None and prior_interest.relationship == "unrelated":
+            quick_update["latest_instruction"] = latest_instruction
+            quick_update["user_interest"] = _interest(updated_task, "continue")
+        return quick_update
 
     # ── Pre-LLM cancellation gate (task_manager) ──────────────
     session_id_tm = str(configurable.get("thread_id") or "default")
@@ -4519,10 +4871,13 @@ def task_manager_node(
     if _tc_tm.cancelled(session_id_tm):
         return {
             "current_task": current_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(current_task, "continue"),
             "task_action": "cancelled",
             "task_status": "cancelled",
             "task_completed": False,
             "token_usage": state.get("token_usage", _zero_token_usage()),
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4538,12 +4893,16 @@ def task_manager_node(
     if classifier_mode != "on":
         return {
             "current_task": current_task,
+            "latest_instruction": latest_instruction,
+            # The optional relationship classifier is disabled, so report
+            # that uncertainty honestly while still preserving this steering
+            # for the main model.  No extra provider round trip is introduced.
+            "user_interest": _interest(current_task, "undetermined"),
             "task_action": "continue",
+            "task_status": "in_progress",
+            "task_completed": False,
             "token_usage": state.get("token_usage", _zero_token_usage()),
-            "turn_token_usage": _zero_token_usage(),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
+            **_turn_scoped_resets(),
             "workspace": config["configurable"].get("workspace", "."),
         }
 
@@ -4608,6 +4967,8 @@ For "unrelated", preserve the existing active task exactly.
     if decision.action == "new":
         return {
             "current_task": updated_task,
+            "latest_instruction": latest_instruction,
+            "user_interest": _interest(updated_task, "replaces"),
             "task_action": decision.action,
             "task_status": "in_progress",
             "steps_completed": [],
@@ -4627,21 +4988,23 @@ For "unrelated", preserve the existing active task exactly.
             "task_completed": False,
             "prior_attempts": [],
             "token_usage": token_usage,
+            **_turn_scoped_resets(),
+            # Preserve the classifier call in this turn's metering after the
+            # generic zeroed reset above.
             "turn_token_usage": _merge_token_usage({}, [call_usage]),
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
             "workspace": config["configurable"].get("workspace", "."),
         }
 
     return {
         "current_task": updated_task,
+        "latest_instruction": latest_instruction,
+        "user_interest": _interest(updated_task, decision.action),
         "task_action": decision.action,
+        "task_status": "in_progress",
+        "task_completed": False,
         "token_usage": token_usage,
+        **_turn_scoped_resets(),
         "turn_token_usage": _merge_token_usage({}, [call_usage]),
-        "iteration_used": 0,
-        "grace_done": 0,
-        "budget_warning_done": 0,
         "workspace": config["configurable"].get("workspace", "."),
     }
 
@@ -4672,6 +5035,20 @@ def progress_node(
     env_failures = state.get("env_failures", 0)
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
     command_retries = dict(state.get("command_retries", {}))
+    turn_tool_execution_count = int(state.get("turn_tool_execution_count", 0) or 0)
+    # _turn_scoped_resets deliberately keeps its exact historical return shape.
+    # Its existing execution counter is the turn epoch: zero means any guard
+    # carried by a resumed checkpoint belongs to the prior user turn and must
+    # be discarded before the first new tool outcome is sampled.
+    tool_cycle_guard = (
+        dict(state.get("tool_cycle_guard") or {})
+        if turn_tool_execution_count > 0
+        else {}
+    )
+    tool_cycle_history = list(tool_cycle_guard.get("history") or [])
+    turn_tool_execution_names = [
+        str(name) for name in (state.get("turn_tool_execution_names") or [])
+    ]
 
     latest_tools = ph.latest_tool_messages(messages)
     injected: list = []
@@ -4682,9 +5059,17 @@ def progress_node(
         result = str(message.content)
         tool_args = ph.find_tool_args(messages, message.tool_call_id)
 
+        # Receipt accounting is broader than progress accounting.  B/E desktop
+        # evidence at 1e05cc02 exposed the distinction: informational and
+        # unavailable tools really executed but classify_tool_outcome correctly
+        # omits them from execution_trace so they do not arm recovery.  Keep a
+        # separate turn-scoped ledger for final reports/observability.
+        turn_tool_execution_count += 1
+        turn_tool_execution_names.append(tool_name)
+
         outcome = ph.classify_tool_outcome(tool_name, result)
         if outcome == ph.OUTCOME_SKIP:
-            continue  # running/unavailable check: record NOTHING
+            continue  # no success/failure progress row
 
         processed_tools += 1
         failed = outcome == ph.OUTCOME_FAILED
@@ -4692,6 +5077,15 @@ def progress_node(
         # Trace comes before memory/failure/success handling (pre-D9 order).
         execution_trace.append(
             ph.make_trace_entry(tool_name, tool_args, result, failed)
+        )
+        tool_cycle_history = ph.append_tool_cycle_sample(
+            tool_cycle_history,
+            ph.tool_cycle_sample(
+                tool_name,
+                tool_args,
+                result,
+                failed=failed,
+            ),
         )
 
         # Store tool output for semantic retrieval in interactive sessions.
@@ -4704,7 +5098,7 @@ def progress_node(
             ph.record_tool_memory(
                 memory_manager,
                 tool_name,
-                state.get("current_task", ""),
+                _active_interest_text(state),
                 result,
                 tool_args,
                 failed,
@@ -4729,7 +5123,7 @@ def progress_node(
             # appends as a SystemMessage routed back to the model BEFORE the
             # next ai call, and a count == 3 means it fires exactly once per
             # fingerprint.
-            if tool_name in ("run_terminal", "execute_code") and tool_args:
+            if tool_name in ("run_terminal", "terminal", "execute_code") and tool_args:
                 fingerprint = ph.command_fingerprint(tool_name, tool_args)
                 if fingerprint:
                     command_retries[fingerprint] = command_retries.get(fingerprint, 0) + 1
@@ -4820,6 +5214,72 @@ def progress_node(
         if label not in steps_completed:
             steps_completed.append(label)
 
+    # Gemini-style trajectory cycles + Cline-style soft/hard escalation.
+    # This runs after outcomes are known, unlike a name-only pre-tool guard:
+    # a changed test result or changed edit is real debugging progress and
+    # therefore has a different fingerprint. Only identical trailing action
+    # AND outcome cycles trigger.
+    cycle = ph.detect_tool_cycle(tool_cycle_history)
+    previous_warning = str(tool_cycle_guard.get("warned_signature") or "")
+    guard_update: dict[str, Any] = {
+        "history": tool_cycle_history,
+        "warned_signature": previous_warning,
+        "hard_stop": False,
+        "detail": {},
+    }
+    if cycle is None:
+        # Let a genuinely broken trajectory earn a fresh warning if it later
+        # falls into another cycle; keep only the bounded hashed history.
+        guard_update["warned_signature"] = ""
+    else:
+        detail = {
+            "signature": cycle["signature"],
+            "length": cycle["length"],
+            "repetitions": cycle["repetitions"],
+            "tools": list(cycle["tools"]),
+        }
+        guard_update["detail"] = detail
+        tools_display = " → ".join(detail["tools"])
+        severity = "error" if cycle["hard_stop"] else "warning"
+        if cycle["hard_stop"]:
+            guard_update["hard_stop"] = True
+            failure = (
+                "Unproductive tool trajectory stopped: "
+                f"{tools_display} repeated {cycle['repetitions']} times "
+                "with identical arguments and outcomes."
+            )
+            if failure not in failed_steps:
+                failed_steps.append(failure)
+            print(f"[ToolCycleGuard] HARD STOP: {failure}", flush=True)
+        elif cycle["signature"] != previous_warning:
+            guard_update["warned_signature"] = cycle["signature"]
+            injected.append(SystemMessage(content=ph.TOOL_CYCLE_NUDGE.format(
+                length=cycle["length"],
+                repetitions=cycle["repetitions"],
+                tools=tools_display,
+            )))
+            print(
+                "[ToolCycleGuard] strategy-change warning: "
+                f"length={cycle['length']} repeats={cycle['repetitions']} "
+                f"tools={tools_display}",
+                flush=True,
+            )
+        if cycle["hard_stop"] or cycle["signature"] != previous_warning:
+            event_bus.emit("context.status", {
+                "thread_id": str(
+                    config.get("configurable", {}).get("thread_id") or "default"
+                ),
+                "phase": "tool_cycle_guard",
+                "severity": severity,
+                "message": (
+                    f"Repeated tool trajectory detected: {tools_display} "
+                    f"({cycle['repetitions']} identical cycles)."
+                ),
+                "cycle_length": cycle["length"],
+                "repetitions": cycle["repetitions"],
+                "tools": list(cycle["tools"]),
+            })
+
     result = {
         "steps_completed": steps_completed,
         "failed_steps": failed_steps,
@@ -4831,6 +5291,9 @@ def progress_node(
         "plan_created": plan_created,
         "replan_needed": replan_needed,
         "execution_trace": execution_trace,
+        "turn_tool_execution_count": turn_tool_execution_count,
+        "turn_tool_execution_names": turn_tool_execution_names,
+        "tool_cycle_guard": guard_update,
         "env_failures": env_failures,
         "token_usage": total_usage.to_dict(),
     }
@@ -4884,6 +5347,12 @@ def after_progress(state: AgentState) -> str:
     finalize through the plan-complete shortcut — the E2 copy nudge
     fires instead.
     """
+    # A hard trajectory loop is not a normal tool failure and must not consume
+    # another provider call. End through its truthful, dedicated boundary while
+    # preserving the workspace/checkpoint for a later user-steered recovery.
+    if bool((state.get("tool_cycle_guard") or {}).get("hard_stop")):
+        return "tool_cycle_limit"
+
     # Hermes question discipline (field run 2026-09-05, "asked question
     # but"): the legacy ask_user returned its echo to the MODEL, which kept
     # working — ask_user is no longer bound (clarify replaced it), but old
@@ -4917,6 +5386,36 @@ def after_progress(state: AgentState) -> str:
         return "finish_gate"
     return route
 
+def tool_cycle_limit_node(state: AgentState, config: RunnableConfig):
+    """Truthful terminal boundary for a repeated no-progress trajectory."""
+    detail = dict((state.get("tool_cycle_guard") or {}).get("detail") or {})
+    tools = [str(name) for name in detail.get("tools", []) if str(name)]
+    tools_display = " → ".join(tools) or "unknown tool sequence"
+    repetitions = int(detail.get("repetitions", 0) or 0)
+    length = int(detail.get("length", 0) or len(tools))
+
+    # The cycle is a failed outcome for feedback attribution, but feedback is
+    # best-effort and must never interfere with the stop boundary.
+    try:
+        get_context_engine(config).record_feedback(
+            success=False, task=_active_interest_text(state)
+        )
+    except Exception:
+        pass
+
+    return {
+        "messages": [AIMessage(content=(
+            "I stopped an unproductive tool loop before spending more turns. "
+            f"The same {length}-action sequence ({tools_display}) produced "
+            f"identical outcomes {repetitions} times. The workspace and session "
+            "state are preserved. Please provide guidance for a different "
+            "approach, or resume after changing the blocker."
+        ))],
+        "task_status": "failed",
+        "task_completed": False,
+    }
+
+
 def recovery_limit_node(state: AgentState, config: RunnableConfig):
     failed_steps = state.get("failed_steps", [])
 
@@ -4924,7 +5423,7 @@ def recovery_limit_node(state: AgentState, config: RunnableConfig):
     # used for this task correlated with failure.
     try:
         get_context_engine(config).record_feedback(
-            success=False, task=state.get("current_task", "")
+            success=False, task=_active_interest_text(state)
         )
     except Exception:
         pass  # Feedback is best-effort; never block the graph
@@ -4991,7 +5490,8 @@ def planner_node(
             )],
         }
 
-    current_task = state.get("current_task", "")
+    interest = interest_from_state(state)
+    current_task = interest.focus_text() or str(state.get("current_task", "") or "")
     plan_created = state.get("plan_created", False)
 
     provider = _cfg(configurable, "provider", LLM_PROVIDER)
@@ -5050,9 +5550,13 @@ def planner_node(
     # model-tool footprint"). Feed the live agent Hermes' ground rules as a normal turn.
     from src.prompts.hermes.plan_learn import build_plan_prompt
 
+    plan_goal = interest.objective or current_task
+    # Keep Hermes' one-argument prompt path while making that argument the
+    # complete versioned contract rather than a stale task label.
+    current_task = render_user_interest(interest)
     return {
         "plan": [],
-        "plan_goal": current_task,
+        "plan_goal": plan_goal,
         "plan_created": False,
         "messages": [SystemMessage(content=build_plan_prompt(current_task))],
         "token_usage": _merge_token_usage(state.get("token_usage", {}), usages),
@@ -5190,7 +5694,7 @@ def plan_reviser_node(
 
     try:
         revised = revise_plan(
-            task=state.get("plan_goal", state.get("current_task", "")),
+            task=render_user_interest(interest_from_state(state)),
             plan=current_plan,
             revision=state.get("latest_instruction", ""),
             provider=_cfg(configurable, "provider", LLM_PROVIDER),
@@ -5249,6 +5753,17 @@ def _denied_command(tc) -> str:
     args = tc.get("args") or {}
     command = args.get("command") if isinstance(args, dict) else None
     return f"\nDenied command: {command}" if command else ""
+
+
+def _extract_exit_code(content: str) -> int | None:
+    """Read the final explicit process exit receipt from tool output."""
+    matches = re.findall(
+        r"(?i)\b(?:exit\s+code|exited|exit)\s*(?::|=|with)?\s*(-?\d+)",
+        str(content or ""),
+    )
+    # Terminal receipts put the authoritative process code at the end; earlier
+    # stdout can discuss an expected exit code without being the process result.
+    return int(matches[-1]) if matches else None
 
 
 # Wrap ToolNode with safety guard
@@ -5524,12 +6039,12 @@ class SafeToolNode:
         # it) so result pairing stays consistent for the next model call.
         from src.graphs.parallel_tools import repair_tool_call_ids
         _repaired_tcs, _ids_changed = repair_tool_call_ids(tool_calls)
+        tool_calls = _repaired_tcs
         _repaired_ai = None
         if _ids_changed:
-            tool_calls = _repaired_tcs
             _repaired_ai = AIMessage(
                 content=last_msg.content,
-                tool_calls=_repaired_tcs,
+                tool_calls=tool_calls,
                 id=getattr(last_msg, "id", None),
             )
 
@@ -5565,16 +6080,44 @@ class SafeToolNode:
             # Step Tracker: Record executed tool outputs for diagnostics
             try:
                 from src.runtime.step_tracker import StepTracker
-                _trk = StepTracker.get_tracker(_cfg_sid)
+                _trk = StepTracker.get_tracker(
+                    _cfg_sid,
+                    workspace_root=str(_cfg_ws or "."),
+                )
                 _trk.start_step("tools", state)
                 _tool_dur = round(time.time() - _t_tool_start, 3)
                 if _trk._current_step:
                     _trk._current_step.tool_duration_s = _tool_dur
                     _trk._current_step.duration_s = _tool_dur
+                _calls_by_id = {
+                    str(tc.get("id") or ""): tc
+                    for tc in (tool_calls or [])
+                    if tc.get("id")
+                }
+                _calls_by_name: dict[str, list[dict]] = {}
+                for _tc in (tool_calls or []):
+                    _calls_by_name.setdefault(str(_tc.get("name") or "tool"), []).append(_tc)
+                _used_calls: set[int] = set()
                 for _m in (msg_list or []):
                     _tname = getattr(_m, "name", "") or getattr(_m, "tool", "") or "tool"
                     _tcontent = str(getattr(_m, "content", "") or "")
+                    _call = _calls_by_id.get(str(getattr(_m, "tool_call_id", "") or ""))
+                    if _call is None:
+                        _call = next(
+                            (
+                                candidate
+                                for candidate in _calls_by_name.get(str(_tname), [])
+                                if id(candidate) not in _used_calls
+                            ),
+                            None,
+                        )
+                    if _call is not None:
+                        _used_calls.add(id(_call))
+                    _safe_args = (_call or {}).get("args", {})
+                    _exit_code = _extract_exit_code(_tcontent)
                     _is_err = getattr(_m, "status", None) == "error" or getattr(_m, "is_error", False)
+                    if _exit_code not in (None, 0):
+                        _is_err = True
                     if not _is_err:
                         _low = _tcontent.lower()
                         if _tname in ("read_file", "search_files", "list_files", "write_file", "edit_file"):
@@ -5587,8 +6130,11 @@ class SafeToolNode:
                             _is_err = _low.startswith("error:") or "traceback (most recent call last):" in _low
                     _trk.record_tool_call(
                         name=_tname,
+                        args=_safe_args if isinstance(_safe_args, dict) else {},
                         output=_tcontent,
                         status="failed" if _is_err else "success",
+                        exit_code=_exit_code,
+                        error=_tcontent if _is_err else None,
                     )
                 _trk.finish_step()
             except Exception:
@@ -5629,6 +6175,19 @@ class SafeToolNode:
                 )
                 for tc in tool_calls
             ])
+
+        # Canonicalize names before phase, permission, and SafetyGuard checks.
+        # Repairing only at the executor boundary lets an alias or typo be
+        # approved as an unknown (default-safe) name and then turn into a real
+        # shell/file tool after policy has already run. Incomplete responses
+        # above are rejected without touching the tool registry at all.
+        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
+        if _names_changed:
+            _repaired_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=tool_calls,
+                id=getattr(last_msg, "id", None),
+            )
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.
@@ -6110,20 +6669,11 @@ class SafeToolNode:
                 return _cancelled_result()
             return _with_repaired(self._node.invoke(state, config)["messages"])
         # ── hermes turn_tool_validation (agent/turn_tool_validation.py +
-        # agent_runtime_helpers.repair_tool_call #33007): repair model-emitted
-        # tool names BEFORE validating, then answer unrepairable names with
-        # tool-role error results carrying the catalog. Field receipt (owner
-        # log 2026-09-08): the model called `terminal` — hermes' own shell
-        # tool name (terminal_tool.py name="terminal") — and `Bash`; both
-        # fell through unknown, the model flailed (dir -R, ls /d/...), and
-        # the turn died "Ended unverified".
-        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
-        if _names_changed:
-            _repaired_ai = AIMessage(
-                content=last_msg.content,
-                tool_calls=tool_calls,
-                id=getattr(last_msg, "id", None),
-            )
+        # agent_runtime_helpers.repair_tool_call #33007): model-emitted names
+        # were repaired above, before every policy check. Unrepairable names
+        # now receive tool-role errors carrying the catalog. Field receipt
+        # (owner log 2026-09-08): `terminal`/`Bash` dialect drift otherwise
+        # made the model flail until the turn ended unverified.
         if all(tc.get("name", "") in self._tools_by_name for tc in tool_calls):
             return _with_repaired(self._execute_durable(tool_calls, config))
 
@@ -6240,6 +6790,11 @@ builder.add_node(
 builder.add_node(
     "recovery_limit",
     traced_node("recovery_limit", recovery_limit_node),
+)
+
+builder.add_node(
+    "tool_cycle_limit",
+    traced_node("tool_cycle_limit", tool_cycle_limit_node),
 )
 
 builder.add_node(
@@ -6370,6 +6925,7 @@ builder.add_conditional_edges(
     {
         "ai": "ai",
         "recovery_limit": "recovery_limit",
+        "tool_cycle_limit": "tool_cycle_limit",
         "finalize": "finalize",
         "pivot": "pivot",
         "finish_gate": "finish_gate",
@@ -6388,6 +6944,11 @@ builder.add_edge(
 
 builder.add_edge(
     "recovery_limit",
+    END,
+)
+
+builder.add_edge(
+    "tool_cycle_limit",
     END,
 )
 
@@ -6561,6 +7122,22 @@ graph = builder.compile(
 # =========================================================
 # NORMAL INVOCATION
 # =========================================================
+def _begin_diagnostic_turn(thread_id: str, workspace: str, message: str) -> None:
+    """Invalidate the previous turn's terminal report before graph work.
+
+    Diagnostics are best-effort and can never block a user turn.
+    """
+    try:
+        from src.runtime.step_tracker import StepTracker
+
+        StepTracker.get_tracker(
+            thread_id,
+            workspace_root=workspace,
+        ).begin_turn(user_ask=message)
+    except Exception:
+        pass
+
+
 def invoke_agent(
     message: str,
     thread_id: str = "default",
@@ -6587,6 +7164,7 @@ def invoke_agent(
             "recursion_limit": _recursion_limit(),
         }
 
+        _begin_diagnostic_turn(thread_id, workspace, message)
         result = graph.invoke(
             {
                 "messages": [
@@ -6594,14 +7172,9 @@ def invoke_agent(
                 ],
                 "latest_instruction": message,
                 "execution_mode": execution_mode,
-                # Safety budgets are turn-scoped even when checkpoint state is resumed.
-                "iteration_used": 0,
-                "grace_done": 0,
-                "budget_warning_done": 0,
-                "incomplete_response_retries": 0,
-                "plan_wrap_nudges": 0,
-                "wrap_summary": 0,
-                "turn_token_usage": _zero_token_usage(),
+                # Safety/gate budgets are turn-scoped even when checkpoint
+                # state is resumed (all channels, not only token iteration).
+                **_turn_scoped_resets(),
             },
             config=config,
         )
@@ -6685,6 +7258,7 @@ def stream_agent(
             "recursion_limit": _recursion_limit(),
         }
 
+        _begin_diagnostic_turn(thread_id, workspace, message)
         final_response = ""
         turn_completed: bool | None = None
         current_step = 0
@@ -6694,15 +7268,9 @@ def stream_agent(
             "messages": [HumanMessage(content=message)],
             "latest_instruction": message,
             "execution_mode": execution_mode,
-            # Safety budgets are turn-scoped even when checkpoint state is resumed.
-            "iteration_used": 0,
-            "grace_done": 0,
-            "budget_warning_done": 0,
-            "incomplete_response_retries": 0,
-            "plan_wrap_nudges": 0,
-            "nudged_at_msg_count": -1,
-                "wrap_summary": 0,
-            "turn_token_usage": _zero_token_usage(),
+            # Safety/gate budgets are turn-scoped even when checkpoint
+            # state is resumed (all channels, not only token iteration).
+            **_turn_scoped_resets(),
         }
         if initial_plan is not None:
             initial_state.update({

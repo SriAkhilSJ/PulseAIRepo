@@ -19,6 +19,7 @@ GENERATED = (
     "crusorai" / "common" / "crusorAIProtocol.generated.ts"
 )
 PAYLOADS = GENERATED.with_name("crusorAIProtocol.ts")
+RENDERER_SERVICE = GENERATED.parents[1] / "browser" / "crusorAIRendererService.ts"
 
 
 def _manifest() -> dict:
@@ -75,6 +76,13 @@ def test_handwritten_payload_union_covers_every_generated_name():
     server, client = text.split("export type CrusorClientMethod =", 1)
     assert _frame_names(server) == set(_manifest()["server_events"])
     assert _frame_names(client) == set(_manifest()["client_methods"])
+
+
+def test_renderer_surfaces_start_and_terminal_evidence_degradation():
+    text = RENDERER_SERVICE.read_text(encoding="utf-8")
+    assert "function evidenceDegradation(" in text
+    assert text.count("this.degraded = evidenceDegradation(frame.evidence);") == 3
+    assert "monitoring receipt is incomplete" in text
 
 
 def test_event_bus_projection_normalizes_stream_tool_and_approval_fields(tmp_path):

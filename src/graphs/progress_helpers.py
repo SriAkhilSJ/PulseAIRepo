@@ -19,12 +19,12 @@ pinned in src/tests/test_progress_helpers.py):
   result TAIL (300), successes the HEAD (300), full_output the head 2000;
   storage is best-effort (never raises);
 - failures: tool_failures increments for ANY failed tool;
-  recovery_attempts increments for run_terminal/check_terminal failures,
-  and for other tools ONLY while already in recovery_mode;
+  recovery_attempts increments for terminal/run_terminal/check_terminal
+  failures, and for other tools ONLY while already in recovery_mode;
   recovery_mode/recovery_command are set by the FIRST run/check failure
   (later failures do not steal the command slot);
-- success on run_terminal clears recovery ONLY when the command equals
-  the stored recovery_command (same-operation rule);
+- success on terminal/run_terminal clears recovery ONLY when the command
+  equals the stored recovery_command (same-operation rule);
 - write_file successes emit diff.show + files.changed; edit_file emits
   files.changed; no other tool emits events;
 - step labels are deduped by exact string before appending;
@@ -33,12 +33,18 @@ pinned in src/tests/test_progress_helpers.py):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any, Optional
 
 from langchain_core.messages import ToolMessage
 
 from src.agents.planner import update_plan_from_tool
+from src.graphs.verification_helpers import (
+    classify_env_failure,
+    command_fingerprint,
+)
 
 # Shown to the model after any tool result (kept byte-identical to the
 # pre-D9 inline string).
@@ -58,26 +64,9 @@ OUTCOME_SKIP = "skip"      # check_terminal still running: record NOTHING
 # =====================================================================
 # STRATEGY PIVOT (lab finding, run 10)
 # =====================================================================
-# When tool failures are ENVIRONMENT-level (missing binary, PATH/shim or
-# permission problems — e.g. `npx create-vite` failing with "not recognized
-# as an internal or external command" on Windows), retrying the same class
-# of command fails identically forever and the old recovery loop burned all
-# 3 attempts and paused for user input instead of switching strategy.
-# These markers classify that class so the graph can pivot (see
-# next_after_progress / pivot_node) instead of retry-until-dead.
-_ENV_FAILURE_MARKERS = (
-    "not recognized as an internal or external command",
-    "is not recognized",
-    "the syntax of the command is incorrect",  # cmd.exe parses '/' as a switch
-
-    "command not found",
-    "no such file or directory",
-    "cannot find the path specified",
-    "not found in path",
-    "permission denied",
-    "exit code: 127",
-)
-
+# Environment-failure classification lives in dependency-light
+# verification_helpers so gate-only CI does not import the planner/provider
+# stack. The public names are re-exported above for compatibility.
 RECOVERY_LIMIT = 3      # terminal failures before recovery_limit / pivot
 MAX_PIVOTS = 2          # bounded strategy pivots before giving up
 
@@ -97,17 +86,6 @@ PIVOT_GUIDANCE_PROMPT = (
     "failing command.\n"
     "Make concrete progress now with a different approach."
 )
-
-
-def classify_env_failure(result: str) -> bool:
-    """True when a tool failure is environmental (missing binary, PATH/shim
-    breakage, permissions) rather than a bug in the agent's own strategy.
-
-    These failures repeat identically on retry and need a strategy pivot,
-    not another attempt (and not a replan — the plan isn't wrong, the
-    environment is)."""
-    r = result.lower()
-    return any(marker in r for marker in _ENV_FAILURE_MARKERS)
 
 
 def next_after_progress(
@@ -340,7 +318,7 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
         "env_failure": classify_env_failure(result),
     }
 
-    if tool_name == "run_terminal":
+    if tool_name in {"run_terminal", "terminal"}:
         command = tool_args.get("command", "unknown command")
         updates["recovery_attempts_inc"] = 1
         if not recovery_mode:
@@ -366,27 +344,6 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
         failure = f"Tool failed: {tool_name}"
 
     return failure, updates
-
-
-def command_fingerprint(tool_name: str, tool_args: dict) -> Optional[str]:
-    """R3-1: stable fingerprint of a (presumed to be failing, retried)
-    command so progress_node can cap identical retries.
-
-    Terminal.execute_code both take a `command` arg (execute_code on some
-    providers uses `code` instead). Crawls the dict for the first string
-    arg keyed `command`/`code`/`cmd`, normalizes incidental whitespace, and
-    returns the lower-cased marker. Returns None when there is nothing
-    command-like (call can never be capped because it has no retry-able
-    identity).
-    """
-    candidate: Optional[str] = None
-    for key in ("command", "code", "cmd", "script"):
-        if tool_args.get(key):
-            candidate = tool_args.get(key)
-            break
-    if not candidate:
-        return None
-    return re.sub(r"\s+", " ", str(candidate)).strip().lower()
 
 
 IDENTICAL_FAILURE_NUDGE = (
@@ -419,6 +376,129 @@ IDENTICAL_READ_NUDGE = (
     "and perform the next mutating deliverable, verification step, replan, or "
     "ask the user if the result is genuinely ambiguous."
 )
+
+
+# ---------------------------------------------------------------------
+# TURN-SCOPED TOOL-CYCLE GUARD
+# ---------------------------------------------------------------------
+# Source-backed thresholds and shape:
+# - Cline warns after 3 identical calls and hard-stops at 5.
+# - Gemini CLI recognizes repeating tool patterns of length 1..5.
+# PulseAI adds the observed outcome to the fingerprint: an edit/test cycle is
+# blocked only when names, arguments, statuses, AND results repeat. A changed
+# edit or changed test output is debugging progress, not a loop.
+TOOL_CYCLE_SOFT_REPETITIONS = 3
+TOOL_CYCLE_HARD_REPETITIONS = 5
+TOOL_CYCLE_MAX_LENGTH = 5
+TOOL_CYCLE_HISTORY_LIMIT = TOOL_CYCLE_HARD_REPETITIONS * TOOL_CYCLE_MAX_LENGTH
+
+TOOL_CYCLE_NUDGE = (
+    "TRAJECTORY LOOP GUARD: the same {length}-action sequence has produced "
+    "the same outcomes {repetitions} times ({tools}). Stop repeating this "
+    "sequence. Use the observations already in context and choose a materially "
+    "different action or strategy. If no different safe action exists, explain "
+    "the blocker and ask the user instead of retrying."
+)
+
+
+def tool_cycle_sample(
+    tool_name: str,
+    tool_args: dict,
+    result: str,
+    *,
+    failed: bool,
+) -> dict[str, str]:
+    """Return a privacy-safe identity for one completed tool action.
+
+    The sample retains only the non-secret tool name and a SHA-256 digest. The
+    digest covers canonical arguments plus the complete observed result and
+    outcome, so reordered dict keys compare equal while changed evidence breaks
+    a candidate cycle immediately.
+    """
+    tool = str(tool_name)
+    status = "failed" if failed else "success"
+    canonical_args = json.dumps(
+        tool_args or {},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
+    # Feed each field incrementally. In particular, do not embed a potentially
+    # large result in another JSON string (which would allocate/escape a second
+    # full copy merely to hash it). Retained state is still one fixed digest.
+    digest = hashlib.sha256()
+    for value in (tool, canonical_args, status, str(result)):
+        encoded = value.encode("utf-8", errors="replace")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return {
+        "tool": tool,
+        "fingerprint": digest.hexdigest(),
+    }
+
+
+def append_tool_cycle_sample(
+    history: list[dict[str, str]],
+    sample: dict[str, str],
+) -> list[dict[str, str]]:
+    """Append one sample under the same 5 cycles × 5 actions hard bound."""
+    bounded = [
+        {
+            "tool": str(item.get("tool", "")),
+            "fingerprint": str(item.get("fingerprint", "")),
+        }
+        for item in history
+        if isinstance(item, dict) and item.get("fingerprint")
+    ]
+    if sample.get("fingerprint"):
+        bounded.append({
+            "tool": str(sample.get("tool", "")),
+            "fingerprint": str(sample["fingerprint"]),
+        })
+    return bounded[-TOOL_CYCLE_HISTORY_LIMIT:]
+
+
+def detect_tool_cycle(
+    history: list[dict[str, str]],
+    *,
+    minimum_repetitions: int = TOOL_CYCLE_SOFT_REPETITIONS,
+) -> dict[str, Any] | None:
+    """Detect a repeated trailing cycle of one to five completed actions.
+
+    Shortest cycles win, so A/A/A reports length 1 and A/B/A/B/A/B reports
+    length 2. Only the trailing trajectory matters: any different action or
+    outcome breaks the run naturally without a special reset heuristic.
+    """
+    samples = [
+        item for item in history
+        if isinstance(item, dict) and str(item.get("fingerprint", ""))
+    ][-TOOL_CYCLE_HISTORY_LIMIT:]
+    fingerprints = [str(item["fingerprint"]) for item in samples]
+    total = len(fingerprints)
+    minimum = max(2, int(minimum_repetitions))
+
+    for length in range(1, TOOL_CYCLE_MAX_LENGTH + 1):
+        if total < length * minimum:
+            continue
+        cycle = fingerprints[-length:]
+        repetitions = 1
+        cursor = total - (2 * length)
+        while cursor >= 0 and fingerprints[cursor:cursor + length] == cycle:
+            repetitions += 1
+            cursor -= length
+        if repetitions < minimum:
+            continue
+        tools = [str(item.get("tool", "unknown")) for item in samples[-length:]]
+        signature = hashlib.sha256("|".join(cycle).encode("ascii")).hexdigest()[:16]
+        return {
+            "signature": signature,
+            "length": length,
+            "repetitions": repetitions,
+            "tools": tools,
+            "hard_stop": repetitions >= TOOL_CYCLE_HARD_REPETITIONS,
+        }
+    return None
 
 
 _DETERMINISTIC_KEEP_MARKERS = (
@@ -504,10 +584,10 @@ def success_step_label(tool_name: str, tool_args: dict,
 def resolve_recovery_on_success(tool_name: str, tool_args: dict,
                                 recovery_mode: bool,
                                 recovery_command: Optional[str]):
-    """Same-operation rule: a run_terminal success clears recovery only
-    when its command IS the stored recovery_command."""
+    """Same-operation rule: a terminal-equivalent success clears recovery
+    only when its command IS the stored recovery_command."""
     if (
-        tool_name == "run_terminal"
+        tool_name in {"run_terminal", "terminal"}
         and recovery_mode
         and recovery_command is not None
         and tool_args.get("command", "unknown command") == recovery_command

@@ -331,11 +331,15 @@ def tool_span_start(name: str, args: dict) -> Any:
         span.set_attribute("gen_ai.operation.name", "execute_tool")
         span.set_attribute("gen_ai.tool.name", name)
         try:
-            from src.utils.redact import redact_sensitive_text
+            from src.runtime.persistence import sanitize_tool_arguments
 
             span.set_attribute(
                 "crusor.tool.args",
-                redact_sensitive_text(json.dumps(args, default=str)[:400], force=True),
+                json.dumps(
+                    sanitize_tool_arguments(args),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )[:400],
             )
         except Exception:
             pass

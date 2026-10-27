@@ -22,8 +22,8 @@ CRUSORAI_SCAN_MAX_ENTRIES, CRUSORAI_SCAN_MAX_VISITED):
   - stop predicate: polled per entry for turn cancellation
 
 Optional ``priority`` mode orders consumed files deterministic-first (shallow,
-non-test, largest first) so a truncated build indexes the most importable
-files, not whatever the tree order happened to put last.
+non-test, larger size class, stable relative path) so a truncated build indexes
+a bounded ranked set, not an arbitrary filesystem-order prefix.
 
 :class:`ContextBudget` is the ONE shared deadline a context preparation threads
 through scan → read → chunk → index → embed; every consumer derives its scan
@@ -32,11 +32,12 @@ is capped together.
 """
 from __future__ import annotations
 
+import heapq
 import os
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterator, Iterable
 
@@ -631,19 +632,52 @@ def bounded_read_text(
     return data.decode("utf-8", errors="ignore")
 
 
-def default_priority(path: Path) -> tuple[int, int, int, str]:
-    """Deterministic scan priority: shallow non-test files first, larger first."""
+def _priority_key(path: Path, *, root: Path | None = None) -> tuple[int, int, int, str]:
+    """Stable rank using a workspace-relative path when a root is available.
+
+    Exact byte size is a poor importance signal: a one-character edit or the
+    extra digit in ``module100`` must not reshuffle a bounded context prefix.
+    Size *classes* retain the useful distinction between a real source module
+    and a tiny stub while relative-path order resolves near-sized peers.
+    """
+    ranked_path = path
+    if root is not None:
+        try:
+            ranked_path = path.relative_to(root)
+        except ValueError:
+            ranked_path = path
     testish = bool(
-        "test" in (p.lower() for p in path.parts)
-        or path.name.lower().startswith("test_")
-        or path.name.lower().endswith(("_test", ".test"))
+        "test" in (part.lower() for part in ranked_path.parts)
+        or ranked_path.name.lower().startswith("test_")
+        or ranked_path.name.lower().endswith(("_test", ".test"))
     )
     try:
         size = path.stat().st_size
     except OSError:
         size = 0
-    depth = len(path.parts)
-    return (testish, depth, -size, path.as_posix())
+    # Decimal order of magnitude: 29 B and 33 B are peers; 2,000 B and 6 B
+    # are not. This removes byte-level churn without discarding size priority.
+    size_class = len(str(size)) - 1 if size > 0 else 0
+    depth = len(ranked_path.parts)
+    return (int(testish), depth, -size_class, ranked_path.as_posix())
+
+
+def default_priority(path: Path) -> tuple[int, int, int, str]:
+    """Deterministic priority: shallow non-tests, size class, stable path."""
+    return _priority_key(path)
+
+
+@dataclass(frozen=True)
+class _PriorityCandidate:
+    """Heap item whose smallest element is the *worst* retained candidate."""
+
+    key: tuple[int, int, int, str]
+    path: Path
+
+    def __lt__(self, other: "_PriorityCandidate") -> bool:
+        # heapq is a min-heap. Reverse the rank so heap[0] is the candidate to
+        # evict when a better path arrives later in filesystem order.
+        return self.key > other.key
 
 
 # ---------------------------------------------------------------------------
@@ -1006,25 +1040,91 @@ class BoundedScan:
                         yield path
 
     def _iter_priority(self) -> Iterator[Path]:
-        """Collect candidates (bounded), then emit in priority order."""
-        candidates: list[Path] = []
-        for path in self._iter_direct():
-            candidates.append(path)
-        if not candidates:
+        """Select the best bounded prefix, independent of candidate order.
+
+        The old implementation asked ``_iter_direct`` for ``max_files`` and
+        sorted only that filesystem-order prefix. A high-priority file arriving
+        one entry later could never win, and identical clean checkouts produced
+        different context. Here traversal is still bounded by elapsed,
+        considered, and visited ceilings, while a worst-first heap retains the
+        best ``max_files`` paths from every candidate actually considered.
+
+        No bounded scanner can discover the global lexical best of a directory
+        it is forbidden to finish reading. The deterministic guarantee is
+        therefore explicit: order-independent over the bounded considered
+        window, with truncation receipts preserved when that window itself is
+        exhausted.
+        """
+        output_limit = max(0, int(self.limits.max_files))
+        if output_limit == 0:
+            self._truncate(_FILES)
             return
-        # Re-yield without recounting the files/bytes budgets (already consumed
-        # during collection); only stop/elapsed enforcement applies while
-        # emitting the sorted prefix.
-        for path in sorted(candidates[: self.limits.max_files], key=default_priority):
+
+        original_limits = self.limits
+        # Candidate discovery must not stop merely because the OUTPUT heap is
+        # full. It remains bounded by the configured considered/visited/time
+        # ceilings. The synthetic candidate-file cap is only a final guard for
+        # configurations that disabled one of those entry ceilings.
+        candidate_file_cap = max(
+            output_limit,
+            int(original_limits.max_considered or 0),
+            int(original_limits.max_visited or 0),
+        )
+        candidate_limits = replace(
+            original_limits,
+            max_files=candidate_file_cap,
+            max_bytes=0,
+        )
+
+        retained: list[_PriorityCandidate] = []
+        candidate_count = 0
+        self.limits = candidate_limits
+        try:
+            for path in self._iter_direct():
+                candidate_count += 1
+                candidate = _PriorityCandidate(
+                    _priority_key(path, root=self.root), path
+                )
+                if len(retained) < output_limit:
+                    heapq.heappush(retained, candidate)
+                elif candidate.key < retained[0].key:
+                    heapq.heapreplace(retained, candidate)
+        finally:
+            self.limits = original_limits
+
+        traversal_truncated = self.report.truncated
+        traversal_reason = self.report.reason
+        # Candidate discovery used _consume only for filtering/size checks.
+        # Re-account bytes/files for the selected output, not for every path
+        # that competed for a heap slot.
+        self.report.files = 0
+        self.report.bytes = 0
+        self.report.truncated = False
+        self.report.reason = None
+        self.report.extra["priority_candidates"] = candidate_count
+        self.report.extra["priority_retained"] = len(retained)
+        self.report.extra["priority_policy"] = "bounded_top_k_v1"
+
+        for candidate in sorted(retained, key=lambda item: item.key):
             if self.should_stop is not None and self.should_stop():
-                if not self.report.truncated:
-                    self._truncate(_STOPPED)
-                return
-            if self.limits.max_elapsed > 0 and self._elapsed_now() > self.limits.max_elapsed:
-                if not self.report.truncated:
-                    self._truncate(_ELAPSED)
-                return
-            yield path
+                self._truncate(_STOPPED)
+                break
+            if (
+                self.limits.max_elapsed > 0
+                and self._elapsed_now() > self.limits.max_elapsed
+            ):
+                self._truncate(_ELAPSED)
+                break
+            if self._consume(candidate.path):
+                yield candidate.path
+            if self.report.truncated:
+                break
+
+        if not self.report.truncated:
+            if candidate_count > output_limit:
+                self._truncate(_FILES)
+            elif traversal_truncated and traversal_reason:
+                self._truncate(traversal_reason)
 
     def __iter__(self) -> Iterator[Path]:
         if self._done:
