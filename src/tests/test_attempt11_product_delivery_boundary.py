@@ -248,3 +248,88 @@ def test_reserve_phase_narrows_to_dependency_repair_and_verification(monkeypatch
     assert {"read_file", "edit_file", "run_terminal", "typecheck_workspace"} <= repair_names
     assert "list_files" not in repair_names
     assert "VERIFICATION REPAIR PHASE" in repair_config["configurable"]["phase_guidance"]
+
+
+def test_autonomous_missing_root_deliverable_precedes_verification(tmp_path, monkeypatch):
+    """A named file ledger is an obligation, not optional prompt prose."""
+    import src.graphs.chat_graph as chat_graph
+
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "12")
+    monkeypatch.setenv("AGENT_VERIFICATION_ITERATION_RESERVE", "4")
+    task = """Build a complete web application.
+
+    Deliver exactly these files at the workspace root:
+    - server.py
+    - index.html
+    """
+    (tmp_path / "server.py").write_text("print('ready')\n", encoding="utf-8")
+    state = {
+        "workspace": str(tmp_path),
+        "current_task": task,
+        "latest_instruction": task,
+        "steps_completed": ["Wrote file: server.py"],
+        "iteration_used": 8,
+        "turn_token_usage": {"total_tokens": 1000},
+        "messages": [
+            AIMessage(content="", tool_calls=[{
+                "id": "landed", "name": "write_file",
+                "args": {"path": "server.py", "content": "print('ready')\n"},
+            }]),
+            ToolMessage(
+                content="Wrote file: server.py", name="write_file",
+                tool_call_id="landed",
+            ),
+        ],
+        "execution_trace": [{"tool": "write_file", "status": "success"}],
+        "plan": [],
+    }
+    config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+
+    names = {tool.name for tool in chat_graph._resolve_bound_tools(state, config)}
+
+    assert config["configurable"]["execution_phase"] == "missing_delivery"
+    assert {"write_file", "read_file"} <= names
+    assert "terminal" not in names and "run_terminal" not in names
+    assert "index.html" in config["configurable"]["phase_guidance"]
+
+    (tmp_path / "index.html").write_text("<!doctype html>\n", encoding="utf-8")
+    complete_config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+    complete_names = {
+        tool.name for tool in chat_graph._resolve_bound_tools(state, complete_config)
+    }
+    assert complete_config["configurable"]["execution_phase"] == "verification_first_check"
+    assert "terminal" in complete_names or "run_terminal" in complete_names
+
+
+def test_missing_named_app_directory_keeps_terminal_generator_available(tmp_path):
+    """File reconciliation must not deadlock project-directory generators."""
+    import src.graphs.chat_graph as chat_graph
+
+    (tmp_path / "README.md").write_text("workspace input\n", encoding="utf-8")
+    task = "Create a Flutter app called flutterdemo"
+    state = {
+        "workspace": str(tmp_path),
+        "current_task": task,
+        "latest_instruction": task,
+        "steps_completed": [],
+        "iteration_used": 0,
+        "turn_token_usage": {"total_tokens": 0},
+        "messages": [],
+        "execution_trace": [],
+        "plan": [],
+    }
+    config = {"configurable": {
+        "workspace": str(tmp_path),
+        "approval_policy": "workspace_session",
+    }}
+
+    names = {tool.name for tool in chat_graph._resolve_bound_tools(state, config)}
+
+    assert config["configurable"]["execution_phase"] == "general"
+    assert "terminal" in names or "run_terminal" in names

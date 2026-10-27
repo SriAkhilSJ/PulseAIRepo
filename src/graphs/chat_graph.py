@@ -1705,6 +1705,29 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         and not _has_landed_file_delivery(state)
         and _workspace_is_effectively_empty(workspace)
     )
+    # Reconcile the user's explicit output ledger against disk before entering
+    # a terminal-only verification reserve. This is intentionally state-derived
+    # and provider-agnostic: a large byte count proves activity, not delivery.
+    missing_candidates = (
+        _deliverables_missing_on_disk(state, str(workspace)) if autonomous else []
+    )
+    # This phase's allowlist can directly create files. Directory deliverables
+    # such as generated mobile/desktop projects still need terminal/toolchain
+    # generators and remain on the normal execution path.
+    missing_deliverables = [
+        target for target in missing_candidates if Path(target).suffix
+    ]
+    delivery_mutation_tools = {
+        "write_file", "edit_file", "copy_file", "execute_code",
+        "generate_image", "media_download",
+    }
+    delivery_tools = {
+        "read_file", "list_files", "search_files", "search_code",
+        *delivery_mutation_tools,
+    }
+    delivery_available = any(
+        name in delivery_mutation_tools for name in resolved_names
+    )
     if read_only_interest:
         phase = type(phase)(
             "read_only_interest",
@@ -1743,6 +1766,26 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
                 "file exists. Call write_file NOW with a complete minimal "
                 "baseline. Additional files and dependencies can be handled on "
                 "the next iteration."
+            ),
+        )
+    elif missing_deliverables and delivery_available:
+        # A verifier can validate only what exists. Keep file-producing tools
+        # available and structurally withhold terminal/check tools until every
+        # explicit output is present; otherwise a bounded run can spend its
+        # entire reserve repeatedly testing an incomplete delivery.
+        names = [name for name in resolved_names if name in delivery_tools]
+        visible = missing_deliverables[:8]
+        missing_label = ", ".join(f"`{name}`" for name in visible)
+        if len(missing_deliverables) > len(visible):
+            missing_label += f", and {len(missing_deliverables) - len(visible)} more"
+        phase = type(phase)(
+            "missing_delivery", frozenset(delivery_tools),
+            guidance=(
+                "MISSING DELIVERY PHASE: the user's explicit output obligations "
+                f"are not complete on disk. Missing: {missing_label}. Create or copy "
+                "the missing output(s) NOW. Inspect only source material needed "
+                "to place them. Terminal and verification tools are disabled "
+                "because checks cannot prove an output that was never delivered."
             ),
         )
     elif (

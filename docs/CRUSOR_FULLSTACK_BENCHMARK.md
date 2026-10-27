@@ -56,9 +56,9 @@ The whole control path was rechecked against current source rather than product 
 
 | Repository | Source inspected | Relevant executable behavior |
 |---|---|---|
-| OpenCode | [`86976449`](https://github.com/anomalyco/opencode/tree/86976449c40d48f2731553a024f74552593d1764) | The max-step request keeps stable tool definitions but forces `toolChoice: "none"`; permission rules use deny precedence and an explicit ask/allow/deny table. |
-| OpenHands SDK | [`d0d9d813`](https://github.com/OpenHands/software-agent-sdk/tree/d0d9d81324210414462fb676b377e0563a08a0cb) | Action batches stop at the first finish action; conversations enforce iteration/stuck bounds; the optional goal judge reopens work unless transcript evidence supports completion. |
-| Gemini CLI | [`363a1311`](https://github.com/google-gemini/gemini-cli/tree/363a13119a57354f469732577518b9d6b319d1d6) | Pending tool calls deterministically return to the model inside a 100-turn bound; policy and tool activation are structural. |
+| OpenCode | [`caebbcc0`](https://github.com/anomalyco/opencode/tree/caebbcc0807e630629725f320f35a09aa4a427be) | Tool calls retain completed/error/unfinished status and duration; at the max-step boundary tools are disabled and the model must report completed and remaining work. |
+| OpenHands SDK | [`ded5fa5e`](https://github.com/OpenHands/software-agent-sdk/tree/ded5fa5e76ff9b7b4ff622a8df2ed20335e10652) | The goal controller judges the objective against transcript evidence after each run, distinguishes completion from a capped run, continues with the missing-work finding, and conservatively treats an invalid verdict as incomplete. |
+| Gemini CLI | [`8080ea70`](https://github.com/google-gemini/gemini-cli/tree/8080ea70a54cda947b6c4f38293f195241e45968) | Current core retains bounded session turns and structural policy/tool activation rather than relying on prompt-only compliance. |
 | Cline | [`775d0398`](https://github.com/cline/cline/tree/775d0398039977ca5447ed39c1a7f178df69aa87) | Terminal completion tools, optional required-completion policy, bounded reminders, and per-tool/wildcard policy keep completion and permission explicit. |
 | Codex | [`b6ad8ea1`](https://github.com/openai/codex/tree/b6ad8ea1fcd5562a7d3003887930be7d84824307) | Policy-filtered tool specs execute and resample; only an assistant response without pending tool work completes the turn. |
 
@@ -81,12 +81,24 @@ Run [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/4049830
 
 The detailed Actions log archive was unavailable through the permitted results endpoint; only the sanitized check annotation and step conclusions were retrievable. The exact two failing test names are therefore not guessed. The immutable result is sufficient for the acceptance decision: the site failed, so no site was committed or previewed and no second paid retry was made.
 
+## Post-failure Agent Core reconciliation
+
+The 24,991-byte receipt proves substantial activity, not complete delivery. Agent Core extracted path-shaped outputs and non-code root artifacts, but deliberately ignored bare code filenames in ordinary prose to avoid treating framework names such as `Next.js` as files. That conservative rule also discarded unambiguous root filenames when the user placed them in an explicit required-files list. Because the missing file never entered the on-disk obligation ledger, the verification reserve activated and structurally exposed terminal checks. Five terminal calls then consumed the remaining bounded actions; a later repair phase permitted edits after a failed check, but did not require returning to the still-unknown missing output.
+
+| Before | After | Optimization — why |
+|---|---|---|
+| Bare code filenames were ignored even when each was an exact bullet under a required-files/deliverables heading. | Raw line structure is retained for a context-aware file ledger; exact root entries are enforced while prose and technology-stack `Next.js` mentions remain ignored. | Deliverable provenance resolves the ambiguity without globally weakening the historical false-positive guard. |
+| Verification reserve could become terminal-only while an explicit file was absent; later repair merely allowed mutation. | Autonomous runs enter `missing_delivery` first, with file-producing and targeted local-read tools; terminal/check tools remain unavailable until every explicit file exists on disk. | Verification cannot prove an output that was never delivered. Generated project directories stay on the normal terminal/toolchain path, so this does not deadlock app generators. |
+| `outcome.json` retained aggregate frame counts, leaving the decisive per-tool results and provider latency boundary hidden. | It now stores capped ordered request receipts and tool outcomes with success/failure/skipped/unfinished status, observed duration, aggregate p50/p95 timing, and short redacted result summaries. | A future failed path shows where time and failure accumulated without persisting prompts, arguments, commands, file bodies, full results, or credential values. |
+
+These controls are task-, provider-, and model-independent. No benchmark filename, expected assertion, SprintBoard content, provider name, or model name is encoded in extraction, routing, or monitoring. The paid benchmark was not rerun: the new behavior was validated provider-free as requested.
+
 ## Local evidence
 
 - edited modules and regressions compile with Python 3.11;
-- focused progress, policy, autonomous-runtime, routing, and completion gate: **133 passed**;
-- full provider-free suite: **2,784 passed, 30 failed, 26 skipped, 1 xfailed**;
-- all 30 failures match the documented unrelated generated-desktop/environment baseline; the prior transient LSP timeout did not recur;
+- the earlier live-run hardening gate passed **133 tests**; the current deliverable/routing/monitoring gate passes **155 tests**;
+- current full provider-free pass: **2,791 passed, 31 failed, 26 skipped, 1 xfailed**; rerunning only failures made the transient local LSP timeout pass and left the exact **30-failure** generated-desktop/environment baseline;
+- every current gate, routing, runner-receipt, progress, budget, and completion regression passed;
 - a fuzzy terminal alias carrying a recursive-delete command is stopped by `SafetyGuard` before execution, and the protected file remains unchanged;
 - the desktop `terminal` alias now enters recovery, clears same-command recovery, and receives the same third-identical-failure nudge as `run_terminal`;
 - Python compilation, scoped whitespace, credential, and diff-aware Ruff checks pass with **0 new findings**;

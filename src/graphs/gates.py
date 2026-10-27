@@ -141,6 +141,24 @@ def _interest_text(state: AgentState) -> str:
     return focus or str(state.get("current_task", "") or "")
 
 
+def _deliverable_source_text(state: AgentState) -> str:
+    """Active task text with line structure retained for file-ledger syntax.
+
+    ``UserInterest.focus_text()`` intentionally normalizes whitespace. That is
+    useful for semantic routing but destroys whether ``server.py`` appeared as
+    an exact bullet or merely in prose. The raw state fields retain that syntax.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for key in ("current_task", "latest_instruction"):
+        value = str(state.get(key, "") or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        parts.append(value)
+    return "\n".join(parts) if parts else _interest_text(state)
+
+
 def _execution_requested(state: AgentState) -> bool:
     """Whether completion should require execution rather than an answer."""
     interest = UserInterest.from_state(state.get("user_interest"))
@@ -171,6 +189,29 @@ _NAMED_DELIVERABLE_EXTENSIONS = (
 _NAMED_DELIVERABLE_RE = re.compile(
     r"[A-Za-z0-9_./\\-]+\.(?:" + "|".join(_NAMED_DELIVERABLE_EXTENSIONS) + r")\b",
     re.IGNORECASE,
+)
+# A bare code filename is ambiguous in prose (``Next.js`` is a framework),
+# but not when the user puts the filename itself in a markdown/numbered file
+# ledger. Preserve that provenance rather than weakening the conservative
+# bare-name rule globally.
+_LISTED_DELIVERABLE_RE = re.compile(
+    r"^\s*(?:[-*+]|\d+[.)])\s+[`'\"]?"
+    r"(?P<target>[A-Za-z0-9_./\\-]+\.(?:"
+    + "|".join(_NAMED_DELIVERABLE_EXTENSIONS)
+    + r"))[`'\"]?\s*(?:(?:—|–|:)\s+.+|[.,;])?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+_DELIVERABLE_LEDGER_HEADER_RE = re.compile(
+    r"(?i)(?:"
+    r"\b(?:deliverables?|artifacts?|output\s+files?|required\s+files?)\b|"
+    r"\b(?:file|project)\s+(?:list|structure|layout)\b|"
+    r"\bfiles?\s*(?:to\s+(?:create|write|deliver|produce|include)|:)|"
+    r"\b(?:create|deliver|write|produce|include|return|save)\b.{0,100}\bfiles?\b"
+    r")"
+)
+_NON_DELIVERY_LEDGER_HEADER_RE = re.compile(
+    r"(?i)\b(?:technology|tech\s+stack|frameworks?|dependencies|"
+    r"ignore|exclude|do\s+not\s+create)\b"
 )
 
 _NAMED_APP_RE = re.compile(
@@ -207,6 +248,44 @@ def _deliverable_targets(task: str) -> list[str]:
         if name not in targets:
             targets.append(name)
     return targets
+
+
+def _listed_deliverable_targets(task: str) -> list[str]:
+    """Path entries in a list explicitly introduced as files/deliverables.
+
+    Requiring the nearby heading is what distinguishes ``- server.py`` under
+    "Required files" from ``- Next.js`` under "Technology stack".
+    """
+    targets: list[str] = []
+    seen: set[str] = set()
+    ledger_context = False
+    in_ledger = False
+    for line in str(task or "").replace("\r\n", "\n").split("\n"):
+        match = _LISTED_DELIVERABLE_RE.fullmatch(line)
+        if match is not None:
+            if not (ledger_context or in_ledger):
+                continue
+            in_ledger = True
+            name = match.group("target").replace("\\", "/").lstrip("./")
+            if name and name.lower() not in seen:
+                seen.add(name.lower())
+                targets.append(name)
+            continue
+        if not line.strip():
+            # Markdown commonly separates a heading and its list by one blank
+            # line; do not lose the explicit context there.
+            continue
+        if re.match(r"^\s*(?:[-*+]|\d+[.)])\s+", line):
+            ledger_context = False
+            in_ledger = False
+            continue
+        ledger_context = bool(
+            _DELIVERABLE_LEDGER_HEADER_RE.search(line)
+            and not _NON_DELIVERY_LEDGER_HEADER_RE.search(line)
+        )
+        in_ledger = False
+    return targets
+
 
 # Verify gate (Test-2 fix): an execution task that WROTE code files but
 # never ran a verification tool must not finalize. Test 2 shipped ~15
@@ -475,11 +554,10 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     disk under `workspace`. Empty list = no named targets or all present.
 
     Deliberately conservative to avoid false positives: a bare filename
-    in prose ("build a chat app with Next.js" would otherwise match
-    "Next.js") only counts as a named deliverable for COPY tasks — where
-    the whole point is placing one specific file. Non-copy (MDX-style)
-    tasks must name a PATH containing a slash, e.g.
-    "src/components/ui/hero-futuristic.tsx".
+    mentioned in prose ("build a chat app with Next.js" would otherwise
+    match "Next.js") is ignored unless the task is a COPY task, the suffix
+    names a non-code artifact, or the filename is an exact entry in a
+    markdown/numbered file ledger. Path-shaped targets remain explicit.
 
     Disk I/O is the outcome-checking exception to gates' purity: E2's
     failure was a run that proudly finished with 0 files — the only way
@@ -491,9 +569,10 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
         not _execution_requested(state) or interest.change_policy == "no_changes"
     ):
         return []
-    task = _interest_text(state)
+    task = _deliverable_source_text(state)
     is_copy = _looks_like_copy_task(task)
     app_named = _app_named_targets(task)
+    listed = {name.lower() for name in _listed_deliverable_targets(task)}
     targets = _deliverable_targets(task)
     for name in app_named:
         if name not in targets:
@@ -502,17 +581,17 @@ def _deliverables_missing_on_disk(state: AgentState, workspace: str = ".") -> li
     for target in targets:
         if not target:
             continue
+        target_key = target.replace("\\", "/").lstrip("./").lower()
         if not is_copy and "/" not in target and "\\" not in target:
             # A bare code-ish filename in prose can be a library/version token
             # (the historical `Next.js` false positive), so keep requiring a
-            # path for code. A requested non-code artifact such as report.pdf,
-            # analysis.xlsx, or slides.pptx is unambiguously a deliverable and
-            # should be protected even at the workspace root. An app-named
-            # target ("app called flutterdemo") is a project DIRECTORY the
-            # task exists to generate — equally unambiguous.
+            # path unless the user made it an exact ledger entry. A requested
+            # non-code artifact such as report.pdf or slides.pptx is already
+            # unambiguous. An app-named target is a project directory.
             if (
                 Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS
                 and target not in app_named
+                and target_key not in listed
             ):
                 continue
         exists = False
@@ -535,13 +614,18 @@ def _named_deliverables_exist(state: AgentState, workspace: str = ".") -> bool:
     execute_code/terminal without being falsely treated as "no work" merely
     because the delivery-only work counter intentionally excludes shell calls.
     """
-    task = _interest_text(state)
+    task = _deliverable_source_text(state)
     is_copy = _looks_like_copy_task(task)
+    listed = {name.lower() for name in _listed_deliverable_targets(task)}
     eligible: list[str] = []
     for target in _deliverable_targets(task):
         has_dir = "/" in target or "\\" in target
+        target_key = target.replace("\\", "/").lstrip("./").lower()
         if not is_copy and not has_dir:
-            if Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS:
+            if (
+                Path(target).suffix.lower() not in _NON_CODE_ARTIFACT_EXTENSIONS
+                and target_key not in listed
+            ):
                 continue
         eligible.append(target)
     if not eligible:
@@ -883,7 +967,7 @@ def _produced_code_deliverable(state: AgentState) -> bool:
     runtime to verify and stay on the existence contract)."""
     if _wrote_code_files(state):
         return True
-    task = _interest_text(state)
+    task = _deliverable_source_text(state)
     app_named = _app_named_targets(task)
     targets = [
         t for t in _deliverable_targets(task)
