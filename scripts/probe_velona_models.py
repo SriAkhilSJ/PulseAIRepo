@@ -216,12 +216,15 @@ class VelonaModelProbe:
                 response, choice, _elapsed = self._chat(
                     model=model,
                     messages=messages,
-                    max_tokens=48,
+                    max_tokens=256,
                 )
                 text = _bounded_text(choice["message"].get("content"))
                 if sentinel not in text:
+                    usage = _safe_usage(response.get("usage"))
                     raise RuntimeError(
-                        f"{label} response did not preserve its sentinel"
+                        f"{label} response did not preserve its sentinel "
+                        f"(finish_reason={choice.get('finish_reason')!r}, "
+                        f"content_chars={len(text)}, usage={usage})"
                     )
                 return {
                     "model": model,

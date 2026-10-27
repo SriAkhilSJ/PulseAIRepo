@@ -100,6 +100,48 @@ def test_live_chat_validation_advances_to_first_working_price_ranked_model():
     assert validated["chat_validation"]["attempted_count"] == 2
 
 
+def test_chat_probe_requires_real_management_classification(monkeypatch):
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "choices": [
+                        {"message": {"content": "unrelated"}, "finish_reason": "stop"}
+                    ]
+                }
+            ).encode()
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data)
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(selector.urllib.request, "urlopen", fake_urlopen)
+    result = selector._probe_chat_candidate(
+        base_url="https://velona.example/v1",
+        api_key="secret-value",
+        model="qwen/qwen3.7-flash",
+        timeout=10,
+    )
+
+    assert result["status"] == "passed"
+    assert result["management_classification"] == "unrelated"
+    assert captured["body"]["max_tokens"] == 24
+    assert "task router" in captured["body"]["messages"][0]["content"]
+    assert captured["timeout"] == 10
+    assert "secret-value" not in json.dumps(result)
+
+
 def test_required_main_model_must_be_live():
     with pytest.raises(selector.CatalogSelectionError, match="required main model"):
         selector.select_cheapest_aux(_catalog(), main_model="missing/main")

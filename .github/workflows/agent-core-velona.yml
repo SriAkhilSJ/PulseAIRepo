@@ -70,7 +70,7 @@ jobs:
           --minimum-context 1000000
           --verify-chat
           --max-chat-candidates 20
-          --chat-timeout 45
+          --chat-timeout 15
           --output velona-live-results/aux-selection.json
           --github-env "$GITHUB_ENV"
 

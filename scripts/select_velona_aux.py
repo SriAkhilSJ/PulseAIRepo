@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 import re
-import secrets
 import sys
 import time
 import urllib.error
@@ -221,7 +220,7 @@ def select_cheapest_aux(
         "selection_policy": (
             "exclude obvious non-chat utility ids; minimum(input_per_1m + "
             "output_per_1m), then input, output, larger context, model id; "
-            "optionally require a live exact-sentinel chat pass"
+            "optionally require a live management-classification pass"
         ),
         "minimum_context_window": minimum_context,
         "main": {
@@ -254,7 +253,7 @@ def _probe_chat_candidate(
     model: str,
     timeout: float,
 ) -> dict[str, Any]:
-    """Use a tiny exact-sentinel request to prove OpenAI-chat compatibility."""
+    """Prove the model can perform PulseAI's management-class routing work."""
     endpoint = base_url.rstrip("/")
     if not endpoint.endswith("/v1"):
         endpoint += "/v1"
@@ -264,16 +263,25 @@ def _probe_chat_candidate(
     attempts = 0
     for attempt in range(2):
         attempts += 1
-        sentinel = f"AUX_CHAT_READY_{secrets.token_hex(5)}"
         body = {
             "model": model,
             "messages": [
                 {
+                    "role": "system",
+                    "content": (
+                        "You are a management task router. Return exactly one "
+                        "lowercase word: new, continue, or unrelated."
+                    ),
+                },
+                {
                     "role": "user",
-                    "content": f"Reply with exactly this token: {sentinel}",
-                }
+                    "content": (
+                        "Current coding task: fix the parser tests. Latest user "
+                        "instruction: what is the weather in Bengaluru?"
+                    ),
+                },
             ],
-            "max_tokens": 48,
+            "max_tokens": 24,
             "temperature": 0,
         }
         request = urllib.request.Request(
@@ -299,15 +307,16 @@ def _probe_chat_candidate(
                 and isinstance(choices[0], dict)
                 else None
             )
-            if status == 200 and sentinel in _assistant_text(message):
+            text = _assistant_text(message).strip().lower().strip("`'\" .!\n\r\t")
+            if status == 200 and text == "unrelated":
                 return {
                     "model": model,
                     "status": "passed",
                     "attempts": attempts,
                     "elapsed_seconds": round(time.monotonic() - total_started, 3),
-                    "sentinel_preserved": True,
+                    "management_classification": "unrelated",
                 }
-            last_error = "HTTP 200 response did not preserve the exact sentinel"
+            last_error = "HTTP 200 response failed the exact management classification"
         except urllib.error.HTTPError as exc:
             last_error = f"HTTP {exc.code}"
             if exc.code < 500:
@@ -461,7 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verify-chat",
         action="store_true",
-        help="require a tiny exact-sentinel chat pass before selecting a model",
+        help="require a tiny management-classification pass before selection",
     )
     parser.add_argument("--max-chat-candidates", type=int, default=20)
     parser.add_argument("--chat-timeout", type=float, default=45.0)
