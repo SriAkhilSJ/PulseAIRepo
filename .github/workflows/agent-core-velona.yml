@@ -1,0 +1,336 @@
+name: Agent Core Velona
+
+on:
+  push:
+    branches:
+      - arena/a7c2c868-pulseairepo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-core-velona
+  cancel-in-progress: false
+
+jobs:
+  live-agent-core:
+    name: Live Velona Agent Core probe
+    if: contains(github.event.head_commit.message, '[agent-core-velona]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CUSTOM_BASE_URL: https://velona.in/v1
+      VELONA_BASE_URL: https://velona.in/v1
+      LLM_PROVIDER: custom
+      LLM_MODEL: z-ai/glm-5.3-flash
+      CONTEXT_MODEL: z-ai/glm-5.3-flash
+      AUX_LLM_PROVIDER: custom
+      PROVIDER_SAFE_LIMIT: '0'
+      CRUSORAI_MEMORY: 'off'
+      CRUSORAI_MEMORY_WARMUP_AT_BOOT: 'off'
+      CRUSORAI_OTEL: 'off'
+      CRUSORAI_WEB_TOOLS: 'off'
+      CRUSORAI_MAX_TOOLS: '8'
+      CRUSORAI_CONTEXT_BUDGET_TOKENS: '32768'
+      CRUSORAI_HISTORY_BUDGET_TOKENS: '32768'
+
+    steps:
+      - name: Check out the exact triggering commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+
+      - name: Verify secret is available without printing it
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          key = os.environ.get("CUSTOM_API_KEY", "").strip()
+          if not key:
+              print("CUSTOM_API_KEY repository secret is missing", file=sys.stderr)
+              raise SystemExit(1)
+          print("CUSTOM_API_KEY repository secret is present")
+          PY
+
+      - name: Select the cheapest live 1M-context auxiliary model
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: >-
+          python scripts/select_velona_aux.py
+          --base-url "$CUSTOM_BASE_URL"
+          --main-model "$LLM_MODEL"
+          --minimum-context 1000000
+          --output velona-live-results/aux-selection.json
+          --github-env "$GITHUB_ENV"
+
+      - name: Probe main chat, main tools, replay, and selected auxiliary model
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: >-
+          python scripts/probe_velona_models.py
+          --base-url "$CUSTOM_BASE_URL"
+          --main-model "$LLM_MODEL"
+          --aux-model "$AUX_LLM_MODEL"
+          --timeout 90
+          --output velona-live-results/model-probe.json
+
+      - name: Install pinned Agent Core runtime dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          aiosqlite==0.22.1 ddgs==9.16.1 google-genai==2.33.0
+          groq==0.37.1 httpx==0.28.1 langchain==1.4.7
+          langchain-google-genai==4.4.2 langchain-groq==1.1.3
+          langchain-openai==1.7.3 langgraph==1.2.18
+          langgraph-checkpoint-sqlite==3.1.2 mcp==2.3.0
+          openai==3.39.0 opentelemetry-api==1.45.1
+          opentelemetry-sdk==1.45.1 pillow==13.0.0
+          pydantic==2.14.1 pytest==9.1.1 pytest-asyncio==1.4.1
+          python-dotenv==1.2.4 rich==15.0.0 sqlite-vec==0.1.9
+          tiktoken==0.14.0 typer==0.27.3 watchdog==6.0.0
+
+      - name: Run Agent Core provider and auxiliary routing contracts
+        run: >-
+          python -m pytest -q
+          src/tests/test_provider_preflight.py
+          src/tests/test_aux_model_routing.py
+          src/tests/test_hermes_aux_discipline.py
+          src/tests/test_velona_aux_selector.py
+          src/tests/test_velona_model_probe.py
+
+      - name: Exercise selected auxiliary model through PulseAI factory
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          VELONA_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CRUSORAI_LLM_STREAMING: 'off'
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import secrets
+          from pathlib import Path
+
+          from src.llm.factory import get_auxiliary_llm
+
+          sentinel = f"PULSEAI_AUX_READY_{secrets.token_hex(5)}"
+          reply = get_auxiliary_llm().invoke(
+              f"Reply with exactly this token and nothing else: {sentinel}"
+          )
+          content = getattr(reply, "content", reply)
+          if isinstance(content, list):
+              content = "".join(
+                  str(part.get("text") or "") if isinstance(part, dict) else str(part)
+                  for part in content
+              )
+          text = str(content or "")
+          passed = sentinel in text
+          receipt = {
+              "schema": "pulseai.velona_aux_factory.v1",
+              "status": "passed" if passed else "failed",
+              "provider": os.environ["AUX_LLM_PROVIDER"],
+              "model": os.environ["AUX_LLM_MODEL"],
+              "sentinel_preserved": passed,
+              "response_sha256": hashlib.sha256(text.encode()).hexdigest(),
+              "api_key_persisted": False,
+          }
+          path = Path("velona-live-results/aux-factory.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          raise SystemExit(0 if passed else 1)
+          PY
+
+      - name: Run one bounded genuine Agent Core turn
+        id: agent_turn
+        continue-on-error: true
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          VELONA_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CRUSORAI_LLM_STREAMING: 'on'
+        run: |
+          set -euo pipefail
+          workspace=/tmp/pulseai-velona-agent-core
+          prompt=/tmp/pulseai-velona-agent-core-prompt.txt
+          expected=/tmp/pulseai-velona-agent-core-expected.txt
+          rm -rf "$workspace"
+          mkdir -p "$workspace" velona-agent-core-results
+          python - <<'PY'
+          import secrets
+          from pathlib import Path
+          nonce = f"AGENT_CORE_VELONA_{secrets.token_hex(8)}"
+          Path("/tmp/pulseai-velona-agent-core-expected.txt").write_text(nonce + "\n")
+          Path("/tmp/pulseai-velona-agent-core-prompt.txt").write_text(
+              "Validate the real Agent Core tool loop. Create exactly one file named "
+              "AGENT_CORE_VELONA_PROOF.txt in the workspace. Its entire content must be "
+              f"{nonce} followed by one newline. Use the write_file tool, verify the file, "
+              "do not inspect unrelated paths, and then finish.\n"
+          )
+          PY
+          python scripts/run_bridge_turn.py \
+            --workspace "$workspace" \
+            --prompt-file "$prompt" \
+            --run-id "velona-${GITHUB_RUN_ID}" \
+            --timeout-s 600 \
+            --max-llm-calls 8 \
+            --max-input-tokens 80000 \
+            --max-no-delivery-calls 4 \
+            --results-root velona-agent-core-results
+
+      - name: Grade bounded Agent Core evidence
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          root = Path("velona-live-results")
+          run_dir = Path("velona-agent-core-results") / f"velona-{os.environ['GITHUB_RUN_ID']}"
+          selector = json.loads((root / "aux-selection.json").read_text())
+          model_probe = json.loads((root / "model-probe.json").read_text())
+          aux_factory = json.loads((root / "aux-factory.json").read_text())
+          outcome = json.loads((run_dir / "outcome.json").read_text())
+          expected = Path("/tmp/pulseai-velona-agent-core-expected.txt").read_text()
+          proof_path = Path("/tmp/pulseai-velona-agent-core/AGENT_CORE_VELONA_PROOF.txt")
+          proof = proof_path.read_text() if proof_path.is_file() else ""
+          selected = selector.get("selected") or {}
+          checks = {
+              "live_catalog_selected_1m_model": int(selected.get("context_window") or 0) >= 1_000_000,
+              "main_and_aux_endpoint_probe": model_probe.get("status") == "passed",
+              "aux_factory_probe": aux_factory.get("status") == "passed",
+              "agent_core_turn_done": outcome.get("result") == "turn_done" and outcome.get("completed") is True,
+              "proof_file_exact": proof == expected,
+              "llm_request_observed": int(outcome.get("llm_request_frames") or 0) > 0,
+          }
+          raw_error = str(outcome.get("error") or "")
+          key = os.environ.get("CUSTOM_API_KEY", "")
+          safe_error = raw_error.replace(key, "[REDACTED]") if key else raw_error
+          safe_error = re.sub(
+              r"(?i)(bearer\s+)[a-z0-9._~+/=-]{8,}",
+              r"\1[REDACTED]",
+              safe_error,
+          )[:1000]
+          passed = all(checks.values())
+          receipt = {
+              "schema": "pulseai.velona_agent_core.v1",
+              "status": "passed" if passed else "failed",
+              "commit": os.environ["GITHUB_SHA"],
+              "main_model": os.environ["LLM_MODEL"],
+              "aux_model": selected.get("model"),
+              "aux_context_window": selected.get("context_window"),
+              "checks": checks,
+              "agent_core": {
+                  "result": outcome.get("result"),
+                  "completed": outcome.get("completed"),
+                  "error": safe_error or None,
+                  "frame_counts": outcome.get("frame_counts"),
+                  "llm_request_frames": outcome.get("llm_request_frames"),
+                  "tokens_in_last_telemetry": outcome.get("tokens_in_last_telemetry"),
+                  "budget_stop": outcome.get("budget_stop"),
+                  "no_delivery_stop": outcome.get("no_delivery_stop"),
+                  "safety_requests": outcome.get("safety_requests"),
+                  "safety_approved": outcome.get("safety_approved"),
+                  "safety_denied": outcome.get("safety_denied"),
+              },
+              "proof_sha256": hashlib.sha256(proof.encode()).hexdigest() if proof else None,
+              "api_key_persisted": False,
+          }
+          destination = root / "agent-core-receipt.json"
+          destination.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          print(json.dumps(receipt, indent=2, sort_keys=True))
+          raise SystemExit(0 if passed else 1)
+          PY
+
+      - name: Publish bounded summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("velona-live-results")
+          rows = ["## Agent Core + Velona", ""]
+          for filename, label in (
+              ("aux-selection.json", "Live 1M AUX selection"),
+              ("model-probe.json", "Main/AUX endpoint contract"),
+              ("aux-factory.json", "PulseAI AUX factory"),
+              ("agent-core-receipt.json", "Genuine Agent Core turn"),
+          ):
+              path = root / filename
+              if not path.is_file():
+                  rows.append(f"- **{label}:** `not reached`")
+                  continue
+              data = json.loads(path.read_text())
+              status = data.get("status") or (
+                  "passed" if data.get("selected") else "unknown"
+              )
+              detail = ""
+              if filename == "aux-selection.json":
+                  selected = data.get("selected") or {}
+                  detail = (
+                      f" — `{selected.get('model')}`; "
+                      f"window `{selected.get('context_window')}`; "
+                      f"equal-volume price `{selected.get('equal_volume_per_1m')} "
+                      f"{selected.get('currency')}`"
+                  )
+              rows.append(f"- **{label}:** `{status}`{detail}")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(rows) + "\n")
+          PY
+
+      - name: Scan bounded receipts before upload
+        id: artifact_safety
+        if: always()
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import shutil
+          from pathlib import Path
+
+          root = Path("velona-live-results")
+          key = os.environ.get("CUSTOM_API_KEY", "").encode()
+          bad = []
+          patterns = (
+              re.compile(rb"(?i)bearer\s+[a-z0-9._~+/=-]{8,}"),
+              re.compile(rb"KGAT_[A-Za-z0-9]{16,}"),
+          )
+          for path in root.glob("*.json") if root.is_dir() else ():
+              payload = path.read_bytes()
+              if (key and key in payload) or any(pattern.search(payload) for pattern in patterns):
+                  bad.append(path.name)
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          if bad:
+              shutil.rmtree(root, ignore_errors=True)
+              with output.open("a") as stream:
+                  stream.write("safe=false\n")
+              print("Receipt safety scan failed; candidate artifacts were deleted")
+              raise SystemExit(1)
+          with output.open("a") as stream:
+              stream.write("safe=true\n")
+          print("Bounded receipt credential scan passed")
+          PY
+
+      - name: Upload bounded receipts only
+        if: always() && steps.artifact_safety.outputs.safe == 'true'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: agent-core-velona-${{ github.run_id }}
+          path: velona-live-results/*.json
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
