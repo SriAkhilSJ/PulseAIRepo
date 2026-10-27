@@ -20,6 +20,7 @@ _ASSIGNMENT_PATTERN = re.compile(
 )
 _ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_JSON_DATA_PATTERN = re.compile(r'(?<!\\)"data"\s*:\s*("(?:\\.|[^"\\])*")')
 
 
 def _utc_now() -> str:
@@ -58,9 +59,10 @@ def _quota_receipt(value: Any) -> dict[str, Any]:
     }
 
 
-def _decode_chunks(response: Any, max_bytes: int) -> tuple[str, int, bool, bool]:
-    chunks: list[bytes] = []
-    seen = 0
+def _decode_chunks(response: Any, max_bytes: int) -> tuple[str, int, int, bool, bool]:
+    """Read until EOF/deadline while retaining only a bounded byte suffix."""
+    retained = bytearray()
+    observed = 0
     truncated = False
     deadline_reached = False
     try:
@@ -68,23 +70,69 @@ def _decode_chunks(response: Any, max_bytes: int) -> tuple[str, int, bool, bool]
             if not chunk:
                 continue
             encoded = chunk if isinstance(chunk, bytes) else str(chunk).encode()
-            remaining = max_bytes - seen
-            if remaining <= 0:
+            observed += len(encoded)
+            retained.extend(encoded)
+            overflow = len(retained) - max_bytes
+            if overflow > 0:
+                del retained[:overflow]
                 truncated = True
-                break
-            chunks.append(encoded[:remaining])
-            seen += min(len(encoded), remaining)
-            if len(encoded) > remaining or seen >= max_bytes:
-                truncated = True
-                break
     except _DeadlineExpired:
         deadline_reached = True
     return (
-        b"".join(chunks).decode("utf-8", errors="replace"),
-        seen,
+        bytes(retained).decode("utf-8", errors="replace"),
+        len(retained),
+        observed,
         truncated,
         deadline_reached,
     )
+
+
+def _unescape_persisted_suffix(text: str) -> str | None:
+    """Peel the outer JSON-string layer from a bounded persisted-log suffix."""
+    marker = r"{\"stream_name\""
+    start = text.find(marker)
+    if start < 0:
+        return None
+    fragment = text[start:].strip()
+    # The retained suffix normally includes the outer JSON string's closing quote.
+    # Try a tiny bounded trim so a split escape or response trailer cannot hide all
+    # complete records that precede it.
+    for trim in range(17):
+        candidate = fragment[:-trim] if trim else fragment
+        if not candidate:
+            break
+        candidate = (
+            candidate.replace("\r", r"\r").replace("\n", r"\n").replace("\t", r"\t")
+        )
+        try:
+            value = json.loads(f'"{candidate}"')
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _decode_structured_log(text: str) -> tuple[str, int]:
+    """Recover worker stdout/stderr data fields from a full or suffix JSON body."""
+    candidates = [text]
+    unescaped = _unescape_persisted_suffix(text)
+    if unescaped is not None:
+        candidates.append(unescaped)
+
+    best: list[str] = []
+    for candidate in candidates:
+        records: list[str] = []
+        for match in _JSON_DATA_PATTERN.finditer(candidate):
+            try:
+                value = json.loads(match.group(1))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(value, str):
+                records.append(value)
+        if len(records) > len(best):
+            best = records
+    return ("".join(best), len(best)) if best else (text, 0)
 
 
 def _clean_log_tail(text: str, secrets: tuple[str, ...], max_chars: int) -> str:
@@ -192,7 +240,8 @@ def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
             signal.alarm(args.capture_seconds)
             response = None
             raw = ""
-            seen = 0
+            retained = 0
+            observed = 0
             truncated = False
             deadline_reached = False
             try:
@@ -201,7 +250,7 @@ def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
                         log_request
                     )
                 )
-                raw, seen, truncated, deadline_reached = _decode_chunks(
+                raw, retained, observed, truncated, deadline_reached = _decode_chunks(
                     response, args.max_bytes
                 )
             except _DeadlineExpired:
@@ -212,17 +261,20 @@ def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
                 if response is not None:
                     response.close()
 
-            tail = _clean_log_tail(raw, secrets, args.max_tail_chars)
+            decoded, records_decoded = _decode_structured_log(raw)
+            tail = _clean_log_tail(decoded, secrets, args.max_tail_chars)
             receipt["log"] = {
                 "content_type": (
                     response.headers.get("Content-Type")
                     if response is not None
                     else None
                 ),
-                "bytes_captured": seen,
-                "capture_truncated": truncated,
+                "bytes_retained": retained,
+                "bytes_observed": observed,
+                "retained_suffix": truncated,
                 "deadline_reached": deadline_reached,
-                "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                "records_decoded": records_decoded,
+                "retained_sha256": hashlib.sha256(raw.encode()).hexdigest(),
                 "tail": tail,
                 "tail_chars": len(tail),
             }

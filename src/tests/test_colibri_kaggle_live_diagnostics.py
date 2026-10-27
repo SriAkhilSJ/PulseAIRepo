@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,13 +40,14 @@ def test_redacted_bounded_log_tail_removes_credentials_and_terminal_controls():
     assert len(tail) <= 1240
 
 
-def test_chunk_capture_is_bounded_and_preserves_prefix():
-    text, seen, truncated, deadline = diagnostics._decode_chunks(
+def test_chunk_capture_is_bounded_and_preserves_suffix():
+    text, retained, observed, truncated, deadline = diagnostics._decode_chunks(
         _Response([b"abc", b"defgh"]), 6
     )
 
-    assert text == "abcdef"
-    assert seen == 6
+    assert text == "cdefgh"
+    assert retained == 6
+    assert observed == 8
     assert truncated is True
     assert deadline is False
 
@@ -55,14 +57,44 @@ def test_chunk_capture_preserves_data_when_deadline_fires():
         yield b"already captured\n"
         raise diagnostics._DeadlineExpired("done")
 
-    text, seen, truncated, deadline = diagnostics._decode_chunks(
+    text, retained, observed, truncated, deadline = diagnostics._decode_chunks(
         _Response(chunks()), 1024
     )
 
     assert text == "already captured\n"
-    assert seen == len(text)
+    assert retained == len(text)
+    assert observed == len(text)
     assert truncated is False
     assert deadline is True
+
+
+def test_structured_persisted_log_suffix_decodes_complete_data_records():
+    source = (
+        'partial-prefix},{"stream_name":"stdout","time":1.0,'
+        '"data":"phase one\\n"},{"stream_name":"stderr","time":2.0,'
+        '"data":"failure: \\"bounded\\"\\n"}]'
+    )
+
+    decoded, records = diagnostics._decode_structured_log(source)
+
+    assert decoded == 'phase one\nfailure: "bounded"\n'
+    assert records == 2
+
+
+def test_structured_persisted_log_decodes_outer_json_string_suffix():
+    events = ",".join(
+        [
+            '{"stream_name":"stdout","time":1.0,"data":"phase two\\n"}',
+            '{"stream_name":"stderr","time":2.0,"data":"exact failure\\n"}',
+        ]
+    )
+    encoded = json.dumps(events)
+    source = "partial discarded event" + encoded[1:]
+
+    decoded, records = diagnostics._decode_structured_log(source)
+
+    assert decoded == "phase two\nexact failure\n"
+    assert records == 2
 
 
 def test_quota_receipt_uses_seconds_only():

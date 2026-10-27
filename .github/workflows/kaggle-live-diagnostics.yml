@@ -70,7 +70,10 @@ jobs:
               return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
           print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title=Kaggle live status::{escape(headline)}")
           detail = tail or reason or "No log bytes were returned"
-          print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title=Bounded redacted Kaggle log tail::{escape(detail)}")
+          chunks = [detail[index:index + 3000] for index in range(0, len(detail), 3000)]
+          for index, chunk in enumerate(chunks, start=1):
+              title = f"Bounded redacted Kaggle log tail {index}/{len(chunks)}"
+              print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title={title}::{escape(chunk)}")
           summary = [
               "## Kaggle live diagnostics",
               "",
