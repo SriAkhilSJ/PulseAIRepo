@@ -606,6 +606,46 @@ def _completion_activity_missing(state: AgentState) -> bool:
     )
 
 
+def _completion_evidence_ready(state: AgentState) -> bool:
+    """Whether a reserved final response may carry a completed verdict.
+
+    This is deliberately stricter than a model saying "done". Execution tasks
+    need concrete activity, every named deliverable, fresh required
+    verification, no unrecovered trailing failure, and no open plan step. The
+    result only controls budget-cut attribution; it never skips the final model
+    response itself.
+    """
+    if state.get("execution_mode") == "ask":
+        return True
+    if not _execution_requested(state):
+        return True
+    if not _any_tool_activity(state):
+        return False
+    if _deliverables_missing_on_disk(state, state.get("workspace", ".")):
+        return False
+    # The reserve is not a shortcut around the verification gate. Technical
+    # execution earns a clean wrap only from a fresh, recognized passing
+    # receipt; unlike _verify_unsatisfied, this has no nudge-budget escape.
+    if not _verification_ran_and_passed(state):
+        return False
+    plan = state.get("plan") or []
+    if plan and any(step.get("status") != "completed" for step in plan):
+        return False
+    from src.graphs.progress_helpers import trailing_batch_failed
+
+    if trailing_batch_failed(state.get("messages") or []):
+        return False
+    nudged_at = state.get("nudged_at_msg_count")
+    if isinstance(nudged_at, int) and nudged_at >= 0:
+        messages = state.get("messages") or []
+        if not any(
+            getattr(message, "tool_calls", None)
+            for message in messages[nudged_at:]
+        ):
+            return False
+    return True
+
+
 def should_continue(state: AgentState):
     last_message = state["messages"][-1]
     if bool(getattr(last_message, "additional_kwargs", {}).get("crusor_cancelled")):
@@ -966,7 +1006,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         elif name in {"run_terminal", "terminal"}:
             command = str(tool_args(message).get("command", "")).lower()
             is_check = any(token in command for token in (
-                "pytest", " test", "npm test", "typecheck", "tsc ",
+                "pytest", "unittest", " test", "npm test", "typecheck", "tsc ",
                 " lint", " build", "cargo check", "go test",
                 # flutter/dart analyze is THE static check of its stack;
                 # without the token a lone `flutter analyze` never

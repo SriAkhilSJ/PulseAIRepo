@@ -2,7 +2,12 @@
 
 import builtins
 
-from scripts.run_bridge_turn import record_runner_error, safe_console_emit
+from scripts.run_bridge_turn import (
+    effective_iteration_budget,
+    record_runner_error,
+    safe_console_emit,
+    should_stop_for_call_budget,
+)
 
 
 def test_console_heartbeat_failure_falls_back_without_raising(monkeypatch, tmp_path):
@@ -33,3 +38,13 @@ def test_runner_exception_receipt_preserves_bounded_traceback(monkeypatch):
     assert "secret-value-123" not in outcome["runner_traceback"]
     assert "test_runner_exception_receipt" in outcome["runner_traceback"]
     assert len(outcome["runner_traceback"]) <= 12000
+
+
+def test_runner_aligns_and_enforces_an_inclusive_call_ceiling():
+    assert effective_iteration_budget(8) == 8
+    assert effective_iteration_budget(1) == 1
+    assert effective_iteration_budget(0) == 1
+
+    assert should_stop_for_call_budget(7, 8) is False
+    assert should_stop_for_call_budget(8, 8) is False
+    assert should_stop_for_call_budget(9, 8) is True

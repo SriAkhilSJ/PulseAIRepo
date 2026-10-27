@@ -134,6 +134,24 @@ def should_stop_for_no_delivery(llm_calls: int, limit: int, workspace: str) -> b
     return limit > 0 and llm_calls >= limit and not workspace_has_delivered_file(workspace)
 
 
+def effective_iteration_budget(max_llm_calls: int) -> int:
+    """Return the bridge's one inclusive provider-call ceiling.
+
+    ``--max-llm-calls`` is the runner contract, so it replaces any stale
+    process-level Agent Core budget instead of creating two different walls.
+    """
+    return max(1, int(max_llm_calls))
+
+
+def should_stop_for_call_budget(llm_calls: int, limit: int) -> bool:
+    """Emergency backstop after Agent Core's inclusive final slot.
+
+    The Nth request is allowed to finish; Agent Core disables tools there and
+    must close the turn. N+1 indicates contract drift and is cancelled.
+    """
+    return limit > 0 and llm_calls > limit
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", required=True)
@@ -141,7 +159,8 @@ def main() -> int:
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--timeout-s", type=int, default=5400)
     ap.add_argument("--max-llm-calls", type=int, default=60,
-                    help="credit circuit-breaker: cancel the turn at this many provider calls")
+                    help=("inclusive provider-call ceiling; Agent Core reserves the final "
+                          "call for text and the runner cancels contract drift beyond it"))
     ap.add_argument("--max-input-tokens", type=int, default=250000,
                     help="credit circuit-breaker: cancel when cumulative input tokens pass this")
     ap.add_argument("--max-no-delivery-calls", type=int, default=12,
@@ -172,6 +191,10 @@ def main() -> int:
         safe_console_emit(message, console_fallback)
 
     env = dict(os.environ)
+    agent_iteration_budget = effective_iteration_budget(args.max_llm_calls)
+    # The graph owns the inclusive N-call contract and reserves call N for a
+    # tool-free final response. The runner remains an N+1 emergency backstop.
+    env["AGENT_ITERATION_BUDGET"] = str(agent_iteration_budget)
     env.setdefault("CRUSORAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
     # Tell the bridge/SafeToolNode to auto-approve ordinary workspace edits.
     # The runner also handles a residual safety_request defensively below so
@@ -186,7 +209,12 @@ def main() -> int:
 
     frames_path = run_dir / "frames.jsonl"
     session_id = f"t5-{uuid.uuid4().hex[:10]}"
-    outcome: dict = {"run_id": run_id, "session_id": session_id, "workspace": workspace}
+    outcome: dict = {
+        "run_id": run_id,
+        "session_id": session_id,
+        "workspace": workspace,
+        "agent_iteration_budget": agent_iteration_budget,
+    }
     done = threading.Event()
 
     def stderr_pump():
@@ -292,7 +320,7 @@ def main() -> int:
                 # Credits are valuable: past either cap the turn is CANCELLED
                 # (proven zero post-cancel spend) instead of burning more.
                 if not budget_stop and ftype not in ("turn_done", "turn_failed") and (
-                    llm_calls >= args.max_llm_calls
+                    should_stop_for_call_budget(llm_calls, args.max_llm_calls)
                     or tokens_in_seen >= args.max_input_tokens
                 ):
                     budget_stop = True

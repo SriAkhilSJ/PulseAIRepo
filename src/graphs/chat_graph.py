@@ -621,13 +621,16 @@ from src.dashboard.event_bus import event_bus
 # P0-D: state, budget, and gate machinery extracted to focused modules.
 from src.graphs.state import AgentState, ExecutionMode, TaskDecision
 from src.graphs.budget import (
+    _FINAL_RESPONSE_RESERVE_REQUEST,
     _MAX_ITERATIONS_SUMMARY_REQUEST,
     _iteration_budget,
     _recursion_limit,
     _budget_exhausted,
+    _final_response_reserve_reached,
     _verification_reserve_reached,
 )
 from src.graphs.gates import (
+    _completion_evidence_ready,
     _deliverable_targets,
     _deliverables_missing_on_disk,
     _looks_like_copy_task,
@@ -2052,20 +2055,21 @@ def ai_node(
     from src.tools.shadow_checkpoints import begin_agent_turn
     begin_agent_turn()
 
-    # D40: iteration budget. Once exhausted, tools are hidden and the model
-    # may only produce text (the hermes grace call). The FIRST exhausted call
-    # carries the grace nudge; a model that keeps hallucinating tool calls
-    # still cannot — no tools are bound — and the catalog rejection answers
-    # any echoed name for one bounded lap before should_continue finalizes
-    # the text. iteration_used increments on BOTH paths so budget accounting
-    # is monotonic. Pending REAL calls from the budget-crossing request are
-    # dispatched first (gates.should_continue — hermes loop law), so the
-    # grace call always follows executed work instead of replacing it.
+    # D40: inclusive iteration budget. The final configured provider slot is
+    # tool-free, following OpenCode's max-step shape, so an N-call boundary
+    # includes its closing response instead of requiring an N+1 grace request.
+    # Legacy checkpoints already at the wall retain the Hermes compatibility
+    # grace. iteration_used remains monotonic. Any pending real tool calls from
+    # an older budget-crossing checkpoint still dispatch before that grace.
     iteration_used = int(state.get("iteration_used", 0))
     budget_exhausted = _budget_exhausted(state)
+    final_response_slot = _final_response_reserve_reached(state)
+    completion_evidence_ready = (
+        final_response_slot and _completion_evidence_ready(state)
+    )
     grace_done = bool(state.get("grace_done", 0))
-    # True when THIS call is the first budget-exhausted request: hermes'
-    # iteration-summary call (full history + user request + no tools).
+    # True when THIS call is the first tool-free closing request: either the
+    # inclusive reserved final slot or a legacy already-exhausted grace call.
     grace_summary_lap1 = False
 
     # Use the Context Engine to build clean, organized messages.
@@ -2180,6 +2184,7 @@ def ai_node(
     if (
         execution_mode != "ask"
         and not budget_exhausted
+        and not final_response_slot
         and not budget_warning_fired
     ):
         from src.graphs.budget import _budget_warning_threshold
@@ -2239,8 +2244,8 @@ def ai_node(
     # lap runs toolless with the summary request, so a cut turn ALWAYS gets
     # a closing answer instead of ending on a bare tool card.
     wrap_summary = bool(state.get("wrap_summary"))
-    if budget_exhausted or wrap_summary:
-        call_llm = llm  # summary call: NO tools (hermes _iteration_summary_chat_kwargs)
+    if budget_exhausted or wrap_summary or final_response_slot:
+        call_llm = llm  # closing call: NO tools (OpenCode/Hermes shape)
         if not grace_done:
             # hermes handle_max_iterations (chat_completion_helpers.py:2101):
             # the summary request rides as a USER message appended to the
@@ -2250,7 +2255,32 @@ def ai_node(
             # exploring..." + a raw text tool_call after 111s of real work,
             # and the turn finalized "completed" on that nonsense.
             grace_summary_lap1 = True
-            if wrap_summary and not budget_exhausted:
+            if final_response_slot:
+                print(
+                    "[final-reserve] using inclusive final provider slot "
+                    f"{iteration_used + 1}/{_iteration_budget()} "
+                    f"(evidence_ready={completion_evidence_ready})",
+                    flush=True,
+                )
+                messages = messages + [
+                    HumanMessage(content=_FINAL_RESPONSE_RESERVE_REQUEST)
+                ]
+                try:
+                    event_bus.emit("context.status", {
+                        "thread_id": session_id,
+                        "phase": "final_response_reserve",
+                        "severity": "info",
+                        "message": (
+                            "Using the final reserved provider call for a "
+                            "tool-free completion response."
+                        ),
+                        "iteration": iteration_used + 1,
+                        "budget": _iteration_budget(),
+                        "completion_evidence_ready": completion_evidence_ready,
+                    })
+                except Exception:
+                    pass
+            elif wrap_summary and not budget_exhausted:
                 from src.graphs.budget import _PLAN_WRAP_SUMMARY_REQUEST
                 print(
                     "[grace] Task list complete but no closing answer was "
@@ -2479,7 +2509,7 @@ def ai_node(
                     if _room:
                         allowed = max(512, min(allowed, _room))
                     call_llm = bind_generation(max_tokens=allowed)
-            if budget_exhausted or wrap_summary or execution_mode == "ask":
+            if budget_exhausted or wrap_summary or final_response_slot or execution_mode == "ask":
                 call_llm = llm
                 # Failover must also be no-tools safe — strip tool pairs so
                 # strict providers don't 400 on "Tool messages found but no
@@ -2791,7 +2821,8 @@ def ai_node(
         "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
         "incomplete_response_retries": incomplete_retries,
-        "grace_done": 1 if budget_exhausted else grace_done,
+        "grace_done": 1 if (budget_exhausted or final_response_slot) else grace_done,
+        "wrap_summary": 1 if (wrap_summary or completion_evidence_ready) else 0,
         "budget_warning_done": 1 if budget_warning_fired else int(
             state.get("budget_warning_done", 0) or 0
         ),

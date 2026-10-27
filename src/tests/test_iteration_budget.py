@@ -1,10 +1,8 @@
-"""D40 agent iteration budget + grace call on exhaustion.
+"""D40 inclusive provider-call budget and tool-free final response.
 
-hermes conversation_loop.py:1558 / agent_init.py:902: the agent loop runs
-while the iteration budget has remaining calls, then performs one final
-grace call so the run concludes with text instead of being cut off. Here the
-budget gates ai_node: once exhausted, tools are hidden and a no-tools grace
-call produces the closing summary; should_continue then finalizes.
+The last configured call is reserved for text so a bound of N never requires
+an N+1 farewell request. Legacy already-exhausted checkpoints retain one
+compatibility grace call; both paths disable tools and then finalize.
 """
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -33,6 +31,16 @@ def test_budget_exhausted_boundary(monkeypatch):
     assert bg._budget_exhausted({"iteration_used": 2}) is False
     assert bg._budget_exhausted({"iteration_used": 3}) is True
     assert bg._budget_exhausted({}) is False
+
+
+def test_final_response_reserve_is_the_last_inclusive_slot(monkeypatch):
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "3")
+    assert bg._final_response_reserve_reached({"iteration_used": 1}) is False
+    assert bg._final_response_reserve_reached({"iteration_used": 2}) is True
+    assert bg._final_response_reserve_reached({"iteration_used": 3}) is False
+
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "1")
+    assert bg._final_response_reserve_reached({"iteration_used": 0}) is True
 
 
 def _message_state(last, **extra):
@@ -122,6 +130,42 @@ def test_ai_node_grace_call_when_exhausted(monkeypatch):
     assert out["iteration_used"] == 2
     assert out["grace_done"] == 1
     assert "token_usage" in out
+
+
+def test_ai_node_reserves_last_slot_for_tool_free_final_response(monkeypatch):
+    llm = _patch_env(monkeypatch, budget=3)
+    state = {
+        "iteration_used": 2,
+        "current_task": "fix bug",
+        "messages": [],
+    }
+    out = cg.ai_node(state, _config())
+
+    assert llm.sent_messages is not None, "unbound model must serve the final slot"
+    assert llm.bound.sent_messages is None, "tools must be disabled in the final slot"
+    assert str(llm.sent_messages[-1].content) == bg._FINAL_RESPONSE_RESERVE_REQUEST
+    assert out["iteration_used"] == 3
+    assert out["grace_done"] == 1
+    assert out["wrap_summary"] == 0, "missing evidence remains a budget cut"
+
+
+def test_ai_node_marks_evidence_ready_final_slot_as_clean_wrap(monkeypatch):
+    llm = _patch_env(monkeypatch, budget=3)
+    monkeypatch.setattr(cg, "_completion_evidence_ready", lambda state: True)
+    events = []
+    monkeypatch.setattr(cg.event_bus, "emit", lambda kind, payload: events.append((kind, payload)))
+
+    out = cg.ai_node(
+        {"iteration_used": 2, "current_task": "fix bug", "messages": []},
+        _config(),
+    )
+
+    assert llm.sent_messages is not None
+    assert out["wrap_summary"] == 1
+    assert out["grace_done"] == 1
+    status = [payload for kind, payload in events if kind == "context.status"]
+    assert status and status[-1]["phase"] == "final_response_reserve"
+    assert status[-1]["completion_evidence_ready"] is True
 
 
 def test_ai_node_normal_path_binds_tools_and_increments(monkeypatch):

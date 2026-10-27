@@ -15,12 +15,14 @@ from src.graphs.state import AgentState
 
 
 # D40: agent iteration budget (hermes max_iterations / iteration_budget).
-# Wired at the ai_node entry: when iteration_used reaches the budget, tools
-# are hidden and ONE full grace call (hermes' budget-remaining>0 OR
-# _budget_grace_call loop) produces the final summary instead of cutting the
-# model off. The budget is the intended safety valve; the graph
-# recursion_limit is sized (via _recursion_limit) well above it so the grace
-# path is always reachable. Default 45 (was 30); clamped to <=60.
+# The configured number is an INCLUSIVE provider-call ceiling. Its final slot
+# is reserved for one tool-free response, following OpenCode's max-step shape:
+# work calls occupy slots 1..N-1, then slot N receives the full history plus a
+# final-response request with tools disabled. This prevents a separate N+1
+# "grace" request from being cancelled by an external N-call circuit breaker.
+# A legacy already-exhausted checkpoint can still take one compatibility grace
+# call. The graph recursion_limit remains a backstop above this budget.
+# Default 45 (was 30); clamped to <=60.
 # Hermes parent is unlimited (sys.maxsize) + subagents 50; 30 cut the luxury
 # site build at 27/30 (trace 1089s) before screenshots. 45 gives the same
 # headroom as hermes retest harness without runaway.
@@ -39,6 +41,17 @@ _MAX_ITERATIONS_SUMMARY_REQUEST = (
     "You've reached the maximum number of tool-calling iterations allowed. "
     "Please provide a final response summarizing what you've found and "
     "accomplished so far, without calling any more tools."
+)
+# OpenCode max-steps shape: reserve the configured FINAL call instead of
+# spending all N calls on tools and requiring an unbudgeted N+1 farewell.
+# Whether this response can be marked completed is decided independently from
+# deterministic workspace/verification evidence; wording never upgrades the
+# verdict.
+_FINAL_RESPONSE_RESERVE_REQUEST = (
+    "This is the final provider call reserved for your response. Tools are "
+    "disabled. Give the user a concise final report of what was accomplished, "
+    "the concrete verification evidence, and anything still incomplete. Do "
+    "not describe future tool calls or claim unverified work is complete."
 )
 # The plan-complete wrap cut (field 2026-09-10): the model kept tooling past
 # the wrap nudge and the shortcut finalized with its last act a TOOL CALL —
@@ -71,6 +84,18 @@ def _iteration_budget() -> int:
     return min(max(1, value), _ITERATION_BUDGET_CLAMP)
 
 
+def _final_response_reserve_reached(state: AgentState) -> bool:
+    """Whether the next provider request is the inclusive final call.
+
+    A budget of N permits exactly N provider requests. Once N-1 have completed,
+    the remaining request is tool-free so the turn can close inside the bound.
+    Already-exhausted checkpoints are handled by the legacy grace path instead.
+    """
+    used = int(state.get("iteration_used", 0) or 0)
+    budget = _iteration_budget()
+    return used < budget and used >= budget - 1
+
+
 # hermes turn_iteration_prep.py::_maybe_inject_iteration_budget_warning:
 # the hard wall has a SOFT checkpoint in front of it. Once the run enters
 # its final slice (default 90%), one shot tells the model to land durable
@@ -96,16 +121,16 @@ def _budget_warning_ratio() -> float | None:
 def _budget_warning_threshold() -> int | None:
     """Iteration count at which the one-shot checkpoint warning fires.
 
-    hermes gate (verbatim shape): fires when
-    ``used >= min(ratio * max_total, max_total - 1)`` — the min keeps the
-    notice strictly BEFORE the wall, and a budget of 1 gets no notice at
-    all (``max_total - 1 == 0`` would fire on entry of the only lap).
+    The checkpoint must fire before the reserved final-response slot:
+    ``used >= min(ratio * max_total, max_total - 2)``. Budgets below three
+    calls have no useful warning position: one call cannot both warn and work,
+    and the final slot must remain text-only.
     """
     ratio = _budget_warning_ratio()
     budget = _iteration_budget()
-    if ratio is None or budget <= 1:
+    if ratio is None or budget <= 2:
         return None
-    return int(min(ratio * budget, budget - 1))
+    return int(min(ratio * budget, budget - 2))
 
 
 # Each ai-node iteration costs several LangGraph recursion super-steps
