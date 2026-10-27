@@ -41,6 +41,10 @@ from typing import Any, Optional
 from langchain_core.messages import ToolMessage
 
 from src.agents.planner import update_plan_from_tool
+from src.graphs.verification_helpers import (
+    classify_env_failure,
+    command_fingerprint,
+)
 
 # Shown to the model after any tool result (kept byte-identical to the
 # pre-D9 inline string).
@@ -60,26 +64,9 @@ OUTCOME_SKIP = "skip"      # check_terminal still running: record NOTHING
 # =====================================================================
 # STRATEGY PIVOT (lab finding, run 10)
 # =====================================================================
-# When tool failures are ENVIRONMENT-level (missing binary, PATH/shim or
-# permission problems — e.g. `npx create-vite` failing with "not recognized
-# as an internal or external command" on Windows), retrying the same class
-# of command fails identically forever and the old recovery loop burned all
-# 3 attempts and paused for user input instead of switching strategy.
-# These markers classify that class so the graph can pivot (see
-# next_after_progress / pivot_node) instead of retry-until-dead.
-_ENV_FAILURE_MARKERS = (
-    "not recognized as an internal or external command",
-    "is not recognized",
-    "the syntax of the command is incorrect",  # cmd.exe parses '/' as a switch
-
-    "command not found",
-    "no such file or directory",
-    "cannot find the path specified",
-    "not found in path",
-    "permission denied",
-    "exit code: 127",
-)
-
+# Environment-failure classification lives in dependency-light
+# verification_helpers so gate-only CI does not import the planner/provider
+# stack. The public names are re-exported above for compatibility.
 RECOVERY_LIMIT = 3      # terminal failures before recovery_limit / pivot
 MAX_PIVOTS = 2          # bounded strategy pivots before giving up
 
@@ -99,17 +86,6 @@ PIVOT_GUIDANCE_PROMPT = (
     "failing command.\n"
     "Make concrete progress now with a different approach."
 )
-
-
-def classify_env_failure(result: str) -> bool:
-    """True when a tool failure is environmental (missing binary, PATH/shim
-    breakage, permissions) rather than a bug in the agent's own strategy.
-
-    These failures repeat identically on retry and need a strategy pivot,
-    not another attempt (and not a replan — the plan isn't wrong, the
-    environment is)."""
-    r = result.lower()
-    return any(marker in r for marker in _ENV_FAILURE_MARKERS)
 
 
 def next_after_progress(
@@ -368,27 +344,6 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
         failure = f"Tool failed: {tool_name}"
 
     return failure, updates
-
-
-def command_fingerprint(tool_name: str, tool_args: dict) -> Optional[str]:
-    """R3-1: stable fingerprint of a (presumed to be failing, retried)
-    command so progress_node can cap identical retries.
-
-    Terminal.execute_code both take a `command` arg (execute_code on some
-    providers uses `code` instead). Crawls the dict for the first string
-    arg keyed `command`/`code`/`cmd`, normalizes incidental whitespace, and
-    returns the lower-cased marker. Returns None when there is nothing
-    command-like (call can never be capped because it has no retry-able
-    identity).
-    """
-    candidate: Optional[str] = None
-    for key in ("command", "code", "cmd", "script"):
-        if tool_args.get(key):
-            candidate = tool_args.get(key)
-            break
-    if not candidate:
-        return None
-    return re.sub(r"\s+", " ", str(candidate)).strip().lower()
 
 
 IDENTICAL_FAILURE_NUDGE = (

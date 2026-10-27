@@ -23,6 +23,10 @@ from langchain_core.messages import SystemMessage, ToolMessage
 from src.context.user_interest import UserInterest, interest_from_state
 from src.graphs.state import AgentState
 from src.graphs.budget import _budget_exhausted
+from src.graphs.verification_helpers import (
+    classify_env_failure,
+    command_fingerprint,
+)
 
 
 # =========================================================
@@ -438,8 +442,6 @@ def _verification_trace_key(item: dict) -> tuple[str, str] | None:
     args = item.get("args") if isinstance(item.get("args"), dict) else {}
     canonical_tool = "terminal" if tool_name in {"terminal", "run_terminal"} else tool_name
     if canonical_tool == "terminal":
-        from src.graphs.progress_helpers import command_fingerprint
-
         command = command_fingerprint(tool_name, args) or ""
         if not command or not any(token in command for token in _VERIFICATION_COMMAND_TOKENS):
             return None
@@ -459,8 +461,6 @@ def _unresolved_failed_verification_checks(state: AgentState) -> list[dict[str, 
     Environmental failures are excluded because source mutation is not their
     valid recovery path.
     """
-    from src.graphs.progress_helpers import classify_env_failure
-
     debts: dict[str, dict[str, object]] = {}
     for index, item in enumerate(state.get("execution_trace", []) or []):
         if not isinstance(item, dict):

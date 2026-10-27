@@ -378,6 +378,24 @@ def test_environment_failure_does_not_create_source_repair_debt():
     assert _unresolved_failed_verification_checks(state) == []
 
 
+def test_verification_debt_helpers_do_not_import_provider_stack(monkeypatch):
+    """Lean gate-only CI must not pull planner or optional provider SDKs."""
+    monkeypatch.setitem(sys.modules, "src.graphs.progress_helpers", None)
+    state = {
+        "execution_trace": [{
+            "tool": "terminal",
+            "args": {"command": "python -m pytest -q"},
+            "status": "failed",
+            "result": "1 failed\nExit code: 1",
+        }],
+    }
+
+    debt = _unresolved_failed_verification_checks(state)
+
+    assert len(debt) == 1
+    assert debt[0]["tool"] == "terminal"
+
+
 def test_autonomous_missing_root_deliverable_precedes_verification(tmp_path, monkeypatch):
     """A named file ledger is an obligation, not optional prompt prose."""
     import src.graphs.chat_graph as chat_graph
