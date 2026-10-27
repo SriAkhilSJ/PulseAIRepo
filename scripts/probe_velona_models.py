@@ -53,6 +53,23 @@ def _safe_usage(payload: Any) -> dict[str, int]:
     return receipt
 
 
+def _workflow_escape(value: Any) -> str:
+    return (
+        str(value)
+        .replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+
+def _github_annotation(level: str, title: str, message: str) -> None:
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(
+            f"::{level} title={_workflow_escape(title)}::"
+            f"{_workflow_escape(message)}"
+        )
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -328,6 +345,27 @@ class VelonaModelProbe:
         }
 
 
+def _publish_phase_annotations(receipt: dict[str, Any]) -> None:
+    for phase in receipt.get("phases", []):
+        if not isinstance(phase, dict):
+            continue
+        status = str(phase.get("status") or "unknown")
+        if status == "passed":
+            evidence = json.dumps(
+                phase.get("evidence") or {}, sort_keys=True, separators=(",", ":")
+            )
+            detail = f"passed; evidence={evidence[:800]}"
+            level = "notice"
+        else:
+            detail = f"failed; {str(phase.get('error') or 'unspecified')[:1000]}"
+            level = "error"
+        _github_annotation(
+            level,
+            f"Velona probe: {phase.get('name') or 'unknown'}",
+            detail,
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="https://velona.in/v1")
@@ -358,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     receipt = probe.run()
     if args.output:
         _atomic_json(args.output, receipt)
+    _publish_phase_annotations(receipt)
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0 if receipt["status"] == "passed" else 1
 

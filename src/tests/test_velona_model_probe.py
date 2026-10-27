@@ -119,3 +119,16 @@ def test_safe_usage_keeps_counts_only():
         "completion_tokens": 3,
         "total_tokens": 10,
     }
+
+
+def test_phase_annotations_publish_bounded_safe_evidence(monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    receipt = _probe().run()
+
+    probe_module._publish_phase_annotations(receipt)
+
+    output = capsys.readouterr().out
+    assert output.count("::notice title=Velona probe:") == 4
+    assert "main_forced_tool_call" in output
+    assert "test-secret-value" not in output
+    assert "must-not-survive" not in output

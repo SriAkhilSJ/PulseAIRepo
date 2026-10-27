@@ -135,3 +135,13 @@ def test_github_env_contains_only_selected_public_metadata(tmp_path):
         "AUX_LLM_MODEL=qwen/qwen3.7-flash\n"
         "VELONA_AUX_CONTEXT_WINDOW=1000000\n"
     )
+
+
+def test_github_annotation_is_bounded_and_workflow_escaped(monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    selector._github_annotation("notice", "AUX%", "line one\nline two")
+
+    assert capsys.readouterr().out == (
+        "::notice title=AUX%25::line one%0Aline two\n"
+    )

@@ -245,6 +245,23 @@ def fetch_live_selection(
     raise CatalogSelectionError(f"no usable live Velona catalog: {detail}")
 
 
+def _workflow_escape(value: Any) -> str:
+    return (
+        str(value)
+        .replace("%", "%25")
+        .replace("\r", "%0D")
+        .replace("\n", "%0A")
+    )
+
+
+def _github_annotation(level: str, title: str, message: str) -> None:
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(
+            f"::{level} title={_workflow_escape(title)}::"
+            f"{_workflow_escape(message)}"
+        )
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -292,10 +309,23 @@ def main(argv: list[str] | None = None) -> int:
             _atomic_json(args.output, receipt)
         if args.github_env:
             _append_github_env(args.github_env, receipt)
+        selected = receipt["selected"]
+        _github_annotation(
+            "notice",
+            "Velona 1M AUX selected",
+            (
+                f"model={selected['model']}; context={selected['context_window']}; "
+                f"input_per_1m={selected['input_per_1m']}; "
+                f"output_per_1m={selected['output_per_1m']}; "
+                f"equal_volume={selected['equal_volume_per_1m']} "
+                f"{selected['currency']}; eligible={receipt['eligible_count']}"
+            ),
+        )
         print(json.dumps(receipt, indent=2, sort_keys=True))
         return 0
     except Exception as exc:  # noqa: BLE001 - CLI emits one bounded safe reason
         safe = f"{type(exc).__name__}: {exc}".replace(key, "[REDACTED]")
+        _github_annotation("error", "Velona 1M AUX selection failed", safe[:1200])
         print(f"Velona auxiliary selection failed: {safe[:1200]}", file=sys.stderr)
         return 1
 
