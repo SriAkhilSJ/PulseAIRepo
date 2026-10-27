@@ -4,12 +4,6 @@ on:
   push:
     branches:
       - arena/a7c2c868-pulseairepo
-  workflow_dispatch:
-    inputs:
-      kernel_slug:
-        description: Private Kaggle kernel slug to inspect
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -17,9 +11,7 @@ permissions:
 jobs:
   live-log-snapshot:
     name: Bounded private-kernel log snapshot
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.message, '[kaggle-logs]')
+    if: contains(github.event.head_commit.message, '[kaggle-logs]')
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -43,10 +35,9 @@ jobs:
           KAGGLE_USERNAME: sriakhilsj
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_API_TOKEN }}
-          KERNEL_SLUG: ${{ inputs.kernel_slug || 'pulseai-colibri-agent-core-40455009090' }}
         run: >-
           python -m benchmarks.colibri_agent_core.kaggle_live_diagnostics
-          --kernel-slug "$KERNEL_SLUG"
+          --kernel-slug pulseai-colibri-agent-core-40387451739
           --output kaggle-live-diagnostics.json
           --capture-seconds 30
           --wait-for-logs-seconds 20

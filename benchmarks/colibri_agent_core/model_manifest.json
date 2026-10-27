@@ -9,15 +9,6 @@
     "model_revision_policy": "Resolve main once at run start, record the immutable Hugging Face commit, and download that commit.",
     "colibri_repository": "https://github.com/JustVugg/colibri.git",
     "colibri_commit": "e0db083cdc9e563e0766cc6fc661ef23c32298e0",
-    "colibri_upstream_patch": {
-      "pull_request": 2098,
-      "issue": 2090,
-      "fetch_ref": "refs/pull/2098/head",
-      "commit": "2e97b78d194c6cd4931aa987973a76d8ec06c8e8",
-      "parent": "fdace869f79dc50aed99459148a75bacb7eee805",
-      "applied_tree": "27f89b55dcec6457b43502f36a5c8ac6f692e900",
-      "purpose": "Apply Colibri's upstream Qwen3.6 copy-backed CUDA tier so the machine planner's safe partial RAM cache can feed GPU-resident experts without forcing an unsafe full cache."
-    },
     "license": "Apache-2.0",
     "total_parameters_billion": 35,
     "active_parameters_billion_approx": 3,
@@ -35,15 +26,14 @@
     "registry_tools_flag_at_pinned_commit": false,
     "registry_metadata_note": "The pinned qwen36 FamilyCapabilities.tools bit is false even though docs/api.md and the qwen36 gateway renderer support native tool calls; every run must pass the behavioral tool-call probe.",
     "thinking_mode": true,
-    "cuda_tier": true,
-    "cuda_partial_residency": true
+    "cuda_tier": true
   },
   "selection_reasons": [
     "Colibri registers a 262144-token maximum for the qwen36 family.",
     "The gateway implements Qwen3.6 native tool-call and tool-response translation; because the pinned family registry's descriptive tools bit is stale/false, the run treats only the behavioral probe as proof.",
     "The pre-converted int4-gs64 checkpoint is materially smaller than Colibri's larger high-context families.",
     "Only 10 of 40 layers use full attention, giving a better long-context state curve than the all-attention Qwen3-Coder alternative on Kaggle-class host memory.",
-    "Colibri upstream PR #2098 adds a tested copy-backed CUDA tier below full RAM residency; the runner applies that immutable patch atop the pinned main commit, honors the machine-local cache plan, and still refuses a silent CPU fallback."
+    "The CUDA expert tier supports NVIDIA devices; the runner enforces its documented 256-slot full-residency precondition and refuses a silent CPU fallback."
   ],
   "operating_policy": {
     "start_tokens": 65536,
@@ -77,7 +67,6 @@
   "source_basis": {
     "colibri_catalog": "c/setup_catalog.py at the pinned Colibri commit",
     "family_limits": "c/family_registry.py at the pinned Colibri commit",
-    "engine_and_tools": "docs/qwen36.md, docs/api.md, c/openai_server.py, and c/tests/test_qwen36_chat_template.py at the pinned Colibri base commit",
-    "partial_cuda_residency": "Upstream Colibri PR #2098 / commit 2e97b78d194c6cd4931aa987973a76d8ec06c8e8, including c/tests/test_qwen36_tier_stream.c, applied without conflict atop the pinned base and verified by the recorded Git tree"
+    "engine_and_tools": "docs/qwen36.md, docs/api.md, c/openai_server.py, and c/tests/test_qwen36_chat_template.py at the pinned Colibri commit"
   }
 }
