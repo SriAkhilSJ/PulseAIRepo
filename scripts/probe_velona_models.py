@@ -363,24 +363,30 @@ class VelonaModelProbe:
 
 
 def _publish_phase_annotations(receipt: dict[str, Any]) -> None:
+    summaries: list[str] = []
+    failed = False
     for phase in receipt.get("phases", []):
         if not isinstance(phase, dict):
             continue
+        name = str(phase.get("name") or "unknown")
         status = str(phase.get("status") or "unknown")
         if status == "passed":
-            evidence = json.dumps(
-                phase.get("evidence") or {}, sort_keys=True, separators=(",", ":")
+            evidence = phase.get("evidence") or {}
+            summaries.append(
+                f"{name}=passed"
+                f"({evidence.get('request_seconds')}s,"
+                f"tokens={evidence.get('usage', {}).get('total_tokens')})"
             )
-            detail = f"passed; evidence={evidence[:800]}"
-            level = "notice"
         else:
-            detail = f"failed; {str(phase.get('error') or 'unspecified')[:1000]}"
-            level = "error"
-        _github_annotation(
-            level,
-            f"Velona probe: {phase.get('name') or 'unknown'}",
-            detail,
-        )
+            failed = True
+            summaries.append(
+                f"{name}=failed({str(phase.get('error') or 'unspecified')[:500]})"
+            )
+    _github_annotation(
+        "error" if failed else "notice",
+        "Velona endpoint probe",
+        "; ".join(summaries)[:3000],
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

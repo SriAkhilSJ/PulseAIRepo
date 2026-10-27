@@ -61,3 +61,5 @@ def test_genuine_turn_has_credit_and_time_bounds():
     assert "id: aux_factory" in text
     assert "title=Velona AUX factory" in text
     assert "title=Velona Agent Core receipt" in text
+    assert "def load_receipt(path):" in text
+    assert '"proof_file_exact": bool(expected) and proof == expected' in text

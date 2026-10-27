@@ -148,7 +148,8 @@ def test_phase_annotations_publish_bounded_safe_evidence(monkeypatch, capsys):
     probe_module._publish_phase_annotations(receipt)
 
     output = capsys.readouterr().out
-    assert output.count("::notice title=Velona probe:") == 4
-    assert "main_forced_tool_call" in output
+    assert output.count("::notice title=Velona endpoint probe::") == 1
+    assert "main_forced_tool_call=passed" in output
+    assert "aux_basic=passed" in output
     assert "test-secret-value" not in output
     assert "must-not-survive" not in output

@@ -130,23 +130,40 @@ jobs:
           import hashlib
           import json
           import os
+          import re
           import secrets
           from pathlib import Path
 
           from src.llm.factory import get_auxiliary_llm
 
           sentinel = f"PULSEAI_AUX_READY_{secrets.token_hex(5)}"
-          reply = get_auxiliary_llm().invoke(
-              f"Reply with exactly this token and nothing else: {sentinel}"
-          )
-          content = getattr(reply, "content", reply)
-          if isinstance(content, list):
-              content = "".join(
-                  str(part.get("text") or "") if isinstance(part, dict) else str(part)
-                  for part in content
+          text = ""
+          safe_error = None
+          try:
+              reply = get_auxiliary_llm().invoke(
+                  f"Reply with exactly this token and nothing else: {sentinel}"
               )
-          text = str(content or "")
-          passed = sentinel in text
+              content = getattr(reply, "content", reply)
+              if isinstance(content, list):
+                  content = "".join(
+                      str(part.get("text") or "") if isinstance(part, dict) else str(part)
+                      for part in content
+                  )
+              text = str(content or "")
+              passed = sentinel in text
+              if not passed:
+                  safe_error = "response did not preserve the exact sentinel"
+          except Exception as exc:
+              passed = False
+              key = os.environ.get("CUSTOM_API_KEY", "")
+              safe_error = f"{type(exc).__name__}: {exc}"
+              if key:
+                  safe_error = safe_error.replace(key, "[REDACTED]")
+              safe_error = re.sub(
+                  r"(?i)(bearer\s+)[a-z0-9._~+/=-]{8,}",
+                  r"\1[REDACTED]",
+                  safe_error,
+              )[:1000]
           receipt = {
               "schema": "pulseai.velona_aux_factory.v1",
               "status": "passed" if passed else "failed",
@@ -154,6 +171,7 @@ jobs:
               "model": os.environ["AUX_LLM_MODEL"],
               "sentinel_preserved": passed,
               "response_sha256": hashlib.sha256(text.encode()).hexdigest(),
+              "error": safe_error,
               "api_key_persisted": False,
           }
           path = Path("velona-live-results/aux-factory.json")
@@ -163,7 +181,8 @@ jobs:
           print(
               f"::{level} title=Velona AUX factory::"
               f"status={receipt['status']}; provider={receipt['provider']}; "
-              f"model={receipt['model']}; sentinel={receipt['sentinel_preserved']}"
+              f"model={receipt['model']}; sentinel={receipt['sentinel_preserved']}; "
+              f"error={receipt['error']}"
           )
           print(json.dumps(receipt, indent=2, sort_keys=True))
           raise SystemExit(0 if passed else 1)
@@ -218,11 +237,25 @@ jobs:
 
           root = Path("velona-live-results")
           run_dir = Path("velona-agent-core-results") / f"velona-{os.environ['GITHUB_RUN_ID']}"
-          selector = json.loads((root / "aux-selection.json").read_text())
-          model_probe = json.loads((root / "model-probe.json").read_text())
-          aux_factory = json.loads((root / "aux-factory.json").read_text())
-          outcome = json.loads((run_dir / "outcome.json").read_text())
-          expected = Path("/tmp/pulseai-velona-agent-core-expected.txt").read_text()
+
+          def load_receipt(path):
+              try:
+                  value = json.loads(path.read_text())
+                  return value if isinstance(value, dict) else {
+                      "status": "missing", "error": "receipt was not a JSON object"
+                  }
+              except Exception as exc:
+                  return {
+                      "status": "missing",
+                      "error": f"{path.name}: {type(exc).__name__}",
+                  }
+
+          selector = load_receipt(root / "aux-selection.json")
+          model_probe = load_receipt(root / "model-probe.json")
+          aux_factory = load_receipt(root / "aux-factory.json")
+          outcome = load_receipt(run_dir / "outcome.json")
+          expected_path = Path("/tmp/pulseai-velona-agent-core-expected.txt")
+          expected = expected_path.read_text() if expected_path.is_file() else ""
           proof_path = Path("/tmp/pulseai-velona-agent-core/AGENT_CORE_VELONA_PROOF.txt")
           proof = proof_path.read_text() if proof_path.is_file() else ""
           selected = selector.get("selected") or {}
@@ -231,17 +264,30 @@ jobs:
               "main_and_aux_endpoint_probe": model_probe.get("status") == "passed",
               "aux_factory_probe": aux_factory.get("status") == "passed",
               "agent_core_turn_done": outcome.get("result") == "turn_done" and outcome.get("completed") is True,
-              "proof_file_exact": proof == expected,
+              "proof_file_exact": bool(expected) and proof == expected,
               "llm_request_observed": int(outcome.get("llm_request_frames") or 0) > 0,
           }
-          raw_error = str(outcome.get("error") or "")
+          raw_error = str(
+              outcome.get("error")
+              or outcome.get("runner_traceback")
+              or ("outcome receipt missing" if outcome.get("status") == "missing" else "")
+          )
+          raw_aux_error = str(aux_factory.get("error") or "")
           key = os.environ.get("CUSTOM_API_KEY", "")
           safe_error = raw_error.replace(key, "[REDACTED]") if key else raw_error
+          safe_aux_error = (
+              raw_aux_error.replace(key, "[REDACTED]") if key else raw_aux_error
+          )
           safe_error = re.sub(
               r"(?i)(bearer\s+)[a-z0-9._~+/=-]{8,}",
               r"\1[REDACTED]",
               safe_error,
-          )[:1000]
+          )[-1000:]
+          safe_aux_error = re.sub(
+              r"(?i)(bearer\s+)[a-z0-9._~+/=-]{8,}",
+              r"\1[REDACTED]",
+              safe_aux_error,
+          )[-1000:]
           passed = all(checks.values())
           receipt = {
               "schema": "pulseai.velona_agent_core.v1",
@@ -251,6 +297,10 @@ jobs:
               "aux_model": selected.get("model"),
               "aux_context_window": selected.get("context_window"),
               "checks": checks,
+              "aux_factory": {
+                  "status": aux_factory.get("status"),
+                  "error": safe_aux_error or None,
+              },
               "agent_core": {
                   "result": outcome.get("result"),
                   "completed": outcome.get("completed"),
@@ -276,7 +326,9 @@ jobs:
           print(
               f"::{level} title=Velona Agent Core receipt::"
               f"status={receipt['status']}; main={receipt['main_model']}; "
-              f"aux={receipt['aux_model']}; {check_text}"
+              f"aux={receipt['aux_model']}; result={outcome.get('result')}; "
+              f"agent_error={safe_error[-400:] or None}; "
+              f"aux_error={safe_aux_error[-300:] or None}; {check_text}"
           )
           print(json.dumps(receipt, indent=2, sort_keys=True))
           raise SystemExit(0 if passed else 1)
