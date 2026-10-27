@@ -110,18 +110,19 @@ Prompts, tool arguments, commands, file bodies, IDs, and full results are not se
 
 | Check | Result |
 |---|---|
-| Affected repair/routing/annotation files | **33 passed** |
+| Affected repair/routing/annotation files | **34 passed** |
 | Earlier broader completion/routing/progress/runner gate | **181 passed** |
-| Clean detached branch full suite | **2,801 passed, 25 failed, 26 skipped, 1 xfailed** |
-| Clean detached `origin/main` full suite | **2,659 passed, 25 failed, 26 skipped, 1 xfailed** |
-| New failing test identities vs. `main` | **0** |
+| Clean detached final `main` (`064072e2`) full suite | **2,802 passed, 25 failed, 26 skipped, 1 xfailed** |
+| Clean detached pre-merge `main` (`590fe542`) baseline | **2,659 passed, 25 failed, 26 skipped, 1 xfailed** |
+| New failing test identities vs. pre-merge `main` | **0** |
+| [Post-merge Host compatibility](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40587932156) | Ubuntu, macOS, and Windows passed |
 | Changed-module Python compilation | Passed |
 | Scoped `git diff --check` | Passed |
 | Diff-aware Ruff | 0 findings on added lines; 49 historical findings remained in touched legacy modules |
 | Production-diff provider-specific marker scan | 0 |
 | Production-diff credential-pattern scan | 0 |
 
-The clean branch and clean `origin/main` have the exact same set of 25 failing test identities. The branch adds 142 passing tests and introduces 0 new full-suite failures. An earlier run in the preserved dirty primary checkout reported 30 failures; five working-tree-dependent failures disappeared in the clean detached checkout and are not part of the merge baseline. The remaining failures are not hidden, but they are not attributed to this repair slice without separate evidence.
+The clean final tree and clean pre-merge `main` baseline have the exact same set of 25 failing test identities. The final tree adds 143 passing tests and introduces 0 new full-suite failures. The final full-suite run used a fresh isolated runtime home so fixed test session IDs could not collide with earlier verification journals. An earlier run in the preserved dirty primary checkout reported 30 failures; five working-tree-dependent failures disappeared in the clean detached checkout and are not part of the merge baseline. The remaining failures are not hidden, but they are not attributed to this repair slice without separate evidence.
 
 ### Live evidence
 
@@ -180,7 +181,7 @@ The head lookup is a freshness check, not a claim that every newer change was au
 - No generated benchmark application was committed.
 - No temporary provider workflow remains in the tree.
 - No provider secret was printed, stored, or added to Git.
-- No pull request, merge, preview, or deployment was created for this work.
+- The Agent Core hardening was squash-merged through [PR #26](https://github.com/SriAkhilSJ/PulseAIRepo/pull/26) as `064072e2`; no benchmark preview or deployment was created.
 - Existing generated desktop and diagnostics working-tree changes were excluded from the implementation commit and preserved.
 
 ## Documentation updated with this handoff
