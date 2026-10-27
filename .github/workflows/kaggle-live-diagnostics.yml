@@ -37,7 +37,7 @@ jobs:
           KAGGLE_KEY: ${{ secrets.KAGGLE_API_TOKEN }}
         run: >-
           python -m benchmarks.colibri_agent_core.kaggle_live_diagnostics
-          --kernel-slug pulseai-colibri-agent-core-40387451739
+          --kernel-slug pulseai-colibri-agent-core-40455009090
           --output kaggle-live-diagnostics.json
           --capture-seconds 30
           --wait-for-logs-seconds 20
