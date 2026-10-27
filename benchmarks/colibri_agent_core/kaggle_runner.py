@@ -169,6 +169,7 @@ class Runner:
         self.colibri_commit = str(selected["colibri_commit"])
         self.model_repo = str(selected["model_repository"])
         self.model_id = str(selected["api_model_id"])
+        self.experts_per_layer = int(selected["experts_per_layer"])
         self.run_id = args.run_id or (
             datetime.now(UTC).strftime("run-%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         )
@@ -196,6 +197,7 @@ class Runner:
                 "name": selected["name"],
                 "api_model_id": self.model_id,
                 "repository": self.model_repo,
+                "experts_per_layer": self.experts_per_layer,
                 "context_window": args.context_window,
                 "architectural_ceiling": selected["engine_max_context_tokens"],
             },
@@ -381,8 +383,12 @@ class Runner:
             raise ValueError(
                 "long-context probe must stay below the configured context"
             )
-        if self.args.cache_cap < 1:
-            raise ValueError("cache cap must be positive")
+        if self.args.cache_cap != self.experts_per_layer:
+            raise ValueError(
+                "Qwen3.6 CUDA tier requires full expert residency: "
+                f"cache cap must equal {self.experts_per_layer}, got "
+                f"{self.args.cache_cap}"
+            )
         if not 1024 <= self.args.port <= 65535:
             raise ValueError("port must be between 1024 and 65535")
         if self.args.context_window != initial:
@@ -395,6 +401,8 @@ class Runner:
             "manifest_sha256": _sha256_file(self.manifest_path),
             "context_window": self.args.context_window,
             "long_context_tokens_approx": self.args.long_context_tokens,
+            "cache_cap": self.args.cache_cap,
+            "experts_per_layer": self.experts_per_layer,
             "colibri_commit": self.colibri_commit,
             "model_repository": self.model_repo,
         }
@@ -608,8 +616,12 @@ class Runner:
         tiers = plan.get("tiers") or {}
         ram = tiers.get("ram") or {}
         vram = tiers.get("vram") or {}
-        if int(ram.get("cache_slots_per_layer") or 0) < 1:
-            raise RuntimeError("resource plan cannot hold one expert slot per layer")
+        planned_cap = int(ram.get("cache_slots_per_layer") or 0)
+        if planned_cap < self.experts_per_layer:
+            raise RuntimeError(
+                "resource plan cannot activate the Qwen3.6 CUDA tier: "
+                f"planned {planned_cap} of {self.experts_per_layer} expert slots per layer"
+            )
         if not vram.get("devices") or int(vram.get("budget_bytes") or 0) <= 0:
             raise RuntimeError("resource plan has no executable CUDA VRAM tier")
         _atomic_json(self.run_dir / "colibri_resource_plan.json", plan)
@@ -617,7 +629,9 @@ class Runner:
             "command": command,
             "plan_path": str(self.run_dir / "colibri_resource_plan.json"),
             "plan_sha256": _sha256_file(self.run_dir / "colibri_resource_plan.json"),
-            "ram_cache_slots_per_layer": ram.get("cache_slots_per_layer"),
+            "ram_cache_slots_per_layer": planned_cap,
+            "required_expert_slots_per_layer": self.experts_per_layer,
+            "cuda_full_residency_gate_passed": True,
             "ram_sequence_state_bytes": ram.get("sequence_state_bytes"),
             "vram_budget_bytes": vram.get("budget_bytes"),
             "vram_devices": vram.get("devices"),
@@ -642,6 +656,12 @@ class Runner:
             str(self.args.cache_cap),
             "--ngen",
             "2048",
+            "--max-queue",
+            "0",
+            "--queue-timeout",
+            "60",
+            "--kv-slots",
+            "1",
             "--host",
             "127.0.0.1",
             "--port",
@@ -654,7 +674,14 @@ class Runner:
 
     def _start_server(self) -> dict[str, Any]:
         command = self._server_command()
-        self.server_log_handle = self.server_log_path.open("w", encoding="utf-8")
+        log_offset = (
+            self.server_log_path.stat().st_size if self.server_log_path.is_file() else 0
+        )
+        restarting = log_offset > 0
+        self.server_log_handle = self.server_log_path.open("a", encoding="utf-8")
+        if restarting:
+            self.server_log_handle.write(f"\n[runner] server restart at {_utc_now()}\n")
+            self.server_log_handle.flush()
         self.server = subprocess.Popen(
             command,
             cwd=str(self.colibri_dir),
@@ -683,14 +710,46 @@ class Runner:
                 with urllib.request.urlopen(request, timeout=10) as response:
                     if response.status == 200:
                         body = json.loads(response.read())
+                        self.server_log_handle.flush()
+                        server_log = self.server_log_path.read_bytes()[
+                            log_offset:
+                        ].decode("utf-8", errors="replace")
+                        markers = {
+                            marker: marker in server_log for marker in _GPU_MARKERS
+                        }
+                        if not all(markers.values()):
+                            missing = [
+                                marker
+                                for marker, present in markers.items()
+                                if not present
+                            ]
+                            raise RuntimeError(
+                                "Colibri became healthy without its required CUDA tier "
+                                f"markers {missing}: {_safe_tail(self.server_log_path)}"
+                            )
+                        gpu, gpu_receipt = self._run_capture(
+                            "nvidia_smi_server_ready",
+                            [
+                                "nvidia-smi",
+                                "--query-gpu=name,uuid,memory.used,utilization.gpu",
+                                "--format=csv,noheader,nounits",
+                            ],
+                            check=True,
+                        )
                         return {
                             "command": _redacted_command(command),
                             "pid": self.server.pid,
+                            "restarted": restarting,
                             "ready_seconds": round(time.monotonic() - started, 3),
                             "health_sha256": hashlib.sha256(
                                 json.dumps(body, sort_keys=True).encode()
                             ).hexdigest(),
                             "endpoint": f"http://127.0.0.1:{self.args.port}/v1",
+                            "cuda_markers": markers,
+                            "nvidia_smi": gpu_receipt,
+                            "gpu_state": [
+                                line for line in gpu.stdout.splitlines() if line.strip()
+                            ],
                             "log": str(self.server_log_path),
                         }
             except (OSError, ValueError, urllib.error.URLError) as exc:
@@ -720,6 +779,11 @@ class Runner:
         if self.server_log_handle is not None:
             self.server_log_handle.close()
             self.server_log_handle = None
+        self.server = None
+
+    def _restart_server(self) -> dict[str, Any]:
+        self._stop_server()
+        return self._start_server()
 
     def _run_probe(self) -> dict[str, Any]:
         output = self.run_dir / "colibri_endpoint_probe.json"
@@ -758,15 +822,25 @@ class Runner:
         result = (
             json.loads(output.read_text(encoding="utf-8")) if output.is_file() else {}
         )
+        phase_receipts = [
+            {
+                "name": phase.get("name"),
+                "status": phase.get("status"),
+                "elapsed_seconds": phase.get("elapsed_seconds"),
+                "error": str(phase.get("error") or "")[:1000] or None,
+            }
+            for phase in result.get("phases", [])
+            if isinstance(phase, dict)
+        ]
         return {
             "command": command,
             "receipt": str(output),
             "receipt_sha256": _sha256_file(output) if output.is_file() else None,
             "status": result.get("status", "missing"),
             "phase_statuses": {
-                phase.get("name"): phase.get("status")
-                for phase in result.get("phases", [])
+                phase.get("name"): phase.get("status") for phase in phase_receipts
             },
+            "phase_receipts": phase_receipts,
         }
 
     def _agent_environment(self) -> dict[str, str]:
@@ -852,7 +926,7 @@ class Runner:
                 "--max-no-delivery-calls",
                 "0",
                 "--reasoning-effort",
-                "low",
+                "none",
                 "--results-root",
                 str(results_root),
             ],
@@ -1068,6 +1142,30 @@ class Runner:
 
             started = time.monotonic()
             probe = self._run_probe()
+            if probe.get("status") != "passed" and not self.args.skip_agent_turn:
+                recovery_started = time.monotonic()
+                try:
+                    recovery = self._restart_server()
+                    recovery["status"] = "passed"
+                    recovery["elapsed_seconds"] = round(
+                        time.monotonic() - recovery_started, 3
+                    )
+                    recovery["reason"] = (
+                        "isolate Agent Core from a timed-out or orphaned probe request"
+                    )
+                    probe["server_recovery"] = recovery
+                except Exception as exc:
+                    probe["server_recovery"] = {
+                        "status": "failed",
+                        "error": f"{type(exc).__name__}: {exc}"[:2000],
+                    }
+                    self._phase(
+                        "colibri_endpoint_probe",
+                        "failed",
+                        evidence=probe,
+                        started=started,
+                    )
+                    raise
             self._phase(
                 "colibri_endpoint_probe",
                 "passed" if probe.get("status") == "passed" else "failed",
@@ -1196,7 +1294,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id")
     parser.add_argument("--context-window", type=int, default=65536)
     parser.add_argument("--long-context-tokens", type=int, default=16384)
-    parser.add_argument("--cache-cap", type=int, default=64)
+    parser.add_argument("--cache-cap", type=int, default=256)
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--probe-timeout", type=int, default=1800)
     parser.add_argument("--server-start-timeout", type=int, default=1800)

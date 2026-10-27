@@ -12,6 +12,7 @@
     "license": "Apache-2.0",
     "total_parameters_billion": 35,
     "active_parameters_billion_approx": 3,
+    "experts_per_layer": 256,
     "quantization": "int4-gs64",
     "disk_gb_decimal": 23.1,
     "ram_min_gb": 10,
@@ -32,7 +33,7 @@
     "The gateway implements Qwen3.6 native tool-call and tool-response translation; because the pinned family registry's descriptive tools bit is stale/false, the run treats only the behavioral probe as proof.",
     "The pre-converted int4-gs64 checkpoint is materially smaller than Colibri's larger high-context families.",
     "Only 10 of 40 layers use full attention, giving a better long-context state curve than the all-attention Qwen3-Coder alternative on Kaggle-class host memory.",
-    "The CUDA expert tier supports NVIDIA devices while retaining a CPU fallback that is visible in logs rather than silently claimed as GPU execution."
+    "The CUDA expert tier supports NVIDIA devices; the runner enforces its documented 256-slot full-residency precondition and refuses a silent CPU fallback."
   ],
   "operating_policy": {
     "start_tokens": 65536,

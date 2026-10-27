@@ -64,6 +64,10 @@ def _server(*, model_id: str = "qwen3.6-colibri", published_context: int | None 
                 }
                 finish = "tool_calls"
             elif messages[-1].get("role") == "tool":
+                assert "After the tool result arrives" in messages[0]["content"]
+                assert (
+                    messages[1]["tool_calls"][0]["id"] == messages[-1]["tool_call_id"]
+                )
                 receipt = json.loads(content)["receipt"]
                 message = {"role": "assistant", "content": f"confirmed {receipt}"}
             elif "PULSEAI_COLIBRI_READY_" in content:

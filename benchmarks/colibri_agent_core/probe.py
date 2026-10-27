@@ -111,6 +111,7 @@ class ColibriProbe:
         self.long_context_tokens = long_context_tokens
         self.phases: list[Phase] = []
         self._tool_call: dict[str, Any] | None = None
+        self._tool_user_content: str | None = None
         self._tool_nonce = f"probe-{secrets.token_hex(6)}"
 
     def _request(
@@ -286,15 +287,18 @@ class ColibriProbe:
                 },
             }
         ]
+        self._tool_user_content = (
+            "Call report_colibri_probe now with nonce "
+            f"{self._tool_nonce!r} and status 'ready'. Do not answer in prose yet. "
+            "After the tool result arrives, reply with its receipt value exactly and "
+            "nothing else."
+        )
         response, elapsed = self._chat(
             {
                 "messages": [
                     {
                         "role": "user",
-                        "content": (
-                            "Call report_colibri_probe now with nonce "
-                            f"{self._tool_nonce!r} and status 'ready'. Do not answer in prose."
-                        ),
+                        "content": self._tool_user_content,
                     }
                 ],
                 "tools": tools,
@@ -328,13 +332,13 @@ class ColibriProbe:
         }
 
     def _tool_round_trip(self) -> dict[str, Any]:
-        if self._tool_call is None:
-            raise RuntimeError("forced tool-call phase did not produce a call")
+        if self._tool_call is None or self._tool_user_content is None:
+            raise RuntimeError("forced tool-call phase did not produce a call context")
         sentinel = f"TOOL_ROUNDTRIP_{self._tool_nonce}"
         response, elapsed = self._chat(
             {
                 "messages": [
-                    {"role": "user", "content": "Run the local readiness probe."},
+                    {"role": "user", "content": self._tool_user_content},
                     {
                         "role": "assistant",
                         "content": None,
@@ -378,7 +382,7 @@ class ColibriProbe:
         )
         body = {
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 128,
+            "max_tokens": 64,
         }
         response, elapsed = self._chat(body)
         choice = response["choices"][0]

@@ -30,6 +30,7 @@ The machine-readable decision is [`model_manifest.json`](model_manifest.json).
 | Engine context | 8,192 default / 262,144 architectural maximum |
 | First run | 65,536 configured; ~16,384-token retention probe |
 | Tools | Native Qwen3.6 tool-call/tool-response translation |
+| Expert cache | 256 slots/layer (full residency required by Colibri's Qwen3.6 CUDA tier) |
 | GPU | Colibri CUDA expert tier; execution is proven only by runtime markers plus a completed generation |
 
 Qwen3-Coder-30B-A3B is smaller and coding-specialized, but all 48 layers use full
@@ -46,13 +47,18 @@ first fit for Kaggle-class host memory. The runner will not promote the first ru
 3. Builds `c/qwen36` with `CUDA=1` and verifies that it links `libcudart`.
 4. Resolves the model's `main` revision once, records the immutable Hugging Face commit,
    and downloads exactly that commit under `/kaggle/temp`.
-5. Saves Colibri's machine-local 65,536-token resource plan.
-6. Starts `coli serve` on loopback and runs:
+5. Saves Colibri's machine-local 65,536-token resource plan and fails before serving if
+   that host cannot safely plan all 256 expert slots per layer plus an executable VRAM tier.
+6. Starts `coli serve` on loopback, requires both Qwen3.6 CUDA-tier activation markers,
+   records GPU state, and runs:
    - health and model identity;
    - basic generation;
    - a forced typed tool call;
-   - a tool-result round trip;
+   - a tool-result round trip using the exact forced-call conversation;
    - retention of markers across an approximately 16,384-token filler prompt.
+   The single-client queue rejects overlap immediately; after any failed or timed-out probe,
+   the runner restarts the server before Agent Core so an orphaned generation cannot poison
+   later evidence.
 7. Configures PulseAI's existing custom provider seam with:
    - `LLM_PROVIDER=custom`
    - `LLM_MODEL=qwen3.6-colibri`
