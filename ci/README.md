@@ -33,3 +33,11 @@ ask the agent to move the file — no manual step needed.
   compare the tracked `desktop/vscode/out/**` build output against the current
   TypeScript sources. Fixing those needs a desktop rebuild, not an agent-core
   change.
+
+## Bounded live-run monitoring
+
+Controlled headless bridge runs use `scripts/run_bridge_turn.py`. Its local `outcome.json` keeps bounded request/tool status and timing receipts. In GitHub Actions, the runner publishes separate summary, request, and tool notices as independently parseable JSON capped at 3,500 characters each.
+
+The publisher allowlists receipt fields and omits prompts, tool arguments, commands, file bodies, IDs, and full results. Configured secret values and secret-like result fragments are redacted before publication. This replaces the earlier single-annotation shape that GitHub truncated at 4,096 characters.
+
+These notices are monitoring, not acceptance. Workflow success must still come from immutable evaluator-owned checks, and a failed check must remain failed regardless of what the agent says. The new multi-annotation path is provider-free tested but still needs retrieval confirmation in a future explicitly authorized Actions run. See [`../core.md`](../core.md) and [`../docs/CRUSOR_FULLSTACK_BENCHMARK.md`](../docs/CRUSOR_FULLSTACK_BENCHMARK.md).

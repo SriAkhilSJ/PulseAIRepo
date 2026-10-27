@@ -6,6 +6,8 @@
 
 **Model:** `z-ai/glm-5.3-flash` through the existing generic custom-provider path
 
+**Current implementation handoff:** [`../core.md`](../core.md) — what changed after the latest failure, why, provider-free evidence, limitations, and the next verification contract.
+
 ## Outcome
 
 No website was accepted or committed. The first two bounded attempts created no application file. The third began with `write_file` and produced substantial partial output, but still omitted a required file and failed two acceptance tests. After deliverable reconciliation was added, one newly authorized evidence run produced every required file and passed four of five tests, but the independent suite still failed on SQLite persistence. The immutable-test hash, allowlist, credential scan, completion gate, and grade gate remained active throughout; no test was weakened and no result was fabricated.

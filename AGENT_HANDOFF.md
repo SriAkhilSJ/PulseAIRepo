@@ -1,3 +1,5 @@
+> **Current Agent Core handoff (2026-10-27):** this file is a historical CopilotKit/desktop handoff and its older statements such as "no live LLM turn has ever run" are superseded. Provider-backed Agent Core runs have since executed. The latest full-stack evidence is still an honest **FAIL** (4/5 tests; SQLite persistence failed), and the subsequent durable verification-repair loop has provider-free evidence only. Use [`core.md`](core.md) as the source of truth for current work, rationale, exact evidence, and remaining verification; use [`docs/CRUSOR_FULLSTACK_BENCHMARK.md`](docs/CRUSOR_FULLSTACK_BENCHMARK.md) for immutable run history.
+>
 > **Update 2026-10-12:** Reasoning Latency Throttling, Champion Quality Evaluation, and Parallel Tool Batching:
 > - **Think Controls & Stream Suppression**: Think picker defaults to `Off` with wire-level suppression payloads across all provider adapters (`thinking: disabled`, `thinking_budget: 0`). Explicit token budget caps for active reasoning (`Low`: 4,000, `Med`: 8,000, `High`: 16,000, `Ultra`: 32,000). Stream token pump (`_AgentTokenPump`) intercepts and silences unrequested `<think>` / reasoning chunks.
 > - **Champion Task Quality & Fulfillment Engine**: Integrated 4-pillar evaluation engine ($0.60 \times \text{Quality} + 0.40 \times \text{Runtime}$) in `src/runtime/quality_evaluator.py` & `src/runtime/step_tracker.py` grading deliverables, constraints, verification receipts (`exit_code == 0`), and polish. Auto-generates `diagnostics/LATEST_PERFORMANCE_AUDIT.md` and per-session JSONL traces with CLI inspection (`scripts/diagnose_steps.py`).
@@ -29,8 +31,8 @@ generative task card painted as an empty white box.
 **Answer after `4f88a907`: Yes**, verified end-to-end up to the LLM call. Browser â†’ Copilot
 Runtime â†’ Python LangGraph agent â†’ A2UI card with real content and a live action button.
 
-**Still open:** no live LLM turn has ever been executed. Two independent blockers â€” see
-[Open items](#open-items).
+**Historical status at this handoff date:** no live LLM turn had yet executed. That limitation
+was later closed; current Agent Core live evidence and remaining work are tracked in `core.md`.
 
 **Now done:** Full hermes parity achieved. All 32 layers ported and merged to `main`. Tool names, prompt text, plan cards, UI rendering, and provider-fetched output caps all working.
 
@@ -150,26 +152,25 @@ force-push; (c) add a pre-commit secret scan.
 verification). **Never commit it.** It is gitignored â€” if you find yourself reaching for
 `git add -f .env`, stop.
 
-### 2. No live LLM turn has ever run
+### 2. Historical live-LLM blocker (subsequently closed)
 
-Two independent blockers:
+At the time of this handoff, two independent blockers existed:
 
 - **Network.** The verification sandbox allows GitHub and npm but blocks all LLM providers
   (`api.sarvam.ai`, `api.openai.com`, `api.groq.com` all unreachable). Zero provider calls are
   possible from there, so no credits were ever spent and the diagnosis never depended on one.
 - **Key.** Not available in that environment.
 
-To close it, run the three commands above on a machine with network access and send one message.
-Expected SSE sequence:
+The proposed closure was to run the three commands above on a machine with network access and
+observe this SSE sequence:
 
 ```
 RUN_STARTED â†’ STEP_STARTED task_manager â†’ STATE_SNAPSHOT â†’ â€¦ â†’ assistant reply â†’ A2UI card
 ```
 
-Currently it reaches `task_manager` successfully and stops at the LLM call.
-
-If credits are a concern, add a mock provider instead â€” a deterministic fake LLM exercises the
-entire pipeline including tool calls and card rendering at zero cost and runs forever in CI.
+That provider-call blocker is now closed: later bounded live Agent Core runs reached real models and
+tool execution. Their current acceptance status is documented in `core.md`; the newest full-stack
+run remains failed, so historical connectivity success must not be read as product acceptance.
 
 ### 3. Minor
 

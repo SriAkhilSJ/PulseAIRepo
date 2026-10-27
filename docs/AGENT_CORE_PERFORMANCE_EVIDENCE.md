@@ -4,6 +4,8 @@
 
 **Provider/model:** `custom` / `z-ai/glm-5.3-flash`
 
+> **Scope note (2026-10-27):** this document is the immutable receipt for an earlier bounded debugging task that passed 6/6 and completed naturally. It is not evidence that the later full-stack benchmark passed. The newest full-stack run failed 4/5, and its subsequent verification-repair changes have provider-free evidence only. Current status: [`../core.md`](../core.md); full run history: [`CRUSOR_FULLSTACK_BENCHMARK.md`](CRUSOR_FULLSTACK_BENCHMARK.md).
+
 ## Task
 
 Agent Core received a deliberately broken, dependency-free Python slug library and six
@@ -105,3 +107,12 @@ path.
 
 The temporary secret-bearing workflow was deleted immediately after this receipt. No
 provider-specific application code, pull request, merge, or deployment was created.
+
+## Subsequent Agent Core status
+
+The completion handoff proven here remains useful but is only one task shape. Later full-stack evidence showed two additional boundaries:
+
+1. explicit named deliverables needed on-disk reconciliation before verification; and
+2. a concrete failed acceptance check needed durable mutation/recheck debt.
+
+Those general repairs are documented in `CRUSOR_FULLSTACK_BENCHMARK.md` and `../core.md`. The current provider-free receipt is **33/33 affected tests** and **2,796 passing tests** in the full suite with the same 30 known baseline failures. No provider-backed run has tested the newest failed-check repair, so this earlier successful debugging task must not be generalized into a current end-to-end PASS claim.

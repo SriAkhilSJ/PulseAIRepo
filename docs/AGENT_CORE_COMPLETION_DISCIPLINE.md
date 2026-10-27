@@ -4,6 +4,8 @@
 
 **Scope:** verification-to-final-response handoff; provider-neutral Agent Core behavior
 
+> **Current follow-up (2026-10-27):** the inclusive final-response reserve remains in place. Commit `f8108ccd` adds a second completion requirement: unresolved non-environment failed checks survive edits and unrelated green checks until the same check identity passes. The latest full-stack live run remains failed and predates this follow-up. See [`../core.md`](../core.md).
+
 ## Simple result
 
 | Area | Before | After | Optimization — why |
@@ -15,6 +17,19 @@
 | Runner contract | Agent Core and the bridge could enforce different limits; the bridge cancelled at call `N` while Agent Core expected another summary request. | `--max-llm-calls N` is exported to Agent Core as the same inclusive ceiling; only `N+1` is treated as contract drift. | The final legal call can finish while the external breaker remains a hard backstop. |
 | Python verification | `python -m unittest` was not classified as a static check. | `unittest` joins the provider-neutral terminal check vocabulary. | The benchmark’s real six-test pass can participate in the same evidence gate as `pytest`, `go test`, and other checks. |
 | Monitoring | The handoff had no dedicated signal. | `context.status` emits `phase=final_response_reserve`, call/budget values, and the boolean evidence decision; runner outcomes record the aligned budget. | Operators can distinguish clean evidence-backed closure from a budget-cut report without exposing prompts or tool bodies. |
+
+## Failed-check repair follow-up
+
+The original reserve guaranteed a legal closing response, but a live 4/5 full-stack run exposed a different boundary: a failed acceptance check did not create a durable requirement to edit and rerun that same check.
+
+| Before | After | Why |
+|---|---|---|
+| The newest passing static check could dominate status. | Every concrete non-environment failed check contributes a required `failed_checks` completion domain. | A weaker check cannot erase stronger red evidence. |
+| An edit made evidence stale but did not preserve the failed check's identity. | Check identity is normalized and hashed; mutation marks repair landed but does not clear debt. | The obligation survives without copying commands into completion metadata. |
+| Repair mode offered mutation and verification together. | `verification_repair_required` withholds verifier tools; `verification_recheck_required` withholds mutation tools after a landed repair. | Unchanged retry loops and unverified repair claims are structurally blocked. |
+| Any green verification could restore completion. | Only success from the same failed check identity removes its debt. | Completion requires proof of the actual repair. |
+
+Environment/toolchain failures remain outside source-repair debt and use the existing strategy-pivot path. The implementation is general; it contains no benchmark, SQLite, provider, model, or expected-output special case.
 
 ## Source check
 
@@ -64,7 +79,7 @@ If any condition fails, the same final call must report what is incomplete and f
 - `src/graphs/gates.py` — deterministic completion-readiness predicate and `unittest` verification recognition.
 - `scripts/run_bridge_turn.py` — one shared Agent Core/runner ceiling and `N+1` emergency backstop.
 
-## Provider-free receipt
+## Original completion-reserve provider-free receipt
 
 | Check | Result |
 |---|---|
@@ -78,6 +93,19 @@ If any condition fails, the same final call must report what is incomplete and f
 | Evidence blockers | Missing output, failed verification, open plan, trailing failure, and no post-nudge action covered |
 | Runner ceiling | Calls `N-1` and `N` allowed; `N+1` stops |
 | Existing trajectory guard | Included in the green focused gate and unchanged |
+
+## Current follow-up receipt
+
+| Check | Result |
+|---|---|
+| Affected repair/routing/annotation files | **33 passed** |
+| Earlier broader completion/routing/progress/runner gate | **181 passed** |
+| Full provider-free suite | **2,796 passed, 30 failed, 26 skipped, 1 xfailed** |
+| Changed-module compilation and scoped whitespace | Passed |
+| Diff-aware Ruff | 0 findings on added lines |
+| Live validation of failed-check repair | **Not yet performed** |
+
+The same 30 known generated-desktop/repository-environment baseline failures remained; no changed Agent Core or runner test failed. Provider-free results establish deterministic contracts only, not live-model effectiveness.
 
 ## Bounded live receipt
 
@@ -93,3 +121,7 @@ The workflow's overall conclusion is red only because its temporary grader incor
 that fallback event mandatory even for early completion; every task-quality and budget check
 passed. No paid rerun was used to manufacture a reserve event. The full sanitized receipt and
 caveat are recorded in `docs/AGENT_CORE_PERFORMANCE_EVIDENCE.md`.
+
+That statement is scoped to the completion-reserve experiment. Later full-stack runs did occur;
+the latest failed 4/5, and its follow-up repair is provider-free tested only. See
+`docs/CRUSOR_FULLSTACK_BENCHMARK.md` and `core.md` for current status.

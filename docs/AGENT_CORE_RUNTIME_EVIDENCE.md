@@ -28,6 +28,18 @@ $CRUSORAI_HOME/evidence/turns/<session-id>/<turn-id>.artifacts/
 
 `CRUSORAI_HOME` defaults to `~/.crusorai`. `CRUSORAI_EVIDENCE_DIR` can override only the evidence root. Manifest, checksum, trace snapshot, and report snapshot are written atomically. Artifact entries include a manifest-relative path so a copied session evidence directory remains verifiable; use `--journal` when the SQLite snapshot is relocated. Evidence files use owner-only permissions where the operating system supports them.
 
+## CI bridge-run publication
+
+The durable runtime manifest above and the headless bridge runner's `outcome.json` are complementary receipts. `scripts/run_bridge_turn.py` records bounded request and tool timing summaries for a controlled run. When `GITHUB_ACTIONS=true`, it now publishes that sanitized outcome as multiple standalone JSON notices rather than one oversized annotation:
+
+- one allowlisted summary annotation;
+- one or more request-receipt annotations; and
+- one or more tool-outcome annotations.
+
+Each message is capped at 3,500 characters, below GitHub's observed 4,096-character truncation boundary. Every chunk is independently parseable. Tool arguments, prompts, commands, file bodies, IDs, and full results are omitted; result summaries and configured secret values are redacted and bounded again before publication.
+
+This publication path does not replace the manifest/checksum verifier and does not turn monitoring into completion evidence. It exists so a failed bounded run remains diagnosable when an Actions log archive is unavailable. The chunk builder is provider-free tested; retrieval of the new multi-annotation shape still needs observation in a future explicitly authorized Actions run.
+
 ## What is bound
 
 A finalized manifest binds:

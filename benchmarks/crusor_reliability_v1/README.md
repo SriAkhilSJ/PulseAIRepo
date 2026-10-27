@@ -7,6 +7,15 @@ is a *trustworthy local engineering runtime* - correct workspace awareness, boun
 context, editable and verifiable work, safe lifecycle behavior - not whether it can
 produce a plausible chat reply.
 
+## Current Agent Core evidence
+
+This package is the reusable reliability suite; it is separate from the bounded full-stack SprintBoard evidence task. As of 2026-10-27, the latest full-stack live run remains **failed** at 4/5 tests even though all required files landed. The subsequent general repair enforces mutation before recheck and exact failed-check debt clearing, but has provider-free evidence only.
+
+- Current implementation and remaining verification: [`../../core.md`](../../core.md)
+- Immutable full-stack run record: [`../../docs/CRUSOR_FULLSTACK_BENCHMARK.md`](../../docs/CRUSOR_FULLSTACK_BENCHMARK.md)
+
+Do not use a green contract/evaluator test in this package as evidence that a provider-backed product build passed.
+
 ## Status: contract + evaluator + fixtures + runner (PR 1A .. PR 1E)
 
 This directory currently contains the **contract** (`contract.py`, `manifest.json`,
@@ -45,7 +54,7 @@ tests), the **fixture generator + manifest** for all twelve tasks
 
 ```bash
 python -m pytest src/tests/test_benchmark_contract.py src/tests/test_benchmark_evaluator.py src/tests/test_benchmark_fixtures.py src/tests/test_benchmark_runner.py -q
-# 99 passed
+# 102 passed
 ```
 
 or, from the repository root:
