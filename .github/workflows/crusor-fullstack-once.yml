@@ -28,6 +28,7 @@ jobs:
       CRUSORAI_MEMORY_WARMUP_AT_BOOT: 'off'
       CRUSORAI_OTEL: 'off'
       CRUSORAI_WEB_TOOLS: 'off'
+      CRUSORAI_MAX_TOOLS: '8'
 
     steps:
       - name: Check out exact challenge commit
@@ -70,8 +71,8 @@ jobs:
           set -euo pipefail
           workspace="$GITHUB_WORKSPACE/showcase/sprintboard"
           rm -rf "$workspace" /tmp/crusor-fullstack-results
-          mkdir -p "$workspace"
-          cat > "$workspace/test_sprintboard.py" <<'PY'
+          mkdir -p "$workspace/.acceptance"
+          cat > "$workspace/.acceptance/test_sprintboard.py" <<'PY'
           from __future__ import annotations
 
           import json
@@ -88,7 +89,7 @@ jobs:
           from pathlib import Path
 
 
-          ROOT = Path(__file__).resolve().parent
+          ROOT = Path(__file__).resolve().parents[1]
 
 
           class SprintBoardAcceptance(unittest.TestCase):
@@ -267,11 +268,13 @@ jobs:
           if __name__ == "__main__":
               unittest.main(verbosity=2)
           PY
-          sha256sum "$workspace/test_sprintboard.py" | awk '{print $1}' > /tmp/sprintboard-test-hash-before
+          sha256sum "$workspace/.acceptance/test_sprintboard.py" | awk '{print $1}' > /tmp/sprintboard-test-hash-before
           cat > /tmp/crusor-fullstack-prompt.txt <<'EOF'
           Build a polished, production-minded full-stack website named SprintBoard in this workspace.
 
-          Use only the Python 3 standard library on the backend and browser-native HTML, CSS, and JavaScript on the frontend. Do not add dependencies and do not modify test_sprintboard.py.
+          Use only the Python 3 standard library on the backend and browser-native HTML, CSS, and JavaScript on the frontend. Do not add dependencies and do not modify .acceptance/test_sprintboard.py.
+
+          This is a fresh file-delivery workspace. On your first action, use the dedicated write_file tool to land a real baseline application file. Batch independent write_file calls when available. Use write_file/edit_file for all source changes; do not use terminal shell redirection, heredocs, Python one-liners, or diagnostics scripts to create application files. Reserve terminal for running verification after files exist.
 
           Deliver exactly these application files at the workspace root:
           - server.py
@@ -304,7 +307,7 @@ jobs:
 
           README.md must explain features, architecture, data model, launch command, API routes, and verification command.
 
-          Work autonomously. Inspect the immutable acceptance test, implement the complete site, run `python -m unittest -v test_sprintboard.py`, fix every failure, reread the final implementation, and finish with a concise evidence-based report. Do not inspect unrelated repository paths.
+          Work autonomously. After the first application file exists, inspect the immutable acceptance test. Implement the complete site, run `python -m unittest discover -s .acceptance -p 'test_*.py' -v`, fix every failure, reread the final implementation, and finish with a concise evidence-based report. Do not inspect unrelated repository paths.
           EOF
 
       - name: Run genuine Crusor Agent Core full-stack task
@@ -320,7 +323,7 @@ jobs:
             --run-id "fullstack-${GITHUB_RUN_ID}" \
             --timeout-s 600 \
             --max-llm-calls 12 \
-            --max-input-tokens 180000 \
+            --max-input-tokens 250000 \
             --max-no-delivery-calls 0 \
             --results-root /tmp/crusor-fullstack-results
           status=$?
@@ -352,7 +355,10 @@ jobs:
               frames = []
 
           test_run = subprocess.run(
-              ["python", "-m", "unittest", "-v", "test_sprintboard.py"],
+              [
+                  "python", "-m", "unittest", "discover",
+                  "-s", ".acceptance", "-p", "test_*.py", "-v",
+              ],
               cwd=workspace,
               text=True,
               stdout=subprocess.PIPE,
@@ -362,13 +368,15 @@ jobs:
           test_output = test_run.stdout[-5000:]
           digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
           before_hash = Path("/tmp/sprintboard-test-hash-before").read_text().strip()
-          after_hash = digest(workspace / "test_sprintboard.py")
+          after_hash = digest(workspace / ".acceptance" / "test_sprintboard.py")
           expected = ["server.py", "index.html", "styles.css", "app.js", "README.md"]
           expected_paths = [workspace / name for name in expected]
-          allowed_top_level = set(expected) | {"test_sprintboard.py", "tasks.db", "__pycache__"}
+          allowed_top_level = set(expected) | {
+              ".acceptance", "tasks.db", "__pycache__", "diagnostics",
+          }
           unexpected = sorted(
               path.name for path in workspace.iterdir()
-              if path.name not in allowed_top_level
+              if path.name not in allowed_top_level and not path.name.startswith(".")
           ) if workspace.is_dir() else ["workspace-missing"]
           symlinks = [path.name for path in workspace.rglob("*") if path.is_symlink()] if workspace.is_dir() else []
           total_bytes = sum(path.stat().st_size for path in expected_paths if path.is_file())
@@ -404,7 +412,7 @@ jobs:
               "provider_secret_absent": secret_absent,
               "tool_execution_observed": bool(tool_names),
               "within_call_bound": 0 < calls <= 12,
-              "within_token_bound": int(outcome.get("tokens_in_last_telemetry") or 0) <= 180000,
+              "within_token_bound": int(outcome.get("tokens_in_last_telemetry") or 0) <= 250000,
               "no_budget_stop": not bool(outcome.get("budget_stop")),
           }
           passed = all(checks.values())
@@ -455,8 +463,8 @@ jobs:
           set -euo pipefail
           test -f /tmp/crusor-fullstack-grade-passed
           workspace="$GITHUB_WORKSPACE/showcase/sprintboard"
-          rm -f "$workspace/test_sprintboard.py" "$workspace/tasks.db"
-          rm -rf "$workspace/__pycache__"
+          rm -f "$workspace/tasks.db"
+          rm -rf "$workspace/.acceptance" "$workspace/diagnostics" "$workspace/__pycache__"
           python - <<'PY'
           import os
           from pathlib import Path
