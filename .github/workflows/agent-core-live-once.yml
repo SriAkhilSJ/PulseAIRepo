@@ -41,15 +41,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Verify generic route without exposing the secret
+      - name: Normalize secret and verify generic route without exposing it
         run: |
           python - <<'PY'
           import os
-          key = (os.environ.get("CUSTOM_API_KEY") or "").strip()
+          raw = os.environ.get("CUSTOM_API_KEY") or ""
+          key = raw.strip()
           assert key, "CUSTOM_API_KEY repository secret is unavailable"
+          assert "\n" not in key and "\r" not in key, "CUSTOM_API_KEY contains an internal newline"
           assert os.environ.get("LLM_PROVIDER") == "custom"
           assert os.environ.get("LLM_MODEL") == "z-ai/glm-5.3-flash"
-          print("PASS: custom/z-ai/glm-5.3-flash route; secret present (value not printed)")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+              stream.write(f"CUSTOM_API_KEY={key}\n")
+          print("PASS: custom/z-ai/glm-5.3-flash route; normalized secret exported (value not printed)")
           PY
 
       - name: Install pinned Agent Core runtime
@@ -64,6 +68,39 @@ jobs:
           opentelemetry-sdk==1.45.1 pillow==13.0.0
           pydantic==2.14.1 python-dotenv==1.2.4 rich==15.0.0
           sqlite-vec==0.1.9 tiktoken==0.14.0 typer==0.27.3 watchdog==6.0.0
+
+      - name: Confirm a non-empty Velona response through PulseAI factory
+        env:
+          CRUSORAI_LLM_STREAMING: 'off'
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          from src.llm.factory import get_llm
+
+          reply = get_llm(
+              "custom",
+              "z-ai/glm-5.3-flash",
+              max_attempts=1,
+              request_timeout=30.0,
+          ).invoke("Reply with only READY.")
+          content = getattr(reply, "content", reply)
+          if isinstance(content, list):
+              content = "".join(
+                  str(part.get("text") or "") if isinstance(part, dict) else str(part)
+                  for part in content
+              )
+          text = str(content or "").strip()
+          assert text, "Velona returned no response text"
+          receipt = {
+              "response_observed": True,
+              "response_characters": len(text),
+              "response_sha256": hashlib.sha256(text.encode()).hexdigest(),
+          }
+          Path("/tmp/velona-response.json").write_text(json.dumps(receipt), encoding="utf-8")
+          print(f"::notice title=Velona response::non-empty response received ({len(text)} characters; content not printed)")
+          PY
 
       - name: Run one bounded genuine Agent Core turn
         id: live_turn
@@ -85,7 +122,7 @@ jobs:
             --prompt-file "$prompt" \
             --run-id "live-${GITHUB_RUN_ID}" \
             --timeout-s 300 \
-            --max-llm-calls 6 \
+            --max-llm-calls 5 \
             --max-input-tokens 60000 \
             --max-no-delivery-calls 3 \
             --results-root "$results"
@@ -100,17 +137,23 @@ jobs:
 
           outcome_path = Path("/tmp/pulseai-agent-core-results") / f"live-{os.environ['GITHUB_RUN_ID']}" / "outcome.json"
           proof_path = Path("/tmp/pulseai-agent-core-live/live-agent-core-proof.txt")
+          probe_path = Path("/tmp/velona-response.json")
           try:
               outcome = json.loads(outcome_path.read_text(encoding="utf-8"))
           except Exception as exc:
               outcome = {"result": "missing-outcome", "completed": False, "error": type(exc).__name__}
+          try:
+              probe = json.loads(probe_path.read_text(encoding="utf-8"))
+          except Exception:
+              probe = {"response_observed": False, "response_characters": 0}
           proof_exact = proof_path.is_file() and proof_path.read_text(encoding="utf-8").strip() == "VELONA_AGENT_CORE_OK"
           checks = {
+              "velona_response_observed": probe.get("response_observed") is True,
               "turn_done": outcome.get("result") == "turn_done",
               "completed": outcome.get("completed") is True,
               "llm_request_observed": int(outcome.get("llm_request_frames") or 0) >= 1,
               "proof_file_exact": proof_exact,
-              "within_call_bound": int(outcome.get("llm_request_frames") or 0) <= 6,
+              "within_call_bound": int(outcome.get("llm_request_frames") or 0) <= 5,
               "no_budget_stop": not bool(outcome.get("budget_stop")),
               "no_delivery_stop": not bool(outcome.get("no_delivery_stop")),
           }
@@ -123,6 +166,8 @@ jobs:
               "checks": checks,
               "result": outcome.get("result"),
               "completed": outcome.get("completed"),
+              "endpoint_response_characters": probe.get("response_characters"),
+              "endpoint_response_sha256": probe.get("response_sha256"),
               "llm_request_frames": outcome.get("llm_request_frames"),
               "frame_counts": outcome.get("frame_counts"),
               "tokens_in_last_telemetry": outcome.get("tokens_in_last_telemetry"),
