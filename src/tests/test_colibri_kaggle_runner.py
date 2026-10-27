@@ -20,28 +20,35 @@ def test_model_selection_manifest_pins_colibri_and_high_context_model():
     assert selected["catalog_id"] == "qwen36-35b"
     assert selected["api_model_id"] == "qwen3.6-colibri"
     assert selected["colibri_commit"] == "e0db083cdc9e563e0766cc6fc661ef23c32298e0"
+    patch = selected["colibri_upstream_patch"]
+    assert patch["commit"] == "2e97b78d194c6cd4931aa987973a76d8ec06c8e8"
+    assert patch["parent"] == "fdace869f79dc50aed99459148a75bacb7eee805"
+    assert patch["applied_tree"] == "27f89b55dcec6457b43502f36a5c8ac6f692e900"
+    assert patch["fetch_ref"] == "refs/pull/2098/head"
     assert selected["experts_per_layer"] == 256
     assert selected["engine_max_context_tokens"] == 262144
     assert selected["initial_test_context_tokens"] == 65536
     assert selected["native_tool_calls"] is True
     assert selected["cuda_tier"] is True
+    assert selected["cuda_partial_residency"] is True
     assert selected["disk_gb_decimal"] < 30
 
 
-def test_server_command_enforces_cuda_residency_and_fail_fast_single_client_queue():
+def test_server_command_uses_machine_plan_and_fail_fast_single_client_queue():
     args = kaggle_runner.build_parser().parse_args(["--dry-run", "--allow-non-kaggle"])
     runner = kaggle_runner.Runner(args)
 
     command = runner._server_command()
 
-    assert command[command.index("--cap") + 1] == "256"
+    assert "--auto-tier" in command
+    assert "--cap" not in command
     assert command[command.index("--max-queue") + 1] == "0"
     assert command[command.index("--queue-timeout") + 1] == "60"
     assert command[command.index("--kv-slots") + 1] == "1"
     assert kaggle_runner._LOCAL_API_KEY not in kaggle_runner._redacted_command(command)
 
 
-def test_resource_plan_rejects_partial_residency_before_server_start(
+def test_resource_plan_accepts_safe_partial_residency_and_requires_copy_marker(
     tmp_path, monkeypatch
 ):
     args = kaggle_runner.build_parser().parse_args(
@@ -58,7 +65,53 @@ def test_resource_plan_rejects_partial_residency_before_server_start(
     plan = {
         "model": {"family_id": "qwen36"},
         "tiers": {
-            "ram": {"cache_slots_per_layer": 64},
+            "ram": {
+                "cache_slots_per_layer": 213,
+                "expert_cache_bytes": 1,
+                "warm_expert_bytes": 1,
+                "sequence_state_bytes": 2,
+            },
+            "vram": {"devices": [{"index": 0}], "budget_bytes": 3},
+        },
+    }
+    captured_argv = []
+
+    def fake_run_capture(_name, argv, **_kwargs):
+        captured_argv.extend(argv)
+        return SimpleNamespace(stdout=json.dumps(plan)), {"command": argv}
+
+    monkeypatch.setattr(runner, "_run_capture", fake_run_capture)
+
+    result = runner._resource_plan()
+
+    assert result["ram_cache_slots_per_layer"] == 213
+    assert result["effective_cache_slots_per_layer"] == 213
+    assert result["cuda_partial_residency_expected"] is True
+    assert runner.effective_cache_slots_per_layer == 213
+    assert "--cap" not in captured_argv
+    server_command = runner._server_command()
+    assert server_command[server_command.index("--cap") + 1] == "213"
+    assert kaggle_runner._PARTIAL_RESIDENCY_MARKER in runner._required_gpu_markers()
+
+
+def test_resource_plan_rejects_explicit_cap_above_machine_ceiling(tmp_path, monkeypatch):
+    args = kaggle_runner.build_parser().parse_args(
+        [
+            "--dry-run",
+            "--allow-non-kaggle",
+            "--runtime-root",
+            str(tmp_path / "runtime"),
+            "--output-root",
+            str(tmp_path / "output"),
+            "--cache-cap",
+            "256",
+        ]
+    )
+    runner = kaggle_runner.Runner(args)
+    plan = {
+        "model": {"family_id": "qwen36"},
+        "tiers": {
+            "ram": {"cache_slots_per_layer": 213},
             "vram": {"devices": [{"index": 0}], "budget_bytes": 1},
         },
     }
@@ -68,8 +121,21 @@ def test_resource_plan_rejects_partial_residency_before_server_start(
         lambda *_args, **_kwargs: (SimpleNamespace(stdout=json.dumps(plan)), {}),
     )
 
-    with pytest.raises(RuntimeError, match="planned 64 of 256 expert slots"):
+    with pytest.raises(RuntimeError, match="requested 256, planned 213"):
         runner._resource_plan()
+
+
+def test_explicit_partial_cap_reaches_server_only_after_configuration_accepts_it():
+    args = kaggle_runner.build_parser().parse_args(
+        ["--dry-run", "--allow-non-kaggle", "--cache-cap", "64"]
+    )
+    runner = kaggle_runner.Runner(args)
+
+    configuration = runner._validate_configuration()
+    command = runner._server_command()
+
+    assert configuration["cache_policy"] == "explicit_at_or_below_plan"
+    assert command[command.index("--cap") + 1] == "64"
 
 
 def test_mcp_runbook_rejects_the_candidate_broken_quota_command():
@@ -82,6 +148,32 @@ def test_mcp_runbook_rejects_the_candidate_broken_quota_command():
     assert "Treat GPU quota as **unknown**" in runbook
     assert "`mcp_kaggle_get_quota` — require positive GPU quota" not in runbook
     assert "`mcp_kaggle_kernel_logs`" not in runbook
+
+
+def test_cuda_activity_receipt_requires_positive_expert_hits_and_group_calls():
+    log = """
+[qtier]   dev 0: hits 17 | 30 tensors, 1.25 GB VRAM used (0.25 GB trunk + experts, budget 2.00 GB)
+[qtier]   dev 1: hits 0 | 30 tensors, 1.25 GB VRAM used (0.25 GB trunk + experts, budget 2.00 GB)
+[qtier] group_stats: 8 calls, 17 experts | h2d 2 ms, kernel 11 ms, d2h 3 ms
+"""
+
+    activity = kaggle_runner._cuda_activity_from_log(log)
+
+    assert activity == {
+        "device_hit_reports": 2,
+        "max_device_hits": 17,
+        "group_stat_reports": 1,
+        "max_group_calls": 8,
+        "max_group_experts": 17,
+        "max_kernel_ms": 11.0,
+    }
+    assert (
+        kaggle_runner._nvidia_memory_used_mib(
+            "Tesla T4, GPU-a, 1024, 0\nTesla T4, GPU-b, 2048, 0\n"
+        )
+        == 3072
+    )
+    assert kaggle_runner._nvidia_memory_used_mib("malformed") == 0
 
 
 def test_agent_response_receipt_requires_sentinel_and_grounded_defect(tmp_path):
@@ -166,7 +258,7 @@ def test_kaggle_runner_dry_run_records_invalid_context(tmp_path):
     assert "No Kaggle GPU" in receipt["claim"]
 
 
-def test_kaggle_runner_rejects_partial_cache_that_disables_cuda_tier(tmp_path):
+def test_kaggle_runner_rejects_cache_larger_than_model(tmp_path):
     output = tmp_path / "results"
     code = kaggle_runner.main(
         [
@@ -179,7 +271,7 @@ def test_kaggle_runner_rejects_partial_cache_that_disables_cuda_tier(tmp_path):
             "--output-root",
             str(output),
             "--cache-cap",
-            "64",
+            "257",
         ]
     )
 
@@ -188,7 +280,7 @@ def test_kaggle_runner_rejects_partial_cache_that_disables_cuda_tier(tmp_path):
         (output / "invalid-cap" / "run_receipt.json").read_text(encoding="utf-8")
     )
     assert receipt["phases"][0]["status"] == "failed"
-    assert "cache cap must equal 256" in receipt["phases"][0]["error"]
+    assert "0 (machine-plan auto) or between 1 and 256" in receipt["phases"][0]["error"]
 
 
 def test_kaggle_notebook_and_metadata_request_private_gpu_internet_kernel():
@@ -212,7 +304,8 @@ def test_kaggle_notebook_and_metadata_request_private_gpu_internet_kernel():
     assert "arena/a7c2c868-pulseairepo" in source
     assert "/kaggle/temp" in source
     assert "/kaggle/working/colibri-agent-core-results" in source
-    assert '"--cache-cap"' in source and '"256"' in source
+    assert '"--cache-cap"' not in source
+    assert "upstream partial-residency patch" in source
     assert metadata["code_file"] == "colibri_agent_core.ipynb"
     assert metadata["is_private"] is True
     assert metadata["enable_gpu"] is True

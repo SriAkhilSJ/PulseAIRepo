@@ -41,6 +41,7 @@ _GPU_MARKERS = (
     "[gpu] MoE experts -> CUDA VRAM tier",
     "[qtier] CUDA VRAM expert tier active:",
 )
+_PARTIAL_RESIDENCY_MARKER = "the tier copies each expert it takes as it passes"
 
 
 def _utc_now() -> str:
@@ -123,6 +124,44 @@ def _parse_meminfo() -> dict[str, int]:
     return values
 
 
+def _cuda_activity_from_log(text: str) -> dict[str, Any]:
+    hit_counts = [
+        int(value)
+        for value in re.findall(r"\[qtier\]\s+dev\s+\d+:\s+hits\s+(\d+)\s+\|", text)
+    ]
+    group_rows = [
+        (int(calls), int(experts), float(kernel_ms))
+        for calls, experts, kernel_ms in re.findall(
+            r"\[qtier\] group_stats:\s+(\d+) calls,\s+(\d+) experts\s+\|"
+            r"[^\n]*?kernel\s+([0-9.]+) ms",
+            text,
+        )
+    ]
+    return {
+        "device_hit_reports": len(hit_counts),
+        "max_device_hits": max(hit_counts, default=0),
+        "group_stat_reports": len(group_rows),
+        "max_group_calls": max((row[0] for row in group_rows), default=0),
+        "max_group_experts": max((row[1] for row in group_rows), default=0),
+        "max_kernel_ms": max((row[2] for row in group_rows), default=0.0),
+    }
+
+
+def _nvidia_memory_used_mib(text: str) -> float:
+    total = 0.0
+    parsed = 0
+    for line in text.splitlines():
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) < 4:
+            continue
+        try:
+            total += float(fields[-2])
+        except ValueError:
+            continue
+        parsed += 1
+    return total if parsed else 0.0
+
+
 def _redacted_command(argv: list[str]) -> list[str]:
     safe: list[str] = []
     redact_next = False
@@ -167,9 +206,15 @@ class Runner:
         self.manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         selected = self.manifest["selected"]
         self.colibri_commit = str(selected["colibri_commit"])
+        patch = selected["colibri_upstream_patch"]
+        self.colibri_patch_ref = str(patch["fetch_ref"])
+        self.colibri_patch_commit = str(patch["commit"])
+        self.colibri_patch_parent = str(patch["parent"])
+        self.colibri_patched_tree = str(patch["applied_tree"])
         self.model_repo = str(selected["model_repository"])
         self.model_id = str(selected["api_model_id"])
         self.experts_per_layer = int(selected["experts_per_layer"])
+        self.effective_cache_slots_per_layer: int | None = None
         self.run_id = args.run_id or (
             datetime.now(UTC).strftime("run-%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
         )
@@ -204,6 +249,9 @@ class Runner:
             "colibri": {
                 "repository": selected["colibri_repository"],
                 "commit": self.colibri_commit,
+                "base_commit": self.colibri_commit,
+                "upstream_patch_commit": self.colibri_patch_commit,
+                "expected_patched_tree": self.colibri_patched_tree,
             },
             "pulseai": {},
             "paths": {
@@ -383,12 +431,24 @@ class Runner:
             raise ValueError(
                 "long-context probe must stay below the configured context"
             )
-        if self.args.cache_cap != self.experts_per_layer:
+        if not 0 <= self.args.cache_cap <= self.experts_per_layer:
             raise ValueError(
-                "Qwen3.6 CUDA tier requires full expert residency: "
-                f"cache cap must equal {self.experts_per_layer}, got "
-                f"{self.args.cache_cap}"
+                "cache cap must be 0 (machine-plan auto) or between 1 and "
+                f"{self.experts_per_layer}, got {self.args.cache_cap}"
             )
+        if selected.get("cuda_partial_residency") is not True:
+            raise ValueError("manifest does not enable audited CUDA partial residency")
+        pinned_shas = {
+            "colibri base commit": self.colibri_commit,
+            "Colibri patch commit": self.colibri_patch_commit,
+            "Colibri patch parent": self.colibri_patch_parent,
+            "Colibri patched tree": self.colibri_patched_tree,
+        }
+        for label, value in pinned_shas.items():
+            if not re.fullmatch(r"[0-9a-f]{40}", value):
+                raise ValueError(f"{label} is not an immutable full Git object id")
+        if not self.colibri_patch_ref.startswith("refs/pull/"):
+            raise ValueError("Colibri patch fetch ref must be a pinned pull-request ref")
         if not 1024 <= self.args.port <= 65535:
             raise ValueError("port must be between 1024 and 65535")
         if self.args.context_window != initial:
@@ -402,8 +462,13 @@ class Runner:
             "context_window": self.args.context_window,
             "long_context_tokens_approx": self.args.long_context_tokens,
             "cache_cap": self.args.cache_cap,
+            "cache_policy": (
+                "machine_plan" if self.args.cache_cap == 0 else "explicit_at_or_below_plan"
+            ),
             "experts_per_layer": self.experts_per_layer,
-            "colibri_commit": self.colibri_commit,
+            "colibri_base_commit": self.colibri_commit,
+            "colibri_patch_commit": self.colibri_patch_commit,
+            "colibri_patched_tree": self.colibri_patched_tree,
             "model_repository": self.model_repo,
         }
 
@@ -503,11 +568,92 @@ class Runner:
             cwd=self.colibri_dir,
         )
         if resolved.stdout.strip() != self.colibri_commit:
-            raise RuntimeError("Colibri checkout does not match the pinned commit")
+            raise RuntimeError("Colibri checkout does not match the pinned base commit")
+
+        patch_fetch = self._run_logged(
+            "colibri_patch_fetch",
+            [
+                "git",
+                "fetch",
+                "--no-tags",
+                "origin",
+                self.colibri_patch_ref,
+            ],
+            cwd=self.colibri_dir,
+            timeout=600,
+        )
+        fetched, fetched_receipt = self._run_capture(
+            "colibri_patch_identity",
+            ["git", "rev-parse", "FETCH_HEAD^{commit}"],
+            cwd=self.colibri_dir,
+        )
+        if fetched.stdout.strip() != self.colibri_patch_commit:
+            raise RuntimeError("Colibri pull-request ref moved away from the pinned patch")
+        parent, parent_receipt = self._run_capture(
+            "colibri_patch_parent",
+            ["git", "rev-parse", f"{self.colibri_patch_commit}^"],
+            cwd=self.colibri_dir,
+        )
+        if parent.stdout.strip() != self.colibri_patch_parent:
+            raise RuntimeError("Colibri patch parent does not match the audited object")
+        patch_apply = self._run_logged(
+            "colibri_patch_apply",
+            ["git", "cherry-pick", "--no-commit", self.colibri_patch_commit],
+            cwd=self.colibri_dir,
+            timeout=600,
+        )
+        _, diff_check = self._run_capture(
+            "colibri_patch_diff_check",
+            ["git", "diff", "--cached", "--check"],
+            cwd=self.colibri_dir,
+        )
+        tree, tree_receipt = self._run_capture(
+            "colibri_patched_tree",
+            ["git", "write-tree"],
+            cwd=self.colibri_dir,
+        )
+        if tree.stdout.strip() != self.colibri_patched_tree:
+            raise RuntimeError(
+                "Colibri base plus upstream patch does not match the audited Git tree"
+            )
+        unstaged, unstaged_receipt = self._run_capture(
+            "colibri_unstaged_check",
+            ["git", "diff", "--quiet"],
+            cwd=self.colibri_dir,
+            check=False,
+        )
+        untracked, untracked_receipt = self._run_capture(
+            "colibri_untracked_check",
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=self.colibri_dir,
+        )
+        if unstaged.returncode != 0 or untracked.stdout.strip():
+            raise RuntimeError("Colibri patched checkout has unexpected unstaged files")
+        changed, changed_receipt = self._run_capture(
+            "colibri_patch_paths",
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=self.colibri_dir,
+        )
+        changed_paths = [line for line in changed.stdout.splitlines() if line]
+        if not changed_paths:
+            raise RuntimeError("Colibri upstream patch changed no files")
         return {
-            "resolved_commit": resolved.stdout.strip(),
+            "resolved_base_commit": resolved.stdout.strip(),
+            "resolved_patch_commit": fetched.stdout.strip(),
+            "resolved_patch_parent": parent.stdout.strip(),
+            "resolved_patched_tree": tree.stdout.strip(),
+            "patched_path_count": len(changed_paths),
             "clone": clone,
             "checkout": checkout,
+            "patch_fetch": patch_fetch,
+            "patch_identity": fetched_receipt,
+            "patch_parent": parent_receipt,
+            "patch_apply": patch_apply,
+            "diff_check": diff_check,
+            "tree_check": tree_receipt,
+            "unstaged_check": unstaged_receipt,
+            "untracked_check": untracked_receipt,
+            "changed_paths": changed_receipt,
         }
 
     def _install_dependencies(self) -> dict[str, Any]:
@@ -529,6 +675,18 @@ class Runner:
         )
 
     def _build_colibri(self) -> dict[str, Any]:
+        partial_test_build = self._run_logged(
+            "colibri_partial_tier_test_build",
+            ["make", "-C", "c", "tests/test_qwen36_tier_stream", "-j2"],
+            cwd=self.colibri_dir,
+            timeout=600,
+        )
+        partial_test = self._run_logged(
+            "colibri_partial_tier_test",
+            [str(self.colibri_dir / "c" / "tests" / "test_qwen36_tier_stream")],
+            cwd=self.colibri_dir,
+            timeout=300,
+        )
         result = self._run_logged(
             "colibri_cuda_build",
             ["make", "-C", "c", "qwen36", "CUDA=1", "-j2"],
@@ -546,6 +704,11 @@ class Runner:
         result["binary"] = str(binary)
         result["binary_sha256"] = _sha256_file(binary)
         result["libcudart_linked"] = True
+        result["partial_residency_unit_test"] = {
+            "build": partial_test_build,
+            "run": partial_test,
+            "passed": True,
+        }
         result["linkage"] = linkage
         return result
 
@@ -585,25 +748,24 @@ class Runner:
         return receipt
 
     def _resource_plan(self) -> dict[str, Any]:
+        plan_argv = [
+            sys.executable,
+            "c/coli",
+            "plan",
+            "--model",
+            str(self.model_dir),
+            "--ctx",
+            str(self.args.context_window),
+            "--gpu",
+            "auto",
+            "--vram",
+            "0",
+            "--auto-tier",
+            "--json",
+        ]
         completed, command = self._run_capture(
             "colibri_resource_plan",
-            [
-                sys.executable,
-                "c/coli",
-                "plan",
-                "--model",
-                str(self.model_dir),
-                "--ctx",
-                str(self.args.context_window),
-                "--gpu",
-                "auto",
-                "--vram",
-                "0",
-                "--auto-tier",
-                "--cap",
-                str(self.args.cache_cap),
-                "--json",
-            ],
+            plan_argv,
             cwd=self.colibri_dir,
             timeout=900,
         )
@@ -617,21 +779,36 @@ class Runner:
         ram = tiers.get("ram") or {}
         vram = tiers.get("vram") or {}
         planned_cap = int(ram.get("cache_slots_per_layer") or 0)
-        if planned_cap < self.experts_per_layer:
+        if not 1 <= planned_cap <= self.experts_per_layer:
             raise RuntimeError(
-                "resource plan cannot activate the Qwen3.6 CUDA tier: "
-                f"planned {planned_cap} of {self.experts_per_layer} expert slots per layer"
+                "resource plan returned an invalid Qwen3.6 RAM cache: "
+                f"{planned_cap} slots per layer for {self.experts_per_layer} experts"
+            )
+        if self.args.cache_cap > planned_cap:
+            raise RuntimeError(
+                "explicit cache cap exceeds the machine-local safe plan: "
+                f"requested {self.args.cache_cap}, planned {planned_cap}"
             )
         if not vram.get("devices") or int(vram.get("budget_bytes") or 0) <= 0:
             raise RuntimeError("resource plan has no executable CUDA VRAM tier")
+        effective_cap = self.args.cache_cap or planned_cap
+        self.effective_cache_slots_per_layer = effective_cap
+        partial = effective_cap < self.experts_per_layer
         _atomic_json(self.run_dir / "colibri_resource_plan.json", plan)
         return {
             "command": command,
             "plan_path": str(self.run_dir / "colibri_resource_plan.json"),
             "plan_sha256": _sha256_file(self.run_dir / "colibri_resource_plan.json"),
             "ram_cache_slots_per_layer": planned_cap,
-            "required_expert_slots_per_layer": self.experts_per_layer,
-            "cuda_full_residency_gate_passed": True,
+            "effective_cache_slots_per_layer": effective_cap,
+            "experts_per_layer": self.experts_per_layer,
+            "cache_policy": (
+                "machine_plan" if self.args.cache_cap == 0 else "explicit_at_or_below_plan"
+            ),
+            "cuda_partial_residency_expected": partial,
+            "cuda_residency_gate_passed": True,
+            "ram_expert_cache_bytes": ram.get("expert_cache_bytes"),
+            "ram_warm_expert_bytes": ram.get("warm_expert_bytes"),
             "ram_sequence_state_bytes": ram.get("sequence_state_bytes"),
             "vram_budget_bytes": vram.get("budget_bytes"),
             "vram_devices": vram.get("devices"),
@@ -639,7 +816,7 @@ class Runner:
         }
 
     def _server_command(self) -> list[str]:
-        return [
+        command = [
             sys.executable,
             "c/coli",
             "serve",
@@ -652,27 +829,44 @@ class Runner:
             "--vram",
             "0",
             "--auto-tier",
-            "--cap",
-            str(self.args.cache_cap),
-            "--ngen",
-            "2048",
-            "--max-queue",
-            "0",
-            "--queue-timeout",
-            "60",
-            "--kv-slots",
-            "1",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(self.args.port),
-            "--model-id",
-            self.model_id,
-            "--api-key",
-            _LOCAL_API_KEY,
         ]
+        runtime_cap = self.args.cache_cap or self.effective_cache_slots_per_layer
+        if runtime_cap:
+            command.extend(["--cap", str(runtime_cap)])
+        command.extend(
+            [
+                "--ngen",
+                "2048",
+                "--max-queue",
+                "0",
+                "--queue-timeout",
+                "60",
+                "--kv-slots",
+                "1",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(self.args.port),
+                "--model-id",
+                self.model_id,
+                "--api-key",
+                _LOCAL_API_KEY,
+            ]
+        )
+        return command
+
+    def _required_gpu_markers(self) -> tuple[str, ...]:
+        markers = list(_GPU_MARKERS)
+        if (
+            self.effective_cache_slots_per_layer is not None
+            and self.effective_cache_slots_per_layer < self.experts_per_layer
+        ):
+            markers.append(_PARTIAL_RESIDENCY_MARKER)
+        return tuple(markers)
 
     def _start_server(self) -> dict[str, Any]:
+        if self.effective_cache_slots_per_layer is None:
+            raise RuntimeError("Colibri server cannot start before its resource plan")
         command = self._server_command()
         log_offset = (
             self.server_log_path.stat().st_size if self.server_log_path.is_file() else 0
@@ -714,8 +908,9 @@ class Runner:
                         server_log = self.server_log_path.read_bytes()[
                             log_offset:
                         ].decode("utf-8", errors="replace")
+                        required_markers = self._required_gpu_markers()
                         markers = {
-                            marker: marker in server_log for marker in _GPU_MARKERS
+                            marker: marker in server_log for marker in required_markers
                         }
                         if not all(markers.values()):
                             missing = [
@@ -745,6 +940,14 @@ class Runner:
                                 json.dumps(body, sort_keys=True).encode()
                             ).hexdigest(),
                             "endpoint": f"http://127.0.0.1:{self.args.port}/v1",
+                            "effective_cache_slots_per_layer": (
+                                self.effective_cache_slots_per_layer
+                            ),
+                            "cuda_partial_residency": (
+                                self.effective_cache_slots_per_layer is not None
+                                and self.effective_cache_slots_per_layer
+                                < self.experts_per_layer
+                            ),
                             "cuda_markers": markers,
                             "nvidia_smi": gpu_receipt,
                             "gpu_state": [
@@ -1037,25 +1240,41 @@ class Runner:
             check=False,
         )
         text = self.server_log_path.read_text(encoding="utf-8", errors="replace")
-        markers = {marker: marker in text for marker in _GPU_MARKERS}
+        required_markers = self._required_gpu_markers()
+        markers = {marker: marker in text for marker in required_markers}
+        activity = _cuda_activity_from_log(text)
+        memory_used_mib = _nvidia_memory_used_mib(completed.stdout)
         generation_passed = (
             probe.get("phase_statuses", {}).get("basic_chat") == "passed"
         )
         verified = (
             completed.returncode == 0
             and bool(completed.stdout.strip())
+            and memory_used_mib > 0
             and all(markers.values())
+            and activity["max_device_hits"] > 0
+            and activity["max_group_calls"] > 0
+            and activity["max_group_experts"] > 0
             and generation_passed
         )
         return {
             "verified": verified,
             "meaning": (
                 "A real generation completed while the CUDA-linked qwen36 engine "
-                "reported its CUDA VRAM expert tier active."
+                "reported positive routed-expert hits and CUDA group calls with "
+                "device memory resident."
                 if verified
                 else "GPU inference is not proven by the available receipts."
             ),
             "required_log_markers": markers,
+            "cuda_activity": activity,
+            "nvidia_memory_used_mib_total": memory_used_mib,
+            "effective_cache_slots_per_layer": self.effective_cache_slots_per_layer,
+            "experts_per_layer": self.experts_per_layer,
+            "partial_residency_verified": (
+                _PARTIAL_RESIDENCY_MARKER in markers
+                and markers.get(_PARTIAL_RESIDENCY_MARKER) is True
+            ),
             "generation_passed": generation_passed,
             "nvidia_smi": nvidia,
             "gpu_state": [
@@ -1294,7 +1513,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id")
     parser.add_argument("--context-window", type=int, default=65536)
     parser.add_argument("--long-context-tokens", type=int, default=16384)
-    parser.add_argument("--cache-cap", type=int, default=256)
+    parser.add_argument(
+        "--cache-cap",
+        type=int,
+        default=0,
+        help=(
+            "expert slots/layer; 0 uses Colibri's machine-local plan, while an "
+            "explicit value must not exceed that safe plan"
+        ),
+    )
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--probe-timeout", type=int, default=1800)
     parser.add_argument("--server-start-timeout", type=int, default=1800)
