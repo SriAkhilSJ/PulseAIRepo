@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Capture a bounded, redacted status/quota/log snapshot for a Kaggle kernel."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import signal
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+SCHEMA = "pulseai-kaggle-live-diagnostics/v1"
+_TOKEN_PATTERN = re.compile(r"\bKGAT_[A-Za-z0-9_-]+\b")
+_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)((?:KAGGLE_(?:API_TOKEN|KEY)|Authorization)\s*[=:]\s*)[^\s,;]+"
+)
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_CONTROL_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _redact(text: str, secrets: tuple[str, ...]) -> str:
+    result = str(text)
+    for secret in secrets:
+        if secret:
+            result = result.replace(secret, "[REDACTED]")
+    result = _TOKEN_PATTERN.sub("[REDACTED]", result)
+    result = _ASSIGNMENT_PATTERN.sub(r"\1[REDACTED]", result)
+    return result
+
+
+def _seconds(value: Any) -> float | None:
+    if isinstance(value, timedelta):
+        return round(value.total_seconds(), 3)
+    return None
+
+
+def _quota_receipt(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    return {
+        "time_used_seconds": _seconds(getattr(value, "time_used", None)),
+        "time_reserved_seconds": _seconds(getattr(value, "time_reserved", None)),
+        "total_time_allowed_seconds": _seconds(
+            getattr(value, "total_time_allowed", None)
+        ),
+        "minimum_time_allowed_seconds": _seconds(
+            getattr(value, "minimum_time_allowed", None)
+        ),
+        "has_ever_run": bool(getattr(value, "has_ever_run", False)),
+    }
+
+
+def _decode_chunks(response: Any, max_bytes: int) -> tuple[str, int, bool, bool]:
+    chunks: list[bytes] = []
+    seen = 0
+    truncated = False
+    deadline_reached = False
+    try:
+        for chunk in response.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
+            encoded = chunk if isinstance(chunk, bytes) else str(chunk).encode()
+            remaining = max_bytes - seen
+            if remaining <= 0:
+                truncated = True
+                break
+            chunks.append(encoded[:remaining])
+            seen += min(len(encoded), remaining)
+            if len(encoded) > remaining or seen >= max_bytes:
+                truncated = True
+                break
+    except _DeadlineExpired:
+        deadline_reached = True
+    return (
+        b"".join(chunks).decode("utf-8", errors="replace"),
+        seen,
+        truncated,
+        deadline_reached,
+    )
+
+
+def _clean_log_tail(text: str, secrets: tuple[str, ...], max_chars: int) -> str:
+    clean = _CONTROL_PATTERN.sub("", _ANSI_PATTERN.sub("", text))
+    redacted = _redact(clean, secrets)
+    lines: list[str] = []
+    for original in redacted.splitlines():
+        line = original.rstrip()
+        if line.startswith("data:"):
+            line = line[5:].lstrip()
+        if line.startswith(("event:", "id:", "retry:")):
+            continue
+        if line:
+            lines.append(line)
+    compact = "\n".join(lines)
+    if len(compact) > max_chars:
+        compact = "[... bounded prefix omitted ...]\n" + compact[-max_chars:]
+    return compact
+
+
+class _DeadlineExpired(Exception):
+    pass
+
+
+def _deadline_handler(signum, frame):
+    raise _DeadlineExpired("log stream capture deadline reached")
+
+
+def collect_diagnostics(args: argparse.Namespace) -> dict[str, Any]:
+    username = os.environ.get("KAGGLE_USERNAME", "").strip()
+    token = (
+        os.environ.get("KAGGLE_API_TOKEN") or os.environ.get("KAGGLE_KEY") or ""
+    ).strip()
+    secrets = (username, token)
+    receipt: dict[str, Any] = {
+        "schema": SCHEMA,
+        "status": "running",
+        "captured_at": _utc_now(),
+        "kernel": {
+            "slug_sha256": hashlib.sha256(args.kernel_slug.encode()).hexdigest(),
+            "slug_persisted": False,
+        },
+        "credentials": {"present": bool(username and token), "persisted": False},
+        "session": {},
+        "quota": {},
+        "log": {},
+    }
+    if not username or not token:
+        receipt.update(
+            {
+                "status": "failed",
+                "error": "Kaggle username or API token is unavailable",
+            }
+        )
+        return receipt
+
+    try:
+        from kaggle.api.kaggle_api_extended import KaggleApi
+        from kagglesdk.kernels.types.kernels_api_service import (
+            ApiGetAcceleratorQuotaStatisticsRequest,
+            ApiGetKernelSessionLogsStreamRequest,
+            ApiGetKernelSessionStatusRequest,
+        )
+
+        api = KaggleApi()
+        api.authenticate()
+        with api.build_kaggle_client() as client:
+            status_request = ApiGetKernelSessionStatusRequest()
+            status_request.user_name = username
+            status_request.kernel_slug = args.kernel_slug
+            status_response = (
+                client.kernels.kernels_api_client.get_kernel_session_status(
+                    status_request
+                )
+            )
+            state = getattr(status_response.status, "name", str(status_response.status))
+            receipt["session"] = {
+                "status": str(state).lower(),
+                "failure_message": _redact(
+                    str(status_response.failure_message or ""), secrets
+                )[:2000],
+            }
+
+            quota_response = (
+                client.kernels.kernels_api_client.get_accelerator_quota_statistics(
+                    ApiGetAcceleratorQuotaStatisticsRequest()
+                )
+            )
+            receipt["quota"] = {
+                "gpu": _quota_receipt(quota_response.gpu_quota),
+                "tpu": _quota_receipt(quota_response.tpu_quota),
+                "refresh_time": (
+                    quota_response.quota_refresh_time.isoformat()
+                    if quota_response.quota_refresh_time
+                    else None
+                ),
+            }
+
+            log_request = ApiGetKernelSessionLogsStreamRequest()
+            log_request.user_name = username
+            log_request.kernel_slug = args.kernel_slug
+            log_request.wait_for_logs_url_seconds = min(args.wait_for_logs_seconds, 300)
+
+            old_handler = signal.signal(signal.SIGALRM, _deadline_handler)
+            signal.alarm(args.capture_seconds)
+            response = None
+            raw = ""
+            seen = 0
+            truncated = False
+            deadline_reached = False
+            try:
+                response = (
+                    client.kernels.kernels_api_client.get_kernel_session_logs_stream(
+                        log_request
+                    )
+                )
+                raw, seen, truncated, deadline_reached = _decode_chunks(
+                    response, args.max_bytes
+                )
+            except _DeadlineExpired:
+                deadline_reached = True
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+                if response is not None:
+                    response.close()
+
+            tail = _clean_log_tail(raw, secrets, args.max_tail_chars)
+            receipt["log"] = {
+                "content_type": (
+                    response.headers.get("Content-Type")
+                    if response is not None
+                    else None
+                ),
+                "bytes_captured": seen,
+                "capture_truncated": truncated,
+                "deadline_reached": deadline_reached,
+                "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                "tail": tail,
+                "tail_chars": len(tail),
+            }
+            receipt["status"] = "passed" if tail else "partial"
+    except BaseException as exc:  # noqa: BLE001 - diagnostic receipt must survive API errors
+        receipt.update(
+            {
+                "status": "failed",
+                "error": _redact(f"{type(exc).__name__}: {exc}", secrets)[:2000],
+            }
+        )
+    return receipt
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--kernel-slug", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--capture-seconds", type=int, default=30)
+    parser.add_argument("--wait-for-logs-seconds", type=int, default=20)
+    parser.add_argument("--max-bytes", type=int, default=256 * 1024)
+    parser.add_argument("--max-tail-chars", type=int, default=12_000)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if not 1 <= args.capture_seconds <= 120:
+        raise SystemExit("--capture-seconds must be within 1..120")
+    if not 1 <= args.wait_for_logs_seconds <= 300:
+        raise SystemExit("--wait-for-logs-seconds must be within 1..300")
+    if not 1024 <= args.max_bytes <= 1024 * 1024:
+        raise SystemExit("--max-bytes must be within 1024..1048576")
+    if not 1000 <= args.max_tail_chars <= 20_000:
+        raise SystemExit("--max-tail-chars must be within 1000..20000")
+    receipt = collect_diagnostics(args)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(f"[KAGGLE_DIAGNOSTICS] status={receipt['status']}", flush=True)
+    return 0 if receipt["status"] in {"passed", "partial"} else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -149,6 +149,12 @@ orchestration step. A push runs the expensive job only when its commit message c
 the job uploads bounded receipts and downloaded kernel output as a 14-day Actions
 artifact. It never commits evidence, model weights, or credentials to Git.
 
+For a running private kernel, `.github/workflows/kaggle-live-diagnostics.yml` uses the
+official SDK's session-status, accelerator-quota, and live-log-stream endpoints. A
+`[kaggle-logs]` commit captures at most 256 KiB for 30 seconds, redacts credentials and
+terminal controls, and publishes only a 12,000-character tail as a check annotation. It
+is read-only and does not interrupt the kernel.
+
 ## Local validation (no GPU claim)
 
 Validate configuration without network, model weights, or GPU work:

@@ -1,0 +1,85 @@
+name: Kaggle Live Diagnostics
+
+on:
+  push:
+    branches:
+      - arena/a7c2c868-pulseairepo
+
+permissions:
+  contents: read
+
+jobs:
+  live-log-snapshot:
+    name: Bounded private-kernel log snapshot
+    if: contains(github.event.head_commit.message, '[kaggle-logs]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out diagnostic source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned Kaggle SDK
+        run: python -m pip install --disable-pip-version-check kaggle==1.8.4
+
+      - name: Capture bounded status, quota, and live log tail
+        env:
+          KAGGLE_USERNAME: sriakhilsj
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: >-
+          python -m benchmarks.colibri_agent_core.kaggle_live_diagnostics
+          --kernel-slug pulseai-colibri-agent-core-40387451739
+          --output kaggle-live-diagnostics.json
+          --capture-seconds 30
+          --wait-for-logs-seconds 20
+          --max-bytes 262144
+          --max-tail-chars 12000
+
+      - name: Publish redacted live diagnostics
+        if: always()
+        run: |
+          python - <<'PY'
+          import html
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("kaggle-live-diagnostics.json")
+          if not path.is_file():
+              result = {"status": "failed", "error": "diagnostic receipt was not created"}
+          else:
+              result = json.loads(path.read_text(encoding="utf-8"))
+          session = result.get("session") or {}
+          gpu = (result.get("quota") or {}).get("gpu") or {}
+          tail = str((result.get("log") or {}).get("tail") or "")
+          reason = str(result.get("error") or "")
+          headline = (
+              f"status={result.get('status')} kernel={session.get('status', 'unknown')} "
+              f"gpu_used_seconds={gpu.get('time_used_seconds')}"
+          )
+          def escape(value):
+              return str(value).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title=Kaggle live status::{escape(headline)}")
+          detail = tail or reason or "No log bytes were returned"
+          print(f"::notice file=.github/workflows/kaggle-live-diagnostics.yml,title=Bounded redacted Kaggle log tail::{escape(detail)}")
+          summary = [
+              "## Kaggle live diagnostics",
+              "",
+              f"**{html.escape(headline)}**",
+              "",
+              "<pre>",
+              html.escape(detail),
+              "</pre>",
+          ]
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+              stream.write("\n".join(summary) + "\n")
+          PY
