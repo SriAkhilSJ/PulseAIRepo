@@ -63,6 +63,7 @@ def test_short_or_unpriced_models_cannot_win():
     payload["data"]["models"].extend(
         [
             _entry("too-short", 999_999, 0.0, 0.0),
+            _entry("scaledown/extract", 1_000_000, 0.04, 0.0),
             {"id": "free-looking-but-unpriced", "context_window": 2_000_000},
         ]
     )
@@ -76,6 +77,27 @@ def test_short_or_unpriced_models_cannot_win():
         "qwen/qwen3.7-flash",
         "deepseek/deepseek-v4-flash",
     }
+
+
+def test_live_chat_validation_advances_to_first_working_price_ranked_model():
+    receipt = selector.select_cheapest_aux(
+        _catalog(), main_model="z-ai/glm-5.3-flash"
+    )
+    seen = []
+
+    def probe(model):
+        seen.append(model)
+        if model == "qwen/qwen3.7-flash":
+            return {"model": model, "status": "failed", "error": "HTTP 400"}
+        return {"model": model, "status": "passed", "sentinel_preserved": True}
+
+    validated = selector.validate_chat_candidates(
+        receipt, probe=probe, max_candidates=10
+    )
+
+    assert seen == ["qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash"]
+    assert validated["selected"]["model"] == "deepseek/deepseek-v4-flash"
+    assert validated["chat_validation"]["attempted_count"] == 2
 
 
 def test_required_main_model_must_be_live():

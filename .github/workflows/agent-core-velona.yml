@@ -68,6 +68,9 @@ jobs:
           --base-url "$CUSTOM_BASE_URL"
           --main-model "$LLM_MODEL"
           --minimum-context 1000000
+          --verify-chat
+          --max-chat-candidates 20
+          --chat-timeout 45
           --output velona-live-results/aux-selection.json
           --github-env "$GITHUB_ENV"
 

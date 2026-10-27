@@ -202,27 +202,41 @@ class VelonaModelProbe:
 
     def _basic(self, model: str, label: str) -> dict[str, Any]:
         sentinel = f"{label}_{secrets.token_hex(5)}"
-        response, choice, elapsed = self._chat(
-            model=model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Reply with exactly this token: {sentinel}",
+        messages = [
+            {
+                "role": "user",
+                "content": f"Reply with exactly this token: {sentinel}",
+            }
+        ]
+        started = time.monotonic()
+        attempts = 0
+        for attempt in range(2):
+            attempts += 1
+            try:
+                response, choice, _elapsed = self._chat(
+                    model=model,
+                    messages=messages,
+                    max_tokens=48,
+                )
+                text = _bounded_text(choice["message"].get("content"))
+                if sentinel not in text:
+                    raise RuntimeError(
+                        f"{label} response did not preserve its sentinel"
+                    )
+                return {
+                    "model": model,
+                    "request_seconds": round(time.monotonic() - started, 3),
+                    "attempts": attempts,
+                    "finish_reason": choice.get("finish_reason"),
+                    "sentinel_preserved": True,
+                    "response_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                    "usage": _safe_usage(response.get("usage")),
                 }
-            ],
-            max_tokens=48,
-        )
-        text = _bounded_text(choice["message"].get("content"))
-        if sentinel not in text:
-            raise RuntimeError(f"{label} response did not preserve its sentinel")
-        return {
-            "model": model,
-            "request_seconds": round(elapsed, 3),
-            "finish_reason": choice.get("finish_reason"),
-            "sentinel_preserved": True,
-            "response_sha256": hashlib.sha256(text.encode()).hexdigest(),
-            "usage": _safe_usage(response.get("usage")),
-        }
+            except (TimeoutError, urllib.error.URLError):
+                if attempt:
+                    raise
+                time.sleep(0.4)
+        raise AssertionError("unreachable")
 
     def _main_basic(self) -> dict[str, Any]:
         return self._basic(self.main_model, "MAIN_READY")

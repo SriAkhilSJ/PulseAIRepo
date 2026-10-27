@@ -89,6 +89,26 @@ def test_probe_exercises_main_tools_replay_and_aux_without_response_text():
     assert "response_sha256" in encoded
 
 
+def test_basic_probe_retries_one_transient_read_timeout():
+    instance = _probe()
+    successful_request = instance._request
+    calls = 0
+
+    def flaky_request(body):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise TimeoutError("transient read timeout")
+        return successful_request(body)
+
+    instance._request = flaky_request
+    evidence = instance._main_basic()
+
+    assert evidence["sentinel_preserved"] is True
+    assert evidence["attempts"] == 2
+    assert calls == 2
+
+
 def test_failed_phases_redact_the_exact_api_key():
     key = "secret-api-key-should-never-appear"
     instance = _probe(api_key=key)

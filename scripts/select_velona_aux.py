@@ -11,8 +11,12 @@ import argparse
 import json
 import os
 import re
+import secrets
 import sys
 import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -31,6 +35,23 @@ _CONTEXT_FIELDS = (
     "max_context_length",
     "max_position_embeddings",
     "max_model_len",
+)
+_NON_CHAT_ID_MARKERS = (
+    "embed",
+    "rerank",
+    "extract",
+    "moderation",
+    "guardrail",
+    "image",
+    "ocr",
+    "whisper",
+    "speech",
+    "transcrib",
+    "tts",
+)
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
 
@@ -105,6 +126,11 @@ def _entry_id(entry: dict[str, Any]) -> str:
     ).strip()
 
 
+def _obviously_non_chat(model: str) -> bool:
+    lowered = model.lower()
+    return any(marker in lowered for marker in _NON_CHAT_ID_MARKERS)
+
+
 def select_cheapest_aux(
     payload: Any,
     *,
@@ -138,7 +164,11 @@ def select_cheapest_aux(
     candidates: list[Candidate] = []
     for entry in entries:
         model = _entry_id(entry)
-        if not model or not _SAFE_MODEL_ID.fullmatch(model):
+        if (
+            not model
+            or not _SAFE_MODEL_ID.fullmatch(model)
+            or _obviously_non_chat(model)
+        ):
             continue
         window = _context_window(entry)
         if window is None or window < minimum_context:
@@ -187,10 +217,11 @@ def select_cheapest_aux(
     )
     selected = candidates[0]
     return {
-        "schema": "pulseai.velona_aux_selection.v1",
+        "schema": "pulseai.velona_aux_selection.v2",
         "selection_policy": (
-            "minimum(input_per_1m + output_per_1m), then input, output, "
-            "larger context, model id"
+            "exclude obvious non-chat utility ids; minimum(input_per_1m + "
+            "output_per_1m), then input, output, larger context, model id; "
+            "optionally require a live exact-sentinel chat pass"
         ),
         "minimum_context_window": minimum_context,
         "main": {
@@ -204,6 +235,130 @@ def select_cheapest_aux(
     }
 
 
+def _assistant_text(message: Any) -> str:
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, list):
+        return "".join(
+            str(part.get("text") or "") if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    return str(content or "")
+
+
+def _probe_chat_candidate(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout: float,
+) -> dict[str, Any]:
+    """Use a tiny exact-sentinel request to prove OpenAI-chat compatibility."""
+    endpoint = base_url.rstrip("/")
+    if not endpoint.endswith("/v1"):
+        endpoint += "/v1"
+    endpoint += "/chat/completions"
+    total_started = time.monotonic()
+    last_error = "unspecified"
+    attempts = 0
+    for attempt in range(2):
+        attempts += 1
+        sentinel = f"AUX_CHAT_READY_{secrets.token_hex(5)}"
+        body = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Reply with exactly this token: {sentinel}",
+                }
+            ],
+            "max_tokens": 48,
+            "temperature": 0,
+        }
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": _BROWSER_USER_AGENT,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+                status = int(response.status)
+                payload = json.loads(response.read())
+            choices = payload.get("choices") if isinstance(payload, dict) else None
+            message = (
+                choices[0].get("message")
+                if isinstance(choices, list)
+                and choices
+                and isinstance(choices[0], dict)
+                else None
+            )
+            if status == 200 and sentinel in _assistant_text(message):
+                return {
+                    "model": model,
+                    "status": "passed",
+                    "attempts": attempts,
+                    "elapsed_seconds": round(time.monotonic() - total_started, 3),
+                    "sentinel_preserved": True,
+                }
+            last_error = "HTTP 200 response did not preserve the exact sentinel"
+        except urllib.error.HTTPError as exc:
+            last_error = f"HTTP {exc.code}"
+            if exc.code < 500:
+                break
+        except Exception as exc:  # noqa: BLE001 - bounded classification only
+            last_error = type(exc).__name__
+        if attempt == 0:
+            time.sleep(0.4)
+    return {
+        "model": model,
+        "status": "failed",
+        "attempts": attempts,
+        "elapsed_seconds": round(time.monotonic() - total_started, 3),
+        "error": last_error,
+    }
+
+
+def validate_chat_candidates(
+    receipt: dict[str, Any],
+    *,
+    probe: Callable[[str], dict[str, Any]],
+    max_candidates: int,
+) -> dict[str, Any]:
+    """Pick the first price-ranked candidate that passes a real chat call."""
+    candidates = receipt.get("eligible")
+    if not isinstance(candidates, list):
+        raise CatalogSelectionError("selection receipt has no eligible candidates")
+    attempts: list[dict[str, Any]] = []
+    for candidate in candidates[: max(1, max_candidates)]:
+        if not isinstance(candidate, dict) or not candidate.get("model"):
+            continue
+        result = probe(str(candidate["model"]))
+        attempts.append(result)
+        if result.get("status") == "passed":
+            validated = dict(receipt)
+            validated["selected"] = candidate
+            validated["chat_validation"] = {
+                "status": "passed",
+                "attempted_count": len(attempts),
+                "attempts": attempts,
+            }
+            return validated
+    summary = ", ".join(
+        f"{row.get('model')}={row.get('error') or row.get('status')}"
+        for row in attempts
+    )
+    raise CatalogSelectionError(
+        "no price-ranked 1M candidate passed live chat validation: " + summary[:1200]
+    )
+
+
 def fetch_live_selection(
     *,
     base_url: str,
@@ -211,6 +366,9 @@ def fetch_live_selection(
     main_model: str,
     minimum_context: int = MINIMUM_CONTEXT_WINDOW,
     timeout: float = 15.0,
+    verify_chat: bool = False,
+    max_chat_candidates: int = 20,
+    chat_timeout: float = 45.0,
 ) -> dict[str, Any]:
     """Try provider catalog layouts and return the first honest selection."""
     if not api_key:
@@ -240,6 +398,17 @@ def fetch_live_selection(
             failures.append(f"{url}: {exc}")
             continue
         receipt["source_url"] = url
+        if verify_chat:
+            receipt = validate_chat_candidates(
+                receipt,
+                probe=lambda model: _probe_chat_candidate(
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    timeout=max(1.0, chat_timeout),
+                ),
+                max_candidates=max_chat_candidates,
+            )
         return receipt
     detail = "; ".join(failures[-4:]) or "no catalog URL answered"
     raise CatalogSelectionError(f"no usable live Velona catalog: {detail}")
@@ -289,6 +458,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minimum-context", type=int, default=MINIMUM_CONTEXT_WINDOW)
     parser.add_argument("--api-key-env", default="CUSTOM_API_KEY")
     parser.add_argument("--timeout", type=float, default=15.0)
+    parser.add_argument(
+        "--verify-chat",
+        action="store_true",
+        help="require a tiny exact-sentinel chat pass before selecting a model",
+    )
+    parser.add_argument("--max-chat-candidates", type=int, default=20)
+    parser.add_argument("--chat-timeout", type=float, default=45.0)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--github-env", type=Path)
     return parser
@@ -304,6 +480,9 @@ def main(argv: list[str] | None = None) -> int:
             main_model=args.main_model,
             minimum_context=max(1, args.minimum_context),
             timeout=max(1.0, args.timeout),
+            verify_chat=args.verify_chat,
+            max_chat_candidates=max(1, args.max_chat_candidates),
+            chat_timeout=max(1.0, args.chat_timeout),
         )
         if args.output:
             _atomic_json(args.output, receipt)
@@ -318,7 +497,9 @@ def main(argv: list[str] | None = None) -> int:
                 f"input_per_1m={selected['input_per_1m']}; "
                 f"output_per_1m={selected['output_per_1m']}; "
                 f"equal_volume={selected['equal_volume_per_1m']} "
-                f"{selected['currency']}; eligible={receipt['eligible_count']}"
+                f"{selected['currency']}; eligible={receipt['eligible_count']}; "
+                f"chat_validated={receipt.get('chat_validation', {}).get('status')}; "
+                f"chat_attempts={receipt.get('chat_validation', {}).get('attempted_count')}"
             ),
         )
         print(json.dumps(receipt, indent=2, sort_keys=True))
