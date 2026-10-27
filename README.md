@@ -237,12 +237,6 @@ CUSTOM_BASE_URL=https://your-endpoint.example/v1
 CUSTOM_API_KEY=your-key
 ```
 
-For a local Colibri server, set `LLM_MODEL=qwen3.6-colibri` and explicitly set
-`LLM_CONTEXT_WINDOW` to the same value passed to `coli serve --ctx`; Colibri's current
-`/v1/models` response does not publish that configured limit. The reproducible private
-Kaggle GPU lane, selected high-context model, MCP sequence, and evidence gates live in
-[`benchmarks/colibri_agent_core/`](benchmarks/colibri_agent_core/).
-
 ### Velona (OpenAI-compatible, gateway catalog)
 
 Velona serves OpenAI-compatible chat completions at `https://velona.in/v1` and carries per-model `context_window` metadata at the gateway catalog (`/gateway/v1/models`). The engine auto-detects Velona from the hostname, probes the gateway for context window, and falls back to the static table.
