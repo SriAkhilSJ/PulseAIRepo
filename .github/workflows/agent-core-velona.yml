@@ -33,6 +33,8 @@ jobs:
       CRUSORAI_MAX_TOOLS: '8'
       CRUSORAI_CONTEXT_BUDGET_TOKENS: '32768'
       CRUSORAI_HISTORY_BUDGET_TOKENS: '32768'
+      # Velona's Cloudflare policy rejects the OpenAI SDK default UA (1010).
+      CRUSORAI_HTTP_USER_AGENT: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
 
     steps:
       - name: Check out the exact triggering commit

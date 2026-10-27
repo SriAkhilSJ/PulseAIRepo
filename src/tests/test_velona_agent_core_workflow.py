@@ -39,6 +39,7 @@ def test_workflow_pins_requested_main_and_live_1m_aux_selection():
 
     assert "CUSTOM_BASE_URL: https://velona.in/v1" in text
     assert "LLM_MODEL: z-ai/glm-5.3-flash" in text
+    assert "CRUSORAI_HTTP_USER_AGENT: Mozilla/5.0" in text
     assert "--minimum-context 1000000" in text
     assert "--verify-chat" in text
     assert "--max-chat-candidates 20" in text
