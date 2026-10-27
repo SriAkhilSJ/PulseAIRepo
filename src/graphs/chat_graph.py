@@ -4902,6 +4902,16 @@ def progress_node(
     total_usage = TokenUsage.from_dict(state.get("token_usage", {}))
     command_retries = dict(state.get("command_retries", {}))
     turn_tool_execution_count = int(state.get("turn_tool_execution_count", 0) or 0)
+    # _turn_scoped_resets deliberately keeps its exact historical return shape.
+    # Its existing execution counter is the turn epoch: zero means any guard
+    # carried by a resumed checkpoint belongs to the prior user turn and must
+    # be discarded before the first new tool outcome is sampled.
+    tool_cycle_guard = (
+        dict(state.get("tool_cycle_guard") or {})
+        if turn_tool_execution_count > 0
+        else {}
+    )
+    tool_cycle_history = list(tool_cycle_guard.get("history") or [])
     turn_tool_execution_names = [
         str(name) for name in (state.get("turn_tool_execution_names") or [])
     ]
@@ -4933,6 +4943,15 @@ def progress_node(
         # Trace comes before memory/failure/success handling (pre-D9 order).
         execution_trace.append(
             ph.make_trace_entry(tool_name, tool_args, result, failed)
+        )
+        tool_cycle_history = ph.append_tool_cycle_sample(
+            tool_cycle_history,
+            ph.tool_cycle_sample(
+                tool_name,
+                tool_args,
+                result,
+                failed=failed,
+            ),
         )
 
         # Store tool output for semantic retrieval in interactive sessions.
@@ -5061,6 +5080,72 @@ def progress_node(
         if label not in steps_completed:
             steps_completed.append(label)
 
+    # Gemini-style trajectory cycles + Cline-style soft/hard escalation.
+    # This runs after outcomes are known, unlike a name-only pre-tool guard:
+    # a changed test result or changed edit is real debugging progress and
+    # therefore has a different fingerprint. Only identical trailing action
+    # AND outcome cycles trigger.
+    cycle = ph.detect_tool_cycle(tool_cycle_history)
+    previous_warning = str(tool_cycle_guard.get("warned_signature") or "")
+    guard_update: dict[str, Any] = {
+        "history": tool_cycle_history,
+        "warned_signature": previous_warning,
+        "hard_stop": False,
+        "detail": {},
+    }
+    if cycle is None:
+        # Let a genuinely broken trajectory earn a fresh warning if it later
+        # falls into another cycle; keep only the bounded hashed history.
+        guard_update["warned_signature"] = ""
+    else:
+        detail = {
+            "signature": cycle["signature"],
+            "length": cycle["length"],
+            "repetitions": cycle["repetitions"],
+            "tools": list(cycle["tools"]),
+        }
+        guard_update["detail"] = detail
+        tools_display = " → ".join(detail["tools"])
+        severity = "error" if cycle["hard_stop"] else "warning"
+        if cycle["hard_stop"]:
+            guard_update["hard_stop"] = True
+            failure = (
+                "Unproductive tool trajectory stopped: "
+                f"{tools_display} repeated {cycle['repetitions']} times "
+                "with identical arguments and outcomes."
+            )
+            if failure not in failed_steps:
+                failed_steps.append(failure)
+            print(f"[ToolCycleGuard] HARD STOP: {failure}", flush=True)
+        elif cycle["signature"] != previous_warning:
+            guard_update["warned_signature"] = cycle["signature"]
+            injected.append(SystemMessage(content=ph.TOOL_CYCLE_NUDGE.format(
+                length=cycle["length"],
+                repetitions=cycle["repetitions"],
+                tools=tools_display,
+            )))
+            print(
+                "[ToolCycleGuard] strategy-change warning: "
+                f"length={cycle['length']} repeats={cycle['repetitions']} "
+                f"tools={tools_display}",
+                flush=True,
+            )
+        if cycle["hard_stop"] or cycle["signature"] != previous_warning:
+            event_bus.emit("context.status", {
+                "thread_id": str(
+                    config.get("configurable", {}).get("thread_id") or "default"
+                ),
+                "phase": "tool_cycle_guard",
+                "severity": severity,
+                "message": (
+                    f"Repeated tool trajectory detected: {tools_display} "
+                    f"({cycle['repetitions']} identical cycles)."
+                ),
+                "cycle_length": cycle["length"],
+                "repetitions": cycle["repetitions"],
+                "tools": list(cycle["tools"]),
+            })
+
     result = {
         "steps_completed": steps_completed,
         "failed_steps": failed_steps,
@@ -5074,6 +5159,7 @@ def progress_node(
         "execution_trace": execution_trace,
         "turn_tool_execution_count": turn_tool_execution_count,
         "turn_tool_execution_names": turn_tool_execution_names,
+        "tool_cycle_guard": guard_update,
         "env_failures": env_failures,
         "token_usage": total_usage.to_dict(),
     }
@@ -5127,6 +5213,12 @@ def after_progress(state: AgentState) -> str:
     finalize through the plan-complete shortcut — the E2 copy nudge
     fires instead.
     """
+    # A hard trajectory loop is not a normal tool failure and must not consume
+    # another provider call. End through its truthful, dedicated boundary while
+    # preserving the workspace/checkpoint for a later user-steered recovery.
+    if bool((state.get("tool_cycle_guard") or {}).get("hard_stop")):
+        return "tool_cycle_limit"
+
     # Hermes question discipline (field run 2026-09-05, "asked question
     # but"): the legacy ask_user returned its echo to the MODEL, which kept
     # working — ask_user is no longer bound (clarify replaced it), but old
@@ -5159,6 +5251,36 @@ def after_progress(state: AgentState) -> str:
     ):
         return "finish_gate"
     return route
+
+def tool_cycle_limit_node(state: AgentState, config: RunnableConfig):
+    """Truthful terminal boundary for a repeated no-progress trajectory."""
+    detail = dict((state.get("tool_cycle_guard") or {}).get("detail") or {})
+    tools = [str(name) for name in detail.get("tools", []) if str(name)]
+    tools_display = " → ".join(tools) or "unknown tool sequence"
+    repetitions = int(detail.get("repetitions", 0) or 0)
+    length = int(detail.get("length", 0) or len(tools))
+
+    # The cycle is a failed outcome for feedback attribution, but feedback is
+    # best-effort and must never interfere with the stop boundary.
+    try:
+        get_context_engine(config).record_feedback(
+            success=False, task=_active_interest_text(state)
+        )
+    except Exception:
+        pass
+
+    return {
+        "messages": [AIMessage(content=(
+            "I stopped an unproductive tool loop before spending more turns. "
+            f"The same {length}-action sequence ({tools_display}) produced "
+            f"identical outcomes {repetitions} times. The workspace and session "
+            "state are preserved. Please provide guidance for a different "
+            "approach, or resume after changing the blocker."
+        ))],
+        "task_status": "failed",
+        "task_completed": False,
+    }
+
 
 def recovery_limit_node(state: AgentState, config: RunnableConfig):
     failed_steps = state.get("failed_steps", [])
@@ -6533,6 +6655,11 @@ builder.add_node(
 )
 
 builder.add_node(
+    "tool_cycle_limit",
+    traced_node("tool_cycle_limit", tool_cycle_limit_node),
+)
+
+builder.add_node(
     "pivot",
     traced_node("pivot", pivot_node),
 )
@@ -6660,6 +6787,7 @@ builder.add_conditional_edges(
     {
         "ai": "ai",
         "recovery_limit": "recovery_limit",
+        "tool_cycle_limit": "tool_cycle_limit",
         "finalize": "finalize",
         "pivot": "pivot",
         "finish_gate": "finish_gate",
@@ -6678,6 +6806,11 @@ builder.add_edge(
 
 builder.add_edge(
     "recovery_limit",
+    END,
+)
+
+builder.add_edge(
+    "tool_cycle_limit",
     END,
 )
 

@@ -111,4 +111,8 @@ class AgentState(CopilotKitState, total=False):
     grace_done: int         # D40: grace (text-only) call already performed
     budget_warning_done: int  # hermes checkpoint notice already fired this turn (one-shot)
     command_retries: dict[str, int]  # R3-1: failed-command fingerprint -> count (identical-retry cap)
+    # Turn-scoped, privacy-safe trajectory guard. History contains only tool
+    # names + SHA-256 identities of canonical arguments/outcomes; it resets on
+    # each user turn and never persists raw tool bodies or results.
+    tool_cycle_guard: dict[str, Any]
     marked_edits: list[str]  # R3-4: paths edited/written/copied (evidence ledger input)

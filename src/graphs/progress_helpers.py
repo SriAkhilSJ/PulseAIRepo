@@ -33,6 +33,8 @@ pinned in src/tests/test_progress_helpers.py):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any, Optional
 
@@ -419,6 +421,129 @@ IDENTICAL_READ_NUDGE = (
     "and perform the next mutating deliverable, verification step, replan, or "
     "ask the user if the result is genuinely ambiguous."
 )
+
+
+# ---------------------------------------------------------------------
+# TURN-SCOPED TOOL-CYCLE GUARD
+# ---------------------------------------------------------------------
+# Source-backed thresholds and shape:
+# - Cline warns after 3 identical calls and hard-stops at 5.
+# - Gemini CLI recognizes repeating tool patterns of length 1..5.
+# PulseAI adds the observed outcome to the fingerprint: an edit/test cycle is
+# blocked only when names, arguments, statuses, AND results repeat. A changed
+# edit or changed test output is debugging progress, not a loop.
+TOOL_CYCLE_SOFT_REPETITIONS = 3
+TOOL_CYCLE_HARD_REPETITIONS = 5
+TOOL_CYCLE_MAX_LENGTH = 5
+TOOL_CYCLE_HISTORY_LIMIT = TOOL_CYCLE_HARD_REPETITIONS * TOOL_CYCLE_MAX_LENGTH
+
+TOOL_CYCLE_NUDGE = (
+    "TRAJECTORY LOOP GUARD: the same {length}-action sequence has produced "
+    "the same outcomes {repetitions} times ({tools}). Stop repeating this "
+    "sequence. Use the observations already in context and choose a materially "
+    "different action or strategy. If no different safe action exists, explain "
+    "the blocker and ask the user instead of retrying."
+)
+
+
+def tool_cycle_sample(
+    tool_name: str,
+    tool_args: dict,
+    result: str,
+    *,
+    failed: bool,
+) -> dict[str, str]:
+    """Return a privacy-safe identity for one completed tool action.
+
+    The sample retains only the non-secret tool name and a SHA-256 digest. The
+    digest covers canonical arguments plus the complete observed result and
+    outcome, so reordered dict keys compare equal while changed evidence breaks
+    a candidate cycle immediately.
+    """
+    tool = str(tool_name)
+    status = "failed" if failed else "success"
+    canonical_args = json.dumps(
+        tool_args or {},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
+    # Feed each field incrementally. In particular, do not embed a potentially
+    # large result in another JSON string (which would allocate/escape a second
+    # full copy merely to hash it). Retained state is still one fixed digest.
+    digest = hashlib.sha256()
+    for value in (tool, canonical_args, status, str(result)):
+        encoded = value.encode("utf-8", errors="replace")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+    return {
+        "tool": tool,
+        "fingerprint": digest.hexdigest(),
+    }
+
+
+def append_tool_cycle_sample(
+    history: list[dict[str, str]],
+    sample: dict[str, str],
+) -> list[dict[str, str]]:
+    """Append one sample under the same 5 cycles × 5 actions hard bound."""
+    bounded = [
+        {
+            "tool": str(item.get("tool", "")),
+            "fingerprint": str(item.get("fingerprint", "")),
+        }
+        for item in history
+        if isinstance(item, dict) and item.get("fingerprint")
+    ]
+    if sample.get("fingerprint"):
+        bounded.append({
+            "tool": str(sample.get("tool", "")),
+            "fingerprint": str(sample["fingerprint"]),
+        })
+    return bounded[-TOOL_CYCLE_HISTORY_LIMIT:]
+
+
+def detect_tool_cycle(
+    history: list[dict[str, str]],
+    *,
+    minimum_repetitions: int = TOOL_CYCLE_SOFT_REPETITIONS,
+) -> dict[str, Any] | None:
+    """Detect a repeated trailing cycle of one to five completed actions.
+
+    Shortest cycles win, so A/A/A reports length 1 and A/B/A/B/A/B reports
+    length 2. Only the trailing trajectory matters: any different action or
+    outcome breaks the run naturally without a special reset heuristic.
+    """
+    samples = [
+        item for item in history
+        if isinstance(item, dict) and str(item.get("fingerprint", ""))
+    ][-TOOL_CYCLE_HISTORY_LIMIT:]
+    fingerprints = [str(item["fingerprint"]) for item in samples]
+    total = len(fingerprints)
+    minimum = max(2, int(minimum_repetitions))
+
+    for length in range(1, TOOL_CYCLE_MAX_LENGTH + 1):
+        if total < length * minimum:
+            continue
+        cycle = fingerprints[-length:]
+        repetitions = 1
+        cursor = total - (2 * length)
+        while cursor >= 0 and fingerprints[cursor:cursor + length] == cycle:
+            repetitions += 1
+            cursor -= length
+        if repetitions < minimum:
+            continue
+        tools = [str(item.get("tool", "unknown")) for item in samples[-length:]]
+        signature = hashlib.sha256("|".join(cycle).encode("ascii")).hexdigest()[:16]
+        return {
+            "signature": signature,
+            "length": length,
+            "repetitions": repetitions,
+            "tools": tools,
+            "hard_stop": repetitions >= TOOL_CYCLE_HARD_REPETITIONS,
+        }
+    return None
 
 
 _DETERMINISTIC_KEEP_MARKERS = (
