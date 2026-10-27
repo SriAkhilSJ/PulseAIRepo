@@ -116,7 +116,7 @@ These follow-up controls are provider-free tested only. No additional key-backed
 
 - edited modules and regressions compile with Python 3.11;
 - the affected repair/routing/annotation files pass **33/33**; an earlier broader completion/routing/progress/runner gate passed **181/181**;
-- current full provider-free result: **2,796 passed, 30 failed, 26 skipped, 1 xfailed**; the same exact 30 generated-desktop/environment baseline failures remain, and no changed Agent Core or runner test failed;
+- clean detached branch result: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; clean `main` has **2,659 passed** with the same exact 25 failing test identities, so the branch introduces **0 new full-suite failures**;
 - every current gate, routing, runner-receipt, progress, budget, and completion regression passed;
 - a fuzzy terminal alias carrying a recursive-delete command is stopped by `SafetyGuard` before execution, and the protected file remains unchanged;
 - the desktop `terminal` alias now enters recovery, clears same-command recovery, and receives the same third-identical-failure nudge as `run_terminal`;

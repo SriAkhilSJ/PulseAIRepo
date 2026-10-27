@@ -100,12 +100,12 @@ If any condition fails, the same final call must report what is incomplete and f
 |---|---|
 | Affected repair/routing/annotation files | **33 passed** |
 | Earlier broader completion/routing/progress/runner gate | **181 passed** |
-| Full provider-free suite | **2,796 passed, 30 failed, 26 skipped, 1 xfailed** |
+| Clean branch full provider-free suite | **2,801 passed, 25 failed, 26 skipped, 1 xfailed** |
 | Changed-module compilation and scoped whitespace | Passed |
 | Diff-aware Ruff | 0 findings on added lines |
 | Live validation of failed-check repair | **Not yet performed** |
 
-The same 30 known generated-desktop/repository-environment baseline failures remained; no changed Agent Core or runner test failed. Provider-free results establish deterministic contracts only, not live-model effectiveness.
+A clean detached comparison found the same 25 failing test identities on the branch and `origin/main`, with 0 new failures. The branch has 2,801 passing tests versus 2,659 on `main`. Provider-free results establish deterministic contracts only, not live-model effectiveness.
 
 ## Bounded live receipt
 

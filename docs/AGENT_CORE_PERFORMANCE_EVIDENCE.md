@@ -115,4 +115,4 @@ The completion handoff proven here remains useful but is only one task shape. La
 1. explicit named deliverables needed on-disk reconciliation before verification; and
 2. a concrete failed acceptance check needed durable mutation/recheck debt.
 
-Those general repairs are documented in `CRUSOR_FULLSTACK_BENCHMARK.md` and `../core.md`. The current provider-free receipt is **33/33 affected tests** and **2,796 passing tests** in the full suite with the same 30 known baseline failures. No provider-backed run has tested the newest failed-check repair, so this earlier successful debugging task must not be generalized into a current end-to-end PASS claim.
+Those general repairs are documented in `CRUSOR_FULLSTACK_BENCHMARK.md` and `../core.md`. The current provider-free receipt is **33/33 affected tests** and **2,801 passing tests** in a clean detached full-suite run, with the same 25 failing test identities as clean `main` and 0 new failures. No provider-backed run has tested the newest failed-check repair, so this earlier successful debugging task must not be generalized into a current end-to-end PASS claim.

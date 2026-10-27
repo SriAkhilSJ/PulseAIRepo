@@ -112,14 +112,16 @@ Prompts, tool arguments, commands, file bodies, IDs, and full results are not se
 |---|---|
 | Affected repair/routing/annotation files | **33 passed** |
 | Earlier broader completion/routing/progress/runner gate | **181 passed** |
-| Full Python suite | **2,796 passed, 30 failed, 26 skipped, 1 xfailed** |
+| Clean detached branch full suite | **2,801 passed, 25 failed, 26 skipped, 1 xfailed** |
+| Clean detached `origin/main` full suite | **2,659 passed, 25 failed, 26 skipped, 1 xfailed** |
+| New failing test identities vs. `main` | **0** |
 | Changed-module Python compilation | Passed |
 | Scoped `git diff --check` | Passed |
 | Diff-aware Ruff | 0 findings on added lines; 49 historical findings remained in touched legacy modules |
 | Production-diff provider-specific marker scan | 0 |
 | Production-diff credential-pattern scan | 0 |
 
-The same 30 generated-desktop/repository-environment baseline failures remained in both full reruns. No changed Agent Core or runner test failed. These failures are not hidden, but they are also not attributed to this documentation/repair slice without separate evidence.
+The clean branch and clean `origin/main` have the exact same set of 25 failing test identities. The branch adds 142 passing tests and introduces 0 new full-suite failures. An earlier run in the preserved dirty primary checkout reported 30 failures; five working-tree-dependent failures disappeared in the clean detached checkout and are not part of the merge baseline. The remaining failures are not hidden, but they are not attributed to this repair slice without separate evidence.
 
 ### Live evidence
 
@@ -146,7 +148,7 @@ No additional provider-backed run is authorized by this document. It requires a 
 
 ### Other repository verification still open
 
-- The 30 known full-suite baseline failures need their own owner/classification and should be rerun in the intended dependency/desktop environment.
+- The 25 clean full-suite baseline failures need their own owner/classification and should be rerun in the intended dependency/desktop environment.
 - Native desktop integration, compiled Code OSS output, screenshots, and SQLite/log evidence belong in the desktop-agent handoff on a supported host. They were not claimed from this sandbox.
 - The new chunked annotation publisher has provider-free tests but has not yet been observed in a subsequent GitHub Actions run.
 

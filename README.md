@@ -83,7 +83,7 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
-> **Reliability status (2026-10-27):** historical failed runs remain immutable. The newest authorized full-stack run (`40576857348`) produced all five required files and passed 4/5 tests, but failed SQLite persistence with `sqlite3.OperationalError: no such table: tasks`; no site was accepted or committed. The general follow-up repair at `f8108ccd` enforces mutation-before-recheck, exact-check debt clearing, same-response file batching, and bounded monitoring annotations. Provider-free evidence is 33/33 affected tests and 2,796 passing tests in the full suite, with the same 30 known baseline failures. No live run has tested the follow-up repair yet, so end-to-end status remains **FAIL / not revalidated**, not PASS. See [`core.md`](core.md) and the [full-stack benchmark record](docs/CRUSOR_FULLSTACK_BENCHMARK.md).
+> **Reliability status (2026-10-27):** historical failed runs remain immutable. The newest authorized full-stack run (`40576857348`) produced all five required files and passed 4/5 tests, but failed SQLite persistence with `sqlite3.OperationalError: no such table: tasks`; no site was accepted or committed. The general follow-up repair at `f8108ccd` enforces mutation-before-recheck, exact-check debt clearing, same-response file batching, and bounded monitoring annotations. Provider-free evidence is 33/33 affected tests and 2,801 passing tests in a clean detached full-suite run, with the same 25 failing test identities as clean `main` and 0 new failures. No live run has tested the follow-up repair yet, so end-to-end status remains **FAIL / not revalidated**, not PASS. See [`core.md`](core.md) and the [full-stack benchmark record](docs/CRUSOR_FULLSTACK_BENCHMARK.md).
 
 ## Recent Changes 2026-10-27 — Verification repair and retrievable monitoring
 
@@ -93,7 +93,7 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 | **Repair/recheck routing** | `verification_repair_required` exposes narrow source mutation without verifier tools; a landed mutation moves to `verification_recheck_required`, where mutation tools are withheld. | Affected files **33/33 passed** |
 | **Bounded delivery** | Forced and missing-delivery guidance batches independent named files in the same response instead of serializing obvious outputs across calls. | Forced/missing-delivery contracts passed |
 | **CI evidence** | Bridge outcomes publish separate summary/request/tool JSON annotations, each independently parseable, redacted, allowlisted, and capped at 3,500 characters. | Privacy, completeness, malformed-field, and hard-bound tests passed |
-| **Live status** | The evidence run produced all required files but failed one SQLite persistence test. The repair above has provider-free evidence only. | Full suite: **2,796 passed, 30 known baseline failures, 26 skipped, 1 xfailed** |
+| **Live status** | The evidence run produced all required files but failed one SQLite persistence test. The repair above has provider-free evidence only. | Clean branch: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; clean `main` has the same 25 failures |
 
 Full rationale and remaining acceptance work: [`core.md`](core.md).
 
@@ -510,7 +510,7 @@ The engine has shipped 2,139 `def test_` functions across 40+ D-rounds. These ar
 ### Test coverage
 
 - Current Agent Core affected-file gate: **33/33 passed**.
-- Current full provider-free suite: **2,796 passed, 30 known baseline failures, 26 skipped, 1 xfailed**.
+- Current clean full provider-free suite: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; failure identities are the same set as clean `main` (**0 new failures**).
 - The latest full-stack provider-backed run remains **4/5 failed**; provider-free regressions do not reclassify it.
 - Desktop compile/CDP claims remain tied to their recorded desktop evidence; this sandbox did not regenerate native desktop proof.
 - Protocol generation, UI builds, and historical focused suites retain their own dated receipts in the linked documentation.
