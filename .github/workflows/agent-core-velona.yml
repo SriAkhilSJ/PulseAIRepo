@@ -48,23 +48,32 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Verify secret is available without printing it
+      - name: Export trimmed masked Velona key in runner shell
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
           python - <<'PY'
           import os
           import sys
+          from pathlib import Path
+
           key = os.environ.get("CUSTOM_API_KEY", "").strip()
           if not key:
               print("CUSTOM_API_KEY repository secret is missing", file=sys.stderr)
               raise SystemExit(1)
-          print("CUSTOM_API_KEY repository secret is present")
+          if "\n" in key or "\r" in key:
+              print("CUSTOM_API_KEY contains an internal newline", file=sys.stderr)
+              raise SystemExit(1)
+          # The stored secret includes surrounding whitespace. Register the
+          # trimmed value for masking before exporting it to later shell steps.
+          print(f"::add-mask::{key}")
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as stream:
+              stream.write(f"CUSTOM_API_KEY={key}\n")
+              stream.write(f"VELONA_API_KEY={key}\n")
+          print("Trimmed CUSTOM_API_KEY exported to the runner environment")
           PY
 
       - name: Select the cheapest live 1M-context auxiliary model
-        env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: >-
           python scripts/select_velona_aux.py
           --base-url "$CUSTOM_BASE_URL"
@@ -77,8 +86,6 @@ jobs:
           --github-env "$GITHUB_ENV"
 
       - name: Probe main chat, main tools, replay, and selected auxiliary model
-        env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: >-
           python scripts/probe_velona_models.py
           --base-url "$CUSTOM_BASE_URL"
@@ -124,8 +131,6 @@ jobs:
         id: aux_factory
         continue-on-error: true
         env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
-          VELONA_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
           CRUSORAI_LLM_STREAMING: 'off'
         run: |
           python - <<'PY'
@@ -204,8 +209,6 @@ jobs:
         id: agent_turn
         continue-on-error: true
         env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
-          VELONA_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
           CRUSORAI_LLM_STREAMING: 'on'
         run: |
           set -euo pipefail
@@ -237,8 +240,6 @@ jobs:
             --results-root velona-agent-core-results
 
       - name: Grade bounded Agent Core evidence
-        env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
           python - <<'PY'
           import hashlib
@@ -387,8 +388,6 @@ jobs:
       - name: Scan bounded receipts before upload
         id: artifact_safety
         if: always()
-        env:
-          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
           python - <<'PY'
           import os
