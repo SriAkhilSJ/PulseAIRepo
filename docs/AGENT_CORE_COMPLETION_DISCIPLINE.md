@@ -98,14 +98,14 @@ If any condition fails, the same final call must report what is incomplete and f
 
 | Check | Result |
 |---|---|
-| Affected repair/routing/annotation files | **33 passed** |
+| Affected repair/routing/annotation files | **34 passed** |
 | Earlier broader completion/routing/progress/runner gate | **181 passed** |
-| Clean branch full provider-free suite | **2,801 passed, 25 failed, 26 skipped, 1 xfailed** |
+| Clean final `main` full provider-free suite | **2,802 passed, 25 failed, 26 skipped, 1 xfailed** |
 | Changed-module compilation and scoped whitespace | Passed |
 | Diff-aware Ruff | 0 findings on added lines |
 | Live validation of failed-check repair | **Not yet performed** |
 
-A clean detached comparison found the same 25 failing test identities on the branch and `origin/main`, with 0 new failures. The branch has 2,801 passing tests versus 2,659 on `main`. Provider-free results establish deterministic contracts only, not live-model effectiveness.
+A clean detached comparison found the same 25 failing test identities on final `main` and the pre-merge `main` baseline, with 0 new failures. The final tree has 2,802 passing tests versus 2,659 in the pre-merge baseline. Provider-free results establish deterministic contracts only, not live-model effectiveness.
 
 ## Bounded live receipt
 

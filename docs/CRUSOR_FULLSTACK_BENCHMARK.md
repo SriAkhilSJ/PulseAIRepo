@@ -115,8 +115,8 @@ These follow-up controls are provider-free tested only. No additional key-backed
 ## Local evidence
 
 - edited modules and regressions compile with Python 3.11;
-- the affected repair/routing/annotation files pass **33/33**; an earlier broader completion/routing/progress/runner gate passed **181/181**;
-- clean detached branch result: **2,801 passed, 25 failed, 26 skipped, 1 xfailed**; clean `main` has **2,659 passed** with the same exact 25 failing test identities, so the branch introduces **0 new full-suite failures**;
+- the affected repair/routing/annotation files pass **34/34**; an earlier broader completion/routing/progress/runner gate passed **181/181**;
+- clean detached final-`main` result: **2,802 passed, 25 failed, 26 skipped, 1 xfailed**; the clean pre-merge `main` baseline has **2,659 passed** with the same exact 25 failing test identities, so the final tree introduces **0 new full-suite failures**;
 - every current gate, routing, runner-receipt, progress, budget, and completion regression passed;
 - a fuzzy terminal alias carrying a recursive-delete command is stopped by `SafetyGuard` before execution, and the protected file remains unchanged;
 - the desktop `terminal` alias now enters recovery, clears same-command recovery, and receives the same third-identical-failure nudge as `run_terminal`;
@@ -124,4 +124,4 @@ These follow-up controls are provider-free tested only. No additional key-backed
 - the exact state containing runtime diagnostics plus a hidden immutable test still binds only `write_file`;
 - no provider-specific branch, prompt answer, expected application content, or model name is hardcoded in Agent Core.
 
-The latest authorized live run is complete and failed; no further provider-backed retry was made. Its temporary workflow was removed in cleanup commit `d31a5cf0`. No generated site, pull request, merge, preview, or deployment was created.
+The latest authorized live run is complete and failed; no further provider-backed retry was made. Its temporary workflow was removed in cleanup commit `d31a5cf0`. The failed run itself created no generated-site pull request, preview, or deployment. The later provider-free Agent Core hardening was squash-merged through [PR #26](https://github.com/SriAkhilSJ/PulseAIRepo/pull/26) as `064072e2`.
