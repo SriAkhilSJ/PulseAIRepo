@@ -13,9 +13,8 @@ Layering: gates <- state, budget (budget provides _budget_exhausted).
 """
 from __future__ import annotations
 
-import re
-
-import os
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -305,6 +304,16 @@ _VERIFY_TOOL_NAMES = frozenset({
     # the native analogue of the UI pipeline above.
     "build_target", "verify_target_app", "device_ui", "device_screenshot", "device_logs",
 })
+_VERIFICATION_COMMAND_TOKENS = (
+    "pytest", "unittest", " test", "npm test", "typecheck", "tsc ",
+    " lint", " build", "cargo check", "go test", " analyze",
+)
+_FAILED_CHECK_TOOLS = frozenset({
+    "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes",
+    "build_target", "verify_target_app",
+    "browser_navigate", "browser_snapshot", "browser_screenshot",
+    "run_terminal", "terminal",
+})
 
 # UI/frontend deliverables: for these, typecheck alone proves nothing at
 # runtime (Test-2 retest D5: tsc passed while the app 500'd on a missing
@@ -419,6 +428,69 @@ def _looks_like_execution_task(task: str) -> bool:
 _WORK_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file",
 })
+
+
+def _verification_trace_key(item: dict) -> tuple[str, str] | None:
+    """Stable identity for a concrete executable verification obligation."""
+    tool_name = str(item.get("tool") or "")
+    if tool_name not in _FAILED_CHECK_TOOLS:
+        return None
+    args = item.get("args") if isinstance(item.get("args"), dict) else {}
+    canonical_tool = "terminal" if tool_name in {"terminal", "run_terminal"} else tool_name
+    if canonical_tool == "terminal":
+        from src.graphs.progress_helpers import command_fingerprint
+
+        command = command_fingerprint(tool_name, args) or ""
+        if not command or not any(token in command for token in _VERIFICATION_COMMAND_TOKENS):
+            return None
+        identity = command
+    else:
+        identity = json.dumps(args, sort_keys=True, default=str, separators=(",", ":"))
+    digest = hashlib.sha256(identity.encode("utf-8", "replace")).hexdigest()[:20]
+    return f"{canonical_tool}:{digest}", canonical_tool
+
+
+def _unresolved_failed_verification_checks(state: AgentState) -> list[dict[str, object]]:
+    """Failed checks that have not passed again with the same identity.
+
+    A mutation marks repair as landed but deliberately does not erase the debt:
+    only a successful rerun of the exact failed check can do that. A different,
+    weaker green command therefore cannot overwrite a stronger red receipt.
+    Environmental failures are excluded because source mutation is not their
+    valid recovery path.
+    """
+    from src.graphs.progress_helpers import classify_env_failure
+
+    debts: dict[str, dict[str, object]] = {}
+    for index, item in enumerate(state.get("execution_trace", []) or []):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("tool") in _WORK_TOOLS
+            and item.get("status") == "success"
+        ):
+            for debt in debts.values():
+                debt["repair_landed"] = True
+            continue
+        identity = _verification_trace_key(item)
+        if identity is None:
+            continue
+        fingerprint, canonical_tool = identity
+        status = str(item.get("status") or "").lower()
+        result = str(item.get("result") or "")
+        if status in {"failed", "error", "failure"}:
+            if classify_env_failure(result):
+                continue
+            debts[fingerprint] = {
+                "fingerprint": fingerprint,
+                "tool": canonical_tool,
+                "failed_at": index,
+                "repair_landed": False,
+            }
+        elif status in {"success", "succeeded", "completed"}:
+            debts.pop(fingerprint, None)
+    return sorted(debts.values(), key=lambda item: int(item["failed_at"]))
+
 
 # R3-4: the evidence ledger classifies the task as
 #   unverified — no verification ran, or the last result failed;
@@ -1031,6 +1103,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     task_focus = _interest_text(state)
     ui_task = _looks_like_ui_task(task_focus)
     receipts = _fresh_verification_messages(state)
+    failed_check_debts = _unresolved_failed_verification_checks(state)
     status = {
         "static": False,
         "typecheck": False,
@@ -1038,6 +1111,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "navigate": False,
         "snapshot": False,
         "screenshot": False,
+        "failed_checks": not failed_check_debts,
     }
     seen: set[str] = set()
     all_messages = list(state.get("messages", []))
@@ -1089,14 +1163,9 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             status["static"] = passed
         elif name in {"run_terminal", "terminal"}:
             command = str(tool_args(message).get("command", "")).lower()
-            is_check = any(token in command for token in (
-                "pytest", "unittest", " test", "npm test", "typecheck", "tsc ",
-                " lint", " build", "cargo check", "go test",
-                # flutter/dart analyze is THE static check of its stack;
-                # without the token a lone `flutter analyze` never
-                # registered as a check at all.
-                " analyze",
-            ))
+            is_check = any(
+                token in command for token in _VERIFICATION_COMMAND_TOKENS
+            )
             if is_check:
                 status["static"] = "exit code: 0" in low
         elif name == "browser_navigate":
@@ -1122,7 +1191,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     integrity_issues = audit_workspace(workspace) if workspace else []
     status["integrity"] = not integrity_issues
 
-    required = ["static", "integrity"]
+    required = ["static", "integrity", "failed_checks"]
     if ui_task:
         # UI verification: requires successful navigation AND at least one of
         # DOM snapshot or visual screenshot (either proves page rendered).
@@ -1143,6 +1212,7 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "required": required,
         "missing": missing,
         "integrity_issues": [issue.describe() for issue in integrity_issues[:20]],
+        "failed_check_debts": failed_check_debts,
         "ran_any": bool(seen),
         "passed": not missing,
     }

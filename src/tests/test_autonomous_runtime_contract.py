@@ -153,6 +153,8 @@ def test_empty_autonomous_delivery_exposes_only_write_file(tmp_path, monkeypatch
     names = [tool.name for tool in chat_graph._resolve_bound_tools(state, config)]
     assert names == ["write_file"]
     assert config["configurable"]["execution_phase"] == "forced_delivery"
+    guidance = config["configurable"]["phase_guidance"].lower()
+    assert "batch" in guidance and "same response" in guidance
 
 
 def test_runtime_diagnostics_and_scoped_test_constraint_keep_fresh_delivery_forced(

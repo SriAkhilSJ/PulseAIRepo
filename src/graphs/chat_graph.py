@@ -637,6 +637,7 @@ from src.graphs.gates import (
     _looks_like_execution_task,
     _verify_unsatisfied,
     _ran_verification,
+    _unresolved_failed_verification_checks,
     _verification_ran_and_passed,
     _wrote_code_files,
     finish_gate_node,
@@ -1728,6 +1729,21 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     delivery_available = any(
         name in delivery_mutation_tools for name in resolved_names
     )
+    verification_check_tools = {
+        "terminal", "run_terminal", "start_terminal", "check_terminal",
+        "read_terminal_output", "stop_terminal", "typecheck_workspace",
+        "verify_ui_workspace", "verify_ui_routes",
+        "build_target", "verify_target_app", "detect_targets",
+        "check_target_toolchains",
+    }
+    verification_mutation_tools = {
+        "read_file", "search_files", "search_code",
+        "write_file", "edit_file", "copy_file",
+    }
+    verification_debts = _unresolved_failed_verification_checks(state)
+    failed_check_repair_needed = any(
+        not bool(item.get("repair_landed")) for item in verification_debts
+    )
     if read_only_interest:
         phase = type(phase)(
             "read_only_interest",
@@ -1763,9 +1779,10 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             guidance=(
                 "DIRECT DELIVERY PHASE: this task requires files and no file has "
                 "landed. Exploration and verification are disabled until a real "
-                "file exists. Call write_file NOW with a complete minimal "
-                "baseline. Additional files and dependencies can be handled on "
-                "the next iteration."
+                "file exists. Call write_file NOW with complete output. When the "
+                "task names multiple independent files, batch every complete "
+                "write_file call in the SAME response; do not serialize obvious "
+                "deliverables across paid iterations."
             ),
         )
     elif missing_deliverables and delivery_available:
@@ -1782,10 +1799,48 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             "missing_delivery", frozenset(delivery_tools),
             guidance=(
                 "MISSING DELIVERY PHASE: the user's explicit output obligations "
-                f"are not complete on disk. Missing: {missing_label}. Create or copy "
-                "the missing output(s) NOW. Inspect only source material needed "
-                "to place them. Terminal and verification tools are disabled "
-                "because checks cannot prove an output that was never delivered."
+                f"are not complete on disk. Missing: {missing_label}. Batch all "
+                "independent missing outputs in the SAME response and create or "
+                "copy them NOW; do not serialize one obvious file per iteration. "
+                "Inspect only source material needed to place them. Terminal and "
+                "verification tools are disabled because checks cannot prove an "
+                "output that was never delivered."
+            ),
+        )
+    elif verification_debts and failed_check_repair_needed:
+        # A concrete non-environment verification failure is an objective repair
+        # obligation. Do not let the model spend another bounded action rerunning
+        # checks unchanged; first land a source mutation informed by the receipt.
+        names = [
+            name for name in resolved_names
+            if name in verification_mutation_tools
+        ]
+        phase = type(phase)(
+            "verification_repair_required",
+            frozenset(verification_mutation_tools),
+            guidance=(
+                "FAILED VERIFICATION REPAIR PHASE: a concrete executable check "
+                "failed and has not been repaired. Terminal and verification "
+                "tools are disabled for this decision. Inspect only evidence-"
+                "named source, make the smallest relevant file mutation NOW, and "
+                "do not claim the failure is resolved until the exact check passes."
+            ),
+        )
+    elif verification_debts:
+        # A repair landed, but edits never erase a red receipt. Only the exact
+        # failed command/tool identity can discharge its durable verification
+        # debt; a different weaker green check is deliberately insufficient.
+        names = [
+            name for name in resolved_names if name in verification_check_tools
+        ]
+        phase = type(phase)(
+            "verification_recheck_required",
+            frozenset(verification_check_tools),
+            guidance=(
+                "EXACT VERIFICATION RECHECK PHASE: a repair has landed for a "
+                "previously failed executable check. Mutation and broad inspection "
+                "are disabled. Rerun the SAME failed test/build/typecheck command "
+                "now. A different or weaker passing check does not clear this debt."
             ),
         )
     elif (
@@ -1799,19 +1854,11 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         # inspection tools: Attempt 12 spent its reserve reading instead of
         # discovering a concrete failure. Once a check fails, re-open narrow
         # inspect/repair tools so the receipt can drive a targeted correction.
-        first_check_tools = {
-            "terminal", "run_terminal", "start_terminal", "check_terminal",
-            "read_terminal_output", "stop_terminal", "typecheck_workspace",
-            "verify_ui_workspace", "verify_ui_routes",
-            "build_target", "verify_target_app", "detect_targets",
-            "check_target_toolchains",
-        }
-        repair_tools = first_check_tools | {
-            "read_file", "search_files", "search_code", "write_file",
-            "edit_file", "copy_file",
-        }
+        repair_tools = verification_check_tools | verification_mutation_tools
         verification_attempted = _ran_verification(state)
-        verification_tools = repair_tools if verification_attempted else first_check_tools
+        verification_tools = (
+            repair_tools if verification_attempted else verification_check_tools
+        )
         names = [name for name in resolved_names if name in verification_tools]
         phase_name = (
             "verification_repair" if verification_attempted else "verification_first_check"

@@ -8,24 +8,24 @@
 
 ## Outcome
 
-No website was accepted or committed. The first two bounded attempts created no application file. After the provider-free Agent Core fixes, the one authorized validation did begin with `write_file` and produced a substantial partial application, but the independent suite still found two failures and at least one required file missing. The immutable-test hash, allowlist, credential scan, completion gate, and commit gate all remained active; no test was weakened and no result was fabricated.
+No website was accepted or committed. The first two bounded attempts created no application file. The third began with `write_file` and produced substantial partial output, but still omitted a required file and failed two acceptance tests. After deliverable reconciliation was added, one newly authorized evidence run produced every required file and passed four of five tests, but the independent suite still failed on SQLite persistence. The immutable-test hash, allowlist, credential scan, completion gate, and grade gate remained active throughout; no test was weakened and no result was fabricated.
 
-| Measure | First attempt | Corrected-harness retry | Post-fix validation |
-|---|---:|---:|---:|
-| Actions run | [40491108367](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40491108367) | [40491628045](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40491628045) | [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40498309113) |
-| Provider calls | 12 / 12 | 12 / 12 | 12 / 12 |
-| Runtime | 58 s | 54 s | 136 s |
-| Final reserve | Observed; evidence not ready | Observed; evidence not ready | Observed; evidence not ready |
-| Turn verdict | `turn_done`, `completed=false` | `turn_done`, `completed=false` | `turn_done`, `completed=false` |
-| Application bytes | 0 | 0 | 24,991 |
-| Independent tests | Not runnable | Not runnable | 5 ran; 2 failed |
-| Required files | Missing | Missing | At least one missing |
-| Tests immutable | Yes | Yes | Yes |
-| Credential persisted | No | No | No |
-| Token telemetry | 206,710; token breaker fired | 111,177; within retry ceiling | 161,228; within ceiling |
-| Tool trajectory | `read_file → run_terminal ×10` | `list_files ×2 → read_file ×2 → terminal ×7` | `write_file ×6 → edit_file → write_file → terminal ×5` |
+| Measure | First attempt | Corrected-harness retry | Post-fix validation | Reconciliation evidence run |
+|---|---:|---:|---:|---:|
+| Actions run | [40491108367](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40491108367) | [40491628045](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40491628045) | [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40498309113) | [40576857348](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40576857348) |
+| Provider calls | 12 / 12 | 12 / 12 | 12 / 12 | 12 / 12 |
+| Runtime | 58 s | 54 s | 136 s | 104 s |
+| Final reserve | Observed; evidence not ready | Observed; evidence not ready | Observed; evidence not ready | Observed; evidence not ready |
+| Turn verdict | `turn_done`, `completed=false` | `turn_done`, `completed=false` | `turn_done`, `completed=false` | `turn_done`, `completed=false` |
+| Application bytes | 0 | 0 | 24,991 | 27,162 |
+| Independent tests | Not runnable | Not runnable | 5 ran; 2 failed | 5 ran; 4 passed, 1 error |
+| Required files | Missing | Missing | At least one missing | All five present |
+| Tests immutable | Yes | Yes | Yes | Yes |
+| Credential persisted | No | No | No | No |
+| Token telemetry | 206,710; token breaker fired | 111,177; within retry ceiling | 161,228; within ceiling | Observed and within ceiling; exact value not retained in the retrievable annotation |
+| Tool trajectory | `read_file → run_terminal ×10` | `list_files ×2 → read_file ×2 → terminal ×7` | `write_file ×6 → edit_file → write_file → terminal ×5` | 15 completed tools; full sanitized sequence was collected but its single CI annotation was truncated |
 
-The second run corrected the benchmark’s hidden-test placement, reduced the exposed tool menu, and removed the token-stop confounder. It still produced no `write_file` call, proving the remaining zero-file failure was in Agent Core’s routing contract rather than the grader. The third run proves that routing defect is fixed, while also proving that first delivery alone is not sufficient for accepted full-stack completion.
+The second run corrected the benchmark’s acceptance-test placement, reduced the exposed tool menu, and removed the token-stop confounder. It still produced no `write_file` call, proving the remaining zero-file failure was in Agent Core’s routing contract rather than the grader. The third run proved forced first delivery. The fourth proved deliverable reconciliation—all five outputs landed—but did **not** prove end-to-end success: the benchmark remained failed.
 
 ## Root cause of the zero-file attempts
 
@@ -66,7 +66,7 @@ The common source-level pattern is structural policy plus deterministic result c
 
 ## Bounded post-fix live receipt
 
-Run [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40498309113) was the single authorized key-backed validation. Its sanitized check annotation records:
+Run [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40498309113) was the first authorized key-backed validation. Its sanitized check annotation records:
 
 - the first tool was `write_file`;
 - 12 provider requests and 13 tool executions completed in 136 seconds;
@@ -79,7 +79,7 @@ Run [40498309113](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/4049830
 - the reserved final request observed `completion_evidence_ready=false`, so the turn correctly ended `completed=false`; and
 - the independent grade failed, so the site commit step was skipped.
 
-The detailed Actions log archive was unavailable through the permitted results endpoint; only the sanitized check annotation and step conclusions were retrievable. The exact two failing test names are therefore not guessed. The immutable result is sufficient for the acceptance decision: the site failed, so no site was committed or previewed and no second paid retry was made.
+The detailed Actions log archive was unavailable through the permitted results endpoint; only the sanitized check annotation and step conclusions were retrievable. The exact two failing test names are therefore not guessed. The immutable result was sufficient for that acceptance decision: the site failed, so no site was committed or previewed. A later, separately authorized evidence run is documented below.
 
 ## Post-failure Agent Core reconciliation
 
@@ -91,13 +91,30 @@ The 24,991-byte receipt proves substantial activity, not complete delivery. Agen
 | Verification reserve could become terminal-only while an explicit file was absent; later repair merely allowed mutation. | Autonomous runs enter `missing_delivery` first, with file-producing and targeted local-read tools; terminal/check tools remain unavailable until every explicit file exists on disk. | Verification cannot prove an output that was never delivered. Generated project directories stay on the normal terminal/toolchain path, so this does not deadlock app generators. |
 | `outcome.json` retained aggregate frame counts, leaving the decisive per-tool results and provider latency boundary hidden. | It now stores capped ordered request receipts and tool outcomes with success/failure/skipped/unfinished status, observed duration, aggregate p50/p95 timing, and short redacted result summaries. | A future failed path shows where time and failure accumulated without persisting prompts, arguments, commands, file bodies, full results, or credential values. |
 
-These controls are task-, provider-, and model-independent. No benchmark filename, expected assertion, SprintBoard content, provider name, or model name is encoded in extraction, routing, or monitoring. The paid benchmark was not rerun: the new behavior was validated provider-free as requested.
+These controls are task-, provider-, and model-independent. No benchmark filename, expected assertion, SprintBoard content, provider name, or model name is encoded in extraction, routing, or monitoring.
+
+## Reconciliation evidence run and verification repair
+
+Run [40576857348](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/40576857348) was explicitly authorized to test the current controls rather than infer success from provider-free regressions. It **failed** and therefore does not validate Agent Core end to end.
+
+The positive evidence is narrow but real: all five required outputs landed, the first tool was `write_file`, 27,162 application bytes were produced, four of five acceptance tests passed, all 12 provider requests returned, and the turn remained honestly incomplete (`completed=false`, `completion_evidence_ready=false`). The exact remaining failure was `test_04_crud_stats_and_sqlite_persistence`: after the API created a task, the acceptance database named by `SPRINTBOARD_DB` had no `tasks` table. This proves persisted CRUD did not target the required environment-selected database. The grader also detected an unexpected top-level file, but the retrievable annotation did not preserve its name, so it is not guessed.
+
+Monitoring collection itself passed every immutable check: schema v2 was present; all 12 request receipts and all 15 tool outcomes had matching timing records; no provider secret appeared in generated files or `outcome.json`; and request latency totaled 88.023 seconds inside a 104-second run (p50 2.865 seconds, p95 31.566 seconds). Monitoring publication exposed a separate defect: one 4,096-character GitHub annotation truncated the tool-ledger tail, while the Actions log archive again returned `EOF`. The full sanitized sequence existed in ephemeral `outcome.json`, but it was not retrievable afterward and is therefore not claimed as observed.
+
+| Before | After | Optimization — why |
+|---|---|---|
+| Fresh delivery guidance explicitly deferred additional files to later iterations. | Independent named files are now requested as batched `write_file` calls in the same response, both at first delivery and missing-delivery reconciliation. | Preserve bounded calls for verification and repair instead of deliberately serializing obvious outputs. |
+| A failed executable check created no durable obligation; a different weaker green check could overwrite static status. | Failed non-environment checks create identity-scoped debt that survives edits and can be cleared only by the exact failed check passing. | A narrow health test cannot erase a failed full acceptance suite. |
+| Verification repair exposed mutation and terminal tools together. | The graph alternates structurally: failed check → mutation-only repair → exact-check-only revalidation. | A run cannot repeatedly check unchanged code or skip directly to a weaker verifier. |
+| CI published the complete monitoring ledger as one annotation. | The runner emits independently parseable, defensively redacted summary/request/tool annotation batches below GitHub’s hard size limit. | Evidence remains retrievable even when Actions logs are unavailable. |
+
+These follow-up controls are provider-free tested only. No additional key-backed rerun has been made after them, so benchmark success remains unproven.
 
 ## Local evidence
 
 - edited modules and regressions compile with Python 3.11;
-- the earlier live-run hardening gate passed **133 tests**; the current deliverable/routing/monitoring gate passes **155 tests**;
-- current full provider-free pass: **2,791 passed, 31 failed, 26 skipped, 1 xfailed**; rerunning only failures made the transient local LSP timeout pass and left the exact **30-failure** generated-desktop/environment baseline;
+- the affected repair/routing/annotation files pass **33/33**; an earlier broader completion/routing/progress/runner gate passed **181/181**;
+- current full provider-free result: **2,796 passed, 30 failed, 26 skipped, 1 xfailed**; the same exact 30 generated-desktop/environment baseline failures remain, and no changed Agent Core or runner test failed;
 - every current gate, routing, runner-receipt, progress, budget, and completion regression passed;
 - a fuzzy terminal alias carrying a recursive-delete command is stopped by `SafetyGuard` before execution, and the protected file remains unchanged;
 - the desktop `terminal` alias now enters recovery, clears same-command recovery, and receives the same third-identical-failure nudge as `run_terminal`;
@@ -105,4 +122,4 @@ These controls are task-, provider-, and model-independent. No benchmark filenam
 - the exact state containing runtime diagnostics plus a hidden immutable test still binds only `write_file`;
 - no provider-specific branch, prompt answer, expected application content, or model name is hardcoded in Agent Core.
 
-The single authorized live run is complete and no retry is planned. Its temporary workflow is removed in the cleanup commit that records this receipt. No generated site, pull request, merge, preview, or deployment was created.
+The latest authorized live run is complete and failed; no further provider-backed retry was made. Its temporary workflow was removed in cleanup commit `d31a5cf0`. No generated site, pull request, merge, preview, or deployment was created.

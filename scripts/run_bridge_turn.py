@@ -422,6 +422,140 @@ def attach_monitoring_receipts(
     )
 
 
+def _monitoring_json(payload: dict) -> str:
+    serialized = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    )
+    return _sanitize_runner_evidence(serialized, len(serialized))
+
+
+def build_github_monitoring_annotations(
+    outcome: dict, *, max_message_chars: int = 3500,
+) -> list[dict[str, str]]:
+    """Build independently parseable CI annotations below GitHub's hard cap.
+
+    ``outcome.json`` is the durable local receipt. CI log archives can be
+    unavailable, and one large workflow annotation is truncated at 4,096
+    characters, so publish the privacy-safe ledger in small semantic batches.
+    Arguments, commands, ids, prompts, and full results are selected out again
+    defensively even though the outcome contract already omits them.
+    """
+    limit = max(512, min(int(max_message_chars), 3500))
+    summary_keys = (
+        "outcome_schema_version", "result", "completed", "llm_request_frames",
+        "tokens_in_last_telemetry", "request_outcome_counts",
+        "tool_outcome_counts", "timing_ms", "request_receipts_omitted",
+        "tool_outcomes_omitted", "receipt_privacy",
+    )
+    summary_payload = {
+        key: outcome.get(key) for key in summary_keys if key in outcome
+    }
+    summary_message = _monitoring_json(summary_payload)
+    if len(summary_message) > limit:
+        # Nested count/timing maps are generated internally, but retain a hard
+        # publication bound even if a caller supplies malformed oversized data.
+        summary_message = _monitoring_json({
+            "outcome_schema_version": _redact_receipt_text(
+                outcome.get("outcome_schema_version")
+            )[:40],
+            "result": _redact_receipt_text(outcome.get("result"))[:80],
+            "completed": bool(outcome.get("completed")),
+            "summary_omitted": True,
+        })
+    annotations: list[dict[str, str]] = [{
+        "title": "Agent Core monitoring summary",
+        "message": summary_message,
+    }]
+
+    request_fields = ("sequence", "status", "duration_ms")
+    tool_fields = (
+        "sequence", "tool", "status", "duration_ms", "result_summary",
+    )
+
+    def safe_events(field: str, allowed: tuple[str, ...]) -> list[dict]:
+        raw_events = outcome.get(field)
+        if not isinstance(raw_events, list):
+            return []
+        events: list[dict] = []
+        for raw in raw_events:
+            if not isinstance(raw, dict):
+                continue
+            item: dict[str, object] = {}
+            for key in allowed:
+                if key not in raw:
+                    continue
+                value = raw.get(key)
+                if key in {"sequence", "duration_ms"}:
+                    try:
+                        item[key] = max(0, int(value))
+                    except (TypeError, ValueError):
+                        continue
+                else:
+                    field_limit = (
+                        _RESULT_SUMMARY_LIMIT if key == "result_summary" else 80
+                    )
+                    item[key] = _redact_receipt_text(value)[:field_limit]
+            events.append(item)
+        return events
+
+    def append_batches(field: str, title: str, events: list[dict]) -> None:
+        batches: list[list[dict]] = []
+        current: list[dict] = []
+        for event in events:
+            candidate = [*current, event]
+            if current and len(_monitoring_json({field: candidate})) > limit:
+                batches.append(current)
+                current = [event]
+            else:
+                current = candidate
+        if current:
+            batches.append(current)
+        for index, batch in enumerate(batches, start=1):
+            message = _monitoring_json({field: batch})
+            # A single event is already bounded, but fail closed if a future
+            # schema expansion violates that contract.
+            if len(message) > limit:
+                message = _monitoring_json({
+                    field: [{
+                        key: value for key, value in batch[0].items()
+                        if key != "result_summary"
+                    }],
+                    "summary_omitted": True,
+                })
+            annotations.append({
+                "title": f"Agent Core {title} {index}/{len(batches)}",
+                "message": message,
+            })
+
+    append_batches(
+        "request_receipts", "requests",
+        safe_events("request_receipts", request_fields),
+    )
+    append_batches(
+        "tool_outcomes", "tools",
+        safe_events("tool_outcomes", tool_fields),
+    )
+    return annotations
+
+
+def _github_command_escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def emit_github_monitoring_annotations(outcome: dict, fallback: Path) -> None:
+    """Publish the sanitized ledger when the runner is executing in Actions."""
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() != "true":
+        return
+    for annotation in build_github_monitoring_annotations(outcome):
+        safe_console_emit(
+            "::notice title="
+            + _github_command_escape(annotation["title"])
+            + "::"
+            + _github_command_escape(annotation["message"]),
+            fallback,
+        )
+
+
 def record_runner_error(outcome: dict, exc: Exception) -> None:
     """Persist a bounded traceback without copying prompts, args, or env."""
     outcome["result"] = "runner-error"
@@ -795,6 +929,7 @@ def main() -> int:
     )
     (run_dir / "outcome.json").write_text(
         json.dumps(outcome, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    emit_github_monitoring_annotations(outcome, console_fallback)
     emit(f"OUTCOME: {outcome.get('result')} completed={outcome.get('completed')} "
          f"llm.calls={llm_calls} -> {run_dir}")
     return 0 if outcome.get("result") == "turn_done" and outcome.get("completed") else 1
