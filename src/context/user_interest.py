@@ -288,11 +288,16 @@ def decide_interest_mode(instruction: str) -> tuple[InterestMode, ChangePolicy, 
         or _ACTION_CLAUSE_RE.search(text)
     )
     no_changes = bool(_READ_ONLY_RE.search(text))
+    positive_mutation = _positive_mutation_requested(text)
     if action:
-        if no_changes:
+        # A scoped prohibition does not cancel an explicit delivery request:
+        # "build the app; do not modify the tests" authorizes application
+        # changes while protecting one artifact. Only a no-change directive
+        # with no independent positive mutation keeps the whole turn read-only.
+        if no_changes and not positive_mutation:
             return "act", "no_changes", "explicit_action_no_change"
         changes: ChangePolicy = (
-            "changes_requested" if _positive_mutation_requested(text) else "unspecified"
+            "changes_requested" if positive_mutation else "unspecified"
         )
         return "act", changes, "explicit_action"
     if no_changes:

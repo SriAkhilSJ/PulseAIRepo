@@ -30,6 +30,11 @@ from src.context.user_interest import (
         ("Implement the user-interest contract.", "act", "changes_requested"),
         ("Only change Agent Core and run the tests.", "act", "changes_requested"),
         ("Can you implement this and verify it?", "act", "changes_requested"),
+        (
+            "Build the full-stack app; do not modify the immutable tests.",
+            "act",
+            "changes_requested",
+        ),
         ("Run the focused tests.", "act", "unspecified"),
         ("Run the tests without changing code.", "act", "no_changes"),
         ("Actually, run the tests without changing code.", "act", "no_changes"),

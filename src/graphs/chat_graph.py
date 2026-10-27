@@ -1556,14 +1556,28 @@ def _pre_delivery_stalled(state: AgentState, *, threshold: int = 4) -> bool:
 
 
 def _workspace_is_effectively_empty(workspace: Any) -> bool:
-    """Whether a fresh delivery workspace has no user-visible input files."""
+    """Whether a fresh delivery workspace has no task-owned input files.
+
+    Agent Core creates ``diagnostics/`` before the first model call. Counting
+    that runtime-owned trace as user content disables the fresh-workspace
+    forced-delivery phase and exposes exploration/shell tools before any file
+    can land. Dot-prefixed runtime/test fixtures are ignored for the same
+    reason; any other visible file still makes the workspace non-empty.
+    """
     from pathlib import Path
+
     root = Path(workspace)
     try:
-        return not any(
-            path.is_file() and not any(part.startswith(".") for part in path.relative_to(root).parts)
-            for path in root.rglob("*")
-        )
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            parts = path.relative_to(root).parts
+            if any(part.startswith(".") for part in parts):
+                continue
+            if parts and parts[0] == "diagnostics":
+                continue
+            return False
+        return True
     except (OSError, ValueError):
         return False
 
