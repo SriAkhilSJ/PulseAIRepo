@@ -56,3 +56,8 @@ def test_genuine_turn_has_credit_and_time_bounds():
     assert "--max-no-delivery-calls 4" in text
     assert "proof_file_exact" in text
     assert "llm_request_observed" in text
+    assert "--junitxml=velona-routing-tests.xml" in text
+    assert "scripts/ci_report_pytest.py velona-routing-tests.xml" in text
+    assert "id: aux_factory" in text
+    assert "title=Velona AUX factory" in text
+    assert "title=Velona Agent Core receipt" in text

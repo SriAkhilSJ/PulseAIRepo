@@ -104,8 +104,12 @@ def test_classifier_route_resolves_fresh_per_call(monkeypatch, _custom_route):
     # itself throws does _task_manager_llm fall back to the main model.
     from src.config import settings as settings_mod
 
+    # Compare against the same per-call resolver the production path uses.
+    # The module constant intentionally reflects process-start configuration
+    # and may differ after monkeypatch removes a live AUX_LLM_MODEL.
+    _expected_provider, expected_model = settings_mod.resolve_aux_llm()
     proxy = chat_graph._task_manager_llm("custom", "auto/best-chat")
-    assert proxy._llm.model_name == settings_mod.AUX_LLM_MODEL
+    assert proxy._llm.model_name == expected_model
 
 
 def test_route_budget_logged_once(capsys, monkeypatch, _custom_route):

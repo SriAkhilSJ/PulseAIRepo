@@ -100,15 +100,27 @@ jobs:
           tiktoken==0.14.0 typer==0.27.3 watchdog==6.0.0
 
       - name: Run Agent Core provider and auxiliary routing contracts
+        id: routing_contracts
+        continue-on-error: true
         run: >-
-          python -m pytest -q
+          python -m pytest -q --junitxml=velona-routing-tests.xml
           src/tests/test_provider_preflight.py
           src/tests/test_aux_model_routing.py
           src/tests/test_hermes_aux_discipline.py
           src/tests/test_velona_aux_selector.py
           src/tests/test_velona_model_probe.py
 
+      - name: Publish actionable routing-contract failures
+        if: steps.routing_contracts.outcome == 'failure'
+        run: python scripts/ci_report_pytest.py velona-routing-tests.xml
+
+      - name: Enforce routing-contract gate
+        if: steps.routing_contracts.outcome == 'failure'
+        run: exit 1
+
       - name: Exercise selected auxiliary model through PulseAI factory
+        id: aux_factory
+        continue-on-error: true
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
           VELONA_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
@@ -147,6 +159,12 @@ jobs:
           path = Path("velona-live-results/aux-factory.json")
           path.parent.mkdir(parents=True, exist_ok=True)
           path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          level = "notice" if passed else "error"
+          print(
+              f"::{level} title=Velona AUX factory::"
+              f"status={receipt['status']}; provider={receipt['provider']}; "
+              f"model={receipt['model']}; sentinel={receipt['sentinel_preserved']}"
+          )
           print(json.dumps(receipt, indent=2, sort_keys=True))
           raise SystemExit(0 if passed else 1)
           PY
@@ -251,6 +269,15 @@ jobs:
           }
           destination = root / "agent-core-receipt.json"
           destination.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          level = "notice" if passed else "error"
+          check_text = ", ".join(
+              f"{name}={value}" for name, value in checks.items()
+          )
+          print(
+              f"::{level} title=Velona Agent Core receipt::"
+              f"status={receipt['status']}; main={receipt['main_model']}; "
+              f"aux={receipt['aux_model']}; {check_text}"
+          )
           print(json.dumps(receipt, indent=2, sort_keys=True))
           raise SystemExit(0 if passed else 1)
           PY
