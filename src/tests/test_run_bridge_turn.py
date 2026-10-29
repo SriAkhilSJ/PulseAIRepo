@@ -258,3 +258,13 @@ def test_github_monitoring_annotations_hard_bound_oversized_fields():
     )
     assert len(published_tool["tool"]) <= 80
     assert "sk-abcdefghijk" not in published_tool["tool"]
+
+
+
+def test_ephemeral_stream_chunks_coalesce_and_do_not_bloat_frames_log():
+    """Stream-vs-persist decoupling: micro-chunks update live metrics but don't bloat frames.jsonl."""
+    from scripts.run_bridge_turn import EPHEMERAL_CHUNK_TYPES
+
+    assert "reasoning" in EPHEMERAL_CHUNK_TYPES
+    assert "token" in EPHEMERAL_CHUNK_TYPES
+    assert "tool_call_args" in EPHEMERAL_CHUNK_TYPES

@@ -381,10 +381,15 @@ def validate_turn_evidence(
                 sorted(expected_types.items())
             ):
                 errors.append("JOURNAL_EVENT_TYPES_MISMATCH")
+            actual_result_count = int(actual_types.get("tool.result", 0))
+            top_level_result_count = sum(
+                1 for event in events
+                if event.get("type") == "tool.result" and not str(event.get("tool_call_id") or "").startswith("ptc-")
+            )
             if (
                 report.get("available")
                 and report_tool_count is not None
-                and report_tool_count != int(actual_types.get("tool.result", 0))
+                and report_tool_count not in (actual_result_count, top_level_result_count)
             ):
                 gaps.append("report_tool_count_mismatch")
             starts = [

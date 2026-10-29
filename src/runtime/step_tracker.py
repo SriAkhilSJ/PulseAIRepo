@@ -937,6 +937,11 @@ class StepTracker:
             md.append("| :--- | :--- |")
             md.append(f"| **Task verdict** | `{task_verdict}` |")
             md.append(f"| **Verification status** | `{self.verification_status}` |")
+            v4_info = self.verification_receipts.get("verification_receipt")
+            if isinstance(v4_info, dict) and v4_info.get("state"):
+                md.append(f"| **4-State Verification State** | `{v4_info.get('state')}` |")
+                if v4_info.get("details"):
+                    md.append(f"| **4-State Verification Details** | {v4_info.get('details')} |")
             md.append(
                 "| **Current-turn executed tool records** | "
                 + (f"{execution_count}" if execution_count is not None else "N/A")

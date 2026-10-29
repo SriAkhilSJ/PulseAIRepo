@@ -2313,7 +2313,7 @@ def ai_node(
 
     call_model = model
     call_llm = llm_with_tools
-    if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
+    if execution_mode != "ask":
         # The reply ceiling is the model's own number, clamped by what the last rejection said still
         # fits -- not a constant written into this file. What used to sit here was
         # `max_tokens=max(512, min(delivery_cap, 8192))`, which throttled every delivery to 8,192 on an
@@ -3066,18 +3066,154 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         ended_mid_task = (
             _execution_requested_by_interest(state) and not _acted_after_nudge
         )
+        if _verification_ran_and_passed(state) and not _deliverables_missing_on_disk(state, state.get("workspace", ".")):
+            ended_mid_task = False
+    # Determine trailing safety denial and independent execution vs verification status
+    trailing_safety_denial = False
+    trailing_optional_diagnostic = False
+    if trailing_failed:
+        from src.graphs.progress_helpers import latest_tool_messages, classify_tool_outcome, OUTCOME_FAILED
+        latest_msgs = latest_tool_messages(state.get("messages") or [])
+        for m in latest_msgs:
+            txt = str(getattr(m, "content", "") or "").lower()
+            if any(k in txt for k in ("safety policy", "denied command", "denied", "choose a safe alternative")):
+                trailing_safety_denial = True
+                break
+
+        verified_code_ok = _verification_ran_and_passed(state) and not _deliverables_missing_on_disk(state, state.get("workspace", "."))
+        if verified_code_ok and not trailing_safety_denial:
+            t_task = str(state.get("current_task") or state.get("latest_instruction") or "").lower()
+            def _is_optional_diagnostic(m) -> bool:
+                t_name = str(getattr(m, "name", "") or "").lower()
+                if t_name in ("verify_ui_routes", "verify_ui_workspace"):
+                    return not any(w in t_task for w in ("verify ui routes", "verify_ui_routes", "verify route"))
+                if t_name in ("browser_screenshot", "take_screenshot", "device_screenshot"):
+                    return not any(w in t_task for w in ("screenshot", "snapshot proof", "visual proof"))
+                if t_name in ("read_file", "search_files", "find_by_name", "list_dir"):
+                    return True
+                return False
+
+            failed_latest = [
+                m for m in latest_msgs
+                if classify_tool_outcome(getattr(m, "name", ""), str(getattr(m, "content", "") or "")) == OUTCOME_FAILED
+                or "error:" in str(getattr(m, "content", "") or "").lower()
+            ]
+            if failed_latest and all(_is_optional_diagnostic(m) for m in failed_latest):
+                trailing_optional_diagnostic = True
+
+    verified_ok = _verification_ran_and_passed(state) and not _deliverables_missing_on_disk(state, state.get("workspace", "."))
+
+    failed_steps_str = " ".join(state.get("failed_steps") or [])
+    has_failed_tests = any(
+        isinstance(m, ToolMessage) and (
+            "FAILED" in str(getattr(m, "content", ""))
+            or "Exit code: 1" in str(getattr(m, "content", ""))
+            or "syntaxerror" in str(getattr(m, "content", "")).lower()
+            or "indentationerror" in str(getattr(m, "content", "")).lower()
+        ) for m in (state.get("messages") or [])
+    ) or any(k in failed_steps_str.lower() for k in ("exit code: 1", "exit code 1", "failed", "error"))
+
+    app_verif_status = "verified" if verified_ok else (
+        "failed" if has_failed_tests else "unverified"
+    )
+
+    from src.runtime.status_contract import synthesize_status_contract
+
+    # CrusorAI 2.0 Tri-Dimensional Status Contract Synthesis
+    failure_reason: str | None = None
+    if trailing_safety_denial:
+        exec_status = "ended_with_safety_denial"
+        run_outcome = "safety_denial"
+        failure_reason = "safety_denial"
+    elif budget_cut:
+        exec_status = "budget_exhausted"
+        run_outcome = "budget_exhausted"
+        failure_reason = "budget_exhausted"
+    elif state.get("task_status") == "timed_out":
+        exec_status = "timed_out"
+        run_outcome = "timed_out"
+        failure_reason = "timed_out"
+    elif state.get("task_status") == "cancelled":
+        exec_status = "cancelled"
+        run_outcome = "cancelled"
+        failure_reason = "cancelled"
+    elif state.get("task_status") in ("recovery_limit", "tool_cycle_limit"):
+        exec_status = state.get("task_status")
+        run_outcome = "failed"
+        failure_reason = state.get("task_status")
+    elif (trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or state.get("task_completed") is False or state.get("task_status") == "failed":
+        exec_status = "failed"
+        run_outcome = "failed"
+        failure_reason = "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else "no_work_done" if no_work_done else "ended_mid_task" if ended_mid_task else "task_failed"
+    elif unverified:
+        exec_status = "unverified"
+        run_outcome = "failed"
+        failure_reason = "unverified"
+    else:
+        exec_status = "completed"
+        run_outcome = "completed"
+        failure_reason = None
+
+    if verified_ok:
+        curr_rev = int(state.get("workspace_revision") or 0)
+        last_rev = state.get("last_verified_revision")
+        if last_rev is not None and curr_rev > int(last_rev):
+            verif_status = "stale"
+        else:
+            verif_status = "verified"
+    elif interest.mode in {"answer", "social"} or not _produced_code_deliverable(state):
+        verif_status = "not_required"
+    elif has_failed_tests:
+        verif_status = "failed"
+    else:
+        verif_status = "unverified"
+
+    if interest.mode in {"answer", "social"}:
+        spec_status = "complete"
+    elif no_work_done:
+        spec_status = "partial"
+    elif _deliverables_missing_on_disk(state, state.get("workspace", ".")):
+        spec_status = "partial"
+    elif (verified_ok or not _produced_code_deliverable(state)) and (not trailing_failed or trailing_optional_diagnostic):
+        spec_status = "complete"
+    else:
+        spec_status = "unknown"
+
+    diagnostics_list = []
+    if trailing_failed:
+        from src.graphs.progress_helpers import latest_tool_messages
+        for m in latest_tool_messages(state.get("messages") or []):
+            txt = str(getattr(m, "content", "") or "")
+            cat = "safety_denial" if trailing_safety_denial else ("telemetry" if trailing_optional_diagnostic else "tool_failure")
+            diagnostics_list.append({
+                "tool": str(getattr(m, "name", "unknown") or "unknown"),
+                "category": cat,
+                "error": txt[:250],
+            })
+
+    status_contract_dict = synthesize_status_contract(
+        run_outcome=run_outcome,
+        verification_status=verif_status,
+        specification_status=spec_status,
+        diagnostics=diagnostics_list,
+        failure_reason=failure_reason,
+        code_deliverables_produced=_produced_code_deliverable(state),
+    )
+
     # Audit 2026-10-12: the verdict is computed ONCE and used for both the
     # returned task_status and the console line. They used to disagree —
     # `no_work_done` flipped task_completed to False while the print still
     # said "done: completed", so the field log contradicted the verdict the
     # UI rendered and nobody could tell which was true.
     verdict = (
-        "budget_exhausted" if budget_cut
+        "budget_exhausted" if (budget_cut and not verified_ok)
+        else "failed" if (state.get("task_status") == "failed" or state.get("task_completed") is False)
         else "unverified" if unverified
-        else "failed" if (trailing_failed or no_work_done or ended_mid_task)
+        else "stale" if verif_status == "stale"
+        else "failed" if ((trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or spec_status == "partial")
         else "completed"
     )
-    task_succeeded = verdict == "completed"
+    task_succeeded = status_contract_dict["task_completed"] and (verdict == "completed")
     try:
         from src.telemetry import call_ledger
         call_ledger.record_run(
@@ -3298,6 +3434,12 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             if interest.mode in {"answer", "social"}
             else gate_verification_status(state)
         )
+        _4state_receipt = None
+        try:
+            from src.graphs.gates import derive_4state_verification_receipt
+            _4state_receipt = derive_4state_verification_receipt(state)
+        except Exception:
+            pass
         StepTracker.get_tracker(
             _final_thread_id,
             workspace_root=str(_turn_cfg.get("workspace") or "."),
@@ -3309,6 +3451,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
                 "task_status": verdict,
                 "tool_execution_count": _tool_execution_count,
                 "failed_step_count": len(failed_steps),
+                "verification_receipt": _4state_receipt,
             },
         )
     except Exception:
@@ -3320,6 +3463,15 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "plan": plan,
         "task_completed": task_succeeded,
         "task_status": verdict,
+        "execution_status": exec_status,
+        "application_verification_status": app_verif_status,
+        "required_checks_passed": verified_ok,
+        "run_outcome": run_outcome,
+        "failure_reason": failure_reason,
+        "verification_status": verif_status,
+        "specification_status": spec_status,
+        "diagnostics": diagnostics_list,
+        "status_contract": status_contract_dict["status_contract"],
         "messages": ([AIMessage(content="\n".join(lines))] if lines else []) + _sweep,
     }
 
@@ -5026,6 +5178,9 @@ def progress_node(
     plan_created = bool(state.get("plan_created", False))
     steps_completed = list(state.get("steps_completed", []))
     failed_steps = list(state.get("failed_steps", []))
+    workspace_revision = int(state.get("workspace_revision") or 0)
+    last_verified_revision = state.get("last_verified_revision")
+    mutation_ledger = list(state.get("mutation_ledger") or [])
     execution_trace = list(state.get("execution_trace", []))
     recovery_attempts = state.get("recovery_attempts", 0)
     recovery_mode = state.get("recovery_mode", False)
@@ -5078,6 +5233,38 @@ def progress_node(
         execution_trace.append(
             ph.make_trace_entry(tool_name, tool_args, result, failed)
         )
+
+        # Live Workspace Revision Tracking (Decision B & Doctor Audit Fix)
+        if not failed:
+            if tool_name in ("write_file", "edit_file", "copy_file"):
+                path_arg = str((tool_args or {}).get("path") or (tool_args or {}).get("dst") or "")
+                is_doc = any(path_arg.lower().endswith(ext) for ext in (".md", ".markdown", ".rst"))
+                if not is_doc:
+                    workspace_revision += 1
+                    mutation_ledger.append({
+                        "revision": workspace_revision,
+                        "path": path_arg,
+                        "tool": tool_name,
+                        "timestamp": time.time(),
+                    })
+            elif tool_name in ("terminal", "run_terminal"):
+                cmd = str((tool_args or {}).get("command") or "").lower()
+                is_shell_mut = any(re.search(pat, cmd) for pat in (
+                    r">", r">>", r"\btouch\b", r"\bmkdir\b", r"\brm\b", r"\bdel\b",
+                    r"\bmv\b", r"\bmove\b", r"\bcp\b", r"\bcopy\b", r"\bsed\b",
+                    r"\bnpm install\b", r"\bpip install\b", r"\bgit checkout\b"
+                ))
+                if is_shell_mut:
+                    workspace_revision += 1
+                    mutation_ledger.append({
+                        "revision": workspace_revision,
+                        "path": f"terminal://{cmd[:40]}",
+                        "tool": "terminal",
+                        "timestamp": time.time(),
+                    })
+                is_test_cmd = any(k in cmd for k in ("pytest", "unittest", "npm test", "go test", "cargo test", "py -m unittest"))
+                if is_test_cmd and ("exit code: 0" in result.lower() or "tests passed" in result.lower() or "ok" in result.lower()):
+                    last_verified_revision = workspace_revision
         tool_cycle_history = ph.append_tool_cycle_sample(
             tool_cycle_history,
             ph.tool_cycle_sample(
@@ -5296,6 +5483,9 @@ def progress_node(
         "tool_cycle_guard": guard_update,
         "env_failures": env_failures,
         "token_usage": total_usage.to_dict(),
+        "workspace_revision": workspace_revision,
+        "last_verified_revision": last_verified_revision,
+        "mutation_ledger": mutation_ledger,
     }
 
     if processed_tools:
@@ -5443,7 +5633,9 @@ def recovery_limit_node(state: AgentState, config: RunnableConfig):
                     "Could you take a look and let me know how you'd like to proceed?"
                 )
             )
-        ]
+        ],
+        "task_status": "failed",
+        "task_completed": False,
     }
 
 def pivot_node(state: AgentState):
@@ -7208,11 +7400,24 @@ def invoke_agent(
 # =========================================================
 
 class AgentTurnResult(str):
-    """String-compatible final response carrying the graph's honest verdict."""
+    """String-compatible final response carrying the graph's honest verdict and status contract."""
 
-    def __new__(cls, message: str, *, completed: bool):
+    def __new__(
+        cls,
+        message: str,
+        *,
+        completed: bool,
+        status_contract: dict | None = None,
+        run_outcome: str | None = None,
+        failure_reason: str | None = None,
+        verification_status: str | None = None,
+    ):
         value = super().__new__(cls, message)
         value.completed = bool(completed)
+        value.status_contract = status_contract
+        value.run_outcome = run_outcome
+        value.failure_reason = failure_reason
+        value.verification_status = verification_status
         return value
 
 
@@ -7291,6 +7496,12 @@ def stream_agent(
         # the previous event; a batch that earned nothing prints nothing.
         printed_step_labels: set[str] = set()
         printed_failed_labels: set[str] = set()
+        final_response = None
+        turn_completed = None
+        final_status_contract = None
+        final_run_outcome = None
+        final_failure_reason = None
+        final_verification_status = None
         for event in graph.stream(
             initial_state,
             config=config,
@@ -7427,6 +7638,9 @@ def stream_agent(
             # ---------------------------------------------
             if "recovery_limit" in event:
                 print("\n⛔ Recovery limit reached. Pausing for user input.")
+                turn_completed = False
+            if "tool_cycle_limit" in event:
+                turn_completed = False
 
             # FINALIZE NODE — its verdict, not mere transport closure, owns
             # turn completion. Attempt 11 discarded this state and returned
@@ -7435,6 +7649,10 @@ def stream_agent(
                 print("[turn] stream: finalize update received", flush=True)
                 finalize_data = event.get("finalize") or {}
                 turn_completed = bool(finalize_data.get("task_completed", False))
+                final_status_contract = finalize_data.get("status_contract")
+                final_run_outcome = finalize_data.get("run_outcome")
+                final_failure_reason = finalize_data.get("failure_reason")
+                final_verification_status = finalize_data.get("verification_status")
                 final_messages = finalize_data.get("messages") or []
                 if final_messages:
                     content = getattr(final_messages[-1], "content", "")
@@ -7534,12 +7752,23 @@ def stream_agent(
                     ) or str(final_response)
 
         if turn_completed is None:
-            # Preview/chat paths may intentionally end without finalize and are
-            # complete by transport convention. Finalize updates are captured
-            # above and are authoritative when present.
-            turn_completed = True
+            if "task_completed" in snap_values:
+                turn_completed = bool(snap_values["task_completed"])
+            else:
+                from src.graphs.gates import _produced_code_deliverable, _verification_ran_and_passed
+                if _produced_code_deliverable(snap_values) and not _verification_ran_and_passed(snap_values):
+                    turn_completed = False
+                else:
+                    turn_completed = True
 
-        return AgentTurnResult(str(final_response or ""), completed=turn_completed)
+        return AgentTurnResult(
+            str(final_response or ""),
+            completed=turn_completed,
+            status_contract=final_status_contract or snap_values.get("status_contract"),
+            run_outcome=final_run_outcome or snap_values.get("run_outcome"),
+            failure_reason=final_failure_reason or snap_values.get("failure_reason"),
+            verification_status=final_verification_status or snap_values.get("verification_status"),
+        )
     finally:
         turn_controls.end(thread_id)
         set_active_session(None)

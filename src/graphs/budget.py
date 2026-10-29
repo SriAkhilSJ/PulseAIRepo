@@ -149,7 +149,7 @@ def _recursion_limit() -> int:
 # completions count, so a full 30-iteration turn costs ~500k real tokens on
 # a ~1M-token window. 600k lets the iteration budget bind first, as
 # intended. AGENT_TOKEN_BUDGET=0 still disables the cap entirely.
-_TOKEN_BUDGET_DEFAULT = 600_000
+_TOKEN_BUDGET_DEFAULT = 1_000_000
 _TOKEN_BUDGET_CLAMP = 2_000_000
 # This does not increase the cap. It marks the final bounded slice as
 # verification/repair capacity so delivery and output-limit continuations do

@@ -187,7 +187,8 @@ def trailing_batch_failed(messages: list) -> bool:
     """
     latest = latest_tool_messages(messages)
     return any(
-        _ERROR_MARKER_RE.search(str(getattr(m, "content", "") or ""))
+        classify_tool_outcome(getattr(m, "name", ""), str(getattr(m, "content", "") or "")) == OUTCOME_FAILED
+        or _ERROR_MARKER_RE.search(str(getattr(m, "content", "") or ""))
         for m in latest
     )
 

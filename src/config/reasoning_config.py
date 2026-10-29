@@ -128,14 +128,9 @@ def build_model_kwargs_for_reasoning(
             if provider == "anthropic":
                 return {"thinking": {"type": "disabled"}}
             if provider in ("custom", "cheap"):
-                return {
-                    "reasoning_effort": "none",
-                    "extra_body": {
-                        "reasoning": {"effort": "none", "max_tokens": 0},
-                        "thinking": {"type": "disabled", "budget_tokens": 0},
-                        "chat_template_kwargs": {"thinking": False},
-                    },
-                }
+                # OpenAI-compatible gateways (Velona, LiteLLM, vLLM) reject foreign reasoning_effort / extra_body parameters with HTTP 400.
+                # When thinking is disabled, pass an unpolluted standard payload.
+                return {}
             if provider == "openai":
                 return {
                     "reasoning_effort": "none",
@@ -189,14 +184,19 @@ def build_model_kwargs_for_reasoning(
 
     # ── Custom / Cheap OpenAI-compatible (Velona, OpenRouter, DeepSeek, GLM, Qwen) ──
     if provider in ("custom", "cheap"):
-        return {
-            "reasoning_effort": effort,
-            "extra_body": {
-                "reasoning": {"effort": effort, "max_tokens": budget},
-                "thinking": {"type": "enabled", "budget_tokens": budget},
-                "chat_template_kwargs": {"thinking": True},
-            },
+        m = model.lower()
+        # Top-level reasoning_effort is strictly an OpenAI API parameter (o1, o3, etc.).
+        # OpenAI-compatible gateways and foreign models (GLM, DeepSeek, Qwen) reject top-level reasoning_effort with HTTP 400.
+        is_openai_model = "gpt" in m or "o1" in m or "o3" in m or "openai" in m
+        extra = {
+            "thinking": {"type": "enabled", "budget_tokens": budget},
+            "chat_template_kwargs": {"thinking": True},
         }
+        res: dict[str, Any] = {"extra_body": extra}
+        if is_openai_model:
+            res["reasoning_effort"] = effort
+            extra["reasoning"] = {"effort": effort, "max_tokens": budget}
+        return res
 
     # ── Groq (openai-compatible) ──────────────────────────────────────
     if provider == "groq":

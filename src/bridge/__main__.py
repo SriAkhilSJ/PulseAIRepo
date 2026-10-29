@@ -13,6 +13,11 @@ import queue
 import sys
 import threading
 
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 #: How long a turn may wait for the event forwarder to drain before the
 #: terminal frame goes out anyway (see _flush_events).
 _EVENT_FLUSH_TIMEOUT_S = 5.0
@@ -29,8 +34,8 @@ _EVENT_FLUSH_TIMEOUT_S = 5.0
 try:
     from pathlib import Path as _dotenv_path
     from dotenv import load_dotenv as _load_dotenv
-    _load_dotenv(override=True)  # <engine root>/.env — override parent env so .env off wins (9/20 trace ON persisted)
-    _load_dotenv(str(_dotenv_path.home() / ".crusorai" / ".env"), override=True)
+    _load_dotenv(override=False)  # <engine root>/.env — override parent env so .env off wins (9/20 trace ON persisted)
+    _load_dotenv(str(_dotenv_path.home() / ".crusorai" / ".env"), override=False)
     print(f"[bridge][env] loaded: CRUSORAI_MEMORY={os.getenv('CRUSORAI_MEMORY')!r} LLM_PROVIDER={os.getenv('LLM_PROVIDER')!r} CRUSORAI_SCAN_MAX_FILES={os.getenv('CRUSORAI_SCAN_MAX_FILES')!r}", file=sys.stderr, flush=True)
 except Exception as _e:
     print(f"[bridge][env] load_dotenv failed: {_e!r}", file=sys.stderr, flush=True)
@@ -1171,6 +1176,10 @@ class BridgeServer:
                     "message": str(result),
                     "completed": task_completed and not cancelled,
                     "cancelled": cancelled, "stub": False,
+                    "status_contract": getattr(result, "status_contract", None),
+                    "run_outcome": getattr(result, "run_outcome", None),
+                    "failure_reason": getattr(result, "failure_reason", None),
+                    "verification_status": getattr(result, "verification_status", None),
                     "evidence": evidence_done,
                 })
                 # Hermes auto-title rule: only after a FULL exchange — a completed,

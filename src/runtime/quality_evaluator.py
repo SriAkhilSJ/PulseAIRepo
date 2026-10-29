@@ -525,11 +525,18 @@ class UserAskQualityEvaluator:
 
         # 1. Overall Status check (from gates / evidence ledger)
         status_clean = (verification_status or "not_applicable").lower()
-        if status_clean == "passed":
-            details.append("Verification status verified as PASSED in evidence ledger.")
+        if status_clean in ("passed", "verified"):
+            details.append("Verification status verified as PASSED/VERIFIED in evidence ledger.")
+        elif status_clean == "partially_verified":
+            score -= 3.0
+            details.append("Verification status is PARTIALLY_VERIFIED (core checks passed).")
+            deductions.append("Verification status is PARTIALLY_VERIFIED (non-critical checks skipped/warned) (-3.0 pts)")
         elif status_clean == "stale":
             score -= 5.0
             deductions.append("Verification status is STALE (code was edited after the last test run) (-5.0 pts)")
+        elif status_clean == "blocked":
+            score -= 10.0
+            deductions.append("Verification status is BLOCKED (environment error or safety denial) (-10.0 pts)")
         elif status_clean in ("failed", "unverified"):
             score -= 12.0
             deductions.append(f"Verification status is {status_clean.upper()} (-12.0 pts)")

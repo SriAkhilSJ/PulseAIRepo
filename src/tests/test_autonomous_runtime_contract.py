@@ -235,6 +235,7 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
     monkeypatch.setattr(chat_graph, "get_llm", lambda **kwargs: FakeBoundLLM())
     monkeypatch.setattr(chat_graph, "memory_manager", None)
     monkeypatch.setattr(platform, "system", lambda: "Windows")
+    monkeypatch.delenv("REASONING_EFFORT", raising=False)
     # Field host truth (2026-09-09 @7a7111b9): Windows WITH git-bash — the
     # terminal spawns /usr/bin/bash, so the banner must teach POSIX, never
     # the old "Windows cmd.exe. NEVER use ls" decree (the model obeyed it

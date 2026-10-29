@@ -285,8 +285,10 @@ def _validate_script(tree: ast.AST) -> str | None:
                 else (node.module or "")
             )
             return (
-                f"line {node.lineno}: `import {mod}` is disabled. "
-                f"Preloaded (use WITHOUT import): "
+                f"line {node.lineno}: `import {mod}` is disabled inside execute_code. "
+                f"External modules and workspace files cannot be imported into execute_code. "
+                f"To run test suites, servers, or scripts, execute them using the `terminal` tool (e.g. `terminal('python -m unittest discover tests')` or `terminal('python backend/server.py')`). "
+                f"Preloaded helper modules available without import: "
                 f"{', '.join(sorted(_PRELOADED_MODULES))}. "
                 f"To write files call the preloaded `write_file(path, "
                 f"content)` function (it creates parent dirs); to read, "
@@ -302,9 +304,14 @@ def _validate_script(tree: ast.AST) -> str | None:
             and isinstance(node.ctx, ast.Load)
             and node.id in _BANNED_NAMES
         ):
+            hint = ""
+            if node.id in ("exec", "eval"):
+                hint = " To execute tests or scripts from disk, call the `terminal` tool directly."
+            elif node.id == "open":
+                hint = " To read or write files, call the preloaded `read_file(path)` or `write_file(path, content)` functions."
             return (
                 f"line {node.lineno}: '{node.id}' is not available "
-                f"inside execute_code."
+                f"inside execute_code.{hint}"
             )
         if isinstance(node, (ast.AsyncFunctionDef, ast.AsyncFor, ast.AsyncWith, ast.Await)):
             return f"line {node.lineno}: async constructs are not supported in scripts."
@@ -577,11 +584,13 @@ def execute_code(code: str, config: RunnableConfig) -> str:
     functions, then return ONLY what the script prints.
 
     WHEN TO USE: 3+ chained tool steps (read, search, then check) in ONE
-    call; or raw tool output that would be huge - filter it and print only
-    the lines that matter.
-    WHEN NOT TO USE: a single simple action (call the tool directly); or
-    anything needing human approval (overwrite/edit existing files,
-    secrets, destructive shell commands) - those are DENIED inside scripts.
+    call; or in-memory data processing, math, or filtering raw tool output.
+    WHEN NOT TO USE:
+    - DO NOT use execute_code to run test suites (unittest, pytest) or shell commands.
+      Call the `terminal` tool directly (e.g. `terminal("python -m unittest tests/test_server.py")`).
+    - Single simple actions (call the tool directly).
+    - Anything needing human approval (overwrite/edit existing files,
+      secrets, destructive shell commands) - those are DENIED inside scripts.
 
     Callable inside the script (same behavior as the tools):
     read_file, list_files, search_code, write_file (blocked if the file

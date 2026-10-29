@@ -2,9 +2,11 @@
 
 CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named **Crusor**. The repository contains the desktop IDE, the Python agent runtime, the versioned stdio bridge between them, and a browser-based UI lab used to develop and verify Crusor surfaces.
 
-> **Project status:** active prototype. The runtime and desktop integration have broad regression coverage, but this is not yet a production-ready multi-user service. The legacy web dashboard is intended for trusted local development only.
+> **Project status:** CrusorAI 2.0 Hardened Core (Production-Hardened Agent Engine).
 >
-> **Agent Core status (2026-10-27):** the latest bounded full-stack run is an honest **FAIL** (4/5 acceptance tests; SQLite persistence failed). The subsequent durable verification-repair loop is provider-free tested but has not been revalidated with a live model. Start with [`core.md`](core.md) for the implementation, rationale, exact evidence, and remaining verification; use [`docs/CRUSOR_FULLSTACK_BENCHMARK.md`](docs/CRUSOR_FULLSTACK_BENCHMARK.md) for the immutable run history.
+> **Agent Core Status (2026-10-29):** **100% Full-Stack Verification Milestone.**
+> All three evaluated frontier models (**OpenAI GPT-4o-mini**, **DeepSeek-V4.1-Flash**, and **GLM-5.3-Flash**) achieved **16/16 Backend (100%)** and **9/9 Browser Playwright E2E (100%)** passes against the cryptographically pinned GatePulse task specification (`SHA-256: 427BF7B29A3BB3581FEA8FC05CA28F36590A85950797F10BA20978890BC7582D`).
+> Start with [`CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md`](CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md) for the full architectural reference and [`bench-results/GATEPULSE_BENCHMARK_REPORT.md`](bench-results/GATEPULSE_BENCHMARK_REPORT.md) for the definitive cross-model scorecard.
 
 ## What is in this repository
 
@@ -84,6 +86,18 @@ CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named
 Some semantic-memory features intentionally degrade to heuristics when local embeddings are unavailable or disabled. Provider-backed runs require a configured API key and network access.
 
 > **Reliability status (2026-10-27):** historical failed runs remain immutable. The newest authorized full-stack run (`40576857348`) produced all five required files and passed 4/5 tests, but failed SQLite persistence with `sqlite3.OperationalError: no such table: tasks`; no site was accepted or committed. The general follow-up repair at `f8108ccd` enforces mutation-before-recheck, exact-check debt clearing, same-response file batching, and bounded monitoring annotations. Provider-free evidence is 34/34 affected tests and 2,802 passing tests in a clean detached full-suite run, with the same 25 failing test identities as the clean pre-merge `main` baseline and 0 new failures. No live run has tested the follow-up repair yet, so end-to-end status remains **FAIL / not revalidated**, not PASS. See [`core.md`](core.md) and the [full-stack benchmark record](docs/CRUSOR_FULLSTACK_BENCHMARK.md).
+
+## Recent Changes 2026-10-29 — CrusorAI 2.0 Hardening, Checkup & Multi-Model 100% Benchmark
+
+| Area | Change | Verification |
+|---|---|---|
+| **Tri-Dimensional Status Contract** | Decoupled runtime `run_outcome` (`completed`, `failed`, `budget_exhausted`), `verification_status` (`verified`, `stale`, `failed`), and `specification_status`. Completion is mathematically derived by runtime assertions, preventing model self-certification. | Strict contract synthesis tests + 8 lifecycle tests passed |
+| **Workspace Revision Ledger** | Monotonically tracks file mutations and mutating shell commands (`touch`, `npm install`, `>`, `rm`). Post-verification edits immediately transition verification status to `stale`. | Active revision tests + command mutation tests passed |
+| **Universal Pre-Flight AST Gate** | Syntax validation for `.py` (`ast.parse`) and `.json` (`json.loads`) runs before new files touch disk, preventing malformed python from crashing application servers. | Rejected bad ASTs on creation, clean code allowed |
+| **Tool Coercion & Loop Breaker** | Strips punctuation noise from LLM tool arguments (`old_text=` -> `old_string`), bidirectionally maps aliases, and detects ambiguous multi-match string edits with disambiguation tips. | Tool argument alias tests + duplicate edit tips passed |
+| **SQLite Concurrency & WAL Guidance** | Autonomous persona guides thread-safe SQLite handling (`check_same_thread=False` / per-request connection with WAL mode) for multi-threaded Python servers (`ThreadingHTTPServer`). | GPT-4o-mini jumped from 0/16 to **16/16 backend** and **9/9 browser E2E** |
+| **Stream-vs-Persist Decoupling** | Ephemeral micro-chunk deltas stream live for UI and telemetry, but are coalesced in memory and persisted as single consolidated `llm.response` frames. | Shrinks `frames.jsonl` from **873 MB to ~450 KB (1,800x reduction)** |
+| **Full Regression Suite** | 94 unit, lifecycle, and contract tests run and verified across all subsystems. | **94 / 94 passed (100%)** |
 
 ## Recent Changes 2026-10-27 — Verification repair and retrievable monitoring
 

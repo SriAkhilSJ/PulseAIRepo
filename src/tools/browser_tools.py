@@ -92,12 +92,17 @@ _EMPTY_OK_COMMANDS = frozenset({"close", "record"})  # hermes :119
 
 # hermes browser_tool_snapshot._SCREENSHOT_PATH_PATTERNS, verbatim: recover a
 # saved screenshot path from prose output (agent-browser versions that answer
-# in text instead of JSON).
+# in text instead of JSON). Windows paths (e.g. C:/... or C:\...) supported.
 _SCREENSHOT_PATH_PATTERNS = (
-    r"Screenshot saved to ['\"](?P<path>/[^'\"]+?\.png)['\"]",
-    r"Screenshot saved to (?P<path>/\S+?\.png)(?:\s|$)",
-    r"(?P<path>/\S+?\.png)(?:\s|$)",
+    r"Screenshot saved to ['\"](?P<path>(?:[a-zA-Z]:)?[/\\].+?\.png)['\"]",
+    r"Screenshot saved to (?P<path>(?:[a-zA-Z]:)?[/\\].+?\.png)(?:\s|$)",
+    r"(?P<path>(?:[a-zA-Z]:)?[/\\].+?\.png)(?:\s|$)",
 )
+
+
+def _user_home() -> Path:
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE")
+    return Path(home) if home else Path.home()
 
 
 def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
@@ -364,7 +369,7 @@ def recordings_dir() -> Path:
     """hermes: <hermes_home>/browser_recordings, cleaned at 72h. Crusor: under
     the home dot-dir, with an env override for desktop installs."""
     override = os.environ.get("CRUSORAI_BROWSER_RECORDINGS_DIR", "").strip()
-    base = Path(override) if override else Path.home() / ".crusorai" / "browser_recordings"
+    base = Path(override) if override else _user_home() / ".crusorai" / "browser_recordings"
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -841,7 +846,7 @@ def _snapshot_fields(result: Dict[str, Any]) -> Dict[str, Any]:
         if cut < MIN_SNAPSHOT_THRESHOLD:
             cut = threshold
         try:
-            snap_dir = Path.home() / ".crusorai" / "browser" / "snapshots"
+            snap_dir = _user_home() / ".crusorai" / "browser" / "snapshots"
             snap_dir.mkdir(parents=True, exist_ok=True)
             stored = snap_dir / "last-full-snapshot.txt"
             stored.write_text(snapshot_text[:MAX_STORED_SNAPSHOT_CHARS], encoding="utf-8")

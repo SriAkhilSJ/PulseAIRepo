@@ -27,6 +27,13 @@ def test_hardline_shutdown():
     assert detect_hardline_command("reboot")
 
 
+def test_hardline_kills_python_process():
+    assert detect_hardline_command("taskkill /F /IM python.exe") == "killing the host Python environment/agent process"
+    assert detect_hardline_command("taskkill //F //IM python.exe") == "killing the host Python environment/agent process"
+    assert detect_hardline_command("pkill -9 python") == "killing the host Python environment/agent process"
+    assert detect_hardline_command("killall python3") == "killing the host Python environment/agent process" 
+
+
 def test_hardline_quoted_prose_never_trips():
     assert detect_hardline_command('echo "does this use mkfs?"') is None
     assert detect_hardline_command("grep shutdown log.txt") is None

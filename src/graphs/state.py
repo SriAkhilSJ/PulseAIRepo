@@ -76,6 +76,18 @@ class AgentState(CopilotKitState, total=False):
     # remain backward compatible.
     user_interest: dict[str, Any]
     task_status: str
+    execution_status: str
+    application_verification_status: str
+    required_checks_passed: bool
+    # CrusorAI 2.0 Tri-Dimensional Status Contract & Revision Tracking
+    run_outcome: str
+    verification_status: str
+    specification_status: str
+    diagnostics: list[dict[str, Any]]
+    status_contract: dict[str, Any]
+    workspace_revision: int
+    last_verified_revision: int | None
+    mutation_ledger: list[dict[str, Any]]
     steps_completed: list[str]
     task_action: str
     failed_steps: list[str]

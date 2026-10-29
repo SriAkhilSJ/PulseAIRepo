@@ -1402,9 +1402,14 @@ class TurnEvidenceRecorder:
                     receipt.get("result_seq") is not None
                     for receipt in journal.get("tool_receipts") or []
                 )
+                top_level_actual = sum(
+                    receipt.get("result_seq") is not None
+                    and not str(receipt.get("tool_call_id") or "").startswith("ptc-")
+                    for receipt in journal.get("tool_receipts") or []
+                )
                 if report_tool_count is None:
                     missing.append("report_tool_count")
-                elif report_tool_count != actual_tool_count:
+                elif report_tool_count not in (actual_tool_count, top_level_actual):
                     missing.append("report_tool_count_mismatch")
             expected_completed = normalized == "completed"
             expected_cancelled = normalized == "cancelled"

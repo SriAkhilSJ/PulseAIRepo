@@ -25,10 +25,15 @@ import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 _MUTATION_TOOLS = frozenset({"write_file", "edit_file", "copy_file"})
 _SENSITIVE_NAMES = frozenset({
     ".env", ".env.local", ".env.production", "id_rsa", "id_ed25519",
     "credentials", "secrets",
+})
+EPHEMERAL_CHUNK_TYPES = frozenset({
+    "reasoning", "reasoning.update", "token", "token_retract", "tool_call_args",
 })
 
 
@@ -638,6 +643,37 @@ def effective_iteration_budget(max_llm_calls: int) -> int:
     return max(1, int(max_llm_calls))
 
 
+def resolve_default_max_input_tokens(env: dict) -> int:
+    """Resolve an adaptive cumulative input token budget based on discovered model window.
+
+    A 1M-window model (GLM-5.3, Gemini) consumes 250k-400k cumulative tokens across
+    a 20-turn complex full-stack build without approaching single-turn limits.
+    Safeguards adapt to provider capacity:
+      - Window >= 500k: 1,000,000 cumulative tokens
+      - Window >= 128k: 500,000 cumulative tokens
+      - Unknown / small: 250,000 cumulative tokens
+    CLI flag (--max-input-tokens) or env (CRUSORAI_MAX_INPUT_TOKENS) always wins.
+    """
+    raw_env = (env.get("CRUSORAI_MAX_INPUT_TOKENS") or "").strip()
+    if raw_env:
+        try:
+            return max(10000, int(raw_env))
+        except ValueError:
+            pass
+    try:
+        from src.context.model_budgets import resolve_context_window
+        model_name = env.get("LLM_MODEL")
+        provider = env.get("LLM_PROVIDER")
+        win, _ = resolve_context_window(model_name, provider=provider, allow_network=False)
+        if win >= 500_000:
+            return 1_000_000
+        if win >= 128_000:
+            return 500_000
+    except Exception:
+        pass
+    return 250_000
+
+
 def should_stop_for_call_budget(llm_calls: int, limit: int) -> bool:
     """Emergency backstop after Agent Core's inclusive final slot.
 
@@ -656,8 +692,8 @@ def main() -> int:
     ap.add_argument("--max-llm-calls", type=int, default=60,
                     help=("inclusive provider-call ceiling; Agent Core reserves the final "
                           "call for text and the runner cancels contract drift beyond it"))
-    ap.add_argument("--max-input-tokens", type=int, default=250000,
-                    help="credit circuit-breaker: cancel when cumulative input tokens pass this")
+    ap.add_argument("--max-input-tokens", type=int, default=None,
+                    help="credit circuit-breaker: cancel when cumulative input tokens pass this (defaults dynamically)")
     ap.add_argument("--max-no-delivery-calls", type=int, default=12,
                     help="cancel a paid build that still has no workspace file at this many LLM requests")
     ap.add_argument("--reasoning-effort", default=None,
@@ -685,21 +721,39 @@ def main() -> int:
     def emit(message: str) -> None:
         safe_console_emit(message, console_fallback)
 
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(REPO_ROOT / ".env")
+    except Exception:
+        pass
+
     env = dict(os.environ)
     agent_iteration_budget = effective_iteration_budget(args.max_llm_calls)
     # The graph owns the inclusive N-call contract and reserves call N for a
     # tool-free final response. The runner remains an N+1 emergency backstop.
     env["AGENT_ITERATION_BUDGET"] = str(agent_iteration_budget)
+    env["PYTHONUNBUFFERED"] = "1"
+    env["OPENBLAS_NUM_THREADS"] = "1"
+    env["MKL_NUM_THREADS"] = "1"
+    env["OMP_NUM_THREADS"] = "1"
+    env["NUMEXPR_NUM_THREADS"] = "1"
     env.setdefault("CRUSORAI_AUTO_APPROVE_WRITES", "1")  # autonomous build: no human to approve
     # Tell the bridge/SafeToolNode to auto-approve ordinary workspace edits.
     # The runner also handles a residual safety_request defensively below so
     # protocol drift can never strand the turn waiting for a nonexistent UI.
     env.setdefault("CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
+    env.setdefault("CRUSORAI_PREVIEW_AUTOSTART", "0")
+    effective_max_input_tokens = (
+        args.max_input_tokens
+        if args.max_input_tokens is not None
+        else resolve_default_max_input_tokens(env)
+    )
+    env["AGENT_TOKEN_BUDGET"] = str(effective_max_input_tokens)
 
     proc = subprocess.Popen(
-        [sys.executable, "-m", "src.bridge"],
+        [sys.executable, "-u", "-m", "src.bridge"],
         cwd=str(REPO_ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env,
+        stderr=subprocess.PIPE, env=env,
     )
 
     frames_path = run_dir / "frames.jsonl"
@@ -716,10 +770,16 @@ def main() -> int:
     done = threading.Event()
 
     def stderr_pump():
-        with open(run_dir / "bridge_stderr.log", "w", encoding="utf-8") as fh:
-            for line in proc.stderr:
-                fh.write(line)
-                fh.flush()
+        try:
+            with open(run_dir / "bridge_stderr.log", "wb") as fh:
+                for raw_line in iter(proc.stderr.readline, b""):
+                    try:
+                        fh.write(raw_line)
+                        fh.flush()
+                    except OSError:
+                        break
+        except Exception:
+            pass
 
     threading.Thread(target=stderr_pump, daemon=True).start()
 
@@ -727,19 +787,25 @@ def main() -> int:
 
     def stdout_pump() -> None:
         try:
-            for line in proc.stdout:
-                stdout_lines.put(line)
+            for raw_line in iter(proc.stdout.readline, b""):
+                stdout_lines.put(raw_line.decode("utf-8", errors="backslashreplace"))
         finally:
             stdout_lines.put(None)
 
     threading.Thread(target=stdout_pump, daemon=True).start()
 
     def send(frame: dict) -> None:
-        proc.stdin.write(json.dumps(frame) + "\n")
+        proc.stdin.write((json.dumps(frame) + "\n").encode("utf-8"))
         proc.stdin.flush()
 
     # Defaults live outside the transport try so even an early broken pipe or
     # malformed first frame still produces a complete outcome receipt.
+    raw_stream_chunks = (
+        bool(getattr(args, "trace_raw_chunks", False))
+        or os.environ.get("CRUSORAI_RAW_STREAM_CHUNKS", "").strip().lower() in ("1", "true", "on")
+    )
+    accumulated_reasoning: list[str] = []
+    # Using module-level EPHEMERAL_CHUNK_TYPES
     counts: dict[str, int] = {}
     llm_calls = 0
     tokens_in_seen = 0
@@ -772,10 +838,28 @@ def main() -> int:
                     frame = json.loads(line)
                 except Exception:
                     continue
-                out.write(json.dumps(frame, ensure_ascii=False) + "\n")
-                out.flush()
                 ftype = frame.get("type", "?")
                 counts[ftype] = counts.get(ftype, 0) + 1
+
+                # Stream-vs-Persist Decoupling (Hermes/OpenHands/Aider pattern):
+                # Micro-chunk deltas stream live for telemetry/UI, but writing thousands
+                # of individual token frames to disk balloons frames.jsonl to ~1GB under
+                # 16k-32k reasoning models. Coalesce in memory and write on llm.response.
+                if ftype in ("reasoning", "reasoning.update"):
+                    delta = str(frame.get("text") or frame.get("delta") or frame.get("content") or "")
+                    if delta:
+                        accumulated_reasoning.append(delta)
+
+                if ftype in EPHEMERAL_CHUNK_TYPES and not raw_stream_chunks:
+                    pass
+                else:
+                    if ftype == "llm.response" and accumulated_reasoning:
+                        full_thought = "".join(accumulated_reasoning)
+                        if full_thought and not frame.get("reasoning"):
+                            frame["reasoning"] = full_thought
+                        accumulated_reasoning.clear()
+                    out.write(json.dumps(frame, ensure_ascii=False) + "\n")
+                    out.flush()
                 try:
                     event_time = float(frame.get("timestamp"))
                 except (TypeError, ValueError):
@@ -851,15 +935,19 @@ def main() -> int:
                         "approved": approved,
                         "always_allow": False,
                     })
-                emit(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
-                     + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{args.max_input_tokens}"
-                        if ftype in ("llm.request", "telemetry") else ""))
+                should_emit = True
+                if ftype in EPHEMERAL_CHUNK_TYPES:
+                    should_emit = (counts[ftype] == 1) or (counts[ftype] % 100 == 0)
+                if should_emit:
+                    emit(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
+                         + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{effective_max_input_tokens}"
+                            if ftype in ("llm.request", "telemetry") else ""))
                 # ── CREDIT CIRCUIT-BREAKER ────────────────────────────────
                 # Credits are valuable: past either cap the turn is CANCELLED
                 # (proven zero post-cancel spend) instead of burning more.
                 if not budget_stop and ftype not in ("turn_done", "turn_failed") and (
                     should_stop_for_call_budget(llm_calls, args.max_llm_calls)
-                    or tokens_in_seen >= args.max_input_tokens
+                    or tokens_in_seen >= effective_max_input_tokens
                 ):
                     budget_stop = True
                     emit(f"[BUDGET-STOP] calls={llm_calls} tokensIn~{tokens_in_seen} "
@@ -871,12 +959,16 @@ def main() -> int:
                 if ftype in ("turn_done", "turn_failed"):
                     if ftype == "turn_failed":
                         request_timings.finish_all(status="failed", now=event_time)
-                    outcome["result"] = ftype
-                    outcome["completed"] = bool(frame.get("completed"))
+                    outcome["result"] = "budget_exhausted" if budget_stop else ftype
+                    outcome["completed"] = False if budget_stop else bool(frame.get("completed"))
+                    outcome["status_contract"] = frame.get("status_contract")
+                    outcome["run_outcome"] = frame.get("run_outcome")
+                    outcome["failure_reason"] = frame.get("failure_reason")
+                    outcome["verification_status"] = frame.get("verification_status")
                     raw_error = frame.get("error")
                     outcome["error"] = (
-                        _sanitize_runner_evidence(str(raw_error), 2000)
-                        if raw_error else None
+                        "budget_exhausted: cumulative token budget exceeded" if budget_stop
+                        else (_sanitize_runner_evidence(str(raw_error), 2000) if raw_error else None)
                     )
                     break
             else:

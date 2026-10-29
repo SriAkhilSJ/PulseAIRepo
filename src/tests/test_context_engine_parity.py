@@ -33,6 +33,11 @@ from src.context.context_engine import ContextEngine
 from src.context.engine import ContextEngine as BaseContextEngine
 
 
+@pytest.fixture(autouse=True)
+def _isolate_from_network(monkeypatch):
+    monkeypatch.setattr("src.llm.factory.get_auxiliary_llm", lambda: None)
+
+
 def _engine(**kw) -> ContextEngine:
     kw.setdefault("max_tokens", 8_000)
     kw.setdefault("llm", None)

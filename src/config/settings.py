@@ -12,16 +12,16 @@ import sys
 # CrusorAI must also be path-stable when the desktop spawns the bridge with
 # cwd=engineRoot (resolveEngineDirectory) or when pytest runs from repo subdir.
 # Load in order: (1) explicit engine package .env (PulseAIRepo/.env),
-# (2) dotenv walk from cwd (find_dotenv), both with override=True so env export
+# (2) dotenv walk from cwd (find_dotenv), both with override=False so env export
 # always wins over file.
 _engine_env = Path(__file__).resolve().parents[2] / ".env"
 if _engine_env.is_file():
-    load_dotenv(dotenv_path=_engine_env, override=True)
-load_dotenv(override=True)
+    load_dotenv(dotenv_path=_engine_env, override=False)
+load_dotenv(override=False)
 # Also honor find_dotenv for nested launches (e.g. lab workspaces)
 _found = find_dotenv(usecwd=True)
 if _found:
-    load_dotenv(dotenv_path=_found, override=True)
+    load_dotenv(dotenv_path=_found, override=False)
 try:
     print(f"[settings] loaded: LLM_PROVIDER={os.getenv('LLM_PROVIDER')!r} LLM_MODEL={os.getenv('LLM_MODEL')!r} CRUSORAI_MEMORY={os.getenv('CRUSORAI_MEMORY')!r} CUSTOM_BASE_URL={os.getenv('CUSTOM_BASE_URL','')[:32]!r}", file=sys.stderr, flush=True)
 except Exception:

@@ -97,7 +97,7 @@ def test_npx_sentinel_argv_matches_hermes(monkeypatch):
     argv = bt._agent_browser_argv(bt.NPX_AGENT_BROWSER_SENTINEL)
     # hermes _agent_browser_argv: resolved npx bin (absolute via which), the
     # no-install-script/no-network flags, and the pinned spec.
-    assert argv[0].endswith("npx")
+    assert argv[0].lower().endswith(("npx", "npx.cmd", "npx.exe"))
     assert argv[1:] == ["--ignore-scripts", "--prefer-offline", "-y",
                         bt.AGENT_BROWSER_NPX_SPEC]
 

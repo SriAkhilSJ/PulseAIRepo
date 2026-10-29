@@ -1,0 +1,6 @@
+Build a full-stack task management application in showcase/agent_pulsetask with:
+1. Python backend in showcase/agent_pulsetask/backend/server.py with REST API endpoints for /api/health, /api/tasks (GET, POST, PATCH, DELETE), and /api/stats (total, todo, doing, done). Use SQLite for persistence. Ensure SQLite connections are properly committed and closed.
+2. Frontend in showcase/agent_pulsetask/frontend/ with index.html, styles.css, and app.js displaying a task board, stats cards, and an add-task form that communicates with the backend.
+3. An automated test file in showcase/agent_pulsetask/tests/test_server.py that tests the backend API endpoints.
+4. Run the automated test file using the terminal tool to verify that all tests pass.
+When finished, summarize your deliverables.

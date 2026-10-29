@@ -867,15 +867,38 @@ def cache_key_for(model_name: str | None, provider: str | None = None) -> str:
     return matches[0] if len(matches) == 1 else key
 
 
-def max_output_for(model_name: str | None, provider: str | None = None) -> int | None:
-    """The reply cap the endpoint stated for this model, or None.
+MODEL_MAX_OUTPUTS: dict[str, int] = {
+    "gpt-4o": 16_384,
+    "gpt-4o-mini": 16_384,
+    "gpt-4-turbo": 4_096,
+    "gpt-4": 8_192,
+    "gpt-3.5-turbo": 4_096,
+    "claude-3-5-sonnet": 8_192,
+    "claude-3-5-haiku": 8_192,
+    "claude-3-7-sonnet": 64_000,
+    "gemini-1.5-pro": 8_192,
+    "gemini-1.5-flash": 8_192,
+    "gemini-2.0-flash": 8_192,
+    "gemini-2.5-flash": 8_192,
+    "deepseek-chat": 8_192,
+    "deepseek-v4.1-flash": 16_384,
+}
 
-    Cache-only by design. A second live ask would double the one cost this whole module is trying to
-    avoid, and a cap that arrived on the background thread is already in the cache entry beside the
-    window -- which is exactly the case this exists for.
+
+def max_output_for(model_name: str | None, provider: str | None = None) -> int | None:
+    """The reply cap the endpoint stated for this model, or static table fallback.
+
+    Cache-first by design. A second live ask would double the cost; when not in cache,
+    falls back to static table for known models so requests never exceed provider limits.
     """
     entry = _cache_limits_get(cache_key_for(model_name, provider))
-    return entry[1] if entry else None
+    if entry and entry[1]:
+        return entry[1]
+    if model_name:
+        norm = _normalize(model_name)
+        if norm in MODEL_MAX_OUTPUTS:
+            return MODEL_MAX_OUTPUTS[norm]
+    return None
 
 
 def resolve_context_window(

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="styles.css">
+    <title>Log Ingestion and Monitoring Dashboard</title>
+</head>
+<body>
+    <div id="log-console">
+        <textarea id="logOutput" rows="15" cols="100" readonly></textarea>
+        <button id="toggleAutoScroll">Toggle Auto Scroll</button>
+        <button id="pauseResume">Pause</button>
+    </div>
+    <div id="filter-bar">
+        <select id="levelFilter">
+            <option value="">All Levels</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+        </select>
+        <input type="text" id="searchInput" placeholder="Search logs...">
+        <button id="applyFilters">Apply Filters</button>
+    </div>
+    <div id="stats">
+        <h3>Total Logs: <span id="totalLogs">0</span></h3>
+        <h3>Error Rate: <span id="errorRate">0%</span></h3>
+    </div>
+    <form id="logForm">
+        <input type="text" id="logSource" placeholder="Source" required>
+        <select id="logLevel" required>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+        </select>
+        <textarea id="logMessage" placeholder="Log Message" required></textarea>
+        <button type="submit">Send Log</button>
+    </form>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -722,6 +722,10 @@ class RetryLLMProxy:
                         f"failed on {self.model!r}: {type(error).__name__}: "
                         f"{str(error)[:200]}"
                     )
+                    if hasattr(error, 'body'):
+                        print(f"[CrusorAI LLM] error body: {error.body}")
+                    elif hasattr(error, 'response'):
+                        print(f"[CrusorAI LLM] error response: {getattr(error.response, 'text', error.response)}")
 
                     # Base branch 6a2717bd: a context rejection is TWO
                     # different problems — an output-cap rejection means the

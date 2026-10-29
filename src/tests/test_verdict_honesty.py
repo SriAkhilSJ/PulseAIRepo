@@ -589,3 +589,291 @@ def test_wrote_code_files_recognizes_native_stacks():
         assert _wrote_code_files({"steps_completed": [step]}) is True, step
     # Docs remain outside the runtime-verify contract.
     assert _wrote_code_files({"steps_completed": ["Wrote file: docs/hero.md"]}) is False
+
+
+def test_derive_4state_verification_receipt_states():
+    from src.graphs.gates import derive_4state_verification_receipt
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+
+    # 1. Non-execution / read-only -> not_applicable
+    ro_state = {
+        "current_task": "explain this architecture",
+        "messages": [HumanMessage(content="explain this architecture")],
+        "steps_completed": [],
+    }
+    r1 = derive_4state_verification_receipt(ro_state)
+    assert r1["state"] == "not_applicable"
+    assert r1["passed"] is True
+
+    # 2. Execution task with code written but no checks ran -> unverified
+    unv_state = {
+        "current_task": "build backend api",
+        "messages": [
+            HumanMessage(content="build backend api"),
+            AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"path": "server.py"}, "id": "c1"}]),
+            ToolMessage(content="Wrote file: server.py", tool_call_id="c1", name="write_file"),
+        ],
+        "steps_completed": ["Wrote file: server.py"],
+        "marked_edits": ["server.py"],
+    }
+    r2 = derive_4state_verification_receipt(unv_state)
+    assert r2["state"] == "unverified"
+    assert r2["passed"] is False
+    assert "static" in r2["required"]
+
+    # 3. Execution task with passing terminal checks -> verified
+    ver_state = {
+        "current_task": "build backend api",
+        "messages": [
+            HumanMessage(content="build backend api"),
+            AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"path": "server.py"}, "id": "c1"}]),
+            ToolMessage(content="Wrote file: server.py", tool_call_id="c1", name="write_file"),
+            AIMessage(content="", tool_calls=[{"name": "terminal", "args": {"command": "pytest test_api.py"}, "id": "c2"}]),
+            ToolMessage(content="exit code: 0\n24 passed in 0.5s", tool_call_id="c2", name="terminal"),
+        ],
+        "steps_completed": ["Wrote file: server.py", "Ran command: pytest test_api.py"],
+        "marked_edits": ["server.py"],
+    }
+    r3 = derive_4state_verification_receipt(ver_state)
+    assert r3["state"] == "verified"
+    assert r3["passed"] is True
+    assert r3["checks"]["static"] == "passed"
+
+
+# ---------------------------------------------------------------------------
+# GPT-4o-Mini Regression: Completion Gate Evidence-Based Integrity
+# ---------------------------------------------------------------------------
+
+def test_gpt_4o_mini_failed_test_blocks_successful_completion(_no_memory, tmp_path):
+    """Reproduce the GPT-4o-mini scenario:
+    1. The model creates application files.
+    2. A mandatory test command exits with code 1.
+    3. The model claims the task is complete in text.
+    4. CrusorAI MUST refuse to report successful completion while that failure is unresolved.
+    5. Once the exact check passes, completion is permitted.
+    """
+    from src.graphs.chat_graph import finalize_node
+
+    server_file = tmp_path / "backend" / "server.py"
+    server_file.parent.mkdir(parents=True, exist_ok=True)
+    server_file.write_text("# server code")
+
+    # Step 1-3: Code written, test command exits with code 1, model claims "Task is complete!"
+    failing_state = {
+        "current_task": "Build full stack task app and run the automated tests to verify",
+        "latest_instruction": "Build full stack task app and run the automated tests to verify",
+        "workspace": str(tmp_path),
+        "messages": [
+            HumanMessage(content="Build full stack task app and run the automated tests to verify"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "write_file", "args": {"path": "backend/server.py"}, "id": "call_w1"}],
+            ),
+            ToolMessage(content="File written: backend/server.py", tool_call_id="call_w1", name="write_file"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "terminal", "args": {"command": "python -m unittest tests/test_server.py"}, "id": "call_t1"}],
+            ),
+            ToolMessage(
+                content="FAILED (failures=5)\n\nExit code: 1\nsqlite3.OperationalError: no such table: tasks",
+                tool_call_id="call_t1",
+                name="terminal",
+            ),
+            AIMessage(content="All deliverables have been created and tests executed. The task is complete!"),
+        ],
+        "steps_completed": ["Wrote file: backend/server.py"],
+        "failed_steps": ["Command failed: python -m unittest tests/test_server.py\nExit code: 1"],
+        "marked_edits": ["backend/server.py"],
+        "execution_trace": [
+            {"tool": "write_file", "args": {"path": "backend/server.py"}, "status": "success", "result": "ok"},
+            {
+                "tool": "terminal",
+                "args": {"command": "python -m unittest tests/test_server.py"},
+                "status": "failed",
+                "result": "FAILED (failures=5)\n\nExit code: 1",
+            },
+        ],
+    }
+
+    # Step 4: Finalize MUST reject completion
+    result = finalize_node(failing_state, {"configurable": {}})
+    assert result["task_completed"] is False, "Finalize must refuse completed=True when test failed!"
+    assert result["task_status"] in {"unverified", "failed"}, f"Unexpected status: {result['task_status']}"
+
+    # Step 5: Now repair the code and rerun the test to exit code 0
+    passing_state = {
+        **failing_state,
+        "messages": [
+            *failing_state["messages"],
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "write_file", "args": {"path": "backend/server.py"}, "id": "call_w2"}],
+            ),
+            ToolMessage(content="File written: backend/server.py", tool_call_id="call_w2", name="write_file"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "terminal", "args": {"command": "python -m unittest tests/test_server.py"}, "id": "call_t2"}],
+            ),
+            ToolMessage(
+                content="Ran 6 tests in 0.045s\n\nOK\n\nExit code: 0",
+                tool_call_id="call_t2",
+                name="terminal",
+            ),
+            AIMessage(content="Repaired the database initialization. All 6 tests now pass!"),
+        ],
+        "steps_completed": [
+            "Wrote file: backend/server.py",
+            "Ran command: python -m unittest tests/test_server.py",
+        ],
+        "marked_edits": ["backend/server.py"],
+        "execution_trace": [
+            *failing_state["execution_trace"],
+            {"tool": "write_file", "args": {"path": "backend/server.py"}, "status": "success", "result": "ok"},
+            {
+                "tool": "terminal",
+                "args": {"command": "python -m unittest tests/test_server.py"},
+                "status": "success",
+                "result": "OK\n\nExit code: 0",
+            },
+        ],
+    }
+
+    result_pass = finalize_node(passing_state, {"configurable": {}})
+    assert result_pass["task_completed"] is True, "Finalize must allow completed=True once tests pass!"
+    assert result_pass["task_status"] == "completed"
+
+
+def test_recovery_limit_node_enforces_failure_verdict():
+    """Verify recovery_limit_node structurally emits task_completed=False and task_status='failed'."""
+    from src.graphs.chat_graph import recovery_limit_node
+
+    state = {
+        "failed_steps": ["Command failed: python -m unittest tests/test_server.py\nExit code: 1"],
+        "current_task": "Build full stack task app",
+        "messages": [],
+    }
+    config = {"configurable": {"thread_id": "test_thread"}}
+    res = recovery_limit_node(state, config)
+
+    assert res["task_completed"] is False, "recovery_limit_node must set task_completed=False"
+    assert res["task_status"] == "failed", "recovery_limit_node must set task_status='failed'"
+    assert "stopped trying to automatically recover" in res["messages"][0].content
+
+
+def test_historical_gpt_false_completion_under_recovery_limit(tmp_path):
+    """Phase 2 regression pin: Simulate historical GPT-4o-mini false completion.
+    
+    1. Agent writes files.
+    2. Mandatory test fails with exit code 1.
+    3. Model claims completion.
+    4. Recovery limit is reached.
+    5. Finalize MUST enforce task_completed=False and preserve failed verification.
+    """
+    from src.graphs.chat_graph import finalize_node, recovery_limit_node
+
+    test_file = tmp_path / "backend" / "server.py"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text("print('mock server')")
+
+    state = {
+        "current_task": "Build server and test it",
+        "workspace": str(tmp_path),
+        "messages": [
+            HumanMessage(content="Build server and test it"),
+            AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"path": "backend/server.py"}, "id": "w1"}]),
+            ToolMessage(content="File written: backend/server.py", tool_call_id="w1", name="write_file"),
+            AIMessage(content="", tool_calls=[{"name": "terminal", "args": {"command": "python -m unittest"}, "id": "t1"}]),
+            ToolMessage(content="FAILED (failures=1)\nExit code: 1", tool_call_id="t1", name="terminal"),
+            AIMessage(content="Everything is implemented and tested. Complete!"),
+        ],
+        "steps_completed": ["Wrote file: backend/server.py"],
+        "failed_steps": ["Command failed: python -m unittest\nExit code: 1"],
+        "tool_failures": 6,
+        "recovery_mode": True,
+        "plan": [],
+    }
+    # Simulate recovery limit node firing
+    rec_out = recovery_limit_node(state, {"configurable": {}})
+    state.update(rec_out)
+
+    fin_out = finalize_node(state, {"configurable": {}})
+    assert fin_out["task_completed"] is False, "Must refuse completion when mandatory test failed"
+    assert fin_out["task_status"] == "failed"
+    assert fin_out["execution_status"] in ("failed", "recovery_limit")
+    assert fin_out["application_verification_status"] == "failed"
+    assert fin_out["required_checks_passed"] is False
+
+
+def test_verified_task_with_obsolete_nudge_completes_successfully(tmp_path):
+    """Phase 2 regression pin: A task that genuinely passed verification and deliverables exist
+    must not be condemned by an earlier, obsolete finish nudge."""
+    from src.graphs.chat_graph import finalize_node
+
+    srv = tmp_path / "server.py"
+    srv.write_text("print('ok')")
+
+    state = {
+        "current_task": "Build server.py and verify it",
+        "latest_instruction": "Build server.py and verify it",
+        "workspace": str(tmp_path),
+        "nudged_at_msg_count": 2,
+        "messages": [
+            HumanMessage(content="Build server.py and verify it"),
+            AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"path": "server.py"}, "id": "w1"}]),
+            ToolMessage(content="File written: server.py", tool_call_id="w1", name="write_file"),
+            AIMessage(content="", tool_calls=[{"name": "terminal", "args": {"command": "python -m pytest test.py"}, "id": "t1"}]),
+            ToolMessage(content="1 passed in 0.01s\nExit code: 0", tool_call_id="t1", name="terminal"),
+            AIMessage(content="Server built and verified."),
+        ],
+        "steps_completed": ["Wrote file: server.py", "Ran command: python -m pytest test.py"],
+        "failed_steps": [],
+        "plan": [],
+    }
+
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+    assert out["execution_status"] == "completed"
+    assert out["application_verification_status"] == "verified"
+    assert out["required_checks_passed"] is True
+
+
+def test_dual_status_separation_safety_denial_with_verified_app(tmp_path):
+    """Phase 2 regression pin: Separate execution status from verification status.
+    
+    When an application has passed all tests and deliverables exist on disk,
+    but trailing execution ends on a safety policy denial:
+      - execution_status = 'ended_with_safety_denial'
+      - application_verification_status = 'verified'
+      - required_checks_passed = True
+      - task_completed = False (because final tool action was an unresolved denial)
+    """
+    from src.graphs.chat_graph import finalize_node
+
+    srv = tmp_path / "server.py"
+    srv.write_text("print('ok')")
+
+    state = {
+        "current_task": "Build server and test it",
+        "latest_instruction": "Build server and test it",
+        "workspace": str(tmp_path),
+        "messages": [
+            HumanMessage(content="Build server and test it"),
+            AIMessage(content="", tool_calls=[{"name": "write_file", "args": {"path": "server.py"}, "id": "w1"}]),
+            ToolMessage(content="File written: server.py", tool_call_id="w1", name="write_file"),
+            AIMessage(content="", tool_calls=[{"name": "terminal", "args": {"command": "python -m pytest test.py"}, "id": "t1"}]),
+            ToolMessage(content="1 passed in 0.01s\nExit code: 0", tool_call_id="t1", name="terminal"),
+            AIMessage(content="", tool_calls=[{"name": "terminal", "args": {"command": "cd C:/Users/Administrator && ls"}, "id": "t2"}]),
+            ToolMessage(content="Blocked (safety policy): Out-of-bounds path traversal denied. Choose a safe alternative.", tool_call_id="t2", name="terminal"),
+        ],
+        "steps_completed": ["Wrote file: server.py", "Ran command: python -m pytest test.py"],
+        "failed_steps": ["Blocked (safety policy): Out-of-bounds path traversal denied."],
+        "plan": [],
+    }
+
+    out = finalize_node(state, {"configurable": {}})
+    assert out["task_completed"] is False, "Denied trailing action must keep task_completed=False"
+    assert out["execution_status"] == "ended_with_safety_denial"
+    assert out["application_verification_status"] == "verified"
+    assert out["required_checks_passed"] is True
+

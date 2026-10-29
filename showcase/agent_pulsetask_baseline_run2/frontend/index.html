@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PulseTask — Task Board</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>PulseTask</h1>
+      <p class="tagline">Full-stack task management</p>
+    </div>
+    <div id="connection" class="connection" data-state="unknown">checking…</div>
+  </header>
+
+  <main class="layout">
+    <section class="stats" aria-label="Task statistics">
+      <article class="stat-card stat-total">
+        <span class="stat-value" id="stat-total">0</span>
+        <span class="stat-label">Total</span>
+      </article>
+      <article class="stat-card stat-todo">
+        <span class="stat-value" id="stat-todo">0</span>
+        <span class="stat-label">To Do</span>
+      </article>
+      <article class="stat-card stat-doing">
+        <span class="stat-value" id="stat-doing">0</span>
+        <span class="stat-label">Doing</span>
+      </article>
+      <article class="stat-card stat-done">
+        <span class="stat-value" id="stat-done">0</span>
+        <span class="stat-label">Done</span>
+      </article>
+    </section>
+
+    <section class="add-task" aria-label="Add task">
+      <form id="add-task-form">
+        <input id="task-title" name="title" type="text" placeholder="What needs to be done?"
+               autocomplete="off" required maxlength="200" />
+        <select id="task-status" name="status" aria-label="Initial status">
+          <option value="todo" selected>To Do</option>
+          <option value="doing">Doing</option>
+          <option value="done">Done</option>
+        </select>
+        <button type="submit" class="btn btn-primary">Add task</button>
+      </form>
+      <p id="form-error" class="form-error" role="alert" hidden></p>
+    </section>
+
+    <p id="board-error" class="board-error" role="alert" hidden></p>
+
+    <section class="board" id="board" aria-label="Task board">
+      <div class="column" data-status="todo">
+        <h2 class="column-title">To Do <span class="column-count" data-count="todo">0</span></h2>
+        <div class="column-body" id="col-todo"></div>
+      </div>
+      <div class="column" data-status="doing">
+        <h2 class="column-title">Doing <span class="column-count" data-count="doing">0</span></h2>
+        <div class="column-body" id="col-doing"></div>
+      </div>
+      <div class="column" data-status="done">
+        <h2 class="column-title">Done <span class="column-count" data-count="done">0</span></h2>
+        <div class="column-body" id="col-done"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

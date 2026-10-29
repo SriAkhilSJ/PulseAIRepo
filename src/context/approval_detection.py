@@ -87,6 +87,8 @@ HARDLINE_PATTERNS: list[tuple[str, str]] = [
     (_CMDPOS + r'telinit\s+[06]\b', "telinit 0/6 (shutdown/reboot)"),
     # Windows shutdown/reboot siblings (hermes runs the same host classes).
     (_CMDPOS + r'(?:shutdown|logoff)\s+(?:/[a-z]\s+)*/[ry]\b', "Windows shutdown/restart (shutdown /r|/s)"),
+    # Self-termination floor: killing python kills the host runtime/agent core itself.
+    (_CMDPOS + r'(?:taskkill\b[^\n]*(?:/|//)im\s+python[0-9.]*(?:\.exe)?|pkill\b[^\n]*\bpython[0-9.]*|killall\b[^\n]*\bpython[0-9.]*)\b', "killing the host Python environment/agent process"),
 ]
 
 HARDLINE_COMPILED = [(re.compile(p, _RE_FLAGS), d) for p, d in HARDLINE_PATTERNS]
@@ -119,7 +121,7 @@ DANGEROUS_PATTERNS: list[tuple[str, str]] = [
      "pipe remote content to PowerShell (iwr | iex)"),
     (r'\b(?:iex|invoke-expression)\s*\(\s*(?:iwr|invoke-webrequest|invoke-restmethod|irm)\b',
      "execute remote content via Invoke-Expression"),
-    (r'\btaskkill\b[^\n]*\s/f\b', "force kill processes (taskkill /F)"),
+    (r'\btaskkill\b[^\n]*\s(?:/|//)f\b', "force kill processes (taskkill /F)"),
     (r'\bstop-process\b[^\n]*\s-force\b', "force kill processes (Stop-Process -Force)"),
     (r'\bformat-volume\b', "format filesystem (Format-Volume)"),
     (r'\bclear-disk\b', "wipe disk (Clear-Disk)"),

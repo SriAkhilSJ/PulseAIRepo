@@ -358,16 +358,23 @@ def write_file(
     config: RunnableConfig
 ) -> str:
     """
-    Create or overwrite a file inside the current workspace.
+    Create a new file inside the current workspace.
 
     WHEN TO USE:
-    - Creating a new file.
-    - Replacing an entire file intentionally.
-    - Writing generated content where no current content needs preservation.
+    - Creating a new file that does not yet exist.
+    - Scaffolding new components or project files.
+
+    OUTPUT BUDGET & BATCHING RULES:
+    - Estimate output tokens before generating: small files (<1,500 total tokens
+      combined, e.g. HTML scaffolding, CSS, or small configs) may be created
+      together in the same turn.
+    - Large files (>200 lines or >1,500 tokens) MUST be authored in dedicated,
+      isolated turns to prevent output token truncations and incomplete files.
 
     WHEN NOT TO USE:
-    - Do not use for small edits to existing files; use edit_file instead.
-    - Do not overwrite important files without inspecting them first.
+    - NEVER use write_file to modify or update existing files; ALWAYS use edit_file
+      with targeted search-and-replace blocks (surgical diffs).
+    - Do not overwrite important existing files without inspecting them first.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -411,8 +418,11 @@ def write_file(
 
         # D28: syntax receipt — a broken-grammar edit is refused before it
         # ever touches disk (multi-language; non-code files unaffected).
-        if safe_path.exists() and _is_syntax_checkable(safe_path):
-            original_now = safe_path.read_text(encoding="utf-8")
+        if _is_syntax_checkable(safe_path):
+            original_now = (
+                safe_path.read_text(encoding="utf-8")
+                if safe_path.exists() else ""
+            )
             receipt_error = _syntax_receipt(safe_path, original_now, content)
             if receipt_error is not None:
                 return receipt_error
@@ -731,6 +741,8 @@ def _python_syntax_receipt(original: str, updated: str) -> str | None:
     import ast
 
     def _parse(text: str):
+        if not text.strip():
+            return None
         try:
             ast.parse(text)
             return None
@@ -740,10 +752,12 @@ def _python_syntax_receipt(original: str, updated: str) -> str | None:
     orig_err = _parse(original)
     new_err = _parse(updated)
     if orig_err is None and new_err is not None:
+        op = "Edit" if original.strip() else "Write"
+        action = "File left unchanged" if original.strip() else "File not written"
         return (
-            f"❌ Edit rejected: the result would not be valid Python "
+            f"❌ {op} rejected: the result would not be valid Python "
             f"(line {new_err.lineno}): {new_err.msg}. "
-            f"File left unchanged — fix the edit and retry."
+            f"{action} — fix the syntax error and retry."
         )
     return None
 
@@ -932,6 +946,8 @@ def _tree_sitter_syntax_check(code: str, suffix: str) -> str | None:
 
 def _json_syntax_receipt(original: str, updated: str) -> str | None:
     def _parse(text: str) -> str | None:
+        if not text.strip():
+            return None
         try:
             json.loads(text)
             return None
@@ -941,9 +957,11 @@ def _json_syntax_receipt(original: str, updated: str) -> str | None:
     orig_err = _parse(original)
     new_err = _parse(updated)
     if orig_err is None and new_err is not None:
+        op = "Edit" if original.strip() else "Write"
+        action = "File left unchanged" if original.strip() else "File not written"
         return (
-            f"❌ Edit rejected: the result would not be valid JSON ({new_err}). "
-            f"File left unchanged — fix the edit and retry."
+            f"❌ {op} rejected: the result would not be valid JSON ({new_err}). "
+            f"{action} — fix the syntax and retry."
         )
     return None
 
@@ -1255,9 +1273,10 @@ def edit_file(
     config: RunnableConfig
 ) -> str:
     """
-    Apply a targeted text replacement (old_text -> new_text) to a file.
-    USE for precise edits instead of rewriting whole files with write_file.
-    The old_text must match exactly, including whitespace.
+    Apply a targeted surgical replacement (old_text -> new_text) to an existing file.
+    ALWAYS USE for modifying existing files instead of rewriting whole files with write_file.
+    The old_text must match existing code (including whitespace and indentation).
+    Emitting only the 5-10 lines that change is 10x faster, cheaper, and preserves surrounding code.
     """
 
     workspace = config["configurable"]["workspace"]
@@ -1296,7 +1315,13 @@ def edit_file(
     if error is not None:
         # Compatible with the long-standing "not found" contract: no strategy
         # matched, nothing was written, and the model knows exactly why.
-        return f"❌ Text not found in {path}: {error}"
+        guidance = ""
+        err_lower = error.lower()
+        if "ambiguous" in err_lower or "multiple" in err_lower or "matches" in err_lower:
+            guidance = "\n\n💡 Tip: Provide 3-5 lines of surrounding context in old_text to disambiguate, or use write_file to overwrite the entire file directly."
+        elif "not found" in err_lower:
+            guidance = "\n\n💡 Tip: Read the file first using read_file to check exact current lines, or use write_file to replace the full file content."
+        return f"❌ Text not found in {path}: {error}{guidance}"
     match_mode = "exact" if (strategy or "exact") == "exact" else "fuzzy"
 
     if updated_content == original:

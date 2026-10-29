@@ -1,0 +1,14 @@
+Build a real-time log ingestion and monitoring dashboard in showcase/agent_logpulse with:
+1. Python backend in showcase/agent_logpulse/backend/server.py with REST/SSE endpoints:
+   - POST /api/logs: Ingests log entries (level: INFO/WARN/ERROR, message, source, timestamp).
+   - GET /api/logs: Query logs with query params for ?level=, ?search=, ?limit=.
+   - GET /api/stats: Returns counters for total logs, error rate percentage, and breakdown by level.
+   - GET /api/stream: Server-Sent Events (SSE) stream broadcasting newly ingested logs in real time.
+   Use SQLite for persistence with indexed timestamp and level columns. Ensure SQLite connections are properly committed and closed.
+2. Frontend in showcase/agent_logpulse/frontend/ with index.html, styles.css, app.js:
+   - Real-time log console with autoscroll toggle and pause/resume button.
+   - Filter bar (level selector, search input) and live summary stat cards.
+   - Ingestion form to simulate generating new log events.
+3. Automated test file in showcase/agent_logpulse/tests/test_server.py testing ingestion, query filters, and stats calculation.
+4. Run the automated test file using the terminal tool to verify that all tests pass.
+When finished, summarize your deliverables.

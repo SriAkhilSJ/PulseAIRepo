@@ -98,3 +98,11 @@ bench-archive*/
 image-search/
 
 .reference/
+
+# SQLite database runtime files
+*.db
+*.sqlite
+*.sqlite3
+
+# Session trace logs
+diagnostics/traces/

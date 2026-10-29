@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SprintBoard — Team Task Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">SB</div>
+        <div class="brand-text">
+          <h1>SprintBoard</h1>
+          <p>Sprint tracking for fast-moving teams</p>
+        </div>
+      </div>
+      <div class="health" id="health-indicator" role="status" aria-live="polite">
+        <span class="health-dot" aria-hidden="true"></span>
+        <span class="health-label">Checking API…</span>
+      </div>
+    </header>
+
+    <section class="stats-grid" aria-label="Sprint statistics">
+      <article class="stat-card stat-total">
+        <span class="stat-value" id="stat-total">0</span>
+        <span class="stat-label">Total</span>
+      </article>
+      <article class="stat-card stat-todo">
+        <span class="stat-value" id="stat-todo">0</span>
+        <span class="stat-label">Todo</span>
+      </article>
+      <article class="stat-card stat-doing">
+        <span class="stat-value" id="stat-doing">0</span>
+        <span class="stat-label">Doing</span>
+      </article>
+      <article class="stat-card stat-done">
+        <span class="stat-value" id="stat-done">0</span>
+        <span class="stat-label">Done</span>
+      </article>
+    </section>
+
+    <section class="panel add-panel" aria-labelledby="add-heading">
+      <h2 id="add-heading">Add a task</h2>
+      <form id="task-form" novalidate>
+        <div class="form-field grow">
+          <label for="task-title">Title</label>
+          <input
+            id="task-title"
+            name="title"
+            type="text"
+            placeholder="What needs to be done?"
+            autocomplete="off"
+            required
+          />
+        </div>
+        <div class="form-field">
+          <label for="task-priority">Priority</label>
+          <select id="task-priority" name="priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" id="add-task-btn">Add task</button>
+      </form>
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+    </section>
+
+    <section class="panel board-panel" aria-labelledby="board-heading">
+      <div class="board-toolbar">
+        <h2 id="board-heading">Board</h2>
+        <div class="filters" id="filters" role="group" aria-label="Filter tasks by status">
+          <button class="filter-btn active" data-filter="all" id="filter-all" type="button">All</button>
+          <button class="filter-btn" data-filter="todo" id="filter-todo" type="button">Todo</button>
+          <button class="filter-btn" data-filter="doing" id="filter-doing" type="button">Doing</button>
+          <button class="filter-btn" data-filter="done" id="filter-done" type="button">Done</button>
+        </div>
+      </div>
+
+      <div class="state-note" id="loading" hidden>
+        <span class="spinner" aria-hidden="true"></span> Loading tasks…
+      </div>
+      <div class="state-note error" id="error" role="alert" hidden>
+        Something went wrong talking to the API. Retry in a moment.
+      </div>
+      <div class="state-note empty" id="empty" hidden>
+        No tasks here yet. Add one above to get the sprint moving.
+      </div>
+
+      <ul class="task-list" id="task-list" aria-live="polite"></ul>
+    </section>
+
+    <footer class="footer">
+      <p>SprintBoard · Python stdlib backend · zero dependencies</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

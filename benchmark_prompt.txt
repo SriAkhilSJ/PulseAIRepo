@@ -1,0 +1,38 @@
+Build a polished, production-minded full-stack website named SprintBoard in this workspace.
+
+Use only the Python 3 standard library on the backend and browser-native HTML, CSS, and JavaScript on the frontend. Do not add dependencies and do not modify .acceptance/test_sprintboard.py.
+
+This is a fresh file-delivery workspace. On your first action, use the dedicated write_file tool to land a real baseline application file. Batch independent write_file calls when available. Use write_file/edit_file for all source changes; do not use terminal shell redirection, heredocs, Python one-liners, or diagnostics scripts to create application files. Reserve terminal for running verification after files exist.
+
+Deliver exactly these application files at the workspace root:
+- server.py
+- index.html
+- styles.css
+- app.js
+- README.md
+
+Backend requirements:
+- A ThreadingHTTPServer-based app, runnable as `python server.py --host HOST --port PORT`.
+- SQLite persistence. Honor SPRINTBOARD_DB when set; otherwise use tasks.db beside server.py.
+- GET /api/health returns exactly {"status":"ok"}.
+- GET /api/tasks returns {"tasks":[...]}, newest first.
+- POST /api/tasks validates a nonblank title and priority low/medium/high, creates status todo, and returns 201 with {"task":...}.
+- PATCH /api/tasks/{id} validates status todo/doing/done, returns the updated task, and returns 404 for an unknown id.
+- DELETE /api/tasks/{id} returns 204 and actually deletes the row.
+- GET /api/stats returns integer total/todo/doing/done counts.
+- Serve index.html at / and the CSS/JS assets at /styles.css and /app.js with appropriate content types.
+- Return useful JSON errors and never expose a traceback to the client.
+
+Frontend requirements:
+- A genuinely polished, responsive dashboard—not a bare test fixture.
+- Strong visual hierarchy, an intentional color system, cards, responsive layout, hover/focus states, and at least one subtle animation.
+- Header/brand plus API health indicator.
+- Four live statistic cards for total, todo, doing, and done.
+- Accessible add-task form with title and priority controls.
+- All/Todo/Doing/Done filters, loading/empty/error states, task cards, status controls, and delete actions.
+- Use the real REST API with fetch; no hardcoded sample tasks.
+- Preserve the required DOM ids used by the acceptance suite.
+
+README.md must explain features, architecture, data model, launch command, API routes, and verification command.
+
+Work autonomously. After the first application file exists, inspect the immutable acceptance test. Implement the complete site, run `python -m unittest discover -s .acceptance -p 'test_*.py' -v`, fix every failure, reread the final implementation, and finish with a concise evidence-based report. Do not inspect unrelated repository paths.

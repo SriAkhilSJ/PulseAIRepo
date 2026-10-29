@@ -142,13 +142,15 @@ def is_eligible(
 # a REQUIRED parameter that is missing while EXACTLY ONE known alias is
 # present and that alias is not itself a schema parameter of the tool.
 _ARG_ALIASES: dict[str, tuple[str, ...]] = {
-    "path": ("file_path", "filepath", "file", "path_str"),
-    "content": ("text", "file_contents", "new_content", "body"),
-    "command": ("cmd", "shell_command", "bash_command"),
-    "query": ("search_query",),
-    "old_string": ("old_text", "find", "search"),
-    "new_string": ("new_text", "replace", "replacement"),
-    "url": ("link",),
+    "path": ("file_path", "filepath", "file", "path_str", "target_path", "filename"),
+    "content": ("text", "file_contents", "new_content", "body", "code"),
+    "command": ("cmd", "shell_command", "bash_command", "script"),
+    "query": ("search_query", "pattern"),
+    "old_string": ("old_text", "find", "search", "search_text", "target"),
+    "old_text": ("old_string", "find", "search", "search_text", "target"),
+    "new_string": ("new_text", "replace", "replacement", "replace_text"),
+    "new_text": ("new_string", "replace", "replacement", "replace_text"),
+    "url": ("link", "uri"),
     "cwd": ("working_dir", "working_directory"),
 }
 
@@ -170,6 +172,17 @@ def _required_params(tool) -> set:
 def coerce_tool_arg_aliases(tool, args: dict) -> dict:
     """Rename model-dialect keys onto the tool's real parameter names."""
     try:
+        # Clean kwargs punctuation (e.g. 'old_text=', 'path:', '  content ')
+        cleaned_args = {}
+        for k, v in args.items():
+            if isinstance(k, str):
+                cleaned_k = re.sub(r"^['\"]+|['\":=\s]+$", "", k).strip()
+                cleaned_args[cleaned_k or k] = v
+            else:
+                cleaned_args[k] = v
+        args.clear()
+        args.update(cleaned_args)
+
         required = _required_params(tool)
         schema_params = set(getattr(tool, "args", {}) or {})
         missing = required - set(args)

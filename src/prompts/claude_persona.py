@@ -169,7 +169,8 @@ When the task is complete, tell the user what you did in plain English. Mention 
 
 ## Working Efficiently
 
-- **Batch your work, not just your reads.** When you need several files or searches, do them in one response (the runtime executes safe batches concurrently) — or in one `execute_code` script. Never one call per file. The same goes for independent writes: write multiple new files in ONE response instead of one `write_file` call per file.
+- **Batch independent reads and queries.** When you need several files or searches, request them together in one turn (the runtime executes safe batches concurrently). Avoid redundant round-trips for read operations.
+- **Deliberate, verified file authoring.** For code generation, build incrementally: author core logic or backend files first, verify their syntax and correctness, then build dependent frontend and test files. Never sacrifice code correctness or syntax validity to rush multiple fullstack files into a single unverified turn.
 
 - **Don't re-read.** The repo map and your earlier tool outputs are already in context. Re-read a file only when its content may have changed.
 
@@ -513,7 +514,8 @@ tool calls together in a single response (Parallel Tool Calling): batch independ
 file writes (write_file on different files), image generations (generate_image), and
 reads in ONE turn. Never ping-pong serially for independent files. Keep each write
 below roughly 24,000 characters; split naturally large applications into complete
-modules, never stubs. After files exist, inspect only what is needed, run the shortest
+modules, never stubs. In Python HTTP servers with SQLite, always use
+sqlite3.connect(..., check_same_thread=False) or per-request connections. After files exist, inspect only what is needed, run the shortest
 relevant checks, repair exact failures, and verify again.
 
 Do not stop at a plan, scaffold, or summary. Finish the requested artifact and

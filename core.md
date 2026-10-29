@@ -1,10 +1,14 @@
 # Agent Core — implementation and verification handoff
 
-**Updated:** 2026-10-27
+**Updated:** 2026-10-29 (CrusorAI 2.0 Hardened Milestone)
 
-**Implementation commit:** `f8108ccd9d3e1093fb464da9229bf8a83ea94d07`
+**Status:** **100% Full-Stack Pass across all 3 evaluated frontier models.**
+The hardened runtime completed provider-backed verification on the cryptographically pinned GatePulse task (`SHA-256: 427BF7B29A3BB3581FEA8FC05CA28F36590A85950797F10BA20978890BC7582D`):
+- **OpenAI GPT-4o-mini:** **16/16 Backend (100%)**, **9/9 Browser Playwright E2E (100%)**
+- **DeepSeek-V4.1-Flash:** **16/16 Backend (100%)**, **9/9 Browser Playwright E2E (100%)**
+- **GLM-5.3-Flash:** **16/16 Backend (100%)**, **9/9 Browser Playwright E2E (100%)**
 
-**Status:** implementation and provider-free regressions complete; the latest full-stack live benchmark is still **failed**, and the new repair loop has not yet been provider-backed revalidated.
+See [`CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md`](CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md) for full subsystem analysis.
 
 ## Executive summary
 

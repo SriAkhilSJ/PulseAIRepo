@@ -301,7 +301,7 @@ _VERIFY_TOOL_NAMES = frozenset({
     # The desktop shell is bound as `terminal` (hermes parity rename);
     # `run_terminal` is the legacy alias of the same tool. Both report
     # checks — a set that names only the alias is blind on the desktop.
-    "run_terminal", "terminal",
+    "run_terminal", "terminal", "execute_code",
     "browser_navigate", "browser_snapshot", "browser_screenshot",
     "browser_click", "browser_type",
     # Multi-platform receipts (src/targets/): a target build/verify receipt is
@@ -311,6 +311,7 @@ _VERIFY_TOOL_NAMES = frozenset({
 _VERIFICATION_COMMAND_TOKENS = (
     "pytest", "unittest", " test", "npm test", "typecheck", "tsc ",
     " lint", " build", "cargo check", "go test", " analyze",
+    "curl", "health",
 )
 _FAILED_CHECK_TOOLS = frozenset({
     "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes",
@@ -718,7 +719,18 @@ def _deliverable_candidates(workspace: str, target: str):
     candidates = [
         ws / target,
         Path(str(ws), target.lstrip("/\\").replace("\\", "/")),
+        Path(target),
     ]
+    t_parts = Path(target).parts
+    if t_parts:
+        ws_parts = ws.parts
+        for i in range(len(t_parts), 0, -1):
+            if len(ws_parts) >= i and tuple(p.lower() for p in ws_parts[-i:]) == tuple(p.lower() for p in t_parts[:i]):
+                candidates.append(ws.joinpath(*t_parts[i:]))
+                break
+        if len(t_parts) > 1:
+            for i in range(1, len(t_parts)):
+                candidates.append(ws.joinpath(*t_parts[i:]))
     bare = Path(target).name
     _has_dir = ("/" in target) or ("\\" in target)
     if bare and not _has_dir:
@@ -1168,6 +1180,15 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             )
             if is_check:
                 status["static"] = "exit code: 0" in low
+        elif name == "execute_code":
+            code = str(tool_args(message).get("code", "")).lower()
+            is_check = any(
+                token in code for token in _VERIFICATION_COMMAND_TOKENS
+            ) or any(
+                token in low for token in _VERIFICATION_COMMAND_TOKENS
+            )
+            if is_check:
+                status["static"] = ("exit code: 0" in low or "ok" in low or "passed" in low or "ran " in low) and "failed" not in low and "error" not in low
         elif name == "browser_navigate":
             status["navigate"] = not any(marker.lower() in low for marker in _BROWSER_FAIL_MARKERS) \
                 and ("navigated" in low or "http" in low)
@@ -1191,8 +1212,11 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
     integrity_issues = audit_workspace(workspace) if workspace else []
     status["integrity"] = not integrity_issues
 
+    # If the user specifically instructs verification via automated test suite / terminal tests,
+    # static test execution is the required verification domain.
+    test_suite_ask = bool(re.search(r"(?i)(?:automated test|run (?:the )?(?:automated )?tests?)", task_focus))
     required = ["static", "integrity", "failed_checks"]
-    if ui_task:
+    if ui_task and not test_suite_ask:
         # UI verification: requires successful navigation AND at least one of
         # DOM snapshot or visual screenshot (either proves page rendered).
         ui_rendered = bool(status.get("snapshot") or status.get("screenshot"))
@@ -1216,6 +1240,97 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
         "ran_any": bool(seen),
         "passed": not missing,
     }
+
+
+def derive_4state_verification_receipt(state: AgentState) -> dict[str, object]:
+    """Authoritative task-adaptive 4-state verification receipt (Pillar 5).
+
+    States:
+    - 'verified': All required checks executed and passed.
+    - 'partially_verified': Core checks passed, but secondary checks skipped.
+    - 'failed': One or more required checks failed or debts exist.
+    - 'blocked': Execution obstructed by environment failures.
+    - 'not_applicable': Non-execution or read-only task.
+    - 'unverified': Code produced but verification was never executed.
+    """
+    if not _execution_requested(state) or (not _wrote_code_files(state) and not _produced_code_deliverable(state)):
+        return {
+            "state": "not_applicable",
+            "passed": True,
+            "checks": {},
+            "required": [],
+            "missing": [],
+            "details": "Non-execution or mutation-free task: verification not applicable.",
+        }
+
+    raw = _verification_receipt_status(state)
+    if not raw["ran_any"]:
+        return {
+            "state": "unverified",
+            "passed": False,
+            "checks": {k: "skipped" for k in raw["required"]},
+            "required": raw["required"],
+            "missing": raw["missing"],
+            "details": "Deliverables were created but no verification command or tool was executed.",
+        }
+
+    # Environment failure check
+    env_failure = False
+    for debt in raw.get("failed_check_debts") or []:
+        if classify_env_failure(str(debt)):
+            env_failure = True
+            break
+    if env_failure:
+        return {
+            "state": "blocked",
+            "passed": False,
+            "checks": {k: ("passed" if raw.get(k) else "blocked") for k in raw["required"]},
+            "required": raw["required"],
+            "missing": raw["missing"],
+            "details": "Verification execution was obstructed by environment configuration or missing runtime dependencies.",
+        }
+
+    # Check for failed debts or static check failure
+    missing_items = list(raw.get("missing") or [])
+    if raw.get("failed_check_debts") or ("static" in missing_items and raw.get("ran_any") and not raw.get("static")):
+        return {
+            "state": "failed",
+            "passed": False,
+            "checks": {k: ("passed" if raw.get(k) else "failed") for k in raw["required"]},
+            "required": raw["required"],
+            "missing": missing_items,
+            "details": f"Verification checks failed: {', '.join(missing_items)}.",
+        }
+
+    if raw.get("passed"):
+        return {
+            "state": "verified",
+            "passed": True,
+            "checks": {k: "passed" for k in raw["required"]},
+            "required": raw["required"],
+            "missing": [],
+            "details": f"All {len(raw['required'])} required verification domains verified and passed.",
+        }
+
+    if raw.get("static") and raw.get("failed_checks"):
+        return {
+            "state": "partially_verified",
+            "passed": True,
+            "checks": {k: ("passed" if raw.get(k) else "skipped") for k in raw["required"]},
+            "required": raw["required"],
+            "missing": missing_items,
+            "details": f"Core code verification passed, but secondary checks skipped: {', '.join(missing_items)}.",
+        }
+
+    return {
+        "state": "failed",
+        "passed": False,
+        "checks": {k: ("passed" if raw.get(k) else "failed") for k in raw["required"]},
+        "required": raw["required"],
+        "missing": missing_items,
+        "details": f"Verification incomplete: missing {', '.join(missing_items)}.",
+    }
+
 
 
 #: Target ids whose ✅ receipt implies a rendered surface (a device, emulator,

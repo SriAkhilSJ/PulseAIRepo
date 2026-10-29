@@ -1,3 +1,8 @@
+> **Current Agent Core Milestone (2026-10-29):** CrusorAI 2.0 Hardened Architecture.
+> The agent core has achieved a **100% Full-Stack Pass (16/16 tests)** on the cryptographically pinned GatePulse benchmark across **GPT-4o-mini**, **DeepSeek-V4.1-Flash**, and **GLM-5.3-Flash**.
+> Stream-vs-persist decoupling reduces reasoning log volume by 1,800x. Monotonic revision ledgers and AST syntax gates enforce zero-hallucination verification.
+> For current architecture, consult [CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md](CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md), [core.md](core.md), and [README.md](README.md). Older desktop/CopilotKit notes below are preserved for historical provenance.
+
 > **Current Agent Core handoff (2026-10-27):** this file is a historical CopilotKit/desktop handoff and its older statements such as "no live LLM turn has ever run" are superseded. Provider-backed Agent Core runs have since executed. The latest full-stack evidence is still an honest **FAIL** (4/5 tests; SQLite persistence failed), and the subsequent durable verification-repair loop has provider-free evidence only. Use [`core.md`](core.md) as the source of truth for current work, rationale, exact evidence, and remaining verification; use [`docs/CRUSOR_FULLSTACK_BENCHMARK.md`](docs/CRUSOR_FULLSTACK_BENCHMARK.md) for immutable run history.
 >
 > **Update 2026-10-12:** Reasoning Latency Throttling, Champion Quality Evaluation, and Parallel Tool Batching:

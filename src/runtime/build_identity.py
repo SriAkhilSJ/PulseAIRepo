@@ -29,6 +29,7 @@ def _run_git(root: Path, *args: str) -> tuple[int | None, str]:
         proc = subprocess.run(
             ["git", *args],
             cwd=str(root),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=5,
@@ -44,6 +45,7 @@ def _run_git_bytes(root: Path, *args: str) -> tuple[int | None, bytes]:
         proc = subprocess.run(
             ["git", *args],
             cwd=str(root),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=10,
             check=False,

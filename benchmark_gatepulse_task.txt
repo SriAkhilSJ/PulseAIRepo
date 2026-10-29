@@ -1,0 +1,58 @@
+Build GatePulse: an API rate-limiting gateway simulator with SQLite persistence and a live traffic-monitoring dashboard.
+
+Deliverables required (all paths relative to workspace root):
+1. backend/server.py - Python standard-library HTTP server (zero external dependencies outside Python stdlib, e.g. http.server, sqlite3, threading, json, time).
+2. frontend/index.html - Dashboard layout with client input, single request, burst traffic, quota gauge, metrics cards, timeline, reset button.
+3. frontend/styles.css - Modern, dark-themed responsive UI styling.
+4. frontend/app.js - Vanilla JavaScript client communicating with backend endpoints using relative API paths (no hardcoded host:port origins).
+5. tests/test_server.py - Comprehensive automated tests for backend rate limiting, concurrency, sliding window, and metrics.
+
+Backend Specifications:
+- Endpoint 1: POST /api/consume
+  - Body: JSON object {"client_id": "client_A"} (reject empty or missing client_id with HTTP 400).
+  - Rate limiting algorithm: Pure SLIDING-WINDOW rate limiter (NOT fixed window). Default limit: 5 requests per client per 10-second sliding window.
+  - Success: If client has made < 5 requests within the last 10.0 seconds, record the timestamp, return HTTP 200 with JSON payload containing:
+    {"status": "accepted", "client_id": "client_A", "remaining": <int>, "limit": 5, "window_seconds": 10.0}
+  - Rejection: If client has already made >= 5 requests in the last 10.0 seconds, return HTTP 429 Too Many Requests with:
+    - HTTP Header "Retry-After": ceil(oldest_relevant_timestamp + 10.0 - now) in seconds.
+    - JSON payload: {"status": "rejected", "client_id": "client_A", "error": "rate limit exceeded", "retry_after": <int_or_float>}
+  - Multi-client isolation: Quotas for different client_ids must be completely independent (e.g., client_A hitting limit does not block client_B).
+  - Concurrency & Atomicity: Enforce thread-safe atomic sliding-window evaluation (e.g. mutex or SQLite transaction) so simultaneous requests cannot bypass the quota.
+- Endpoint 2: GET /api/metrics
+  - Returns HTTP 200 with JSON:
+    {
+      "total_requests": <int>,
+      "accepted_requests": <int>,
+      "rejected_requests": <int>,
+      "rejection_rate": <float_percent>,
+      "clients": { "<client_id>": {"accepted": <int>, "rejected": <int>} }
+    }
+- Endpoint 3: POST /api/reset
+  - Clears all recorded request logs and active sliding-window quota state from SQLite database. Returns HTTP 200 with {"status": "reset", "message": "All quotas and history cleared"}.
+- Endpoint 4: GET /api/health
+  - Returns HTTP 200 with {"status": "ok"}.
+- Static file serving:
+  - Serve frontend/index.html, frontend/styles.css, frontend/app.js at /, /index.html, /styles.css, /app.js.
+- Database:
+  - SQLite with WAL mode, index on timestamp and client_id. Support DB_PATH / GATEPULSE_DB environment variable override.
+
+Frontend Specifications:
+- Client ID selector/input (defaults to "client_A", allows switching to "client_B").
+- "Send Request" button: triggers POST /api/consume.
+- "Burst Traffic (5x)" button: rapidly fires 5 sequential requests.
+- Quota gauge / visual progress bar showing remaining tokens/requests in current window.
+- Counter cards: Total Requests, Accepted (200), Rejected (429), Rejection Rate %.
+- Interactive request history log / timeline displaying timestamp, client, status code (green 200 badge vs red 429 badge).
+- Clear feedback message/banner when 429 rate limit is triggered, displaying Retry-After countdown.
+- "Reset Simulation" button: calls POST /api/reset, clears DOM logs, and refreshes metrics.
+
+Automated Test Specifications (tests/test_server.py):
+- Implement unittest / pytest test suite testing:
+  1. Single consume within quota (200 OK, remaining count).
+  2. 5 requests accepted, 6th request rejected with HTTP 429 and Retry-After header.
+  3. Client isolation (client_A rejected does not affect client_B).
+  4. Advance time past window -> quota recovers.
+  5. Metrics endpoint calculation accuracy.
+  6. Reset endpoint clears state.
+  7. Thread concurrency test verifying no limit bypass under simultaneous requests.
+- Run tests via `python -m unittest tests/test_server.py` and confirm 100% pass before finishing.
