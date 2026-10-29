@@ -129,6 +129,10 @@ def _append_turn(
     )
 
 
+def _write_file(path: Path, text: str, *args, **kwargs) -> None:
+    path.write_bytes(text.encode("utf-8"))
+
+
 def _make_consistent_package(root: Path) -> None:
     for directory in ("screenshots", "traces", "reports", "sqlite", "logs"):
         (root / directory).mkdir(parents=True, exist_ok=True)
@@ -171,7 +175,7 @@ def _make_consistent_package(root: Path) -> None:
         _append_turn(rows, session_ids[scenario], calls[scenario], f"Scenario {scenario} prompt")
         relative = f"traces/{scenario}.jsonl"
         trace_paths[scenario] = relative
-        (root / relative).write_text(
+        _write_file((root / relative), 
             "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows),
             encoding="utf-8",
         )
@@ -199,7 +203,7 @@ def _make_consistent_package(root: Path) -> None:
     cg_trace_text = "".join(
         json.dumps(row, separators=(",", ":")) + "\n" for row in cg_rows
     )
-    (root / "traces/CG.jsonl").write_text(cg_trace_text, encoding="utf-8")
+    _write_file((root / "traces/CG.jsonl"), cg_trace_text, encoding="utf-8")
     cg_prefix_hash = hashlib.sha256(
         b"".join(cg_trace_text.encode("utf-8").splitlines(keepends=True)[:5])
     ).hexdigest()
@@ -219,7 +223,7 @@ def _make_consistent_package(root: Path) -> None:
         )
         relative = f"reports/{scenario}.md"
         report_paths[scenario] = relative
-        (root / relative).write_text(report, encoding="utf-8")
+        _write_file((root / relative), report, encoding="utf-8")
 
     sessions = []
     for scenario in "ABCDEFGI":
@@ -238,7 +242,7 @@ def _make_consistent_package(root: Path) -> None:
         else:
             entry["fresh"] = True
         sessions.append(entry)
-    (root / "sessions.json").write_text(json.dumps(sessions, indent=2) + "\n", encoding="utf-8")
+    _write_file((root / "sessions.json"), json.dumps(sessions, indent=2) + "\n", encoding="utf-8")
 
     screenshot_lines = ["# Screenshot manifest", ""]
     for index, filename in enumerate(REQUIRED_SCREENSHOTS, 1):
@@ -249,7 +253,7 @@ def _make_consistent_package(root: Path) -> None:
             f"- {filename} | SHA-256 {digest} | 2026-10-25T01:{index:02d}:00-07:00 | "
             f"scenario {filename.split('-', 1)[0]} | session attributable | desktop chrome"
         )
-    (root / "screenshots/README.md").write_text("\n".join(screenshot_lines) + "\n", encoding="utf-8")
+    _write_file((root / "screenshots/README.md"), "\n".join(screenshot_lines) + "\n", encoding="utf-8")
 
     result_rows = []
     scenario_names = {
@@ -293,7 +297,7 @@ Application-code files modified: NONE
 |---|---|---|---|---|---|---|
 {result_rows_text}
 """
-    (root / "RESULTS.md").write_text(results, encoding="utf-8")
+    _write_file((root / "RESULTS.md"), results, encoding="utf-8")
 
     provenance = f"""Target implementation: {EXPECTED_IMPLEMENTATION}
 TypeScript renderer source stamp: {EXPECTED_RENDERER_STAMP}
@@ -304,7 +308,7 @@ Disposable workspace: {workspace}
 Initial recursive directory listing: EMPTY
 npm ci exit code 0
 """
-    (root / "provenance.txt").write_text(provenance, encoding="utf-8")
+    _write_file((root / "provenance.txt"), provenance, encoding="utf-8")
 
     events = []
     sequence = 1
@@ -344,10 +348,10 @@ npm ci exit code 0
                 ]
             )
             sequence += 2
-    (root / "sqlite/runtime_events_extract.json").write_text(json.dumps(events, indent=2) + "\n", encoding="utf-8")
-    (root / "sqlite/verification_events_extract.json").write_text("[]\n", encoding="utf-8")
-    (root / "sqlite/sessions_extract.json").write_text("[]\n", encoding="utf-8")
-    (root / "sqlite/README.md").write_text(
+    _write_file((root / "sqlite/runtime_events_extract.json"), json.dumps(events, indent=2) + "\n", encoding="utf-8")
+    _write_file((root / "sqlite/verification_events_extract.json"), "[]\n", encoding="utf-8")
+    _write_file((root / "sqlite/sessions_extract.json"), "[]\n", encoding="utf-8")
+    _write_file((root / "sqlite/README.md"), 
         ".tables\nPRAGMA table_info(runtime_events);\nSELECT seq,event_type,session_id,turn_id,tool_call_id,payload_json\n"
         "SELECT id,created_at,session_id,workspace,command,kind,scope,status,exit_code,output\n",
         encoding="utf-8",
@@ -360,13 +364,13 @@ npm ci exit code 0
     )
     audit_rows = []
     for scenario in "ABCDEFGI":
-        report = (root / report_paths[scenario]).read_bytes()
+        report = (root / report_paths[scenario]).read_bytes().replace(b"\r\n", b"\n")
         digest = hashlib.sha256(report).hexdigest()
         audit_rows.append(
             f"| {scenario} | {session_ids[scenario]} | {digest} | completed | unverified | "
             f"{len(calls[scenario])} | 0 | {len(calls[scenario])} | present | / 100 | complete | 4/4 | 42 | 100 | 42.0% | scored |"
         )
-    (root / "reports/H-report-audit.md").write_text(
+    _write_file((root / "reports/H-report-audit.md"), 
         "# H audit\n\n" + audit_header + "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n" + "\n".join(audit_rows) + "\n",
         encoding="utf-8",
     )
@@ -379,16 +383,16 @@ npm ci exit code 0
         "Trace line count: 8\nMaximum step index: 8\nReport step count: 8\n"
         f"Trace prefix SHA-256: {cg_prefix_hash}\nProcess state: relaunched\n"
     )
-    (root / "logs/G-before-restart.txt").write_text(before_receipt, encoding="utf-8")
-    (root / "logs/G-after-restart.txt").write_text(after_receipt, encoding="utf-8")
+    _write_file((root / "logs/G-before-restart.txt"), before_receipt, encoding="utf-8")
+    _write_file((root / "logs/G-after-restart.txt"), after_receipt, encoding="utf-8")
     nonce = "agent-core-omission-0123456789abcdef0123456789abcdef"
     marker = "SYNTHETIC_ONLY_DO_NOT_USE_" + hashlib.sha256(nonce.encode()).hexdigest()[:32]
     marker_hash = hashlib.sha256(marker.encode()).hexdigest()
-    (root / "logs/I-marker-hash.txt").write_text(
+    _write_file((root / "logs/I-marker-hash.txt"), 
         f"Nonce: {nonce}\nDerivation: prefix + sha256(nonce)[:32]\nMarker byte length: 58\nMarker SHA-256: {marker_hash}\n",
         encoding="utf-8",
     )
-    (root / "logs/SANITIZATION.md").write_text("No replacements required.\n", encoding="utf-8")
+    _write_file((root / "logs/SANITIZATION.md"), "No replacements required.\n", encoding="utf-8")
     engine_lines = (
         [
             "engine start interval one",
@@ -404,7 +408,7 @@ npm ci exit code 0
             EXPECTED_SOURCES_HASH,
         ]
     )
-    (root / "logs/engine-complete.log").write_text("\n".join(engine_lines) + "\n", encoding="utf-8")
+    _write_file((root / "logs/engine-complete.log"), "\n".join(engine_lines) + "\n", encoding="utf-8")
 
 
 def test_consistent_protocol_fixture_can_pass_the_gate(tmp_path: Path) -> None:
