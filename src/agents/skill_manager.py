@@ -836,6 +836,47 @@ class SkillManager:
             used += len(line)
         return "\n".join(lines)
 
+    def complete_task(self, task: str, plan_steps: list | None = None) -> dict:
+        """Close the loop: return the books that governed a finished task.
+
+        Every completed task hands its books back — name, path, provenance and
+        the verification receipts the plan was supposed to satisfy. Deterministic:
+        the same derivation that injected at plan time runs here, so what is
+        returned is exactly what shaped the work.
+
+        Cheap by construction (one kit derivation, no model call), safe to call
+        from finalize, and never raises into the turn.
+        """
+        plan_text = " ".join(str(step.get("description") or "") if isinstance(step, dict)
+                             else str(step) for step in (plan_steps or []))
+        kit = self.plan_kit(f"{task} {plan_text}".strip())
+        books = []
+        for tier in ("core", "stack", "detail"):
+            for entry in kit[tier]:
+                skill = self.get_skill(entry["name"])
+                if not skill:
+                    continue
+                body = str(skill.get("instruction") or "")
+                receipts = []
+                if "## Verification receipts" in body:
+                    tail = body.split("## Verification receipts", 1)[1]
+                    for line in tail.splitlines():
+                        if re.match(r"^\d+\. ", line.strip()):
+                            receipts.append(line.strip()[3:][:160])
+                        elif receipts and line.strip() and not line.startswith("#"):
+                            break
+                books.append({
+                    "name": entry["name"],
+                    "path": str(skill.get("path") or ""),
+                    "tier": tier,
+                    "origin": "architect",
+                    "receipts": receipts[:5],
+                })
+                self.record_usage(entry["name"], "use", persist=False)
+        if books:
+            self._save()  # the completion receipt is a real event: persist it now
+        return {"task": task[:200], "books": books, "count": len(books)}
+
     def get_skills_text(self, task: str, phase: str = "executing") -> str:
         """Budgeted, ranked injection — the zero-call path.
 

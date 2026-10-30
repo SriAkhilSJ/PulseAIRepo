@@ -2971,6 +2971,19 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         task_succeeded=True,
     )
 
+    # Close the skills loop: a completed task returns the architect books that
+    # governed it (name, path, provenance, verification receipts) and bumps their
+    # usage. Deterministic and cheap; it must never break finalization.
+    skills_returned: list[dict] = []
+    try:
+        from src.agents.skill_manager import skill_manager
+        completion = skill_manager.complete_task(
+            str(state.get("current_task") or ""), state.get("plan") or []
+        )
+        skills_returned = completion.get("books") or []
+    except Exception:
+        skills_returned = []
+
     # Store and judge the resolved interest, not whichever human message was
     # newest. A bare "ok" must not replace the objective, while a substantive
     # correction must be visible to memory, feedback, and completion gates.
@@ -3472,6 +3485,9 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "specification_status": spec_status,
         "diagnostics": diagnostics_list,
         "status_contract": status_contract_dict["status_contract"],
+        # The books that governed this task, returned on completion (name, path,
+        # provenance, verification receipts). Empty when nothing matched.
+        "skills_returned": skills_returned,
         "messages": ([AIMessage(content="\n".join(lines))] if lines else []) + _sweep,
     }
 
