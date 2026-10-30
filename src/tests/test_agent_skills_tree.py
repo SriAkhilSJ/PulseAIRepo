@@ -145,6 +145,14 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "express-architect",
         "nestjs-architect",
         "fastify-architect",
+        "accessibility-architect",
+        "web-performance-architect",
+        "i18n-architect",
+        "forms-architect",
+        "motion-architect",
+        "seo-architect",
+        "pwa-architect",
+        "vitest-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -208,3 +216,40 @@ def test_skill_names_unique_and_crusor_path_matches_location():
         expected = path.parent.relative_to(tree).as_posix()
         declared = fm.get("metadata", {}).get("crusor-path")
         assert declared == expected, f"{path}: crusor-path {declared!r} != {expected!r}"
+
+
+# Capability -> skill. This is the definition of "the frontend branch is
+# complete": every capability a website frontend needs has a book on the shelf.
+FRONTEND_CAPABILITIES = {
+    "markup and cascade": "html-css-architect",
+    "language runtime": "javascript-architect",
+    "type contracts": "typescript-architect",
+    "styling system": "tailwind-architect",
+    "build and bundling": "vite-architect",
+    "motion": "motion-architect",
+    "offline and install": "pwa-architect",
+    "accessibility": "accessibility-architect",
+    "performance": "web-performance-architect",
+    "indexability": "seo-architect",
+    "internationalisation": "i18n-architect",
+    "forms": "forms-architect",
+    "unit and component tests": "vitest-architect",
+    "end-to-end tests": "playwright-architect",
+    "react": "react-architect",
+    "vue": "vue-architect",
+    "angular": "angular-architect",
+    "svelte": "svelte-architect",
+    "astro": "astro-architect",
+    "node runtime": "nodejs-architect",
+    "3d": "threejs-architect",
+}
+
+
+def test_frontend_branch_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {cap: skill for cap, skill in FRONTEND_CAPABILITIES.items() if skill not in available}
+    assert not missing, f"frontend capabilities without a skill: {missing}"
+    assert len(FRONTEND_CAPABILITIES) >= 20

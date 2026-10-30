@@ -191,9 +191,10 @@ def test_instruction_cap_enforced(tmp_path):
 def test_natural_language_tasks_fire_expected_skills(task, expected):
     sm = SkillManager(storage_path=_tmpfile())
     bundled = _bundled(sm)
+    from src.agents.skill_manager import trigger_matches
     hits = sorted(
         name for name, s in bundled.items()
-        if any(t in task.lower() for t in s["triggers"])
+        if any(trigger_matches(task.lower(), t) for t in s["triggers"])
     )
     for name in expected:
         assert name in hits, f"{task!r} did not fire {name} (fired: {hits})"
@@ -223,3 +224,13 @@ def _load_from(skills_dir) -> SkillManager:
     sm = SkillManager(storage_path=_tmpfile())
     sm._load_bundled_skills(skills_dir=str(skills_dir))
     return sm
+
+
+def test_triggers_match_on_word_boundaries_only():
+    """`vite` must not fire on "vitest", nor `test` on "latest"."""
+    from src.agents.skill_manager import trigger_matches
+
+    assert trigger_matches("write vitest tests", "vite") is False
+    assert trigger_matches("write vitest tests", "vitest") is True
+    assert trigger_matches("the latest changes", "test") is False
+    assert trigger_matches("add end-to-end coverage", "end-to-end") is True

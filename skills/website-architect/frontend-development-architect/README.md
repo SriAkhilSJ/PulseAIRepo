@@ -7,18 +7,33 @@ its **own architect skill** (`SKILL.md`); this directory itself is also a skill
 ```
 frontend-development-architect/
 ├── SKILL.md                                # branch architect: visual direction, tokens, budgets
-├── html-css-architect/SKILL.md             # semantics, cascade, layout, responsive strategy
-├── javascript-architect/SKILL.md           # module boundaries, async/error flow, runtime split
-├── typescript-architect/SKILL.md           # contracts, unions, strictness, schema-derived types
-├── tailwind-architect/SKILL.md             # token delivery, theme strategy, variant layering
-├── vite-architect/SKILL.md                 # dev vs build, chunking, env, budgets
-├── playwright-architect/SKILL.md           # E2E scope, fixtures, determinism, CI policy
-├── vue-architect/SKILL.md                  # Composition API, Pinia, Nuxt
-├── angular-architect/SKILL.md              # standalone, signals vs RxJS, DI scopes
-├── svelte-architect/SKILL.md               # runes, SvelteKit load/actions
-├── astro-architect/SKILL.md                # islands, content collections, output modes
+│
+├── languages & platforms
+│   ├── html-css-architect/SKILL.md         # semantics, cascade, layout, responsive strategy
+│   ├── javascript-architect/SKILL.md       # module boundaries, async/error flow, runtime split
+│   ├── typescript-architect/SKILL.md       # contracts, unions, strictness, schema-derived types
+│   ├── vue-architect/SKILL.md              # Composition API, Pinia, Nuxt
+│   ├── angular-architect/SKILL.md          # standalone, signals vs RxJS, DI scopes
+│   ├── svelte-architect/SKILL.md           # runes, SvelteKit load/actions
+│   └── astro-architect/SKILL.md            # islands, content collections, output modes
+│
+├── system & delivery
+│   ├── tailwind-architect/SKILL.md         # token delivery, variants, dark mode
+│   ├── vite-architect/SKILL.md             # dev vs build, chunking, env, budgets
+│   ├── motion-architect/SKILL.md           # purpose, timing scale, reduced-motion
+│   └── pwa-architect/SKILL.md              # service workers, caching, updates, offline
+│
+├── quality gates
+│   ├── accessibility-architect/SKILL.md    # WCAG 2.2 AA, semantics, focus, ARIA
+│   ├── web-performance-architect/SKILL.md  # Core Web Vitals, critical path, assets
+│   ├── seo-architect/SKILL.md              # indexability, metadata, canonicals, JSON-LD
+│   ├── i18n-architect/SKILL.md             # catalogues, ICU, locale routing, RTL
+│   ├── forms-architect/SKILL.md            # one schema, error mapping, submit safety
+│   ├── vitest-architect/SKILL.md           # unit/component layer, MSW, speed
+│   └── playwright-architect/SKILL.md       # E2E scope, fixtures, determinism
+│
 └── react-architect/
-    ├── SKILL.md                            # React entry point: framework/shell/routing decisions
+    ├── SKILL.md                            # React entry: framework/shell/routing decisions
     ├── react-core-architect/SKILL.md       # component boundaries, composition, error boundaries
     ├── nextjs-architect/SKILL.md           # App Router, rendering strategy, cache layers
     ├── react-router-architect/SKILL.md     # routing, loaders, guards (non-Next)

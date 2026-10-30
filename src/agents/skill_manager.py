@@ -150,6 +150,28 @@ def _frontmatter_triggers(frontmatter: dict) -> list[str]:
             triggers.append(t)
     return triggers
 
+_TRIGGER_CACHE: dict[str, "re.Pattern[str]"] = {}
+
+
+def trigger_matches(task_lower: str, trigger: str) -> bool:
+    """Whole-word matching for a trigger against a lowercased task.
+
+    Substring matching fired ``vite`` on "vitest" and ``test`` on "latest".
+    A trigger matches only at a token boundary; hyphens stay part of the token
+    so "end-to-end" and "next.js" keep working.
+    """
+    t = (trigger or "").strip().lower()
+    if not t or not task_lower:
+        return False
+    pattern = _TRIGGER_CACHE.get(t)
+    if pattern is None:
+        # Trailing "s" is tolerated so "unit test" still fires on "unit tests"
+        # while "vite" still does not fire on "vitest".
+        pattern = re.compile(r"(?<![a-z0-9])" + re.escape(t) + r"s?(?![a-z0-9])")
+        _TRIGGER_CACHE[t] = pattern
+    return pattern.search(task_lower) is not None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -548,7 +570,7 @@ class SkillManager:
                 continue
             if str(skill.get("phase", "always")) == "planning" and phase != "planning":
                 continue
-            if any(trigger in task_lower for trigger in skill.get("triggers", [])):
+            if any(trigger_matches(task_lower, t) for t in skill.get("triggers", [])):
                 instructions.append(f"**{skill['name']}:** {skill['instruction']}")
                 self.record_usage(skill["name"], "use")
         return instructions
