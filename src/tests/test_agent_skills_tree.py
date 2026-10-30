@@ -159,6 +159,13 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "redis-architect",
         "prisma-architect",
         "drizzle-architect",
+        "api-development-architect",
+        "rest-architect",
+        "graphql-architect",
+        "trpc-architect",
+        "grpc-architect",
+        "api-auth-architect",
+        "rate-limiting-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -278,3 +285,23 @@ def test_database_branch_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in DATABASE_CAPABILITIES.items() if s not in available}
     assert not missing, f"data-layer capabilities without a skill: {missing}"
+
+
+API_CAPABILITIES = {
+    "contract and versioning direction": "api-development-architect",
+    "resource-oriented http": "rest-architect",
+    "client-driven graph": "graphql-architect",
+    "typescript-only rpc": "trpc-architect",
+    "service-to-service streaming": "grpc-architect",
+    "identity and authorization": "api-auth-architect",
+    "quotas and abuse": "rate-limiting-architect",
+}
+
+
+def test_api_branch_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in API_CAPABILITIES.items() if s not in available}
+    assert not missing, f"API capabilities without a skill: {missing}"
