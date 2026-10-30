@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any stack and cloud
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/reliability-architect
+  crusor-path: cloud-and-devops-architect/operations-architect/reliability-architect
   crusor-origin: original
   crusor-sources: "sre.google/sre-book; aws.amazon.com/architecture/well-architected/reliability"
   crusor-triggers: "reliability, slo, sli, availability, disaster recovery, failover, redundancy, error budget, capacity planning"

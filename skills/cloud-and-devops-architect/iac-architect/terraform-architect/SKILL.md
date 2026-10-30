@@ -5,7 +5,7 @@ license: MIT
 compatibility: Terraform 1.6+ / OpenTofu; any provider
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/terraform-architect
+  crusor-path: cloud-and-devops-architect/iac-architect/terraform-architect
   crusor-origin: original
   crusor-sources: "developer.hashicorp.com/terraform; opentofu.org/docs"
   crusor-triggers: "terraform, opentofu, iac, state file, modules, plan apply, drift, hcl"

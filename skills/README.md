@@ -8,7 +8,8 @@ skills/
 ├── website-architect/     the web product, end to end
 ├── mobile-architect/      iOS, Android, RN, Flutter, offline, security, perf, testing, a11y, release
 ├── desktop-architect/     Electron, Tauri, native, IPC, storage, security, update, distribution
-├── cloud-and-devops-architect/  cloud primitives, k8s, IaC, serverless, reliability, cost
+├── cloud-and-devops-architect/  7 shelves: providers, identity, networking, compute,
+│                            data services, IaC, platform, operations
 ├── ai-ml-architect/       LLM apps, RAG, evals, serving, MLOps, agents
 ├── data-engineering-architect/  batch, streaming, warehouse, orchestration, quality, dbt
 └── …                      (process skills: flat, one directory per skill)
@@ -48,7 +49,7 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
 | `mobile-architect/` | 13 | platform choice, iOS/SwiftUI, Android/Compose, RN, Flutter, offline sync, security, performance, testing, accessibility, release |
 | `desktop-architect/` | 9 | runtime choice, Electron, Tauri, native, IPC, local storage, security, updates, distribution |
-| `cloud-and-devops-architect/` | 7 | cloud topology, AWS, Kubernetes, Terraform, serverless, reliability, cost |
+| `cloud-and-devops-architect/` | 36 | providers (AWS/GCP/Azure/Cloudflare), IAM, VPC/DNS, EC2/ECS/Lambda/K8s, storage/DB/messaging/cache, Terraform/Pulumi/CFN/Ansible, Helm/GitOps/mesh/K8s-security/IDP, reliability/cost/observability/chaos/DR/incident |
 | `ai-ml-architect/` | 7 | model boundary, LLM apps, RAG, evals, inference serving, MLOps, agents |
 | `data-engineering-architect/` | 7 | topology, batch, streaming, warehouse modelling, orchestration, quality, dbt |
 

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any cloud; any billing export
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/cost-optimization-architect
+  crusor-path: cloud-and-devops-architect/operations-architect/cost-optimization-architect
   crusor-origin: original
   crusor-sources: "aws.amazon.com/aws-cost-management; cloud.google.com/cost-management; azure.microsoft.com/pricing"
   crusor-triggers: "cloud cost, cloud bill, bill doubled, cost spike, billing, finops, cost optimization, reserved instances, savings plans, egress, budget alarm, spend"

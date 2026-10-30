@@ -20,14 +20,21 @@ new bill.
 
 ## Leaf map
 
-| Need | Skill |
+Seven shelves, 35 books.
+
+| Shelf | Books |
 |---|---|
-| provider primitives and service choice | `aws-architect` |
-| container orchestration and cluster design | `kubernetes-architect` |
-| declaring infrastructure as code | `terraform-architect` |
-| request-driven, scale-to-zero workloads | `serverless-architect` |
-| SLOs, HA, DR, multi-region | `reliability-architect` |
-| what it costs and how it grows | `cost-optimization-architect` |
+| `providers-architect/` | `aws` · `gcp` · `azure` · `cloudflare` |
+| `identity-architect/` | `iam` · `multi-account` · `secrets-and-keys` |
+| `networking-architect/` | `vpc-networking` · `dns-and-edge` · `network-security` |
+| `compute-architect/` | `kubernetes` · `serverless` · `ec2` · `ecs` · `lambda` · `autoscaling` |
+| `data-services-architect/` | `object-storage` · `managed-databases` · `messaging` · `caching` |
+| `iac-architect/` | `terraform` · `pulumi` · `cloudformation` · `ansible` |
+| `platform-architect/` | `helm` · `gitops` · `service-mesh` · `kubernetes-security` · `platform-engineering` |
+| `operations-architect/` | `reliability` · `cost-optimization` · `sre-observability` · `chaos-engineering` · `backup-and-dr` · `cloud-incident-response` |
+
+Read this crown, then take the one or two books the decision needs. The shelf
+tells you the axis; the book tells you the trade-off.
 
 ## Decision 1 — Topology before services
 

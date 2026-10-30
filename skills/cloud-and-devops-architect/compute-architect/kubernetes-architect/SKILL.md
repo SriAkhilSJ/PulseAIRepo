@@ -5,7 +5,7 @@ license: MIT
 compatibility: Kubernetes 1.28+; managed clusters preferred
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/kubernetes-architect
+  crusor-path: cloud-and-devops-architect/compute-architect/kubernetes-architect
   crusor-origin: original
   crusor-sources: "kubernetes.io/docs/concepts; kubernetes.io/docs/tasks/run-application; 12factor.net"
   crusor-triggers: "kubernetes, k8s, helm, ingress, hpa, statefulset, cluster, pod disruption budget, namespace"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: AWS; any IaC toolchain
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/aws-architect
+  crusor-path: cloud-and-devops-architect/providers-architect/aws-architect
   crusor-origin: original
   crusor-sources: "docs.aws.amazon.com; aws.amazon.com/architecture/well-architected"
   crusor-triggers: "aws, amazon web services, ec2, s3, lambda, iam, vpc, rds, sqs, cloudfront"

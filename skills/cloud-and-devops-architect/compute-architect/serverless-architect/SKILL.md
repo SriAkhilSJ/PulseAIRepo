@@ -5,7 +5,7 @@ license: MIT
 compatibility: AWS Lambda, Cloud Run, Azure Functions, Cloudflare Workers
 metadata:
   crusor-domain: cloud-and-devops-architect
-  crusor-path: cloud-and-devops-architect/serverless-architect
+  crusor-path: cloud-and-devops-architect/compute-architect/serverless-architect
   crusor-origin: original
   crusor-sources: "docs.aws.amazon.com/lambda; cloud.google.com/run/docs; developers.cloudflare.com/workers"
   crusor-triggers: "serverless, lambda, cloud run, functions, cold start, event driven, scale to zero"

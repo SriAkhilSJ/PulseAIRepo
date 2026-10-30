@@ -8,7 +8,7 @@ metadata:
   crusor-path: desktop-architect/desktop-security-architect
   crusor-origin: original
   crusor-sources: "electronjs.org/docs/latest/tutorial/security; developer.apple.com/documentation/security; learn.microsoft.com/windows/security"
-  crusor-triggers: "desktop security, keychain, credential manager, csp, remote content, sandbox, code signing, mdm, local file access, threat model, security review, hardening"
+  crusor-triggers: "desktop security, keychain, credential manager, csp, remote content, sandbox, code signing, mdm, local file access, threat model, security review, desktop hardening"
   crusor-verified-on: "2026-10-30"
 ---
 
