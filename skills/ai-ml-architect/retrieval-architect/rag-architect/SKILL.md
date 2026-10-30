@@ -5,7 +5,7 @@ license: MIT
 compatibility: pgvector, Qdrant, Weaviate, OpenSearch, Pinecone
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/rag-architect
+  crusor-path: ai-ml-architect/retrieval-architect/rag-architect
   crusor-origin: original
   crusor-sources: "arxiv.org/abs/2005.11401; github.com/pgvector/pgvector; docs.llamaindex.ai"
   crusor-triggers: "rag, retrieval, vector database, embedding, chunking, semantic search, reranking, hybrid search, knowledge base, citations, pgvector, hallucination, hallucinating, grounding, make things up, makes things up"

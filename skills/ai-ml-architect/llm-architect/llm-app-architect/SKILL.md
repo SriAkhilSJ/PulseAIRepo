@@ -5,7 +5,7 @@ license: MIT
 compatibility: OpenAI, Anthropic, Gemini, open-weight models via vLLM/Ollama
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/llm-app-architect
+  crusor-path: ai-ml-architect/llm-architect/llm-app-architect
   crusor-origin: original
   crusor-sources: "platform.openai.com/docs/guides; docs.anthropic.com/en/docs; ai.google.dev/gemini-api/docs"
   crusor-triggers: "prompt engineering, structured output, json mode, function calling, tool use, model routing, streaming, token budget, llm api, chatbot, assistant, copilot"

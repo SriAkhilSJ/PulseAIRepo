@@ -5,7 +5,7 @@ license: MIT
 compatibility: vLLM, TGI, TensorRT-LLM, Triton, SageMaker, Bedrock, Vertex
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/inference-serving-architect
+  crusor-path: ai-ml-architect/serving-architect/inference-serving-architect
   crusor-origin: original
   crusor-sources: "docs.vllm.ai; huggingface.co/docs/text-generation-inference; docs.nvidia.com/tensorrt-llm"
   crusor-triggers: "inference, model serving, gpu, vllm, throughput, batching, quantization, latency, time to first token, autoscaling, self host, gpu bill, gpu cost, token cost"

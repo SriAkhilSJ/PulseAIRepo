@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any tool-calling model; MCP servers; sandboxed runtimes
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/agent-architect
+  crusor-path: ai-ml-architect/agent-architect/agent-architect
   crusor-origin: original
   crusor-sources: "docs.anthropic.com/en/docs/build-with-claude/tool-use; modelcontextprotocol.io; arxiv.org/abs/2308.11432"
   crusor-triggers: "agent, agentic, tool use, function calling, autonomy, multi step, mcp, orchestration, human in the loop, autonomous workflow"

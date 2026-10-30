@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any provider; pytest + promptfoo/braintrust style harnesses
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/evals-architect
+  crusor-path: ai-ml-architect/evaluation-architect/evals-architect
   crusor-origin: original
   crusor-sources: "arxiv.org/abs/2306.05685; platform.openai.com/docs/guides/evaluation; hamel.dev"
   crusor-triggers: "eval, evaluation, golden set, model as judge, llm judge, regression testing, benchmark, accuracy, quality gate, hallucination, regression gate"

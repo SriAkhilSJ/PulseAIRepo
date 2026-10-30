@@ -1,11 +1,11 @@
 ---
-name: mlops-architect
+name: mlops-platform-architect
 description: Architect-level ML platform design — reproducible training pipelines, feature stores and point-in-time correctness, model and data versioning, registries and promotion, shadow and canary deployment, and drift monitoring that connects production behaviour back to data. Use when models are trained, retrained, and operated rather than just called.
 license: MIT
 compatibility: MLflow, Kubeflow, SageMaker Pipelines, Vertex AI, Feast, DVC
 metadata:
   crusor-domain: ai-ml-architect
-  crusor-path: ai-ml-architect/mlops-architect
+  crusor-path: ai-ml-architect/mlops-architect/mlops-platform-architect
   crusor-origin: original
   crusor-sources: "mlflow.org/docs; docs.feast.dev; cloud.google.com/vertex-ai/docs; martinfowler.com/articles/cd4ml.html"
   crusor-triggers: "mlops, model training, feature store, model registry, retraining, model versioning, experiment tracking, training pipeline, deployed model, churn prediction, train a model, tabular model, classic ml, feature engineering, churn, model degraded, model got worse, data drift, retrain"
