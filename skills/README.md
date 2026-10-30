@@ -10,6 +10,7 @@ skills/
 ├── desktop-architect/     Electron, Tauri, native, distribution
 ├── cloud-and-devops-architect/  cloud primitives, k8s, IaC, serverless, reliability, cost
 ├── ai-ml-architect/       LLM apps, RAG, evals, serving, MLOps, agents
+├── data-engineering-architect/  batch, streaming, warehouse, orchestration, quality, dbt
 └── …                      (process skills: flat, one directory per skill)
 ```
 
@@ -49,5 +50,6 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | `desktop-architect/` | 5 | runtime choice, Electron, Tauri, native, signing and updates |
 | `cloud-and-devops-architect/` | 7 | cloud topology, AWS, Kubernetes, Terraform, serverless, reliability, cost |
 | `ai-ml-architect/` | 7 | model boundary, LLM apps, RAG, evals, inference serving, MLOps, agents |
+| `data-engineering-architect/` | 7 | topology, batch, streaming, warehouse modelling, orchestration, quality, dbt |
 
 See `website-architect/VERIFICATION.md` for the current conformance audit.

@@ -215,6 +215,13 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "inference-serving-architect",
         "mlops-architect",
         "agent-architect",
+        "data-engineering-architect",
+        "batch-pipeline-architect",
+        "streaming-architect",
+        "warehouse-architect",
+        "orchestration-architect",
+        "data-quality-architect",
+        "analytics-engineering-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -487,6 +494,7 @@ def test_every_domain_has_a_crown_skill():
         "website-architect", "mobile-architect", "desktop-architect",
         "cloud-and-devops-architect",
         "ai-ml-architect",
+        "data-engineering-architect",
     }
     for domain in sorted(domains):
         crown = Path("skills") / domain / "SKILL.md"
@@ -551,3 +559,23 @@ def test_ai_ml_domain_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in AI_ML_CAPABILITIES.items() if s not in available}
     assert not missing, f"ai/ml capabilities without a skill: {missing}"
+
+
+DATA_CAPABILITIES = {
+    "source-to-consumer topology and freshness envelope": "data-engineering-architect",
+    "batch and incremental loads": "batch-pipeline-architect",
+    "continuous event processing": "streaming-architect",
+    "analytical storage and modelling": "warehouse-architect",
+    "scheduling, SLAs and recovery": "orchestration-architect",
+    "contracts, tests and incidents": "data-quality-architect",
+    "SQL transformation layer and metrics": "analytics-engineering-architect",
+}
+
+
+def test_data_domain_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in DATA_CAPABILITIES.items() if s not in available}
+    assert not missing, f"data capabilities without a skill: {missing}"

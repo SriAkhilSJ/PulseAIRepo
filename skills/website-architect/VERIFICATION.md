@@ -8,25 +8,26 @@ Generated 2026-10-30 from repository state.
 |---|---|
 | `ai-ml-architect/` | 7 |
 | `cloud-and-devops-architect/` | 7 |
+| `data-engineering-architect/` | 7 |
 | `desktop-architect/` | 5 |
 | `mobile-architect/` | 6 |
 | `website-architect/` | 76 |
-| **total** | **101** |
+| **total** | **108** |
 
 ## Spec conformance
 
-- files checked: **101**
-- name == parent directory: **101/101**
-- crusor-path == path from skills/: **101/101**
-- unique names: **101/101**
+- files checked: **108**
+- name == parent directory: **108/108**
+- crusor-path == path from skills/: **108/108**
+- unique names: **108/108**
 - longest body: **5955 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **101/101**
+- provenance present: **108/108**
 
 ## Runtime
 
-- discovered as bundled skills: **121**
-- phase = planning: **101**
+- discovered as bundled skills: **128**
+- phase = planning: **108**
 - injected while executing: **1**
 - injected while planning: **2**
 
@@ -35,12 +36,9 @@ Generated 2026-10-30 from repository state.
 | Task | Skills selected |
 |---|---|
 | the site is slow on mobile | web-performance-architect |
-| add a csp header | browser-security-architect |
 | design a rest api | rest-architect, rest-graphql-debug |
 | postgres query is slow | db-connector, mcp, postgres-architect |
-| our pipeline takes 40 minutes | ci-cd-architect, testing-and-deployment-architect |
 | we need a canary rollout | release-strategy-architect, testing-and-deployment-architect |
-| implement this figma design | design-handoff-architect |
 | how do we store api keys | secrets-management-architect |
 | build an ios app | ios-architect, mobile-architect |
 | flutter state management | flutter-architect |
@@ -54,15 +52,20 @@ Generated 2026-10-30 from repository state.
 | what availability should we promise | reliability-architect |
 | add an ai chatbot to our docs | llm-app-architect |
 | our answers make things up | rag-architect |
-| should we fine tune or use rag | ai-ml-architect, rag-architect |
 | agent keeps looping forever | agent-architect, ai-ml-architect |
 | predict churn with a model | mlops-architect |
 | gpu bill is too high | inference-serving-architect |
+| build a nightly etl into the warehouse | batch-pipeline-architect, data-engineering-architect |
+| our dashboards disagree on revenue | analytics-engineering-architect, data-quality-architect, observability-architect |
+| kafka consumer lag is growing | streaming-architect |
+| airflow dag failed at 2am | orchestration-architect |
+| our dbt project is a mess | analytics-engineering-architect |
+| the data has duplicates | data-quality-architect |
 
 ## Verification runs
 
 - `pytest src/tests -q` → 2975 passed, 20 failed, 23 skipped, 1 xfailed — the 20 are the repository's pre-existing unrelated failures (baseline 21).
-- `pytest src/tests/test_agent_skills_tree.py` → 20 passed (spec conformance, uniqueness, path integrity, domain crowns, capability contracts, discovery).
+- `pytest src/tests/test_agent_skills_tree.py` → 21 passed (spec conformance, uniqueness, path integrity, domain crowns, capability contracts, discovery).
 - `pytest src/tests/test_skill_library.py` → 13 passed (shelf recording, browsing, full-body reads, planning phase, batch views).
 
 ## Known gaps
