@@ -20,15 +20,18 @@ follows from treating it that way.
 
 ## The shelf
 
-| Question | Book |
+Eight shelves, 30 books.
+
+| Shelf | Books |
 |---|---|
-| where does the model boundary sit, what is the cost and quality envelope? | this file |
-| prompting, context, structured output, tools, fallbacks | `llm-app-architect` |
-| retrieval quality, chunking, embeddings, vector store | `rag-architect` |
-| how do we know it works? golden sets, judges, regression gates | `evals-architect` |
-| latency, throughput, GPUs, batching, self-host vs API | `inference-serving-architect` |
-| training pipelines, feature stores, registries, monitoring drift | `mlops-architect` |
-| multi-step autonomy, tools, memory, guardrails, cost control | `agent-architect` |
+| `providers-architect/` | `openai` · `anthropic` · `gemini` · `open-weights` |
+| `llm-architect/` | `llm-app` · `prompting` · `structured-output` · `model-selection` · `token-economics` |
+| `retrieval-architect/` | `rag` · `chunking` · `embeddings` · `vector-store` · `hybrid-search` |
+| `evaluation-architect/` | `evals` · `judge-calibration` · `red-teaming` |
+| `training-architect/` | `fine-tuning` · `classic-ml` · `recommender` · `vision` |
+| `serving-architect/` | `inference-serving` · `gpu-capacity` · `quantization` · `speech` |
+| `mlops-architect/` | `mlops-platform` · `feature-store` · `model-monitoring` |
+| `agent-architect/` | `agent` · `multi-agent` |
 
 Read the crown, then the one or two books the plan actually needs. Do not read
 the whole shelf to avoid a decision.

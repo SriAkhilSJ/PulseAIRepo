@@ -8,7 +8,7 @@ metadata:
   crusor-path: ai-ml-architect/llm-architect/structured-output-architect
   crusor-origin: original
   crusor-sources: "platform.openai.com/docs/guides/structured-outputs; docs.anthropic.com/en/docs/build-with-claude/tool-use; ai.google.dev/gemini-api/docs/structured-output"
-  crusor-triggers: "structured output, json schema, json mode, response schema, pydantic, zod, parsing llm output, repair loop, function schema"
+  crusor-triggers: "structured output, json schema, json mode, response schema, pydantic, zod, parsing llm output, repair loop, function schema, invalid json, json parsing, parse error, malformed output"
   crusor-verified-on: "2026-10-30"
 ---
 
