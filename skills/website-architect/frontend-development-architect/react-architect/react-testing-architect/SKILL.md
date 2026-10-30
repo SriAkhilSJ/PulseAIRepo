@@ -29,7 +29,7 @@ prove a business rule, the rule probably lives in the wrong layer.
 - Fixing a single assertion in an already-sound suite.
 - Pure styling work with no behaviour contract.
 
-## The layers and their jobs
+## Decision 1 — The layers and their jobs
 
 | Layer | Proves | Tool | Budget |
 |---|---|---|---|
@@ -43,7 +43,7 @@ Rule of thumb: **push every assertion down to the cheapest layer that can prove
 it.** A validation rule tested through a browser is a suite that will be slow and
 still miss the rule.
 
-## What belongs where
+## Decision 2 — What belongs where
 
 - **Unit**: business rules, state machines, money/date logic, permission
   matrices, parsers. No React imports.
@@ -54,7 +54,7 @@ still miss the rule.
 - **E2E**: the three to ten journeys the product cannot survive without — sign
   in, primary task, checkout/publish, recovery from failure. Not every page.
 
-## Rules
+## Decision 3 — Rules
 
 1. **Test behaviour, not implementation.** No asserting on state variables,
    internal hook calls, class names, or component structure.

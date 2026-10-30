@@ -17,6 +17,17 @@ metadata:
 Shipping is a **system property**, not a button. The architecture decides how
 fast a change can reach a user, and how fast it can be taken back.
 
+## When to use
+
+- Designing the test portfolio and the pipeline that gates releases.
+- Environment, observability or rollback decisions.
+- Reviewing a release process that depends on a person remembering something.
+
+## When NOT to use
+
+- Writing an individual test — that is the language or framework book.
+- Infrastructure topology, which belongs to the cloud domain.
+
 ## Leaf map
 
 | Need | Skill |

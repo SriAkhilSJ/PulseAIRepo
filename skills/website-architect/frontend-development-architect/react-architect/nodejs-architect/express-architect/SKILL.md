@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/express-architect
   crusor-origin: original
   crusor-sources: "expressjs.com/en/guide; nodejs.org/api/http"
-  crusor-triggers: "express, expressjs, express middleware, express router"
+  crusor-triggers: "express, expressjs, express router, express middleware, node http, req res next"
   crusor-verified-on: "2026-10-30"
 ---
 

@@ -18,6 +18,17 @@ A desktop app is **a long-lived local process with real privileges**. It can rea
 files, run native code, and live for weeks without a restart — which is exactly
 why the boundaries matter more than on the web.
 
+## When to use
+
+- Choosing a desktop runtime, packaging model, or update strategy.
+- A desktop app that must integrate with the OS: tray, file types, hardware, installers.
+- Reviewing a desktop plan that has to satisfy enterprise deployment.
+
+## When NOT to use
+
+- A web app that happens to be installed — that is the website domain.
+- A mobile app running on a tablet with a keyboard.
+
 ## Leaf map
 
 Five shelves, 19 books.

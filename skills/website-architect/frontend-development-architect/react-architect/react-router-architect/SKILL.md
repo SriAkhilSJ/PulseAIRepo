@@ -58,6 +58,14 @@ Type-safety of params is the deciding axis for large route trees.
 - Redirect logic lives in one place (route loader/guard), not in components.
 - Deep-link to a protected route must survive login and return to the target.
 
+## Decision 5 — Errors and boundaries per route
+
+- Attach an error element to each layout route; one global boundary hides which
+  segment failed.
+- Pending states belong to the route (`pendingComponent`/`loader` state), not to a
+  component-local spinner.
+- 404s are route-level: an unmatched path must render a real page, not a blank shell.
+
 ## Failure modes
 
 - Route components that fetch, transform, and render business rules at once.

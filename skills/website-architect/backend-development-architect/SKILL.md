@@ -17,6 +17,17 @@ metadata:
 Backend architecture is decided by **failure behaviour and ownership**, not by
 the framework. Choose the leaf, then hold the contracts below.
 
+## When to use
+
+- Choosing a backend language/framework for a new service.
+- Layering, state, shutdown or deployment decisions inside one service.
+- Reviewing a service that has grown without explicit boundaries.
+
+## When NOT to use
+
+- Frontend rendering decisions — that is the frontend shelf.
+- Multi-service topology and infrastructure — that is the cloud domain.
+
 ## Leaf map
 
 | Workload | Start with |

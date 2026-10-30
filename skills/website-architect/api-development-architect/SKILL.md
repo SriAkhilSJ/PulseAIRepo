@@ -17,6 +17,17 @@ metadata:
 An API is a **promise to clients you cannot see**. Every decision here is about
 keeping that promise while the system underneath changes.
 
+## When to use
+
+- Designing a new API surface, or choosing a transport for one.
+- Contract, versioning, pagination or auth decisions that clients depend on.
+- Reviewing an API that external or long-lived clients consume.
+
+## When NOT to use
+
+- Internal function boundaries inside one process.
+- A single endpoint on an otherwise settled API.
+
 ## Leaf map
 
 | Need | Skill |

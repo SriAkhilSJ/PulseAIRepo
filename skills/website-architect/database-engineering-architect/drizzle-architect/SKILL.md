@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/database-engineering-architect/drizzle-architect
   crusor-origin: original
   crusor-sources: "orm.drizzle.team/docs/overview; orm.drizzle.team/docs/migrations"
-  crusor-triggers: "drizzle, drizzle orm, drizzle kit, sql first orm, typescript sql"
+  crusor-triggers: "drizzle, drizzle orm, sql first orm, typescript sql, drizzle kit, schema push, typed sql"
   crusor-verified-on: "2026-10-30"
 ---
 

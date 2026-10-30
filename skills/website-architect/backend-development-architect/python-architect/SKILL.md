@@ -16,6 +16,16 @@ metadata:
 
 This skill decides the shape of a Python codebase and names the framework leaf.
 
+## When to use
+
+- Starting a Python service and deciding layout, async model and typing floor.
+- Reviewing a Python codebase for structural problems rather than style.
+
+## When NOT to use
+
+- Script-sized work with no service surface.
+- Framework-specific questions — take `fastapi`, `flask` or `django` instead.
+
 ## Leaf map
 
 | Need | Skill |

@@ -18,8 +18,9 @@ A native-feel cross-platform app is **not a web app with native hooks** and not
 Electron with a theme. It is a native shell that owns the window, hotkeys, menu bar,
 materials and lifecycle, embedding the OS WebView purely as a rendering surface.
 
-Adapted from `yetone/native-feel-skill` (MIT), which distilled this architecture from
-Raycast's public rewrite notes and reverse-engineering of the shipping binary.
+Adapted from `yetone/native-feel-skill` (MIT, (c) 2026 yetone), which distilled this
+architecture from Raycast's public rewrite notes and reverse-engineering of the
+shipping binary. See `skills/THIRD-PARTY-NOTICES.md`.
 
 ## When to use
 

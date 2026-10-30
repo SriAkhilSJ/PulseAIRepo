@@ -17,6 +17,17 @@ metadata:
 This is the **navigation skill** for the React branch. It decides the app's shape
 and names the leaf skill that owns each concern.
 
+## When to use
+
+- Starting a React app and choosing framework, shell and routing model.
+- Reviewing a React codebase whose boundaries have blurred.
+- Deciding where cross-cutting rules live before they multiply.
+
+## When NOT to use
+
+- Component-level API questions — take `react-core-architect`.
+- Server-side structure — take the backend shelf.
+
 ## Leaf map
 
 | Concern | Skill |

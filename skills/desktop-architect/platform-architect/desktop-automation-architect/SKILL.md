@@ -1,7 +1,7 @@
 ---
 name: desktop-automation-architect
 description: Architect-level agent-operability for desktop apps — exposing a real accessibility tree on macOS, Windows and Linux, stable element references, overlays and surfaces that trap automation, permission prompts that block first contact, and observing results instead of trusting return codes. Use when an app must be operable by agents, scripts or assistive tech.
-license: MIT
+license: Apache-2.0
 compatibility: NSAccessibility, UIA, AT-SPI; Chromium/Electron web accessibility; TCC
 metadata:
   crusor-domain: desktop-architect
@@ -18,8 +18,9 @@ If an agent or a script has to drive your app, **the accessibility tree is your 
 Apps that expose it well are automatable on day one; apps that draw their own
 controls are not automatable at all.
 
-Adapted from `vercel-labs/agent-desktop` (Apache-2.0), which drives macOS, Windows and
-Linux apps through the OS accessibility tree and documents where that breaks.
+Adapted from `vercel-labs/agent-desktop` (Apache-2.0, (c) Vercel Labs), which drives
+macOS, Windows and Linux apps through the OS accessibility tree and documents where
+that breaks. See `skills/THIRD-PARTY-NOTICES.md`.
 
 ## When to use
 

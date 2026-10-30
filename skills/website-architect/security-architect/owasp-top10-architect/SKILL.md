@@ -17,6 +17,17 @@ metadata:
 Each entry below is a **design defect**, not a bug to patch. If the architecture
 is right, the class is structurally hard to introduce.
 
+## When to use
+
+- Designing or reviewing against the OWASP Top 10 classes.
+- Turning an audit finding into a structural fix rather than a patch.
+- Briefing a team on the specific defects each class describes.
+
+## When NOT to use
+
+- Deep cryptography design — that needs a specialist, not a checklist.
+- Runtime WAF/IDS tuning.
+
 ## A01 — Broken access control
 
 - Enforce server-side, per object, using server-owned facts.
@@ -90,6 +101,15 @@ is right, the class is structurally hard to introduce.
   allow-list hosts, block private ranges, no redirects to internal addresses.
 - Metadata endpoints (169.254.169.254) blocked by the network, not just the code.
 - Prefer a proxy that enforces the policy centrally.
+
+## Failure modes at scale
+
+- The list is treated as a pentest checklist; the same classes return every audit.
+- Access control is enforced in the UI and re-implemented inconsistently server-side.
+- One service validates input; the internal caller trusts it blindly.
+- Secrets in environment variables read as "not in the repo", so nobody rotates them.
+- Logging records the payload, turning the log store into a breach surface.
+- SSRF is treated as a niche bug while every fetch URL comes from a tenant.
 
 ## Review checklist
 

@@ -18,6 +18,17 @@ Implementation is **translation under constraints**: the design says what it sho
 feel like, the code says what it can guarantee. The architect owns the contract
 between them.
 
+## When to use
+
+- Translating a design into an implementation contract.
+- Deciding ownership between design and engineering for fidelity.
+- Reviewing drift between the design source and the shipped UI.
+
+## When NOT to use
+
+- Choosing the visual direction itself — that is `frontend-development-architect`.
+- Component internals.
+
 ## Leaf map
 
 | Need | Skill |

@@ -41,8 +41,20 @@ each book is 3–5 KB of decisions, failure modes and verification receipts.
 - unique names: **220/220**
 - longest body: **5958 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **220/220** (218 original, 2 adapted) (`crusor-origin`, `crusor-sources`, `crusor-verified-on`)
+- provenance present: **220/220** (218 `original`, 2 `adapted`, both MIT/Apache-2.0 with a pinned SHA) (`crusor-origin`, `crusor-sources`, `crusor-verified-on`)
 - brand gate: `grep -rin "^description:.*nous" skills/` → no matches
+
+## Structural conformance (enforced by test)
+
+`scripts/audit_skills.py` runs the library's own rules; `src/tests/test_skill_library_conformance.py`
+fails the build on any violation.
+
+- books checked: **220**, violations: **0**
+- required in every book: `When to use`, `When NOT to use`, 2+ decision sections
+  (domain crowns are index books and are exempt from this one), a failure-modes
+  section, `Verification receipts`
+- body between **2500 and 6000** chars (injection cap), under 500 lines
+- 6+ triggers; adapted books must name a permissive licence and pin `owner/repo@sha`
 
 ## Runtime
 
@@ -76,14 +88,34 @@ prompt is assembled.
 
 ## Verification runs
 
-- 9 focused skill suites → **224 passed, 1 skipped**
+- 10 focused skill suites (including the conformance gate) → **229 passed, 1 skipped**
   (`test_agent_skills_tree`, `test_skill_library`, `test_skill_tools`,
   `test_skill_bundled`, `test_skill_lifecycle`, `test_skills_hub`,
   `test_skills_invalidation`, `test_hermes_prompt_parity`,
-  `test_hermes_tool_name_parity`).
+  `test_hermes_tool_name_parity`, `test_skill_library_conformance`).
 - `pytest src/tests/test_agent_skills_tree.py` → 21 passed.
 - Full `pytest src/tests -q` baseline at this branch: 2975 passed / 20 pre-existing
   unrelated failures.
+
+## Quality scorecard
+
+The auditor also scores each book on evidence, not taste: size, decision density,
+named APIs, quantified claims, tables, receipts and failure-mode bullets.
+
+| Domain | mean | min | max |
+|---|---|---|---|
+| `website-architect` | 66.7 | 40 | 78 |
+| `cloud-and-devops-architect` | 64.8 | 59 | 76 |
+| `mobile-architect` | 64.1 | 57 | 77 |
+| `desktop-architect` | 64.0 | 57 | 80 |
+| `data-engineering-architect` | 62.7 | 53 | 76 |
+| `ai-ml-architect` | 62.2 | 56 | 74 |
+
+Every one of the 220 books is reachable: a query built from a book's own triggers
+selects that book during planning, asserted in the gate test. Weakest books by score:
+`website-architect` (index crown, by design), `lineage-architect`,
+`semantic-layer-architect`, `data-observability-architect`, `react-ui-libraries-architect`
+— these are the next depth pass, not defects.
 
 ## Known gaps
 

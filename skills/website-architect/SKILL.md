@@ -18,6 +18,17 @@ A web product is **six decisions in a trench coat**: how it renders, what serves
 it, where state lives, how clients talk to it, what it looks like, and how it
 ships safely. This skill names which branch owns each one.
 
+## When to use
+
+- Starting a web product, or re-planning one that has outgrown its structure.
+- A cross-cutting problem: performance, security, data ownership, delivery.
+- Choosing which branch of this shelf a plan should open.
+
+## When NOT to use
+
+- A single-branch question — go straight to that branch's crown.
+- Native apps, mobile apps or desktop runtimes: those are separate domains.
+
 ## Branch map
 
 | Decision | Branch |
@@ -70,6 +81,15 @@ ships safely. This skill names which branch owns each one.
 5. Who can call each endpoint, and where is that decided?
 6. How does a change reach production, and how is it undone?
 7. What will page under this design in a year?
+
+## Failure modes at scale
+
+- Every branch is someone's side project: no one owns the contract between them.
+- The frontend owns business rules because the API was never designed.
+- The database is the integration layer; services read each other's tables.
+- Nothing is reversible: deploys, migrations and schema changes all go one way.
+- Observability exists per service but nothing correlates across a request.
+- Budgets are opinions, so regressions are discovered by users.
 
 ## Verification receipts
 

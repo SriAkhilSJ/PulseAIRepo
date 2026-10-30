@@ -58,6 +58,15 @@ feature  →  ui/  (our wrapper API)  →  vendor library
 - Labels, descriptions, error text and landmarks are ours.
 - Every wrapper ships: default, hover, focus-visible, disabled, loading, error.
 
+## Decision 5 — Upgrade and escape policy
+
+- Pin the library and budget one upgrade per quarter; an unpatched UI library is a
+  security surface.
+- Every library component you use must be replaceable behind your wrapper, or the
+  library owns your product surface.
+- Track which components are wrapped and which are used raw; raw usage is the
+  migration cost when the library is abandoned.
+
 ## Failure modes
 
 - Vendor components imported directly across features (upgrade deadlock).

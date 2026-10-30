@@ -62,6 +62,13 @@ Store server data in `load`, not in a client store that then re-fetches.
 - Validate on the server; return typed `fail()` results and render them.
 - Invalidate dependent data after a successful action; do not manually refetch.
 
+## Decision 5 — Boundaries between runes, stores and context
+
+- Component state in `$state`; shared reactive state in a rune module, not a store.
+- Context for dependency passing (one provider, many consumers); props for data flow.
+- Stores only where you need the store contract (subscriptions, derived async) —
+  mixing both models in one feature is the usual source of double re-renders.
+
 ## Failure modes at scale
 
 - Effects used for derivation, producing loops and stale renders.

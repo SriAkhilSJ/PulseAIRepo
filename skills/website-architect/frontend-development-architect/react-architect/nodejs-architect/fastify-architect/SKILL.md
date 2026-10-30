@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/fastify-architect
   crusor-origin: original
   crusor-sources: "fastify.dev/docs/latest; json-schema.org"
-  crusor-triggers: "fastify, fastify plugin, fastify schema"
+  crusor-triggers: "fastify, fastify schema, fastify plugin, schema serializer, fastify hooks, json schema route, encapsulation"
   crusor-verified-on: "2026-10-30"
 ---
 

@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/nestjs-architect
   crusor-origin: original
   crusor-sources: "docs.nestjs.com; docs.nestjs.com/fundamentals/injection-scopes"
-  crusor-triggers: "nestjs, nestjs module, nestjs guard, nestjs interceptor, dependency injection"
+  crusor-triggers: "nestjs, nestjs module, nestjs guard, nestjs interceptor, nest module, dependency injection, guards interceptors"
   crusor-verified-on: "2026-10-30"
 ---
 

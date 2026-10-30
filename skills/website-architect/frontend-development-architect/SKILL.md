@@ -6,8 +6,8 @@ compatibility: Framework-agnostic (React, Vue, Angular, Svelte, static HTML). Re
 metadata:
   crusor-domain: website-architect
   crusor-path: website-architect/frontend-development-architect
-  crusor-origin: adapted
-  crusor-sources: "anthropics/skills@8a1541c4 (frontend-design); vercel-labs/agent-skills@063bee94 (web-design-guidelines)"
+  crusor-origin: original
+  crusor-sources: "anthropics/skills@8a1541c4 (frontend-design), vercel-labs/agent-skills@063bee94 (web-design-guidelines) — both reference only: neither repo grants a licence"
   crusor-verified-on: "2026-10-30"
   crusor-triggers: "design system, visual direction, tokens, typography, palette, ui design, look-and-feel, accessibility, design review, frontend design"
 ---

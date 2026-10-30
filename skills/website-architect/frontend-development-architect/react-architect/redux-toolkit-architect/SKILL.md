@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/react-architect/redux-toolkit-architect
   crusor-origin: original
   crusor-sources: "redux-toolkit.js.org; redux.js.org/style-guide"
-  crusor-triggers: "redux, rtk, redux toolkit, redux slice, createasyncthunk"
+  crusor-triggers: "redux, rtk, redux toolkit, redux slice, rtk query, slices, createasyncthunk"
   crusor-verified-on: "2026-10-30"
 ---
 

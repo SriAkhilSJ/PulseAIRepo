@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/playwright-architect
   crusor-origin: original
   crusor-sources: "playwright.dev/docs/best-practices; playwright.dev/docs/test-fixtures"
-  crusor-triggers: "playwright, e2e test, end-to-end, browser test, flaky test"
+  crusor-triggers: "playwright, e2e test, end-to-end, browser test, flaky test, e2e suite, browser automation, trace viewer"
   crusor-verified-on: "2026-10-30"
 ---
 

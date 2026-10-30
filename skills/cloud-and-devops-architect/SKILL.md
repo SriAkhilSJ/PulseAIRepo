@@ -18,6 +18,17 @@ Cloud architecture is **renting failure modes**. Every managed service you adopt
 buys operational simplicity and sells you a new dependency, a new limit, and a
 new bill.
 
+## When to use
+
+- Standing up or reviewing a cloud estate, or choosing between providers.
+- A cost, reliability or identity problem that has reached architecture level.
+- Any plan that touches networking, IaC, or managed-service selection.
+
+## When NOT to use
+
+- Application-level design questions — that is the website, mobile or data domain.
+- A single-service tweak with no cross-cutting consequence.
+
 ## Leaf map
 
 Seven shelves, 35 books.

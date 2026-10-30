@@ -29,7 +29,7 @@ most architecture failures come from putting one kind in another kind's home.
 - A value used by one component: it is `useState`, decision over.
 - A styling or rendering change with no new state.
 
-## The five homes
+## Decision 1 — The five homes
 
 | Kind | What it is | Home |
 |---|---|---|
@@ -42,7 +42,7 @@ most architecture failures come from putting one kind in another kind's home.
 Decision rule: **server data is a cache, not state.** If the server owns it, a
 client store must not also own it.
 
-## Choosing the library
+## Decision 2 — Choosing the library
 
 | Need | Use | Why not the others |
 |---|---|---|
@@ -55,7 +55,7 @@ client store must not also own it.
 Two libraries maximum. A codebase with a query client, a store *and* a context
 holding the same entity has three sources of truth and zero owners.
 
-## Boundaries
+## Decision 3 — Boundaries
 
 - **Query owns the entity lifecycle** (fetch, cache, invalidate). Components read
   from the query cache; mutations invalidate tags/keys.

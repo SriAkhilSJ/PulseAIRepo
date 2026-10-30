@@ -17,6 +17,17 @@ metadata:
 A mobile app is **a client with a hostile environment**: intermittent network,
 an OS that can kill you at any moment, and a release you cannot hotfix instantly.
 
+## When to use
+
+- Choosing a mobile stack, or auditing one before a rewrite.
+- Offline, device, notification, release or store-rule decisions.
+- Any plan where the app's lifecycle and connectivity are not guaranteed.
+
+## When NOT to use
+
+- A responsive web app — that is the website domain.
+- A desktop app with a touch screen.
+
 ## Leaf map
 
 Five shelves, 27 books.

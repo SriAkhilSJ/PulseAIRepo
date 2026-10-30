@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/tailwind-architect
   crusor-origin: original
   crusor-sources: "tailwindcss.com/docs; tailwindcss.com/blog/tailwindcss-v4"
-  crusor-triggers: "tailwind, tailwindcss, utility css, tailwind theme, design tokens"
+  crusor-triggers: "tailwind, tailwindcss, utility css, tailwind theme, design tokens, utility classes, tailwind config, design tokens css"
   crusor-verified-on: "2026-10-30"
 ---
 

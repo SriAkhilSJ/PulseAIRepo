@@ -17,6 +17,17 @@ metadata:
 Security is **what the system does when someone is hostile**, not a scanner you
 run at the end. Decide the boundaries first; everything else follows.
 
+## When to use
+
+- Threat modelling a system before it ships.
+- Authn/authz, data handling or secret-management decisions.
+- Reviewing an incident's architectural cause rather than its patch.
+
+## When NOT to use
+
+- Compliance paperwork with no design consequence.
+- A dependency bump with no trust-boundary change.
+
 ## Leaf map
 
 | Need | Skill |

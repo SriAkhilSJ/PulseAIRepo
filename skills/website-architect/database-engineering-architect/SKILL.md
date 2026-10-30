@@ -17,6 +17,17 @@ metadata:
 The data layer outlives the application. Choose it by **access pattern**, write it
 once, and never let a framework decide its shape.
 
+## When to use
+
+- Choosing a store from the access pattern, or fixing one chosen from fashion.
+- Schema, migration and consistency decisions on a live system.
+- Reviewing data access boundaries before they harden.
+
+## When NOT to use
+
+- Analytics modelling over a warehouse — that is the data-engineering domain.
+- A single query tuning exercise.
+
 ## Leaf map
 
 | Need | Skill |

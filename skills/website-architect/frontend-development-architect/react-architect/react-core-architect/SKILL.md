@@ -6,8 +6,8 @@ compatibility: React 18+ and React 19; framework-agnostic (Vite, Next, Remix, Re
 metadata:
   crusor-domain: website-architect
   crusor-path: website-architect/frontend-development-architect/react-architect/react-core-architect
-  crusor-origin: adapted
-  crusor-sources: "vercel-labs/agent-skills@063bee94 (react-best-practices, composition-patterns)"
+  crusor-origin: original
+  crusor-sources: "vercel-labs/agent-skills@063bee94 (react-best-practices, composition-patterns) — reference only: the repo grants no licence"
   crusor-verified-on: "2026-10-30"
   crusor-triggers: "react components, component composition, react hooks, state locality, error boundary, suspense, folder structure, rerender"
 ---
