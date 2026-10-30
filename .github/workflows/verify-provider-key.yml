@@ -1,0 +1,57 @@
+name: Verify provider key
+
+# Why: "the secret exists" and "the secret works" are different claims, and only a
+# runner holding the secret can settle it. The secret value is never printed —
+# scripts/check_velona_keys.py reports a fingerprint (length + last four) and the
+# HTTP verdict of each model call. The log is the evidence.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/check_velona_keys.py'
+      - '.github/workflows/verify-provider-key.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  velona:
+    name: Velona key + three models
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The checker is stdlib-only on purpose: no install step can fail first and
+      # hide a key problem behind a dependency problem.
+      - name: Presence and shape (no network)
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CRUSORAI_CHEAP_API_KEY: ${{ secrets.CRUSORAI_CHEAP_API_KEY }}
+        run: python scripts/check_velona_keys.py --offline
+
+      - name: Catalog + live calls (three models)
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CRUSORAI_CHEAP_API_KEY: ${{ secrets.CRUSORAI_CHEAP_API_KEY }}
+          CUSTOM_BASE_URL: https://velona.in/v1
+          VELONA_CHECK_TIMEOUT: '30'
+        run: |
+          set -o pipefail
+          python scripts/check_velona_keys.py --json | tee velona-key-report.json
+          python scripts/check_velona_keys.py
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: velona-key-report
+          path: velona-key-report.json
+          if-no-files-found: warn
