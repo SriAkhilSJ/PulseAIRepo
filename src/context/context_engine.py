@@ -23,6 +23,7 @@ This prevents:
 import hashlib
 import json
 import os
+import sys
 import re
 import threading
 import time
@@ -226,13 +227,31 @@ def _skills_text(state: dict[str, Any], task: str) -> str:
     from src.agents.skill_manager import skill_manager
 
     if _skills_phase(state) == "planning":
-        return skill_manager.get_skills_text(task, phase="planning")
-    plan = state.get("plan") or []
-    plan_text = " ".join(str(step.get("description") or "") for step in plan
-                         if isinstance(step, dict))
-    if not plan_text:
-        return ""
-    return skill_manager.plan_digest(f"{task} {plan_text}")
+        text = skill_manager.get_skills_text(task, phase="planning")
+    else:
+        plan = state.get("plan") or []
+        plan_text = " ".join(str(step.get("description") or "") for step in plan
+                             if isinstance(step, dict))
+        text = skill_manager.plan_digest(f"{task} {plan_text}") if plan_text else ""
+    try:
+        if text and os.environ.get("CRUSORAI_SKILLS_DEBUG", "").strip().lower() not in ("", "0", "off", "false", "no"):
+            kind = "plan kit" if _skills_phase(state) == "planning" else "plan constraints"
+            if kind == "plan kit":
+                # plan kit renders each book as "**name:**", the digest as "- name:"
+                books = [line.split("**")[1] for line in text.splitlines()
+                         if line.startswith("**") and line.count("**") >= 2]
+            else:
+                books = [line[2:].split(":")[0].strip() for line in text.splitlines()
+                         if line.startswith("- ")]
+            print(
+                f"[skills] {kind}: {len(books)} book(s), {len(text)} chars "
+                f"(~{round(len(text) / 3.8)} tok): {', '.join(books[:6])}"
+                + (" …" if len(books) > 6 else ""),
+                file=sys.stderr, flush=True,
+            )
+    except Exception:
+        pass  # a debug line never breaks a turn
+    return text
 
 
 class ContextEngine(MicroCompactionMixin, BaseContextEngine):

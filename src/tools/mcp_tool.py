@@ -26,6 +26,8 @@ middleware (`mcp_` prefix), same as every other external source.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
 from typing import Any
 
@@ -77,6 +79,18 @@ def _cached_tools(workspace: str, server: str) -> list[dict] | None:
     return hit[1] if hit else None
 
 
+def _debug(message: str) -> None:
+    """One stderr line per MCP decision when CRUSORAI_MCP_DEBUG is set.
+
+    The meta-tools are deliberately quiet — a caller sees ms and bytes in the
+    result — but a field install needs to see the library load, the cache hit
+    and the approval gate in a log.
+    """
+    if os.environ.get("CRUSORAI_MCP_DEBUG", "").strip().lower() in ("", "0", "off", "false", "no"):
+        return
+    print(f"[mcp] {message}", file=sys.stderr, flush=True)
+
+
 def _phase(config: RunnableConfig | None) -> str:
     """The turn's phase, as set by the graph from `execution_mode`."""
     try:
@@ -112,6 +126,7 @@ def mcp_servers(config: RunnableConfig) -> str:
         alive = "live" if (session is not None and session.is_alive()) else "not started"
         cached = _cached_tools(workspace, name)
         count = f"{len(cached)} tools cached" if cached is not None else "catalog not loaded"
+        _debug(f"servers: {name} {alive}, {count}")
         lines.append(f"- {name}: {alive}, {count}")
     lines.append("Next: mcp_tools(server) for names, mcp_tools(server, query) for a schema, "
                  "mcp_call(server, tool, arguments) to run one.")
@@ -155,6 +170,7 @@ def mcp_tools(server: str = "", query: str = "", limit: int = _DEFAULT_LIMIT,
                    or q in str(t.get("description", "")).lower()]
         header = f"=== {name}: {len(tools)} tool(s)"
         header += f", {len(matches)} matching {q!r}" if q else ""
+        _debug(f"catalog: {name} {len(tools)} tool(s), query={q!r}, {len(matches)} matching")
         out.append(header + " ===")
         if not q:
             for t in tools[:limit]:
@@ -212,6 +228,7 @@ def mcp_call(server: str, tool: str, arguments: dict | None = None,
     # act on.
     phase = _phase(config)
     if phase == "plan" and not read_only:
+        _debug(f"PHASE_DENIED: {server}/{tool} in plan mode")
         return (
             f"⛔ PHASE_DENIED — Plan Mode: {server}/{tool} is not declared read-only. "
             "Plan Mode may inspect third-party state but not change it. Write the "
@@ -223,6 +240,7 @@ def mcp_call(server: str, tool: str, arguments: dict | None = None,
         preview = json.dumps(arguments or {}, ensure_ascii=False)
         if len(preview) > 400:
             preview = preview[:400] + "…"
+        _debug(f"approval required: {server}/{tool} (not read-only)")
         return (
             f"APPROVAL REQUIRED — {server}/{tool} is not declared read-only by the "
             f"server, so it may have side effects.\n"
@@ -247,6 +265,7 @@ def mcp_call(server: str, tool: str, arguments: dict | None = None,
     except Exception:
         pass  # metering never breaks the call it meters
 
+    _debug(f"call: {server}/{tool} {elapsed:.0f} ms, {len(result)} B")
     return f"[mcp {server}/{tool} · {elapsed:.0f} ms]\n{result}"
 
 
