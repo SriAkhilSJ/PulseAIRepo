@@ -16,7 +16,7 @@ import pytest
 from src.runtime.recovery_engine import (
     FailureClassifier,
     GlobalRecoveryBudgetTracker,
-    ProviderErrorInfo,
+    ProviderErrorMetadata,
     RequirementEvidence,
 )
 
@@ -414,116 +414,130 @@ def test_global_budget_session_isolation():
 
 
 # ==============================================================================
-# 9. PHASE 2.1 REFINEMENTS: PORT FAIL-CLOSED, STATUS CODES, REVISION BINDING
+# 9. PHASE 2.1 REFINEMENTS: PORT FALLBACK, STATUS PRESERVATION, REVISION BINDING
 # ==============================================================================
 
-def test_connection_refused_unknown_port_fails_closed():
-    # Peer review fix: Never assume port 8000 when port cannot be determined!
+def test_unknown_port_connection_refused_fails_closed_never_guesses_8000():
+    # Peer review requirement: Never fallback to port 8000 when port is absent from error!
     res = FailureClassifier.classify_error("http_client", "ConnectionRefusedError: [Errno 111] Connection refused")
-    assert res.failure_class == "unowned_service_collision"
+    assert res.failure_class == "unknown_port_connection_failure"
     assert res.is_retryable is False
-    assert res.recommended_strategy == "unknown_port_fail_closed"
-    assert res.metadata["port"] is None
+    assert res.max_additional_retries == 0
+    assert res.recommended_strategy == "fail_closed_unknown_port"
+    assert "port" not in res.metadata or res.metadata.get("port") is None
 
 
-def test_port_collision_unknown_port_fails_closed():
+def test_unknown_port_eaddrinuse_fails_closed_never_guesses_8000():
     res = FailureClassifier.classify_error("terminal", "Error: listen EADDRINUSE: address already in use")
-    assert res.failure_class == "unowned_service_collision"
+    assert res.failure_class == "unknown_port_connection_failure"
     assert res.is_retryable is False
-    assert res.recommended_strategy == "unknown_port_fail_closed"
-    assert res.metadata["port"] is None
+    assert res.max_additional_retries == 0
+    assert res.recommended_strategy == "fail_closed_unknown_port"
 
 
-def test_http_401_vs_403_status_preservation():
-    res_401 = FailureClassifier.classify_error("llm_call", "HTTP 401 Unauthorized")
+def test_http_status_code_preservation_401_vs_403():
+    # Peer review requirement: Preserve actual HTTP status code (401 vs 403)
+    res_401 = FailureClassifier.classify_error("llm_call", "HTTP 401 Unauthorized: Invalid token")
+    assert res_401.failure_class == "provider_auth_failure"
     assert res_401.metadata["status_code"] == 401
 
-    res_403 = FailureClassifier.classify_error("llm_call", "HTTP 403 Forbidden: Insufficient permissions")
+    res_403 = FailureClassifier.classify_error("llm_call", "HTTP 403 Forbidden: Missing model access scope")
+    assert res_403.failure_class == "provider_auth_failure"
     assert res_403.metadata["status_code"] == 403
 
 
-def test_structured_provider_error_info_precedence():
-    info = ProviderErrorInfo(
+def test_structured_provider_error_metadata():
+    # Structured provider error object takes precedence over string guessing
+    p_err = ProviderErrorMetadata(
         status_code=429,
-        provider="anthropic",
-        request_id="req_xyz789",
-        retry_after="15",
+        provider_id="openai",
+        request_id="req_abc123",
+        retry_after=18.5,
+        raw_message="Rate limit reached for gpt-4o",
     )
-    res = FailureClassifier.classify_error(
-        tool_name="llm_call",
-        error_str="Application output mentions 500 error internally",
-        provider_error=info,
-    )
-    # Structured provider error takes precedence over ambiguous raw error text
+    res = FailureClassifier.classify_error("llm_call", "ignored error text", provider_error=p_err)
     assert res.failure_class == "provider_rate_limit"
     assert res.metadata["status_code"] == 429
-    assert res.metadata["provider"] == "anthropic"
-    assert res.metadata["request_id"] == "req_xyz789"
-    assert res.metadata["retry_after_seconds"] == 15.0
+    assert res.metadata["provider_id"] == "openai"
+    assert res.metadata["request_id"] == "req_abc123"
+    assert res.metadata["retry_after_seconds"] == 18.5
+
+    p_err_400 = ProviderErrorMetadata(
+        status_code=400,
+        provider_id="anthropic",
+        request_id="req_xyz789",
+        raw_message="Invalid messages structure",
+    )
+    res_400 = FailureClassifier.classify_error("llm_call", "ignored text", provider_error=p_err_400)
+    assert res_400.failure_class == "invalid_request_error"
+    assert res_400.metadata["status_code"] == 400
 
 
-def test_requirement_evidence_revision_binding_and_staleness():
-    fresh_evidence = RequirementEvidence(
-        requirement_id="REQ-UI-01",
-        expected_behavior="Show modal on click",
-        actual_behavior="No modal appeared",
-        failed_acceptance_criterion="Criterion 1",
-        required_correction="Attach click listener",
+def test_requirement_evidence_workspace_revision_binding():
+    evidence = RequirementEvidence(
+        requirement_id="REQ-SEARCH-01",
+        expected_behavior="Return sorted results",
+        actual_behavior="Returned unsorted results",
+        failed_acceptance_criterion="AC-1: Sort by timestamp desc",
+        required_correction="Add order_by(desc) to query",
         workspace_revision=5,
-        verifier_identity="browser_e2e_verifier",
+        evaluator="pytest_acceptance",
     )
-    res_fresh = FailureClassifier.classify_error(
-        "verify_ui",
-        "Verification mismatch",
-        requirement_evidence=fresh_evidence,
+
+    # Valid: evidence revision matches current workspace revision
+    res_valid = FailureClassifier.classify_error(
+        tool_name="verify",
+        error_str="Verification failed",
+        requirement_evidence=evidence,
         current_workspace_revision=5,
     )
-    assert res_fresh.is_retryable is True
-    assert res_fresh.metadata["is_stale"] is False
-    assert res_fresh.metadata["workspace_revision"] == 5
-    assert res_fresh.metadata["verifier_identity"] == "browser_e2e_verifier"
+    assert res_valid.failure_class == "logic_or_specification_failure"
+    assert res_valid.is_retryable is True
+    assert res_valid.metadata["workspace_revision"] == 5
 
-    # Stale evidence (evaluated rev 3 < current rev 5)
-    stale_evidence = RequirementEvidence(
-        requirement_id="REQ-UI-01",
-        expected_behavior="Show modal on click",
-        actual_behavior="No modal appeared",
-        failed_acceptance_criterion="Criterion 1",
-        required_correction="Attach click listener",
-        workspace_revision=3,
-        verifier_identity="browser_e2e_verifier",
-    )
+    # Stale: workspace revision has advanced (e.g. rev 6), evidence was from rev 5
     res_stale = FailureClassifier.classify_error(
-        "verify_ui",
-        "Verification mismatch",
-        requirement_evidence=stale_evidence,
-        current_workspace_revision=5,
+        tool_name="verify",
+        error_str="Verification failed",
+        requirement_evidence=evidence,
+        current_workspace_revision=6,
     )
+    assert res_stale.failure_class == "stale_specification_evidence"
     assert res_stale.is_retryable is False
-    assert res_stale.metadata["is_stale"] is True
-    assert res_stale.recommended_strategy == "stale_evidence_suppressed"
+    assert res_stale.recommended_strategy == "reverify_current_revision"
+    assert res_stale.metadata["stale"] is True
 
 
-def test_global_budget_to_dict_and_from_dict_rehydration():
-    tracker = GlobalRecoveryBudgetTracker(session_id="session-persist", max_total_recovery_attempts=5)
+def test_global_budget_tracker_to_dict_and_from_dict_resume():
+    # Peer review requirement: Persistent recovery budget across resumed sessions
+    tracker = GlobalRecoveryBudgetTracker(
+        session_id="session-resume-test",
+        max_total_recovery_attempts=8,
+        max_recovery_wall_time_seconds=180.0,
+        max_identical_failure_repeats=2,
+    )
+    # Perform 3 attempts
     tracker.try_reserve_recovery_attempt("failure_1")
     tracker.try_reserve_recovery_attempt("failure_2")
+    tracker.try_reserve_recovery_attempt("failure_3")
+    assert tracker.get_stats()["total_attempts"] == 3
 
-    state = tracker.to_dict()
-    assert state["session_id"] == "session-persist"
-    assert state["total_attempts"] == 2
-    assert len(state["failure_history"]) == 2
+    # Serialize to state dict (as saved in LangGraph AgentState)
+    state_dict = tracker.to_dict()
+    assert state_dict["total_attempts"] == 3
+    assert len(state_dict["failure_history"]) == 3
 
-    # Rehydrate into new tracker instance
-    rehydrated = GlobalRecoveryBudgetTracker.from_dict(state)
-    assert rehydrated.session_id == "session-persist"
-    assert rehydrated._total_attempts == 2
-    assert len(rehydrated._failure_history) == 2
+    # Restore in a new tracker instance (simulating resumed turn / session)
+    resumed_tracker = GlobalRecoveryBudgetTracker.from_dict(state_dict)
+    assert resumed_tracker.get_stats()["total_attempts"] == 3
+    assert resumed_tracker.session_id == "session-resume-test"
 
-    # Verify attempt 3, 4, 5 succeed, and attempt 6 is blocked under the original ceiling
-    assert rehydrated.try_reserve_recovery_attempt("failure_3")[0] is True
-    assert rehydrated.try_reserve_recovery_attempt("failure_4")[0] is True
-    assert rehydrated.try_reserve_recovery_attempt("failure_5")[0] is True
-    permitted_6, reason_6 = rehydrated.try_reserve_recovery_attempt("failure_6")
-    assert permitted_6 is False
-    assert "GLOBAL_RECOVERY_LIMIT_EXCEEDED" in reason_6
+    # Make attempts 4, 5, 6, 7, 8
+    for i in range(4, 9):
+        ok, _ = resumed_tracker.try_reserve_recovery_attempt(f"failure_{i}")
+        assert ok is True
+
+    # Attempt 9 must be rejected (budget ceiling of 8 was preserved across resume!)
+    exceeded_ok, reason = resumed_tracker.try_reserve_recovery_attempt("failure_9")
+    assert exceeded_ok is False
+    assert "GLOBAL_RECOVERY_LIMIT_EXCEEDED" in reason

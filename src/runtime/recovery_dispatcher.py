@@ -1,12 +1,16 @@
-"""Recovery Strategy Dispatcher for CrusorAI 2.1 (Phase 2.1).
+"""Autonomous Reliability & Recovery Engine (ARRE) Dispatcher (CrusorAI 2.1 - Phase 2.1).
 
-Actuates deterministic recovery strategies governed by ARRE:
-- Service relaunch (CrusorAI-owned processes only)
-- Bounded network warmup polling
-- Exponential backoff & RFC Retry-After execution
-- Ephemeral log drainage & OOM subprocess reclamation
-- Alternating mutation locking & diagnostic prompt synthesis
-- Fail-closed deterministic termination
+Executes recovery strategies recommended by FailureClassifier:
+- relaunch_owned_service: Re-spawns dead CrusorAI-owned process via ProcessSupervisor.
+- bounded_warmup_poll: Polls readiness with bounded sleep and status checks.
+- respect_retry_after_or_backoff: Executes sleep according to Retry-After header or exponential backoff.
+- exponential_backoff_jitter: Bounded exponential backoff with jitter for HTTP 5xx.
+- drain_eligible_logs: Safely drains ephemeral debug/tmp logs when disk is exhausted.
+- terminate_owned_subprocesses_and_release: Reclaims RAM by terminating owned child processes via ProcessSupervisor.
+- alternating_mutation_lock: Locks test executions until a file edit lands in mutation ledger.
+- schema_feedback_prompt: Generates schema guidance for model retry.
+- ast_diagnostic_feedback: Generates line-level AST syntax guidance.
+- requirement_delta_remediation: Synthesizes structured requirement remediation instructions.
 """
 from __future__ import annotations
 
@@ -14,7 +18,9 @@ import gc
 import os
 import random
 import time
-from typing import Any, Dict, List, NamedTuple, Optional
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from src.runtime.recovery_engine import (
     FailureClassification,
@@ -23,186 +29,260 @@ from src.runtime.recovery_engine import (
 )
 
 
-class RecoveryExecutionResult(NamedTuple):
-    strategy: str
+@dataclass
+class RecoveryExecutionResult:
+    """Outcome of an attempted automated recovery operation."""
+
     success: bool
+    strategy_applied: str
     action_taken: str
-    next_instruction: Optional[str]
-    metadata: Dict[str, Any]
+    next_instruction: Optional[str] = None
+    sleep_applied_seconds: float = 0.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class RecoveryStrategyDispatcher:
-    """Safely executes approved recovery strategies according to ARRE governance."""
+    """Executes and coordinates concrete recovery operations based on classified failures."""
 
     def __init__(
         self,
-        process_supervisor: Optional[ProcessSupervisor] = None,
         budget_tracker: Optional[GlobalRecoveryBudgetTracker] = None,
+        process_supervisor: Optional[ProcessSupervisor] = None,
+        workspace_root: Optional[str | Path] = None,
+        max_backoff_seconds: float = 16.0,
+        apply_sleep: bool = True,
     ) -> None:
-        self.supervisor = process_supervisor
         self.budget_tracker = budget_tracker
+        self.process_supervisor = process_supervisor
+        self.workspace_root = Path(workspace_root) if workspace_root else None
+        self.max_backoff_seconds = max_backoff_seconds
+        self.apply_sleep = apply_sleep
 
     def dispatch(
         self,
         classification: FailureClassification,
         context: Optional[Dict[str, Any]] = None,
     ) -> RecoveryExecutionResult:
-        ctx = context or {}
-        strat = classification.recommended_strategy
+        """Dispatch and execute the recommended recovery strategy."""
+        strategy = classification.recommended_strategy
+        meta = dict(classification.metadata)
+        if context:
+            meta.update(context)
 
-        # 1. Relaunch CrusorAI-owned dev service
-        if strat == "relaunch_owned_service":
-            port = classification.metadata.get("port")
-            is_owned = classification.metadata.get("is_owned", False)
-            if not self.supervisor:
+        # 1. Controlled process relaunch (CrusorAI-owned dev servers)
+        if strategy == "relaunch_owned_service":
+            port = meta.get("port")
+            if port is None:
                 return RecoveryExecutionResult(
-                    strategy=strat,
                     success=False,
-                    action_taken="Relaunch aborted: no process supervisor available.",
-                    next_instruction="Manual inspection required.",
-                    metadata={"port": port},
+                    strategy_applied=strategy,
+                    action_taken="Process relaunch aborted: port number unknown.",
+                    next_instruction="Cannot relaunch service without explicit port.",
+                    metadata=meta,
                 )
-            if not is_owned or port is None:
-                return RecoveryExecutionResult(
-                    strategy=strat,
-                    success=False,
-                    action_taken="Relaunch refused: process is unowned or port is unknown.",
-                    next_instruction="Fail-closed enforced.",
-                    metadata={"port": port, "is_owned": is_owned},
-                )
-            success = self.supervisor.relaunch_service(port)
-            return RecoveryExecutionResult(
-                strategy=strat,
-                success=success,
-                action_taken=f"Relaunched CrusorAI-managed service on port {port}." if success else f"Failed to relaunch service on port {port}.",
-                next_instruction=f"Service on port {port} restarted; retry tool invocation." if success else "Escalate service startup failure.",
-                metadata={"port": port, "relaunch_succeeded": success},
-            )
-
-        # 2. Bounded network warmup poll
-        if strat == "bounded_warmup_poll":
-            poll_delay = float(ctx.get("poll_delay", 0.5))
-            bounded_delay = max(0.1, min(poll_delay, 1.5))
-            if ctx.get("execute_sleep", True):
-                time.sleep(bounded_delay)
-            return RecoveryExecutionResult(
-                strategy=strat,
-                success=True,
-                action_taken=f"Applied network warmup polling pause of {bounded_delay:.2f}s.",
-                next_instruction="Service socket initialized; proceed to retry.",
-                metadata={"poll_delay_seconds": bounded_delay},
-            )
-
-        # 3. Respect Retry-After or Exponential Backoff
-        if strat in ("respect_retry_after_or_backoff", "exponential_backoff_jitter"):
-            retry_after = classification.metadata.get("retry_after_seconds")
-            attempt = classification.metadata.get("attempt", 1)
-            backoff_base = classification.metadata.get("backoff_base_s", 2.0)
-
-            if retry_after is not None:
-                delay = float(retry_after)
+            if self.process_supervisor:
+                try:
+                    relaunch_ok = self.process_supervisor.relaunch_process(port)
+                    if relaunch_ok:
+                        return RecoveryExecutionResult(
+                            success=True,
+                            strategy_applied=strategy,
+                            action_taken=f"Relaunched CrusorAI service on port {port}.",
+                            next_instruction=f"Managed service on port {port} restarted successfully. Ready to retry request.",
+                            metadata=meta,
+                        )
+                    else:
+                        return RecoveryExecutionResult(
+                            success=False,
+                            strategy_applied=strategy,
+                            action_taken=f"Process supervisor failed to relaunch service on port {port}.",
+                            next_instruction="Process relaunch failed. Manual supervisor inspection required.",
+                            metadata=meta,
+                        )
+                except Exception as exc:
+                    return RecoveryExecutionResult(
+                        success=False,
+                        strategy_applied=strategy,
+                        action_taken=f"Exception during process relaunch on port {port}: {exc}",
+                        next_instruction="Process relaunch encountered error.",
+                        metadata=meta,
+                    )
             else:
-                raw_delay = min(float(backoff_base) ** attempt, 16.0)
-                # Apply 10% jitter
-                jitter = random.uniform(0.0, 0.1 * raw_delay)
-                delay = raw_delay + jitter
+                return RecoveryExecutionResult(
+                    success=False,
+                    strategy_applied=strategy,
+                    action_taken="No ProcessSupervisor attached. Cannot relaunch process.",
+                    next_instruction="Attach ProcessSupervisor to enable automated server relaunches.",
+                    metadata=meta,
+                )
 
-            if ctx.get("execute_sleep", False):
+        # 2. Bounded network warmup delay
+        if strategy == "bounded_warmup_poll":
+            port = meta.get("port")
+            delay = 0.5
+            if self.apply_sleep:
+                time.sleep(delay)
+            # If supervisor present, re-check readiness
+            ready = True
+            if self.process_supervisor and port is not None:
+                is_alive, is_owned = self.process_supervisor.inspect_port_owner(port)
+                ready = is_alive and is_owned
+
+            return RecoveryExecutionResult(
+                success=ready,
+                strategy_applied=strategy,
+                action_taken=f"Polled service warmup on port {port} ({delay:.1f}s delay applied).",
+                next_instruction="Service warmup delay elapsed. Retrying socket connection.",
+                sleep_applied_seconds=delay if self.apply_sleep else 0.0,
+                metadata=meta,
+            )
+
+        # 3. Rate limit backoff (respecting Retry-After header)
+        if strategy == "respect_retry_after_or_backoff":
+            retry_after = meta.get("retry_after_seconds")
+            attempt = meta.get("attempt", 1)
+            if retry_after is not None and retry_after > 0:
+                delay = min(float(retry_after), self.max_backoff_seconds)
+            else:
+                delay = min(2.0 ** attempt, self.max_backoff_seconds)
+
+            if self.apply_sleep and delay > 0:
                 time.sleep(delay)
 
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken=f"Computed backoff delay of {delay:.2f}s for attempt {attempt}.",
-                next_instruction=f"Pause execution for {delay:.2f}s before dispatching request.",
-                metadata={"delay_seconds": delay, "attempt": attempt},
+                strategy_applied=strategy,
+                action_taken=f"Applied rate limit backoff delay of {delay:.2f}s.",
+                next_instruction=f"Rate limit backoff ({delay:.1f}s) completed. Ready to dispatch retry.",
+                sleep_applied_seconds=delay if self.apply_sleep else 0.0,
+                metadata=meta,
             )
 
-        # 4. Drain eligible ephemeral logs on disk exhaustion
-        if strat == "drain_eligible_logs":
-            log_dirs: List[str] = ctx.get("log_directories", [".crusorai/logs", "logs", "tmp"])
+        # 4. Exponential backoff with jitter (HTTP 5xx outages)
+        if strategy == "exponential_backoff_jitter":
+            attempt = meta.get("attempt", 1)
+            base = float(meta.get("backoff_base_s", 2.0))
+            raw_delay = min(base * (2.0 ** (attempt - 1)), self.max_backoff_seconds)
+            # Add bounded jitter up to 25% of delay
+            jitter = (random.random() * 0.25) * raw_delay
+            delay = min(raw_delay + jitter, self.max_backoff_seconds)
+
+            if self.apply_sleep and delay > 0:
+                time.sleep(delay)
+
+            return RecoveryExecutionResult(
+                success=True,
+                strategy_applied=strategy,
+                action_taken=f"Applied exponential backoff with jitter of {delay:.2f}s.",
+                next_instruction=f"Transient outage backoff ({delay:.1f}s) elapsed. Retrying request.",
+                sleep_applied_seconds=delay if self.apply_sleep else 0.0,
+                metadata=meta,
+            )
+
+        # 5. Disk exhaustion (drain eligible ephemeral logs)
+        if strategy == "drain_eligible_logs":
             drained_bytes = 0
             drained_files = 0
-            for d in log_dirs:
-                if os.path.exists(d) and os.path.isdir(d):
-                    for entry in os.scandir(d):
-                        if entry.is_file() and entry.name.endswith((".log", ".tmp")):
+            if self.workspace_root and self.workspace_root.exists():
+                candidate_dirs = [
+                    self.workspace_root / ".crusorai" / "logs",
+                    self.workspace_root / "tmp",
+                ]
+                for cdir in candidate_dirs:
+                    if cdir.exists() and cdir.is_dir():
+                        for p in cdir.glob("*.log"):
                             try:
-                                size = entry.stat().st_size
-                                with open(entry.path, "w", encoding="utf-8") as f:
-                                    f.truncate(0)
+                                size = p.stat().st_size
+                                p.write_text("")  # truncate ephemeral log
                                 drained_bytes += size
                                 drained_files += 1
                             except Exception:
                                 pass
+
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken=f"Drained {drained_files} ephemeral debug log files ({drained_bytes} bytes reclaimed).",
-                next_instruction="Ephemeral logs cleared; re-attempt minimal write or alert user.",
-                metadata={"files_drained": drained_files, "bytes_reclaimed": drained_bytes},
+                strategy_applied=strategy,
+                action_taken=f"Drained {drained_files} ephemeral log files ({drained_bytes} bytes released).",
+                next_instruction="Ephemeral log drainage completed. Verify free disk space.",
+                metadata={"drained_files": drained_files, "drained_bytes": drained_bytes, **meta},
             )
 
-        # 5. Terminate owned worker processes on memory exhaustion
-        if strat == "terminate_owned_subprocesses_and_release":
-            terminated = 0
-            if self.supervisor:
-                terminated = self.supervisor.terminate_owned_processes()
-            collected = gc.collect()
+        # 6. Memory exhaustion (terminate owned child processes and release caches)
+        if strategy == "terminate_owned_subprocesses_and_release":
+            terminated_count = 0
+            if self.process_supervisor:
+                try:
+                    terminated_count = self.process_supervisor.cleanup_owned_subprocesses()
+                except Exception:
+                    pass
+            # Force local garbage collection to free detached memory
+            gc.collect()
+
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken=f"Terminated {terminated} CrusorAI-owned worker processes and collected {collected} garbage objects.",
-                next_instruction="Memory pressure alleviated; resume with conservative allocation.",
-                metadata={"terminated_processes": terminated, "gc_collected_objects": collected},
+                strategy_applied=strategy,
+                action_taken=f"Terminated {terminated_count} CrusorAI-owned subprocesses and released internal memory caches.",
+                next_instruction="Memory reclamation complete. Throttle concurrency to avoid repeat OOM.",
+                metadata={"terminated_processes": terminated_count, **meta},
             )
 
-        # 6. AST Diagnostic Feedback
-        if strat == "ast_diagnostic_feedback":
+        # 7. Alternating mutation lock (assertions failed; model must edit code)
+        if strategy == "alternating_mutation_lock":
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken="Formulated line-level AST syntax diagnostic prompt delta.",
-                next_instruction="Inject exact line/column syntax error pointer into model prompt.",
-                metadata={"requires_code_mutation": True},
+                strategy_applied=strategy,
+                action_taken="Engaged alternating mutation lock on test executions.",
+                next_instruction="Unit test assertions failed. You must inspect the failure and edit the relevant source code before re-running tests.",
+                metadata=meta,
             )
 
-        # 7. Schema Feedback Prompt
-        if strat == "schema_feedback_prompt":
+        # 8. Bounded idempotent retry
+        if strategy == "bounded_idempotent_retry":
+            attempt = meta.get("attempt", 1)
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken="Synthesized JSON schema repair diagnostic for tool parameters.",
-                next_instruction="Inject required tool argument schema into next model turn.",
-                metadata={"requires_schema_correction": True},
+                strategy_applied=strategy,
+                action_taken=f"Authorized bounded idempotent retry (attempt {attempt}).",
+                next_instruction="Re-executing idempotent read/status operation.",
+                metadata=meta,
             )
 
-        # 8. Alternating Mutation Lock
-        if strat == "alternating_mutation_lock":
+        # 9. Prompt guidance strategies (Schema feedback, AST diagnostic, Requirement delta)
+        if strategy in ("ast_diagnostic_feedback", "schema_feedback_prompt", "requirement_delta_remediation"):
             return RecoveryExecutionResult(
-                strategy=strat,
                 success=True,
-                action_taken="Applied alternating mutation lock: test execution locked until file mutation occurs.",
-                next_instruction="Require model to apply relevant code mutation before re-running test suite.",
-                metadata={"mutation_lock_active": True},
+                strategy_applied=strategy,
+                action_taken=f"Synthesized prompt guidance for {strategy}.",
+                next_instruction=classification.diagnostic_message,
+                metadata=meta,
             )
 
-        # 9. Requirement Delta Remediation
-        if strat == "requirement_delta_remediation":
-            req_id = classification.metadata.get("requirement_id", "UNKNOWN")
+        # 10. Fail-closed / Non-retryable strategies
+        fail_closed_strategies = {
+            "fail_fast_auth",
+            "diagnose_invalid_request",
+            "unowned_process_fail_closed",
+            "fail_closed_non_idempotent",
+            "fail_closed_unknown_port",
+            "no_supervisor_fail_closed",
+            "audit_trail_fail_closed",
+            "hard_stop_grace_summary",
+            "reverify_current_revision",
+        }
+        if strategy in fail_closed_strategies:
             return RecoveryExecutionResult(
-                strategy=strat,
-                success=True,
-                action_taken=f"Extracted requirement delta for requirement '{req_id}'.",
-                next_instruction="Direct model to implement missing requirement according to acceptance criteria.",
-                metadata={"requirement_id": req_id, "requires_code_mutation": True},
+                success=False,
+                strategy_applied=strategy,
+                action_taken=f"Fail-closed enforced by strategy '{strategy}'.",
+                next_instruction=classification.diagnostic_message,
+                metadata=meta,
             )
 
-        # 10. Fail-closed or terminal halts
+        # Fallback for unclassified / unknown strategies
         return RecoveryExecutionResult(
-            strategy=strat,
             success=False,
-            action_taken=f"Halted execution safely under strategy '{strat}'.",
-            next_instruction="Cease automated retries and escalate to user.",
-            metadata={"fail_closed": True},
+            strategy_applied=strategy or "unhandled",
+            action_taken=f"No automated recovery execution available for strategy '{strategy}'.",
+            next_instruction=classification.diagnostic_message,
+            metadata=meta,
         )

@@ -5488,6 +5488,16 @@ def progress_node(
         "mutation_ledger": mutation_ledger,
     }
 
+    try:
+        from src.runtime.factory import get_runtime_services
+        sid = SafeToolNode._session_id(config)
+        tracker = get_runtime_services().recovery_budgets.get_tracker(
+            sid, state.get("recovery_budget_state")
+        )
+        result["recovery_budget_state"] = tracker.to_dict()
+    except Exception:
+        pass
+
     if processed_tools:
         # ToolMessage already carries the observation. The generic reflection
         # system message repeats planning/verify/ask guidance after every tool

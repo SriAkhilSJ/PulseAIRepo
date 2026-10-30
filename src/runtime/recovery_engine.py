@@ -31,22 +31,17 @@ class ProcessSupervisor(Protocol):
         """Returns (is_alive, is_owned_by_crusorai)."""
         ...
 
-    def relaunch_service(self, port: int) -> bool:
-        """Controlled relaunch of CrusorAI-owned process."""
+    def relaunch_process(self, port: int) -> bool:
+        """Controlled relaunch of CrusorAI-owned process on port."""
         ...
 
-    def terminate_owned_processes(self) -> int:
-        """Terminate all CrusorAI-owned child worker processes; return count."""
+    def terminate_process(self, port: int) -> bool:
+        """Safely terminates CrusorAI-owned process on port."""
         ...
 
-
-class ProviderErrorInfo(NamedTuple):
-    status_code: int
-    provider: str
-    request_id: Optional[str] = None
-    retry_after: Optional[str] = None
-    error_type: Optional[str] = None
-    message: Optional[str] = None
+    def cleanup_owned_subprocesses(self) -> int:
+        """Terminates CrusorAI-owned child processes on resource exhaustion; returns count terminated."""
+        ...
 
 
 class RequirementEvidence(NamedTuple):
@@ -56,7 +51,16 @@ class RequirementEvidence(NamedTuple):
     failed_acceptance_criterion: str
     required_correction: str
     workspace_revision: int = 0
-    verifier_identity: str = "unknown"
+    evaluator: str = "acceptance_tester"
+
+
+class ProviderErrorMetadata(NamedTuple):
+    status_code: int
+    provider_id: str = "unknown"
+    request_id: Optional[str] = None
+    retry_after: Optional[float] = None
+    error_category: str = "provider_error"
+    raw_message: str = ""
 
 
 class FailureClassification(NamedTuple):
@@ -98,7 +102,7 @@ class FailureClassifier:
         process_supervisor: Optional[ProcessSupervisor] = None,
         requirement_evidence: Optional[RequirementEvidence] = None,
         headers: Optional[Dict[str, str]] = None,
-        provider_error: Optional[ProviderErrorInfo] = None,
+        provider_error: Optional[ProviderErrorMetadata] = None,
         current_workspace_revision: Optional[int] = None,
     ) -> FailureClassification:
         err = (error_str or "").strip()
@@ -106,36 +110,47 @@ class FailureClassifier:
 
         # 1. Logic or Specification Failure (Requires structured requirement-verification evidence)
         if requirement_evidence is not None:
-            is_stale = (
-                current_workspace_revision is not None
-                and requirement_evidence.workspace_revision < current_workspace_revision
-            )
+            # Check for stale evidence: if workspace revision has advanced past verification, refuse stale remediation
+            if current_workspace_revision is not None and requirement_evidence.workspace_revision < current_workspace_revision:
+                return FailureClassification(
+                    failure_class="stale_specification_evidence",
+                    is_retryable=False,
+                    max_additional_retries=0,
+                    recommended_strategy="reverify_current_revision",
+                    diagnostic_message=(
+                        f"Specification evidence for '{requirement_evidence.requirement_id}' was verified against "
+                        f"workspace revision {requirement_evidence.workspace_revision}, but current revision is "
+                        f"{current_workspace_revision}. Re-verification required before applying remediation."
+                    ),
+                    metadata={
+                        "stale": True,
+                        "evidence_revision": requirement_evidence.workspace_revision,
+                        "current_workspace_revision": current_workspace_revision,
+                        "evaluator": requirement_evidence.evaluator,
+                        "requirement_id": requirement_evidence.requirement_id,
+                    },
+                )
+
             return FailureClassification(
                 failure_class="logic_or_specification_failure",
-                is_retryable=not is_stale,
-                max_additional_retries=2 if not is_stale else 0,
-                recommended_strategy="requirement_delta_remediation" if not is_stale else "stale_evidence_suppressed",
+                is_retryable=True,
+                max_additional_retries=2,
+                recommended_strategy="requirement_delta_remediation",
                 diagnostic_message=(
-                    f"Specification mismatch on requirement '{requirement_evidence.requirement_id}' "
-                    f"(rev {requirement_evidence.workspace_revision} via {requirement_evidence.verifier_identity}): "
+                    f"Specification mismatch on requirement '{requirement_evidence.requirement_id}': "
                     f"Expected: {requirement_evidence.expected_behavior}; Actual: {requirement_evidence.actual_behavior}. "
                     f"Action required: {requirement_evidence.required_correction}"
-                    if not is_stale
-                    else f"Specification mismatch on requirement '{requirement_evidence.requirement_id}' is STALE "
-                    f"(evaluated rev {requirement_evidence.workspace_revision} < current rev {current_workspace_revision}). "
-                    f"Outdated remediation suppressed."
                 ),
                 metadata={
                     "requirement_id": requirement_evidence.requirement_id,
                     "criterion": requirement_evidence.failed_acceptance_criterion,
-                    "requires_code_mutation": not is_stale,
+                    "requires_code_mutation": True,
                     "workspace_revision": requirement_evidence.workspace_revision,
-                    "verifier_identity": requirement_evidence.verifier_identity,
-                    "is_stale": is_stale,
+                    "evaluator": requirement_evidence.evaluator,
                 },
             )
 
-        # 2. Structured Provider Error (Highest precedence for API client errors)
+        # 2. Structured Provider Error (Preferred when passed from LLM/HTTP client)
         if provider_error is not None:
             code = provider_error.status_code
             if code == 400:
@@ -144,8 +159,8 @@ class FailureClassifier:
                     is_retryable=False,
                     max_additional_retries=0,
                     recommended_strategy="diagnose_invalid_request",
-                    diagnostic_message=f"Provider ({provider_error.provider}) rejected request as invalid (HTTP 400). Do not retry identical payload.",
-                    metadata={"status_code": 400, "provider": provider_error.provider, "request_id": provider_error.request_id, "category": "provider_error"},
+                    diagnostic_message=f"Provider {provider_error.provider_id} rejected request as invalid (HTTP 400): {provider_error.raw_message or 'Invalid payload parameters'}.",
+                    metadata={"status_code": 400, "provider_id": provider_error.provider_id, "request_id": provider_error.request_id, "category": "provider_error"},
                 )
             elif code in (401, 403):
                 return FailureClassification(
@@ -153,18 +168,17 @@ class FailureClassifier:
                     is_retryable=False,
                     max_additional_retries=0,
                     recommended_strategy="fail_fast_auth",
-                    diagnostic_message=f"Provider ({provider_error.provider}) authentication/authorization failed (HTTP {code}). Halting to prevent credential lockout.",
-                    metadata={"status_code": code, "provider": provider_error.provider, "request_id": provider_error.request_id, "category": "provider_error"},
+                    diagnostic_message=f"Provider {provider_error.provider_id} authentication/authorization failed (HTTP {code}). Halting to prevent lockout.",
+                    metadata={"status_code": code, "provider_id": provider_error.provider_id, "request_id": provider_error.request_id, "category": "provider_error"},
                 )
             elif code == 429:
-                delay = FailureClassifier.parse_retry_after(provider_error.retry_after) if provider_error.retry_after else None
                 return FailureClassification(
                     failure_class="provider_rate_limit",
                     is_retryable=True,
                     max_additional_retries=4,
                     recommended_strategy="respect_retry_after_or_backoff",
-                    diagnostic_message=f"Provider ({provider_error.provider}) rate limit reached (HTTP 429). Applying backoff{f' (Retry-After: {delay:.1f}s)' if delay else ''}.",
-                    metadata={"status_code": 429, "retry_after_seconds": delay, "provider": provider_error.provider, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
+                    diagnostic_message=f"Provider {provider_error.provider_id} rate limit reached (HTTP 429). Applying backoff (Retry-After: {provider_error.retry_after or 0.0:.1f}s).",
+                    metadata={"status_code": 429, "retry_after_seconds": provider_error.retry_after, "provider_id": provider_error.provider_id, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
                 )
             elif 500 <= code <= 504:
                 return FailureClassification(
@@ -172,11 +186,11 @@ class FailureClassifier:
                     is_retryable=True,
                     max_additional_retries=3,
                     recommended_strategy="exponential_backoff_jitter",
-                    diagnostic_message=f"Transient provider ({provider_error.provider}) error (HTTP {code}). Apply bounded exponential backoff with jitter.",
-                    metadata={"status_code": code, "backoff_base_s": 2, "provider": provider_error.provider, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
+                    diagnostic_message=f"Provider {provider_error.provider_id} transient outage (HTTP {code}). Applying backoff with jitter.",
+                    metadata={"status_code": code, "backoff_base_s": 2, "provider_id": provider_error.provider_id, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
                 )
 
-        # 2. Syntax / Indentation Errors
+        # 3. Syntax / Indentation Errors
         if any(x in err_lower for x in ["syntaxerror", "indentationerror", "taberror", "unterminated string", "invalid syntax"]):
             return FailureClassification(
                 failure_class="syntax_error",
@@ -187,7 +201,7 @@ class FailureClassifier:
                 metadata={"requires_code_mutation": True},
             )
 
-        # 3. Schema & Argument Errors (from SafeArgumentNormalizer)
+        # 4. Schema & Argument Errors (from SafeArgumentNormalizer)
         if any(x in err_lower for x in ["conflicting_arguments_error", "ambiguous_argument_error", "invalid_arguments_type", "missing required argument"]):
             return FailureClassification(
                 failure_class="schema_argument_error",
@@ -198,7 +212,7 @@ class FailureClassifier:
                 metadata={"tool_name": tool_name},
             )
 
-        # 4. Assertion & Unit Test Failures (Evaluated BEFORE HTTP codes to avoid matching test assertion values like '401 != 200')
+        # 5. Assertion & Unit Test Failures (Evaluated BEFORE HTTP codes to avoid matching test assertion values like '401 != 200')
         if "assertionerror" in err_lower or (exit_code is not None and exit_code > 0 and any(x in err_lower for x in ["failed", "failures=", "assert ", "failure:"])):
             return FailureClassification(
                 failure_class="assertion_failure",
@@ -209,7 +223,7 @@ class FailureClassifier:
                 metadata={"exit_code": exit_code, "requires_code_mutation": True},
             )
 
-        # 5. Resource Exhaustion (Memory, Disk, Token Ceiling)
+        # 6. Resource Exhaustion (Memory, Disk, Token Ceiling)
         # Memory Exhaustion (OOM)
         if "out of memory" in err_lower or "memoryerror" in err_lower or "oom-killer" in err_lower or "oomkiller" in err_lower:
             return FailureClassification(
@@ -243,7 +257,7 @@ class FailureClassifier:
                 metadata={},
             )
 
-        # 6. HTTP Provider Errors (Refined Decoupling)
+        # 7. HTTP Provider Errors (Refined Decoupling with Exact Code Preservation)
         # HTTP 400: Invalid Request (Fail-closed; 0 retries for identical request)
         if re.search(r"\b(?:http\s*)?400\b", err_lower) or "bad request" in err_lower or "invalid_request_error" in err_lower:
             return FailureClassification(
@@ -255,16 +269,16 @@ class FailureClassifier:
                 metadata={"status_code": 400, "category": "provider_error"},
             )
 
-        # HTTP 401 / 403: Authentication / Permission failure (Fail-fast; 0 retries)
+        # HTTP 401 / 403: Authentication / Permission failure (Fail-fast; 0 retries; Preserves 401 vs 403)
         if re.search(r"\b(?:http\s*)?(?:401|403)\b", err_lower) or "unauthorized" in err_lower or "forbidden" in err_lower:
-            actual_status = 403 if (re.search(r"\b(?:http\s*)?403\b", err_lower) or "forbidden" in err_lower) else 401
+            code = 403 if (re.search(r"\b403\b", err_lower) or "forbidden" in err_lower) else 401
             return FailureClassification(
                 failure_class="provider_auth_failure",
                 is_retryable=False,
                 max_additional_retries=0,
                 recommended_strategy="fail_fast_auth",
-                diagnostic_message=f"Provider authentication or authorization failed (HTTP {actual_status}). Halting to prevent credential lockout.",
-                metadata={"status_code": actual_status, "category": "provider_error"},
+                diagnostic_message=f"Provider authentication or authorization failed (HTTP {code}). Halting to prevent credential lockout.",
+                metadata={"status_code": code, "category": "provider_error"},
             )
 
         # HTTP 429: Rate Limit (Parses Retry-After numeric and date)
@@ -281,31 +295,33 @@ class FailureClassifier:
                 max_additional_retries=4,
                 recommended_strategy="respect_retry_after_or_backoff",
                 diagnostic_message=f"Rate limit reached (HTTP 429). Applying backoff{f' (Retry-After: {retry_after_delay:.1f}s)' if retry_after_delay else ''}.",
-                metadata={"retry_after_seconds": retry_after_delay, "attempt": attempt, "category": "provider_error"},
+                metadata={"status_code": 429, "retry_after_seconds": retry_after_delay, "attempt": attempt, "category": "provider_error"},
             )
 
         # HTTP 500 / 502 / 503 / 504: Transient Provider Outage
-        if re.search(r"\b(?:http\s*)?50[0-4]\b", err_lower) or any(x in err_lower for x in ["internal server error", "bad gateway", "service unavailable", "gateway timeout"]):
+        code_match = re.search(r"\b(?:http\s*)?(50[0-4])\b", err_lower)
+        if code_match or any(x in err_lower for x in ["internal server error", "bad gateway", "service unavailable", "gateway timeout"]):
+            exact_5xx = int(code_match.group(1)) if code_match else 500
             return FailureClassification(
                 failure_class="provider_transient_error",
                 is_retryable=True,
                 max_additional_retries=3,
                 recommended_strategy="exponential_backoff_jitter",
-                diagnostic_message="Transient provider error (5xx). Apply bounded exponential backoff with jitter.",
-                metadata={"backoff_base_s": 2, "attempt": attempt, "category": "provider_error"},
+                diagnostic_message=f"Transient provider error (HTTP {exact_5xx}). Apply bounded exponential backoff with jitter.",
+                metadata={"status_code": exact_5xx, "backoff_base_s": 2, "attempt": attempt, "category": "provider_error"},
             )
 
-        # 7. Port Binding / EADDRINUSE Collisions
+        # 8. Port Binding / EADDRINUSE Collisions (Safe port detection: Never guess 8000!)
         if "eaddrinuse" in err_lower or "address already in use" in err_lower:
-            port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{3,5})\b", err_lower)
+            port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{2,5})\b", err_lower)
             if not port_match:
                 return FailureClassification(
-                    failure_class="unowned_service_collision",
+                    failure_class="unknown_port_connection_failure",
                     is_retryable=False,
                     max_additional_retries=0,
-                    recommended_strategy="unknown_port_fail_closed",
-                    diagnostic_message="Port binding error (EADDRINUSE) occurred but port number could not be determined. Fail-closed to avoid probing arbitrary ports.",
-                    metadata={"port": None, "is_owned": False},
+                    recommended_strategy="fail_closed_unknown_port",
+                    diagnostic_message="Port binding error (EADDRINUSE) occurred, but port number could not be determined. Refusing to guess port; manual inspection required.",
+                    metadata={},
                 )
             port = int(port_match.group(1))
 
@@ -339,17 +355,17 @@ class FailureClassifier:
                     metadata={"port": port},
                 )
 
-        # 8. Connection Refused (Client-side Process-Aware Table)
+        # 9. Connection Refused (Client-side Process-Aware Table; Safe port detection)
         if "connectionrefused" in err_lower or "connection refused" in err_lower or "econnrefused" in err_lower:
-            port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{3,5})\b", err_lower)
+            port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{2,5})\b", err_lower)
             if not port_match:
                 return FailureClassification(
-                    failure_class="unowned_service_collision",
+                    failure_class="unknown_port_connection_failure",
                     is_retryable=False,
                     max_additional_retries=0,
-                    recommended_strategy="unknown_port_fail_closed",
-                    diagnostic_message="Connection refused occurred but port number could not be determined. Fail-closed to avoid probing arbitrary ports.",
-                    metadata={"port": None, "is_owned": False},
+                    recommended_strategy="fail_closed_unknown_port",
+                    diagnostic_message="Connection refused detected, but port number could not be determined. Refusing to guess port; manual inspection required.",
+                    metadata={},
                 )
             port = int(port_match.group(1))
 
@@ -492,7 +508,7 @@ class GlobalRecoveryBudgetTracker:
             }
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize tracker state for LangGraph checkpoints and session persistence."""
+        """Serialize tracker state for persistence across LangGraph turns and session resumes."""
         with self._lock:
             return {
                 "session_id": self.session_id,
@@ -506,7 +522,7 @@ class GlobalRecoveryBudgetTracker:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> GlobalRecoveryBudgetTracker:
-        """Rehydrate tracker from state without resetting attempt count or elapsed budget."""
+        """Restore tracker state without resetting counters or timers."""
         tracker = cls(
             session_id=str(data.get("session_id", "default")),
             max_total_recovery_attempts=int(data.get("max_total_attempts", 8)),
@@ -514,6 +530,7 @@ class GlobalRecoveryBudgetTracker:
             max_identical_failure_repeats=int(data.get("max_identical_repeats", 2)),
         )
         tracker._total_attempts = int(data.get("total_attempts", 0))
-        tracker._start_time = time.monotonic() - float(data.get("elapsed_seconds", 0.0))
         tracker._failure_history = list(data.get("failure_history", []))
+        elapsed = float(data.get("elapsed_seconds", 0.0))
+        tracker._start_time = time.monotonic() - elapsed
         return tracker

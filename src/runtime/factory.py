@@ -26,12 +26,13 @@ class RecoveryBudgetRegistry:
                     self._trackers[session_id] = GlobalRecoveryBudgetTracker.from_dict(state_dict)
                 else:
                     self._trackers[session_id] = GlobalRecoveryBudgetTracker(session_id=session_id)
+            elif state_dict and self._trackers[session_id].get_stats()["total_attempts"] == 0 and state_dict.get("total_attempts", 0) > 0:
+                self._trackers[session_id] = GlobalRecoveryBudgetTracker.from_dict(state_dict)
             return self._trackers[session_id]
 
     def reset_for_tests(self) -> None:
         with self._lock:
             self._trackers.clear()
-
 
 
 @dataclass
