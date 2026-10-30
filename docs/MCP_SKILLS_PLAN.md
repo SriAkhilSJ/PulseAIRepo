@@ -99,14 +99,32 @@ the same `SkillManager` the internal tools use. Hierarchy is derived, never decl
 `skill_view` stays the pull path: the agent takes as many books as it wants. The
 bundle tool is the only thing that *proposes* a set, and only during planning.
 
-### 4.2 Resources (browsing)
+### 4.2 Resources (browsing) — corrected after measuring
 
-- `skill://catalog` — domains, counts, one-line descriptions.
+The first implementation mirrored the tree into `resources/list`: 240 books, with
+descriptions, **97 937 bytes ≈ 25 800 tokens** for any host that reads the listing
+eagerly. That is the library's entire premise paid before a single question is asked.
+
+The MCP specification says resources are **application-driven** ("host applications
+determining how to incorporate context") and that parameterised content belongs in
+**resource templates**, with `resources/list` allowed to be sparse. Top servers follow
+that: the reference filesystem server exposes file access as *tools*, and knowledge
+servers (qdrant, github) expose a small lookup surface rather than enumerating their
+corpus.
+
+So the listing is now catalog + health + six domains — **8 entries, 1 266 bytes
+≈ 333 tokens** — and every book is still readable through the
+`skill://{domain}/{shelf}/{book}` template. Books are *addressed*, not enumerated.
+
+Original text kept below for the record:
+
+- `skill://catalog` — domains, counts, one-line descriptions (642 bytes).
 - `skill://{domain}`, `skill://{domain}/{shelf}` — children, with `mimeType: text/markdown`.
-- `skill://{path-to-book}` — the full `SKILL.md` body, plus `metadata` echoed in the
-  resource annotations (`crusor-origin`, `crusor-triggers`, `crusor-verified-on`).
+- `skill://{domain}/{shelf}/{book}` — the full `SKILL.md` body, resolved by template,
+  plus `metadata` echoed in the resource annotations.
 
-Resource templates are registered so a client can enumerate without a tool call.
+Resources are a bonus surface for hosts that have a resource picker. Tools remain the
+only surface the *model* can drive on its own, which is why selection lives there.
 
 ### 4.3 Prompt
 

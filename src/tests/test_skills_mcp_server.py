@@ -129,15 +129,28 @@ def test_view_budget_truncates_and_says_so(server):
 
 # -- resources --------------------------------------------------------------
 
-def test_every_book_is_a_resource_and_reads_back(server):
-    listed = call(server, "resources/list")["result"]["resources"]
-    uris = {r["uri"] for r in listed if r["uri"] != "skill://catalog"}
-    book_uris = {b.uri for b in server.index.books.values()}
-    # every book is a resource, and nothing else is
-    assert book_uris <= uris
-    assert {u for u in uris if u in book_uris} == book_uris
-    architect = [b for b in server.index.books.values() if b.is_architect]
-    assert len(architect) >= 220
+def test_resources_list_stays_small(server):
+    """A 240-entry listing is ~26k tokens for any host that reads it eagerly."""
+    payload = json.dumps(call(server, "resources/list")["result"])
+    entries = payload.count('"uri"')
+    assert entries <= 12, f"{entries} resources listed"
+    assert len(payload) < 4000, f"resources/list is {len(payload)} bytes"
+
+
+def test_every_book_is_addressable_by_uri(server):
+    """Books are resolved through the template, not enumerated in the listing."""
+    unreadable = []
+    for book in server.index.books.values():
+        try:
+            contents = call(server, "resources/read", {"uri": book.uri})["result"]["contents"]
+        except AssertionError:  # pragma: no cover
+            unreadable.append(book.name)
+            continue
+        if not contents or book.body[:80] not in contents[0]["text"]:
+            unreadable.append(book.name)
+    assert not unreadable, f"{len(unreadable)} books unreachable by uri: {unreadable[:5]}"
+    templates = call(server, "resources/templates/list")["result"]["resourceTemplates"]
+    assert any(t["uriTemplate"].endswith("{domain}/{shelf}/{book}") for t in templates)
     sample = server.index.get("native-feel-architect")
     read = call(server, "resources/read", {"uri": sample.uri})["result"]["contents"][0]
     assert read["mimeType"] == "text/markdown"

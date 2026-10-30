@@ -123,7 +123,16 @@ class SkillIndex:
     # -- tree ---------------------------------------------------------------
 
     def domains(self) -> list[str]:
-        return sorted({b.domain for b in self.books.values()})
+        """The architect domains — the browsable tree.
+
+        Standalone skills (connectors, process skills) sit at the root and are
+        still readable by `skill://<name>`, but they are not domains and must
+        not inflate the listing.
+        """
+        return sorted({b.domain for b in self.books.values() if b.is_architect})
+
+    def standalone(self) -> int:
+        return sum(1 for b in self.books.values() if not b.is_architect)
 
     def children_of(self, path: str) -> tuple[list[str], list[str]]:
         """(sub-shelves, books) directly or indirectly below `path`."""

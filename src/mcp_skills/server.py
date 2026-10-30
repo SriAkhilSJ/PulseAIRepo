@@ -262,6 +262,15 @@ class SkillMCPServer:
     # -- resources ----------------------------------------------------------
 
     def resource_defs(self) -> list[dict[str, Any]]:
+        """The *listing* stays small; books are addressed, not enumerated.
+
+        The MCP spec is explicit that resources are application-driven and that
+        parameterised content belongs in resource templates. Enumerating 240
+        books here produced a 98 KB `resources/list` (~26 000 tokens) for a host
+        that eagerly reads it — the library's whole premise, paid before a
+        single question is asked. Domains plus templates keep it at ~1.5 KB and
+        every book is still readable by URI.
+        """
         return [
             {"uri": SCHEME + "catalog", "name": "Skill catalog",
              "description": "Domains, book counts and one-line descriptions.",
@@ -271,25 +280,24 @@ class SkillMCPServer:
              "mimeType": "application/json"},
             *[
                 {"uri": SCHEME + d, "name": d,
-                 "description": f"Domain {d}", "mimeType": "text/markdown"}
+                 "description": f"Domain {d}: "
+                                f"{sum(1 for b in self.index.books.values() if b.domain == d)} books",
+                 "mimeType": "text/markdown"}
                 for d in self.index.domains()
-            ],
-            *[
-                {"uri": b.uri, "name": b.name, "description": b.description[:180],
-                 "mimeType": "text/markdown",
-                 "annotations": {"origin": b.origin, "verified_on": b.verified_on}}
-                for b in sorted(self.index.books.values(), key=lambda x: x.name)
             ],
         ]
 
     def resource_templates(self) -> list[dict[str, Any]]:
+        """Where the corpus lives: three templates, no enumeration."""
         return [
+            {"uriTemplate": SCHEME + "catalog", "name": "catalog",
+             "description": "Every domain with its book count"},
             {"uriTemplate": SCHEME + "{domain}", "name": "domain",
-             "description": "Books and shelves in one domain"},
+             "description": "Shelves and books in one domain"},
             {"uriTemplate": SCHEME + "{domain}/{shelf}", "name": "shelf",
              "description": "Books on one shelf"},
             {"uriTemplate": SCHEME + "{domain}/{shelf}/{book}", "name": "book",
-             "description": "One book, whole"},
+             "description": "One book, whole — the common case"},
         ]
 
     def read_resource(self, uri: str) -> dict[str, Any]:
@@ -307,6 +315,8 @@ class SkillMCPServer:
         if path == "catalog":
             catalog = {
                 "total": len(self.index.books),
+                "architect": sum(1 for b in self.index.books.values() if b.is_architect),
+                "standalone": self.index.standalone(),
                 "domains": [
                     {"domain": d,
                      "books": sum(1 for b in self.index.books.values() if b.domain == d)}
