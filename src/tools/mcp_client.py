@@ -24,6 +24,7 @@ idiom), never a raised exception into the turn.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import re
@@ -302,7 +303,11 @@ def invalidate_mcp_cache(workspace: str | None = None, server: str | None = None
 
 
 def close_all() -> None:
-    """Terminate every pooled session (shutdown, tests, workspace switch)."""
+    """Terminate every pooled session (shutdown, tests, workspace switch).
+
+    Registered with atexit: pooled sessions are child processes, and a leaked
+    npx server outliving the IDE is a real process nobody can see or kill.
+    """
     with _POOL_LOCK:
         for client in list(_POOL.values()):
             try:
@@ -311,6 +316,9 @@ def close_all() -> None:
                 pass
         _POOL.clear()
         _TOOLS_CACHE.clear()
+
+
+atexit.register(close_all)
 
 
 def server_tools(workspace: str, server: str) -> list[dict]:

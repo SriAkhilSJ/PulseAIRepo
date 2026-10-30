@@ -101,6 +101,22 @@ the ledger (`thread`, `server`, `tool`, `wall_s`, `ok`, `chars`), kind-separated
 from model `call` rows so a token summary is never polluted. A phase-denied or
 approval-pending call writes nothing, because nothing ran.
 
+## Measured end to end (local stdio server, after P0–P4)
+
+| Step | Time | Note |
+|---|---|---|
+| `mcp_servers` | 9.5 ms | reads `mcp.json` only — never starts a server |
+| `mcp_tools` (cold) | 28.2 ms | one spawn + `tools/list` |
+| `mcp_tools` (warm) | 1.0 ms | cached catalog |
+| `mcp_call` (pooled) | 2.9 ms | same session, no respawn |
+
+Per turn that is **564 tokens of schema, flat** — no MCP schema is bound per
+server, so the cost does not move when a second or third server is added.
+
+Pooled sessions are child processes, so `close_all()` is registered with
+`atexit`: an npx server outliving the IDE would be a real process nobody can see
+or kill.
+
 ## What this buys
 
 The agent can hold **hundreds** of third-party capabilities for ~300 tokens of
@@ -115,3 +131,6 @@ one-call because we do not.
 - **Not** streaming partial tool output in v1: `tools/call` returns a whole
   result; `notifications/progress` is a later, separate contract.
 - **Not** HTTP/SSE transport yet: stdio only, matching the server we ship.
+- **Not** `notifications/progress` streaming or `ttlMs`/`cacheScope` hints yet:
+  a `tools/call` returns whole, and the catalog TTL is ours (300 s) rather than
+  the server's preference. Both are separate contracts, tracked above.
