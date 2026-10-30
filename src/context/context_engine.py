@@ -2144,7 +2144,11 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         task = state.get("current_task", "")
         if not task:
             return None
-        text = skill_manager.get_skills_text(task)
+        # Architect skills are planning instruments: they may only be injected
+        # while a plan or todo list is being produced. Anything else is
+        # execution, where the model pulls a skill deliberately with skill_view.
+        phase = "planning" if (state.get("phase") == "planning" or state.get("plan_mode")) else "executing"
+        text = skill_manager.get_skills_text(task, phase=phase)
         if not text:
             return None
         return SystemMessage(content=text)

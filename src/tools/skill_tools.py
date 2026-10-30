@@ -142,6 +142,12 @@ def skill_view(name: str) -> str:
     else:
         body = str(skill.get("instruction", ""))
 
+    if str(skill.get("phase", "always")) == "planning":
+        parts.append(
+            "PLANNING SKILL — apply it while shaping the plan / todo list. "
+            "Do not keep re-reading it mid-execution."
+        )
+
     body = (body or "").strip()
     if not body:
         return f"skill_view error: skill {skill_name!r} has an empty body"
@@ -218,7 +224,11 @@ def skills_list(shelf: str = "") -> str:
         hint = f"No shelf or skill at {shelf!r}. " if shelf else ""
         return hint + "Browse from the root with skills_list()."
 
-    trailer = "\n\nOpen one with skill_view(name) — read it, then follow it."
+    trailer = (
+        "\n\nOpen one with skill_view(name) — read it, then follow it.\n"
+        "Architect skills are planning instruments: take one when you are "
+        "producing a plan or a todo list, not while executing the steps."
+    )
     return "\n".join(lines) + trailer
 
 

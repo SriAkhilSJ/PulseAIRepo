@@ -35,3 +35,17 @@ frontend-development-architect/
   receipts — not "how to write the code".
 - Every skill carries `metadata.crusor-domain`, `crusor-path`, `crusor-origin`,
   `crusor-sources`, `crusor-verified-on`.
+
+## When the agent may take one
+
+An Architect skill is a **planning instrument**, not an execution aid:
+
+| Phase | Behaviour |
+|---|---|
+| planning / writing a plan or todo list | the branch and framework skills are injected and are meant to be read |
+| executing | nothing is auto-injected; the model opens a skill deliberately with `skill_view(name)` only if the plan calls for it |
+
+The loader records `phase="planning"` for every `*-architect` skill (override
+with `metadata.crusor-phase`). `get_relevant_skills(task, phase=...)` refuses to
+inject a planning skill while executing, so an architect skill can never drift
+into a mid-run instruction.

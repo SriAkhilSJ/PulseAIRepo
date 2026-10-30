@@ -199,6 +199,8 @@ class SkillManager:
         skill.setdefault("created_at", _NOW())
         skill.setdefault("updated_at", None)
         skill.setdefault("last_activity_at", None)
+        # Legacy + user-created skills carry no phase: they are always usable.
+        skill.setdefault("phase", "always")
         return skill
 
     def _load(self) -> None:
@@ -242,7 +244,11 @@ class SkillManager:
             # filesystems. Names must be globally unique (Agent Skills spec), so
             # the first skill discovered with a given name wins and later
             # duplicates are skipped rather than silently shadowing it.
-            seen_names = {s["name"] for s in self._skills}
+            # Names owned by non-bundled (user/agent/hub) skills are protected:
+            # a shipped skill never shadows something the user owns. Bundled
+            # entries already in the store are refreshed from disk below.
+            owned = {s["name"] for s in self._skills if s.get("created_by") != "bundled"}
+            seen_names: set[str] = set()
             skills_root = os.path.abspath(skills_dir)
             for root, dirs, files in os.walk(skills_dir):
                 dirs.sort()
@@ -253,7 +259,7 @@ class SkillManager:
                 if "SKILL.md" not in files:
                     continue
                 entry = os.path.basename(root.rstrip(os.sep))
-                if not entry or entry in seen_names:
+                if not entry or entry in owned or entry in seen_names:
                     continue
                 md = os.path.join(root, "SKILL.md")
                 text = open(md, encoding="utf-8").read()
@@ -281,13 +287,21 @@ class SkillManager:
                 # the cap is higher than the user-skill default.
                 instruction = body.strip()[:_BUNDLED_INSTRUCTION_CAP]
                 rel_path = os.path.relpath(root, skills_root).replace(os.sep, "/")
-                self._skills.append(self._ensure_metadata({
+                fresh = {
                     "name": entry,
                     # Where the book sits on the shelf. Needed because the
                     # library is nested: skill_view must be able to open the
                     # file again, and browsing needs the shelf structure.
                     "path": rel_path,
                     "shelf": os.path.dirname(rel_path),
+                    # Architect skills are planning instruments: they belong to
+                    # the moment a plan / todo list is being written, not to the
+                    # execution that follows. `metadata.crusor-phase` can set
+                    # this explicitly; the `-architect` suffix is the default.
+                    "phase": str(
+                        frontmatter.get("metadata", {}).get("crusor-phase")
+                        or ("planning" if entry.endswith("-architect") else "always")
+                    ),
                     "description": str(frontmatter.get("description", "") or "").strip(),
                     "triggers": triggers,
                     "instruction": instruction,
@@ -298,7 +312,22 @@ class SkillManager:
                     "created_at": _NOW(),
                     "updated_at": _NOW(),
                     "last_activity_at": _NOW(),
-                }))
+                }
+                # A persisted store from an older build must not freeze an old
+                # copy of a bundled skill: the file on disk is the source of
+                # truth for everything except the user's lifecycle state and
+                # telemetry, which are carried over.
+                previous = next((x for x in self._skills if x.get("name") == entry), None)
+                if previous is not None and previous.get("created_by") == "bundled":
+                    fresh["created_at"] = previous.get("created_at", fresh["created_at"])
+                    for key in ("enabled", "state", "pinned", "use_count",
+                                "view_count", "patch_count", "last_activity_at"):
+                        if key in previous:
+                            fresh[key] = previous[key]
+                    previous.clear()
+                    previous.update(self._ensure_metadata(fresh))
+                else:
+                    self._skills.append(self._ensure_metadata(fresh))
                 seen_names.add(entry)
         except Exception:
             pass
@@ -494,10 +523,16 @@ class SkillManager:
     # SELECTION / INJECTION
     # =========================================================
 
-    def get_relevant_skills(self, task: str) -> list[str]:
+    def get_relevant_skills(self, task: str, phase: str = "executing") -> list[str]:
         """
         Return instructions for enabled, non-archived skills whose triggers
         match the task, and record 'use' telemetry for each match.
+
+        ``phase`` gates planning instruments: a skill recorded with
+        ``phase="planning"`` (every ``*-architect`` skill) is only injected
+        while a plan or todo list is being produced. During execution the
+        model reaches them through ``skills_list`` / ``skill_view`` instead —
+        never through a trigger match.
         """
         task_lower = (task or "").lower()
         instructions = []
@@ -506,16 +541,18 @@ class SkillManager:
                 continue
             if skill.get("state") == "archived":
                 continue
+            if str(skill.get("phase", "always")) == "planning" and phase != "planning":
+                continue
             if any(trigger in task_lower for trigger in skill.get("triggers", [])):
                 instructions.append(f"**{skill['name']}:** {skill['instruction']}")
                 self.record_usage(skill["name"], "use")
         return instructions
 
-    def get_skills_text(self, task: str) -> str:
+    def get_skills_text(self, task: str, phase: str = "executing") -> str:
         """
         Return formatted skills text for context injection.
         """
-        instructions = self.get_relevant_skills(task)
+        instructions = self.get_relevant_skills(task, phase=phase)
         if not instructions:
             return ""
         lines = ["=== ACTIVE SKILLS ==="]
