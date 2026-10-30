@@ -6058,6 +6058,55 @@ class SafeToolNode:
         results = run_durable_batch_sequential(
             tool_calls, self._tools_by_name, config
         )
+        # ── CrusorAI 2.1 ARRE Runtime Lifecycle & Recovery Governance ──
+        session_id = self._session_id(config)
+        try:
+            from src.runtime.factory import get_runtime_services
+            from src.runtime.recovery_engine import FailureClassifier
+            from src.runtime.recovery_dispatcher import RecoveryStrategyDispatcher
+
+            services = get_runtime_services()
+            tracker = services.recovery_budgets.get_tracker(session_id)
+            dispatcher = RecoveryStrategyDispatcher(budget_tracker=tracker)
+
+            recovered_results = []
+            for msg in results:
+                if getattr(msg, 'status', '') == 'error':
+                    classification = FailureClassifier.classify_error(
+                        tool_name=getattr(msg, 'name', ''),
+                        error_str=str(getattr(msg, 'content', '')),
+                    )
+                    if classification.is_retryable:
+                        t_name = getattr(msg, 'name', '')
+                        t_class = classification.failure_class
+                        permitted, reason = tracker.try_reserve_recovery_attempt(
+                            f"{t_name}:{t_class}"
+                        )
+                        if not permitted:
+                            new_content = f"{msg.content}\n\n[ARRE Recovery Budget Exhausted] {reason} Halting automated retries."
+                            msg = ToolMessage(
+                                content=new_content,
+                                tool_call_id=msg.tool_call_id,
+                                name=msg.name,
+                                status='error',
+                            )
+                        else:
+                            exec_res = dispatcher.dispatch(classification)
+                            if exec_res.action_taken:
+                                new_content = f"{msg.content}\n\n[ARRE Recovery Action] {exec_res.action_taken}"
+                                if exec_res.next_instruction:
+                                    new_content += f" Guidance: {exec_res.next_instruction}"
+                                msg = ToolMessage(
+                                    content=new_content,
+                                    tool_call_id=msg.tool_call_id,
+                                    name=msg.name,
+                                    status='error',
+                                )
+                recovered_results.append(msg)
+            results = recovered_results
+        except Exception as _arre_exc:
+            print(f"[SafeToolNode] ARRE recovery interceptor error (non-fatal): {_arre_exc}", flush=True)
+
         print(
             f"[tool_node] {len(results)} tool result(s) ready in "
             f"{_time.monotonic() - _t0:.1f}s -> handing back to the model",

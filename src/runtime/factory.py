@@ -3,12 +3,35 @@ from __future__ import annotations
 
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from src.context.verification_evidence import VerificationLedger
 from src.runtime.event_journal import EventJournal
 from src.runtime.turn_control import TurnControlRegistry, turn_controls
+from src.runtime.recovery_engine import GlobalRecoveryBudgetTracker
+
+
+class RecoveryBudgetRegistry:
+    def __init__(self) -> None:
+        self._trackers: dict[str, GlobalRecoveryBudgetTracker] = {}
+        self._lock = threading.Lock()
+
+    def get_tracker(
+        self, session_id: str, state_dict: dict | None = None
+    ) -> GlobalRecoveryBudgetTracker:
+        with self._lock:
+            if session_id not in self._trackers:
+                if state_dict:
+                    self._trackers[session_id] = GlobalRecoveryBudgetTracker.from_dict(state_dict)
+                else:
+                    self._trackers[session_id] = GlobalRecoveryBudgetTracker(session_id=session_id)
+            return self._trackers[session_id]
+
+    def reset_for_tests(self) -> None:
+        with self._lock:
+            self._trackers.clear()
+
 
 
 @dataclass
@@ -16,6 +39,7 @@ class RuntimeServices:
     journal: EventJournal
     verification: VerificationLedger
     controls: TurnControlRegistry
+    recovery_budgets: RecoveryBudgetRegistry = field(default_factory=RecoveryBudgetRegistry)
 
     def close(self) -> None:
         self.journal.close()

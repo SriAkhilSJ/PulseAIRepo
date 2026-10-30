@@ -31,6 +31,23 @@ class ProcessSupervisor(Protocol):
         """Returns (is_alive, is_owned_by_crusorai)."""
         ...
 
+    def relaunch_service(self, port: int) -> bool:
+        """Controlled relaunch of CrusorAI-owned process."""
+        ...
+
+    def terminate_owned_processes(self) -> int:
+        """Terminate all CrusorAI-owned child worker processes; return count."""
+        ...
+
+
+class ProviderErrorInfo(NamedTuple):
+    status_code: int
+    provider: str
+    request_id: Optional[str] = None
+    retry_after: Optional[str] = None
+    error_type: Optional[str] = None
+    message: Optional[str] = None
+
 
 class RequirementEvidence(NamedTuple):
     requirement_id: str
@@ -38,6 +55,8 @@ class RequirementEvidence(NamedTuple):
     actual_behavior: str
     failed_acceptance_criterion: str
     required_correction: str
+    workspace_revision: int = 0
+    verifier_identity: str = "unknown"
 
 
 class FailureClassification(NamedTuple):
@@ -79,28 +98,83 @@ class FailureClassifier:
         process_supervisor: Optional[ProcessSupervisor] = None,
         requirement_evidence: Optional[RequirementEvidence] = None,
         headers: Optional[Dict[str, str]] = None,
+        provider_error: Optional[ProviderErrorInfo] = None,
+        current_workspace_revision: Optional[int] = None,
     ) -> FailureClassification:
         err = (error_str or "").strip()
         err_lower = err.lower()
 
         # 1. Logic or Specification Failure (Requires structured requirement-verification evidence)
         if requirement_evidence is not None:
+            is_stale = (
+                current_workspace_revision is not None
+                and requirement_evidence.workspace_revision < current_workspace_revision
+            )
             return FailureClassification(
                 failure_class="logic_or_specification_failure",
-                is_retryable=True,
-                max_additional_retries=2,
-                recommended_strategy="requirement_delta_remediation",
+                is_retryable=not is_stale,
+                max_additional_retries=2 if not is_stale else 0,
+                recommended_strategy="requirement_delta_remediation" if not is_stale else "stale_evidence_suppressed",
                 diagnostic_message=(
-                    f"Specification mismatch on requirement '{requirement_evidence.requirement_id}': "
+                    f"Specification mismatch on requirement '{requirement_evidence.requirement_id}' "
+                    f"(rev {requirement_evidence.workspace_revision} via {requirement_evidence.verifier_identity}): "
                     f"Expected: {requirement_evidence.expected_behavior}; Actual: {requirement_evidence.actual_behavior}. "
                     f"Action required: {requirement_evidence.required_correction}"
+                    if not is_stale
+                    else f"Specification mismatch on requirement '{requirement_evidence.requirement_id}' is STALE "
+                    f"(evaluated rev {requirement_evidence.workspace_revision} < current rev {current_workspace_revision}). "
+                    f"Outdated remediation suppressed."
                 ),
                 metadata={
                     "requirement_id": requirement_evidence.requirement_id,
                     "criterion": requirement_evidence.failed_acceptance_criterion,
-                    "requires_code_mutation": True,
+                    "requires_code_mutation": not is_stale,
+                    "workspace_revision": requirement_evidence.workspace_revision,
+                    "verifier_identity": requirement_evidence.verifier_identity,
+                    "is_stale": is_stale,
                 },
             )
+
+        # 2. Structured Provider Error (Highest precedence for API client errors)
+        if provider_error is not None:
+            code = provider_error.status_code
+            if code == 400:
+                return FailureClassification(
+                    failure_class="invalid_request_error",
+                    is_retryable=False,
+                    max_additional_retries=0,
+                    recommended_strategy="diagnose_invalid_request",
+                    diagnostic_message=f"Provider ({provider_error.provider}) rejected request as invalid (HTTP 400). Do not retry identical payload.",
+                    metadata={"status_code": 400, "provider": provider_error.provider, "request_id": provider_error.request_id, "category": "provider_error"},
+                )
+            elif code in (401, 403):
+                return FailureClassification(
+                    failure_class="provider_auth_failure",
+                    is_retryable=False,
+                    max_additional_retries=0,
+                    recommended_strategy="fail_fast_auth",
+                    diagnostic_message=f"Provider ({provider_error.provider}) authentication/authorization failed (HTTP {code}). Halting to prevent credential lockout.",
+                    metadata={"status_code": code, "provider": provider_error.provider, "request_id": provider_error.request_id, "category": "provider_error"},
+                )
+            elif code == 429:
+                delay = FailureClassifier.parse_retry_after(provider_error.retry_after) if provider_error.retry_after else None
+                return FailureClassification(
+                    failure_class="provider_rate_limit",
+                    is_retryable=True,
+                    max_additional_retries=4,
+                    recommended_strategy="respect_retry_after_or_backoff",
+                    diagnostic_message=f"Provider ({provider_error.provider}) rate limit reached (HTTP 429). Applying backoff{f' (Retry-After: {delay:.1f}s)' if delay else ''}.",
+                    metadata={"status_code": 429, "retry_after_seconds": delay, "provider": provider_error.provider, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
+                )
+            elif 500 <= code <= 504:
+                return FailureClassification(
+                    failure_class="provider_transient_error",
+                    is_retryable=True,
+                    max_additional_retries=3,
+                    recommended_strategy="exponential_backoff_jitter",
+                    diagnostic_message=f"Transient provider ({provider_error.provider}) error (HTTP {code}). Apply bounded exponential backoff with jitter.",
+                    metadata={"status_code": code, "backoff_base_s": 2, "provider": provider_error.provider, "request_id": provider_error.request_id, "attempt": attempt, "category": "provider_error"},
+                )
 
         # 2. Syntax / Indentation Errors
         if any(x in err_lower for x in ["syntaxerror", "indentationerror", "taberror", "unterminated string", "invalid syntax"]):
@@ -183,13 +257,14 @@ class FailureClassifier:
 
         # HTTP 401 / 403: Authentication / Permission failure (Fail-fast; 0 retries)
         if re.search(r"\b(?:http\s*)?(?:401|403)\b", err_lower) or "unauthorized" in err_lower or "forbidden" in err_lower:
+            actual_status = 403 if (re.search(r"\b(?:http\s*)?403\b", err_lower) or "forbidden" in err_lower) else 401
             return FailureClassification(
                 failure_class="provider_auth_failure",
                 is_retryable=False,
                 max_additional_retries=0,
                 recommended_strategy="fail_fast_auth",
-                diagnostic_message="Provider authentication or authorization failed (HTTP 401/403). Halting to prevent credential lockout.",
-                metadata={"status_code": 401, "category": "provider_error"},
+                diagnostic_message=f"Provider authentication or authorization failed (HTTP {actual_status}). Halting to prevent credential lockout.",
+                metadata={"status_code": actual_status, "category": "provider_error"},
             )
 
         # HTTP 429: Rate Limit (Parses Retry-After numeric and date)
@@ -223,7 +298,16 @@ class FailureClassifier:
         # 7. Port Binding / EADDRINUSE Collisions
         if "eaddrinuse" in err_lower or "address already in use" in err_lower:
             port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{3,5})\b", err_lower)
-            port = int(port_match.group(1)) if port_match else 8000
+            if not port_match:
+                return FailureClassification(
+                    failure_class="unowned_service_collision",
+                    is_retryable=False,
+                    max_additional_retries=0,
+                    recommended_strategy="unknown_port_fail_closed",
+                    diagnostic_message="Port binding error (EADDRINUSE) occurred but port number could not be determined. Fail-closed to avoid probing arbitrary ports.",
+                    metadata={"port": None, "is_owned": False},
+                )
+            port = int(port_match.group(1))
 
             if process_supervisor:
                 is_alive, is_owned = process_supervisor.inspect_port_owner(port)
@@ -258,7 +342,16 @@ class FailureClassifier:
         # 8. Connection Refused (Client-side Process-Aware Table)
         if "connectionrefused" in err_lower or "connection refused" in err_lower or "econnrefused" in err_lower:
             port_match = re.search(r"(?:port\s*[:=]?\s*|:::|:)(\d{3,5})\b", err_lower)
-            port = int(port_match.group(1)) if port_match else 8000
+            if not port_match:
+                return FailureClassification(
+                    failure_class="unowned_service_collision",
+                    is_retryable=False,
+                    max_additional_retries=0,
+                    recommended_strategy="unknown_port_fail_closed",
+                    diagnostic_message="Connection refused occurred but port number could not be determined. Fail-closed to avoid probing arbitrary ports.",
+                    metadata={"port": None, "is_owned": False},
+                )
+            port = int(port_match.group(1))
 
             if process_supervisor:
                 is_alive, is_owned = process_supervisor.inspect_port_owner(port)
@@ -397,3 +490,30 @@ class GlobalRecoveryBudgetTracker:
                 "elapsed_seconds": time.monotonic() - self._start_time,
                 "history_length": len(self._failure_history),
             }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize tracker state for LangGraph checkpoints and session persistence."""
+        with self._lock:
+            return {
+                "session_id": self.session_id,
+                "max_total_attempts": self.max_total_attempts,
+                "max_wall_time": self.max_wall_time,
+                "max_identical_repeats": self.max_identical_repeats,
+                "total_attempts": self._total_attempts,
+                "elapsed_seconds": time.monotonic() - self._start_time,
+                "failure_history": list(self._failure_history),
+            }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> GlobalRecoveryBudgetTracker:
+        """Rehydrate tracker from state without resetting attempt count or elapsed budget."""
+        tracker = cls(
+            session_id=str(data.get("session_id", "default")),
+            max_total_recovery_attempts=int(data.get("max_total_attempts", 8)),
+            max_recovery_wall_time_seconds=float(data.get("max_wall_time", 180.0)),
+            max_identical_failure_repeats=int(data.get("max_identical_repeats", 2)),
+        )
+        tracker._total_attempts = int(data.get("total_attempts", 0))
+        tracker._start_time = time.monotonic() - float(data.get("elapsed_seconds", 0.0))
+        tracker._failure_history = list(data.get("failure_history", []))
+        return tracker

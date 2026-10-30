@@ -16,6 +16,7 @@ import pytest
 from src.runtime.recovery_engine import (
     FailureClassifier,
     GlobalRecoveryBudgetTracker,
+    ProviderErrorInfo,
     RequirementEvidence,
 )
 
@@ -410,3 +411,119 @@ def test_global_budget_session_isolation():
     p_b1, _ = tracker_b.try_reserve_recovery_attempt("err_1")
     assert p_b1 is True
     assert tracker_b.get_stats()["total_attempts"] == 1
+
+
+# ==============================================================================
+# 9. PHASE 2.1 REFINEMENTS: PORT FAIL-CLOSED, STATUS CODES, REVISION BINDING
+# ==============================================================================
+
+def test_connection_refused_unknown_port_fails_closed():
+    # Peer review fix: Never assume port 8000 when port cannot be determined!
+    res = FailureClassifier.classify_error("http_client", "ConnectionRefusedError: [Errno 111] Connection refused")
+    assert res.failure_class == "unowned_service_collision"
+    assert res.is_retryable is False
+    assert res.recommended_strategy == "unknown_port_fail_closed"
+    assert res.metadata["port"] is None
+
+
+def test_port_collision_unknown_port_fails_closed():
+    res = FailureClassifier.classify_error("terminal", "Error: listen EADDRINUSE: address already in use")
+    assert res.failure_class == "unowned_service_collision"
+    assert res.is_retryable is False
+    assert res.recommended_strategy == "unknown_port_fail_closed"
+    assert res.metadata["port"] is None
+
+
+def test_http_401_vs_403_status_preservation():
+    res_401 = FailureClassifier.classify_error("llm_call", "HTTP 401 Unauthorized")
+    assert res_401.metadata["status_code"] == 401
+
+    res_403 = FailureClassifier.classify_error("llm_call", "HTTP 403 Forbidden: Insufficient permissions")
+    assert res_403.metadata["status_code"] == 403
+
+
+def test_structured_provider_error_info_precedence():
+    info = ProviderErrorInfo(
+        status_code=429,
+        provider="anthropic",
+        request_id="req_xyz789",
+        retry_after="15",
+    )
+    res = FailureClassifier.classify_error(
+        tool_name="llm_call",
+        error_str="Application output mentions 500 error internally",
+        provider_error=info,
+    )
+    # Structured provider error takes precedence over ambiguous raw error text
+    assert res.failure_class == "provider_rate_limit"
+    assert res.metadata["status_code"] == 429
+    assert res.metadata["provider"] == "anthropic"
+    assert res.metadata["request_id"] == "req_xyz789"
+    assert res.metadata["retry_after_seconds"] == 15.0
+
+
+def test_requirement_evidence_revision_binding_and_staleness():
+    fresh_evidence = RequirementEvidence(
+        requirement_id="REQ-UI-01",
+        expected_behavior="Show modal on click",
+        actual_behavior="No modal appeared",
+        failed_acceptance_criterion="Criterion 1",
+        required_correction="Attach click listener",
+        workspace_revision=5,
+        verifier_identity="browser_e2e_verifier",
+    )
+    res_fresh = FailureClassifier.classify_error(
+        "verify_ui",
+        "Verification mismatch",
+        requirement_evidence=fresh_evidence,
+        current_workspace_revision=5,
+    )
+    assert res_fresh.is_retryable is True
+    assert res_fresh.metadata["is_stale"] is False
+    assert res_fresh.metadata["workspace_revision"] == 5
+    assert res_fresh.metadata["verifier_identity"] == "browser_e2e_verifier"
+
+    # Stale evidence (evaluated rev 3 < current rev 5)
+    stale_evidence = RequirementEvidence(
+        requirement_id="REQ-UI-01",
+        expected_behavior="Show modal on click",
+        actual_behavior="No modal appeared",
+        failed_acceptance_criterion="Criterion 1",
+        required_correction="Attach click listener",
+        workspace_revision=3,
+        verifier_identity="browser_e2e_verifier",
+    )
+    res_stale = FailureClassifier.classify_error(
+        "verify_ui",
+        "Verification mismatch",
+        requirement_evidence=stale_evidence,
+        current_workspace_revision=5,
+    )
+    assert res_stale.is_retryable is False
+    assert res_stale.metadata["is_stale"] is True
+    assert res_stale.recommended_strategy == "stale_evidence_suppressed"
+
+
+def test_global_budget_to_dict_and_from_dict_rehydration():
+    tracker = GlobalRecoveryBudgetTracker(session_id="session-persist", max_total_recovery_attempts=5)
+    tracker.try_reserve_recovery_attempt("failure_1")
+    tracker.try_reserve_recovery_attempt("failure_2")
+
+    state = tracker.to_dict()
+    assert state["session_id"] == "session-persist"
+    assert state["total_attempts"] == 2
+    assert len(state["failure_history"]) == 2
+
+    # Rehydrate into new tracker instance
+    rehydrated = GlobalRecoveryBudgetTracker.from_dict(state)
+    assert rehydrated.session_id == "session-persist"
+    assert rehydrated._total_attempts == 2
+    assert len(rehydrated._failure_history) == 2
+
+    # Verify attempt 3, 4, 5 succeed, and attempt 6 is blocked under the original ceiling
+    assert rehydrated.try_reserve_recovery_attempt("failure_3")[0] is True
+    assert rehydrated.try_reserve_recovery_attempt("failure_4")[0] is True
+    assert rehydrated.try_reserve_recovery_attempt("failure_5")[0] is True
+    permitted_6, reason_6 = rehydrated.try_reserve_recovery_attempt("failure_6")
+    assert permitted_6 is False
+    assert "GLOBAL_RECOVERY_LIMIT_EXCEEDED" in reason_6

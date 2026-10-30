@@ -108,6 +108,9 @@ class AgentState(CopilotKitState, total=False):
     turn_tool_execution_names: list[str]
     task_completed: bool
     env_failures: int       # environment-level tool failures (pivot trigger)
+    # CrusorAI 2.1 ARRE Recovery Governance & Budget Persistence
+    recovery_budget_state: dict[str, Any]
+    mutation_lock_active: bool
     pivot_count: int        # strategy pivots performed (bounded)
     prior_attempts: list[dict[str, Any]]  # NEW: Summarized history of past attempts
     finish_nudges: int      # hermes-style early-finish nudges applied (bounded)
