@@ -12,13 +12,13 @@ injected into the model.
 
 | Branch | Covers |
 |---|---|
-| `frontend-development/` | rendering model, component architecture, state, styling, testing |
-| `backend-development/` | service layout, runtime, background work, jobs |
-| `database-engineering/` | schema design, indexing, migrations, transactions |
-| `api-development/` | contracts, versioning, auth, error models, rate limits |
-| `ui-ux-implementation/` | design systems, interaction patterns, accessibility |
-| `security/` | authn/authz, input boundaries, secrets, supply chain |
-| `testing-and-deployment/` | test strategy, CI, build/release topology, observability |
+| `frontend-development-architect/` | rendering model, component architecture, state, styling, testing |
+| `backend-development-architect/` | service layout, runtime, background work, jobs |
+| `database-engineering-architect/` | schema design, indexing, migrations, transactions |
+| `api-development-architect/` | contracts, versioning, auth, error models, rate limits |
+| `ui-ux-implementation-architect/` | design systems, interaction patterns, accessibility |
+| `security-architect/` | authn/authz, input boundaries, secrets, supply chain |
+| `testing-and-deployment-architect/` | test strategy, CI, build/release topology, observability |
 
 ## What "architect-level" means here
 

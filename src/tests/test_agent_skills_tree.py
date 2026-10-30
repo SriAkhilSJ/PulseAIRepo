@@ -133,6 +133,10 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "astro-architect",
         "nodejs-architect",
         "threejs-architect",
+        "python-architect",
+        "flask-architect",
+        "fastapi-architect",
+        "django-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
