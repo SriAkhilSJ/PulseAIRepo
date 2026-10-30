@@ -1,33 +1,64 @@
-"""Strict Schema-Guarded Tool Argument Normalizer for CrusorAI 2.1.
+"""Strict Schema-Guarded Tool Argument Normalizer for CrusorAI 2.1 (Phase 1 Refined).
 
-Invariants:
+Canonical Tool Parameter Truth in CrusorAI:
+- edit_file(path, old_text, new_text) -> Canonical: old_text, new_text
+- read_file(path) -> Canonical: path
+- write_file(path, content) -> Canonical: path, content
+- terminal(command) -> Canonical: command
+
+Invariants & Safeguards:
 1. Canonical argument precedence: Never overwrite an explicitly supplied canonical argument.
 2. Conflict rejection: If both an alias and canonical equivalent are provided with conflicting values,
    reject with CONFLICTING_ARGUMENTS_ERROR.
-3. Ambiguity protection: Ambiguous multi-target tools (e.g., copy_file(src, dst)) fail closed if
-   ambiguous keys like 'path' are passed.
-4. Audit provenance: Every call yields original, normalized, status, and error details.
+3. Strict whitelisting: No ambiguous 'target' or 'replacement'. Only unambiguous single-role aliases.
+4. Ambiguity protection: Ambiguous multi-target tools (copy_file, move_file, diff_files) fail closed
+   if ambiguous parameters like 'path' are passed.
+5. Standardized status reporting: "applied", "rejected", or "unmodified".
+6. Secret redaction in audit logs: Sensitive values are redacted before audit recording.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, NamedTuple, Optional, Set
+
+SECRET_PATTERNS = [
+    re.compile(r"sk-[a-zA-Z0-9_-]{20,}"),
+    re.compile(r"bearer\s+[a-zA-Z0-9_\-\.]{20,}", re.IGNORECASE),
+    re.compile(r"password\s*[:=]\s*['\"][^'\"]+['\"]", re.IGNORECASE),
+]
+
+
+def redact_argument_value(val: Any) -> Any:
+    if isinstance(val, str):
+        redacted = val
+        for pat in SECRET_PATTERNS:
+            redacted = pat.sub("[REDACTED_SECRET]", redacted)
+        return redacted
+    elif isinstance(val, dict):
+        return {k: redact_argument_value(v) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [redact_argument_value(v) for v in val]
+    return val
 
 
 class NormalizationResult(NamedTuple):
-    status: str  # "ok", "rejected", "unmodified"
+    status: str  # Standardized: "applied", "rejected", "unmodified"
     normalized_args: Dict[str, Any]
     error: Optional[str] = None
-    original_args: Optional[Dict[str, Any]] = None
+    original_args: Optional[Dict[str, Any]] = None  # Preserved with secrets redacted for audit logs
 
 
-# Explicit unambiguous whitelist: Maps tool -> {alias_key: canonical_key}
-# Each alias here targets a tool where only ONE argument of that role exists.
+# Confirmed canonical aliases:
+# In CrusorAI:
+# - edit_file requires 'old_text' and 'new_text'. Models trained on other systems frequently send
+#   'old_string' / 'new_string'.
+# - read_file / write_file require 'path'. Models frequently send 'filepath', 'file', 'file_path'.
+# - terminal requires 'command'. Models frequently send 'cmd'.
+# Notice: 'target' and 'replacement' are intentionally EXCLUDED as ambiguous.
 WHITELISTED_ALIASES: Dict[str, Dict[str, str]] = {
     "edit_file": {
-        "old_text": "old_string",
-        "new_text": "new_string",
-        "target": "old_string",
-        "replacement": "new_string",
+        "old_string": "old_text",
+        "new_string": "new_text",
     },
     "read_file": {
         "filepath": "path",
@@ -43,12 +74,9 @@ WHITELISTED_ALIASES: Dict[str, Dict[str, str]] = {
     },
     "terminal": {
         "cmd": "command",
-        "exec": "command",
     },
 }
 
-# Tools with multiple arguments of the same type/role where naive aliasing is strictly ambiguous.
-# For example: passing 'path' to copy_file is ambiguous between 'src' and 'dst'.
 AMBIGUOUS_MULTI_TARGET_TOOLS: Set[str] = {
     "copy_file",
     "move_file",
@@ -63,8 +91,10 @@ def normalize_tool_arguments(tool_name: str, args: Dict[str, Any]) -> Normalizat
             status="rejected",
             normalized_args={},
             error="INVALID_ARGUMENTS_TYPE: Expected JSON object / dictionary.",
-            original_args={"raw": args},
+            original_args={"raw": redact_argument_value(args)},
         )
+
+    audit_original = {k: redact_argument_value(v) for k, v in args.items()}
 
     # 1. Ambiguity Guard: Fail closed if ambiguous parameters are sent to multi-target tools
     if tool_name in AMBIGUOUS_MULTI_TARGET_TOOLS:
@@ -76,9 +106,9 @@ def normalize_tool_arguments(tool_name: str, args: Dict[str, Any]) -> Normalizat
                 normalized_args={},
                 error=(
                     f"AMBIGUOUS_ARGUMENT_ERROR: Tool '{tool_name}' has multiple targets and cannot resolve "
-                    f"ambiguous parameter(s) {list(intersect)}. Must explicitly provide canonical parameters."
+                    f"ambiguous parameter(s) {sorted(list(intersect))}. Must explicitly provide canonical parameters."
                 ),
-                original_args=dict(args),
+                original_args=audit_original,
             )
 
     aliases = WHITELISTED_ALIASES.get(tool_name)
@@ -87,7 +117,7 @@ def normalize_tool_arguments(tool_name: str, args: Dict[str, Any]) -> Normalizat
         return NormalizationResult(
             status="unmodified",
             normalized_args=dict(args),
-            original_args=dict(args),
+            original_args=audit_original,
         )
 
     normalized = dict(args)
@@ -105,10 +135,10 @@ def normalize_tool_arguments(tool_name: str, args: Dict[str, Any]) -> Normalizat
                         status="rejected",
                         normalized_args={},
                         error=(
-                            f"CONFLICTING_ARGUMENTS_ERROR: Both alias '{alias_key}' (value: {alias_val!r}) "
-                            f"and canonical '{canonical_key}' (value: {canonical_val!r}) provided with conflicting values."
+                            f"CONFLICTING_ARGUMENTS_ERROR: Both alias '{alias_key}' (value: {redact_argument_value(alias_val)!r}) "
+                            f"and canonical '{canonical_key}' (value: {redact_argument_value(canonical_val)!r}) provided with conflicting values."
                         ),
-                        original_args=dict(args),
+                        original_args=audit_original,
                     )
                 # If values match exactly, safely drop alias and keep canonical
                 normalized.pop(alias_key, None)
@@ -120,7 +150,7 @@ def normalize_tool_arguments(tool_name: str, args: Dict[str, Any]) -> Normalizat
                 applied_changes = True
 
     return NormalizationResult(
-        status="ok" if applied_changes else "unmodified",
+        status="applied" if applied_changes else "unmodified",
         normalized_args=normalized,
-        original_args=dict(args),
+        original_args=audit_original,
     )

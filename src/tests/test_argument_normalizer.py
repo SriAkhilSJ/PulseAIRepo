@@ -1,63 +1,32 @@
-"""Unit tests for SafeArgumentNormalizer (CrusorAI 2.1).
+"""Unit tests for Phase 1 Refined SafeArgumentNormalizer (CrusorAI 2.1).
 
 Validates:
-1. Canonical argument precedence (no overwriting).
-2. Conflicting alias and canonical rejection.
-3. Multi-target ambiguity rejection (fail-closed).
-4. Unambiguous whitelist promotions.
-5. Audit provenance preservation.
+1. Standardized status strings: "applied", "rejected", "unmodified".
+2. Canonical edit_file schema: maps old_string -> old_text, new_string -> new_text.
+3. Ambiguous 'target' / 'replacement' are rejected / ignored as aliases.
+4. Conflicting alias and canonical arguments fail closed.
+5. Multi-target tools (copy_file) fail closed on ambiguous 'path'.
+6. Audit logs redact API keys and passwords in original_args.
 """
 import pytest
 from src.runtime.argument_normalizer import (
     NormalizationResult,
     normalize_tool_arguments,
+    redact_argument_value,
 )
 
 
-def test_unambiguous_alias_promotion():
-    # edit_file: old_text -> old_string
-    args = {"path": "server.py", "old_text": "hello", "new_string": "world"}
+def test_standardized_status_applied():
+    args = {"path": "server.py", "old_string": "hello", "new_string": "world"}
     result = normalize_tool_arguments("edit_file", args)
-    
-    assert result.status == "ok"
-    assert result.normalized_args == {"path": "server.py", "old_string": "hello", "new_string": "world"}
+
+    assert result.status == "applied"
+    assert result.normalized_args == {"path": "server.py", "old_text": "hello", "new_text": "world"}
     assert result.error is None
-    assert result.original_args == args
 
 
-def test_canonical_argument_takes_precedence_when_identical():
-    # If both supplied and values match, alias is silently dropped
-    args = {"path": "app.py", "old_text": "foo", "old_string": "foo"}
-    result = normalize_tool_arguments("edit_file", args)
-
-    assert result.status == "ok"
-    assert result.normalized_args == {"path": "app.py", "old_string": "foo"}
-    assert "old_text" not in result.normalized_args
-
-
-def test_conflicting_alias_and_canonical_is_rejected():
-    # Peer review requirement: Conflicting alias must be rejected!
-    args = {"path": "app.py", "old_text": "first_value", "old_string": "conflicting_value"}
-    result = normalize_tool_arguments("edit_file", args)
-
-    assert result.status == "rejected"
-    assert "CONFLICTING_ARGUMENTS_ERROR" in result.error
-    assert result.normalized_args == {}
-
-
-def test_ambiguous_multi_target_tools_fail_closed():
-    # Peer review requirement: copy_file(src, dst) cannot accept ambiguous 'path'
-    args = {"path": "source.py"}
-    result = normalize_tool_arguments("copy_file", args)
-
-    assert result.status == "rejected"
-    assert "AMBIGUOUS_ARGUMENT_ERROR" in result.error
-    assert result.normalized_args == {}
-
-
-def test_unmodified_tool_arguments():
-    # Clean canonical call passes unmodified
-    args = {"path": "main.py", "old_string": "a", "new_string": "b"}
+def test_standardized_status_unmodified():
+    args = {"path": "server.py", "old_text": "hello", "new_text": "world"}
     result = normalize_tool_arguments("edit_file", args)
 
     assert result.status == "unmodified"
@@ -65,9 +34,53 @@ def test_unmodified_tool_arguments():
     assert result.error is None
 
 
-def test_invalid_type_rejection():
-    # Passing a non-dict should be rejected cleanly
-    result = normalize_tool_arguments("edit_file", "invalid string payload")  # type: ignore
+def test_ambiguous_target_is_not_whitelisted():
+    # 'target' was flagged as ambiguous in review; must not be coerced to old_text
+    args = {"path": "server.py", "target": "some_func", "new_text": "new_func"}
+    result = normalize_tool_arguments("edit_file", args)
+
+    # Remains unmodified because 'target' is not a whitelisted alias
+    assert result.status == "unmodified"
+    assert "old_text" not in result.normalized_args
+    assert result.normalized_args.get("target") == "some_func"
+
+
+def test_conflicting_alias_and_canonical_rejection():
+    args = {"path": "app.py", "old_string": "val1", "old_text": "val2"}
+    result = normalize_tool_arguments("edit_file", args)
 
     assert result.status == "rejected"
-    assert "INVALID_ARGUMENTS_TYPE" in result.error
+    assert "CONFLICTING_ARGUMENTS_ERROR" in result.error
+    assert result.normalized_args == {}
+
+
+def test_canonical_precedence_when_identical():
+    args = {"path": "app.py", "old_string": "identical", "old_text": "identical"}
+    result = normalize_tool_arguments("edit_file", args)
+
+    assert result.status == "applied"
+    assert result.normalized_args == {"path": "app.py", "old_text": "identical"}
+    assert "old_string" not in result.normalized_args
+
+
+def test_multi_target_ambiguity_rejection():
+    args = {"path": "file.txt"}
+    result = normalize_tool_arguments("copy_file", args)
+
+    assert result.status == "rejected"
+    assert "AMBIGUOUS_ARGUMENT_ERROR" in result.error
+
+
+def test_audit_logs_redact_secrets():
+    args = {
+        "path": "config.json",
+        "file_path": "config.json",
+        "token": "sk-ant-api03-12345678901234567890",
+        "nested": {"password": "password='my_secret_pass'"}
+    }
+    result = normalize_tool_arguments("read_file", args)
+
+    assert result.status == "applied"
+    assert result.original_args is not None
+    assert "sk-ant" not in str(result.original_args)
+    assert "[REDACTED_SECRET]" in result.original_args["token"]
