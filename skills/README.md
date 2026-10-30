@@ -6,7 +6,7 @@ shelf holds books, and the agent takes the books its task needs.
 ```
 skills/
 ├── website-architect/     the web product, end to end
-├── mobile-architect/      iOS, Android, RN, Flutter, offline, security, perf, testing, a11y, release
+├── mobile-architect/      5 shelves: platforms, quality, data, devices, delivery
 ├── desktop-architect/     Electron, Tauri, native, IPC, storage, security, update, distribution
 ├── cloud-and-devops-architect/  7 shelves: providers, identity, networking, compute,
 │                            data services, IaC, platform, operations
@@ -49,7 +49,7 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | Domain | Skills | Covers |
 |---|---|---|
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
-| `mobile-architect/` | 13 | platform choice, iOS/SwiftUI, Android/Compose, RN, Flutter, offline sync, security, performance, testing, accessibility, release |
+| `mobile-architect/` | 28 | platform choice, iOS/SwiftUI/UIKit, Android/Compose/Views, RN, Flutter, KMP, offline sync, security, performance, testing, accessibility, observability, analytics, devices (camera/BLE/location/wearables/TV/car), push, deep links, localisation, adaptive layouts, release, builds, modules, purchases |
 | `desktop-architect/` | 9 | runtime choice, Electron, Tauri, native, IPC, local storage, security, updates, distribution |
 | `cloud-and-devops-architect/` | 36 | providers (AWS/GCP/Azure/Cloudflare), IAM, VPC/DNS, EC2/ECS/Lambda/K8s, storage/DB/messaging/cache, Terraform/Pulumi/CFN/Ansible, Helm/GitOps/mesh/K8s-security/IDP, reliability/cost/observability/chaos/DR/incident |
 | `ai-ml-architect/` | 31 | model boundary, OpenAI/Anthropic/Gemini/open-weights, prompting & schemas, chunking/embeddings/vector stores/hybrid search, evals & judges & red-teaming, fine-tuning & classic ML & recommenders & vision, GPU/quantisation/speech, MLOps & feature stores & monitoring, agents |

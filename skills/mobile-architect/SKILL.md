@@ -19,20 +19,17 @@ an OS that can kill you at any moment, and a release you cannot hotfix instantly
 
 ## Leaf map
 
-| Need | Skill |
+Five shelves, 27 books.
+
+| Shelf | Books |
 |---|---|
-| Apple platform, Swift/SwiftUI | `ios-architect` |
-| Android, Kotlin/Compose | `android-architect` |
-| one TypeScript codebase for both | `react-native-architect` |
-| one Dart codebase, high UI consistency | `flutter-architect` |
-| iOS screens, state and Swift concurrency | `ios-swiftui-architect` |
-| Android screens, state and process death | `android-compose-architect` |
-| offline database, outbox and conflicts | `mobile-offline-sync-architect` |
-| tokens, biometrics, deep links, tampering | `mobile-security-architect` |
-| start-up, jank, memory, battery, size | `mobile-performance-architect` |
-| unit/UI/E2E layers and device matrix | `mobile-testing-architect` |
-| screen readers, dynamic type, contrast | `mobile-accessibility-architect` |
-| signing, stores, staged rollout, OTA | `mobile-release-architect` |
+| `platforms-architect/` | `ios` · `ios-swiftui` · `uikit-legacy` · `android` · `android-compose` · `android-views` · `react-native` · `flutter` · `kotlin-multiplatform` |
+| `quality-architect/` | `mobile-testing` · `mobile-performance` · `mobile-accessibility` · `mobile-observability` · `mobile-analytics` |
+| `data-architect/` | `mobile-offline-sync` · `mobile-security` |
+| `devices-architect/` | `mobile-device-integration` · `adaptive-layouts` · `wearables` · `mobile-tv-and-auto` · `push-notifications` · `mobile-deep-linking` · `mobile-localization` |
+| `delivery-architect/` | `mobile-release` · `mobile-build` · `mobile-modularization` · `in-app-purchases` |
+
+Read the crown, then the one or two books the plan actually needs.
 
 ## Decision 1 — Native vs cross-platform
 
