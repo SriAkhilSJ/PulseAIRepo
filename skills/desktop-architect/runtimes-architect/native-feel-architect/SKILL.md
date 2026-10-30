@@ -8,7 +8,7 @@ metadata:
   crusor-path: desktop-architect/runtimes-architect/native-feel-architect
   crusor-origin: adapted
   crusor-sources: "github.com/yetone/native-feel-skill@9bd88c6378e1a80a4da165f3ee7bebb761a74945 (MIT, Copyright (c) 2026 yetone)"
-  crusor-triggers: "cross platform desktop, electron alternative, webview wrapper, wry, wails, raycaster architecture, webview2, wkwebview, hidden window throttling, feels like a web, feels native, native feel, ram, memory usage, flicker, white flash, first paint, feels like a website, feels like a web app, looks like a web app"
+  crusor-triggers: "cross platform desktop, electron alternative, webview wrapper, wry, wails, raycaster architecture, webview2, wkwebview, hidden window throttling, feels like a web, native feel, ram, memory usage, flicker, white flash, first paint, feels like a website, feels like a web app, looks like a web app, feel native, feels native"
   crusor-verified-on: "2026-10-30"
 ---
 

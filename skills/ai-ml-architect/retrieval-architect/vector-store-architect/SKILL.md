@@ -8,7 +8,7 @@ metadata:
   crusor-path: ai-ml-architect/retrieval-architect/vector-store-architect
   crusor-origin: original
   crusor-sources: "github.com/pgvector/pgvector; qdrant.tech/documentation; weaviate.io/developers/weaviate; docs.pinecone.io"
-  crusor-triggers: "vector database, pgvector, qdrant, weaviate, pinecone, hnsw, ivf, ann index, similarity search, vector index"
+  crusor-triggers: "vector database, pgvector, qdrant, weaviate, pinecone, hnsw, ivf, ann index, similarity search, vector index, vector search, irrelevant results, retrieval quality"
   crusor-verified-on: "2026-10-30"
 ---
 

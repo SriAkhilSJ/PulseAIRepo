@@ -36,6 +36,12 @@ _DEFAULT_ARCHIVE_AFTER_DAYS = 90
 # comfortably under this cap while keeping real workflow (not just a summary).
 _BUNDLED_INSTRUCTION_CAP = 6000
 
+# How many characters of architect books may be injected for free (no tool call)
+# at planning time. 16 000 chars ≈ 4 200 tokens ≈ 3-4 books: enough that the
+# common plan needs zero `skill_view` calls, small enough that it never crowds
+# out the actual task. Override with SKILL_INJECT_CHARS.
+_INJECT_CHARS = int(os.environ.get("SKILL_INJECT_CHARS", "16000"))
+
 
 def _parse_skill_frontmatter(text: str) -> tuple[dict, str]:
     """Split a SKILL.md into (frontmatter_dict, body).
@@ -575,18 +581,79 @@ class SkillManager:
                 self.record_usage(skill["name"], "use")
         return instructions
 
+    def _match_score(self, task_lower: str, skill: dict) -> float:
+        """How strongly this book answers this task. Longer phrases beat single words."""
+        hits = [t for t in skill.get("triggers", []) if trigger_matches(task_lower, t)]
+        if not hits:
+            return 0.0
+        score = sum(1.0 + len(t) / 20.0 for t in hits)
+        name_words = {w for w in re.split(r"[-_]", str(skill.get("name", "")).lower()) if len(w) > 3}
+        score += sum(0.5 for w in name_words if re.search(r"\b%s\b" % re.escape(w), task_lower))
+        if str(skill.get("name", "")).endswith("-architect"):
+            score += 0.25
+        return score
+
+    def ranked_for_task(self, task: str, phase: str = "planning") -> list[tuple[float, dict]]:
+        """Enabled skills whose triggers match, strongest first.
+
+        A shelf crown is dropped when a book beneath it also matched: the crown
+        is an index, and injecting it next to its own child is pure waste.
+        """
+        task_lower = (task or "").lower()
+        scored: list[tuple[float, dict]] = []
+        for skill in self._skills:
+            if not skill.get("enabled", True) or skill.get("state") == "archived":
+                continue
+            if str(skill.get("phase", "always")) == "planning" and phase != "planning":
+                continue
+            score = self._match_score(task_lower, skill)
+            if score > 0:
+                scored.append((score, skill))
+        scored.sort(key=lambda pair: -pair[0])
+        kept: list[tuple[float, dict]] = []
+        for score, skill in scored:
+            path = str(skill.get("path") or skill.get("name") or "")
+            shadowed = any(
+                str(other.get("path") or "").startswith(path + "/")
+                for _, other in scored
+                if other is not skill
+            )
+            if not shadowed:
+                kept.append((score, skill))
+        return kept
+
     def get_skills_text(self, task: str, phase: str = "executing") -> str:
+        """Budgeted, ranked injection — the zero-call path.
+
+        Zero calls means the *right* books already in the prompt. Injecting
+        every trigger match (the old behaviour) was neither: a task matching
+        five books paid ~18 000 chars for one useful book. This keeps the
+        strongest few inside `_INJECT_CHARS` and says how many were left, so
+        the agent knows to pull the rest deliberately.
         """
-        Return formatted skills text for context injection.
-        """
-        instructions = self.get_relevant_skills(task, phase=phase)
-        if not instructions:
+        ranked = self.ranked_for_task(task, phase=phase)
+        if not ranked:
             return ""
+        chosen: list[str] = []
+        used = 0
+        for _score, skill in ranked:
+            block = f"**{skill['name']}:** {skill['instruction']}"
+            if chosen and used + len(block) > _INJECT_CHARS:
+                break
+            chosen.append(block)
+            used += len(block)
+            self.record_usage(skill["name"], "use")
+        left = len(ranked) - len(chosen)
         lines = ["=== ACTIVE SKILLS ==="]
-        lines.append("The following user preferences apply to this task:\n")
-        for inst in instructions:
+        lines.append("Architect books selected for this task, in priority order:\n")
+        for inst in chosen:
             lines.append(f"- {inst}")
-        lines.append("\nFollow these preferences when completing the task.")
+        if left > 0:
+            lines.append(
+                f"\n{left} more book(s) matched and were left out of the budget. "
+                "Pull them deliberately with skill_view(\"name-a, name-b\") "
+                "or browse with skills_list()."
+            )
         return "\n".join(lines)
 
     def skills_manifest(self) -> str:
