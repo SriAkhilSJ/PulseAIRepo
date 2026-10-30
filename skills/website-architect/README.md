@@ -10,15 +10,15 @@ injected into the model.
 
 ## Branches
 
-| Branch | Covers |
-|---|---|
-| `frontend-development-architect/` | rendering model, component architecture, state, styling, testing |
-| `backend-development-architect/` | service layout, runtime, background work, jobs |
-| `database-engineering-architect/` | schema design, indexing, migrations, transactions |
-| `api-development-architect/` | contracts, versioning, auth, error models, rate limits |
-| `ui-ux-implementation-architect/` | design systems, interaction patterns, accessibility |
-| `security-architect/` | authn/authz, input boundaries, secrets, supply chain |
-| `testing-and-deployment-architect/` | test strategy, CI, build/release topology, observability |
+| Branch | Status | Covers |
+|---|---|---|
+| `frontend-development-architect/` | **complete (38)** | markup, languages, styling, build, motion, pwa, a11y, perf, seo, i18n, forms, tests, frameworks, runtime, 3d |
+| `backend-development-architect/` | started (5) | service layout, runtime, frameworks (python: flask/fastapi/django; node: express/nestjs/fastify) |
+| `database-engineering-architect/` | started (6) | engines (postgres, mongodb, redis), ORMs (prisma, drizzle), schema/migrations/transactions |
+| `api-development-architect/` | planned | contracts, versioning, auth, error models, rate limits |
+| `ui-ux-implementation-architect/` | planned | interaction patterns, design handoff, design-system ops |
+| `security-architect/` | planned | authn/authz, input boundaries, secrets, supply chain |
+| `testing-and-deployment-architect/` | planned | test strategy, CI, release topology, observability |
 
 ## What "architect-level" means here
 

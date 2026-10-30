@@ -153,6 +153,12 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "seo-architect",
         "pwa-architect",
         "vitest-architect",
+        "database-engineering-architect",
+        "postgres-architect",
+        "mongodb-architect",
+        "redis-architect",
+        "prisma-architect",
+        "drizzle-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -253,3 +259,22 @@ def test_frontend_branch_covers_every_capability():
     missing = {cap: skill for cap, skill in FRONTEND_CAPABILITIES.items() if skill not in available}
     assert not missing, f"frontend capabilities without a skill: {missing}"
     assert len(FRONTEND_CAPABILITIES) >= 20
+
+
+DATABASE_CAPABILITIES = {
+    "relational core": "postgres-architect",
+    "document store": "mongodb-architect",
+    "cache and ephemeral state": "redis-architect",
+    "typescript schema and migrations": "prisma-architect",
+    "sql-first typed queries": "drizzle-architect",
+    "engine-agnostic data direction": "database-engineering-architect",
+}
+
+
+def test_database_branch_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in DATABASE_CAPABILITIES.items() if s not in available}
+    assert not missing, f"data-layer capabilities without a skill: {missing}"
