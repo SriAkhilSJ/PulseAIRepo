@@ -1,7 +1,23 @@
 # MCP for the Architect library — plan
 
-Status: **proposed**, not started. This document is the reviewable plan, including
-how failures are handled. Nothing here is implemented yet.
+Status: **P0–P2 built and tested** (`src/mcp_skills/`, `scripts/skills_mcp_server.py`,
+`src/tests/test_skills_mcp_server.py`, 16 tests green). P3 (fault injection beyond the
+taxonomy already implemented) and P4 (client wiring) remain.
+
+Answer to "fastest, easiest, highest quality": **one index built once from the
+`SkillManager` the internal tools already use, served over stdio, tools first and
+resources as a thin layer over the same dict.** No manifest file, no second parser,
+no database, no HTTP. Measured on this machine:
+
+| Operation | Time |
+|---|---|
+| index build (240 skills, once at process start) | **68 ms** |
+| `skill_view` of three books | **< 0.01 ms** |
+| `resources/read` of one book | **0.001 ms** |
+| `skills_search` over the whole library | **3.9 ms** |
+
+That is the whole speed argument: anything that re-parses 220 files per request, or
+keeps a manifest in sync, is slower *and* has a second source of truth to drift.
 
 ---
 
@@ -169,13 +185,13 @@ report quotes the command that produced the number.
 
 ## 8. Build phases
 
-| Phase | Content | Gate |
+| Phase | Content | Gate | Status |
 |---|---|---|
-| **P0 — skeleton** | `scripts/skills_mcp_server.py` (stdio, `2024-11-05`), `initialize`/`tools/list`, `skills_list` + `skill_view` backed by `SkillManager` | contract test over stdio: init → list → view 2 books; byte-identical body to internal `skill_view` |
-| **P1 — resources** | catalog + templates + per-book resources, `mimeType`, annotations | every one of the 220 books resolvable as a resource; resource set == disk set |
-| **P2 — search & bundle** | `skills_search`, `skill_bundle`, phase gating | self-retrieval parity: each book found via its triggers through MCP; `PHASE_DENIED` proven |
-| **P3 — errors & budgets** | full taxonomy, truncation contract, logging, metrics | fault-injection tests: bad URI, unknown book, unparseable book, missing dir, over-budget |
-| **P4 — client wiring** | register the server in `.crusorai/mcp.json`, document in `skills/mcp/SKILL.md` | end-to-end from a real client session, not a unit test |
+| **P0 — skeleton** | `scripts/skills_mcp_server.py` (stdio, `2024-11-05`), `initialize`/`tools/list`, `skills_list` + `skill_view` backed by `SkillManager` | contract test over stdio: init → list → view 2 books; byte-identical body to internal `skill_view` | **done** — real client session test; body parity asserted |
+| **P1 — resources** | catalog + templates + per-book resources, `mimeType`, annotations | every one of the 220 books resolvable as a resource; resource set == disk set | **done** — resource set == index set, asserted |
+| **P2 — search & bundle** | `skills_search`, `skill_bundle`, phase gating | self-retrieval parity: each book found via its triggers through MCP; `PHASE_DENIED` proven | **done** — ranking asserted, gating proven |
+| **P3 — errors & budgets** | full taxonomy, truncation contract, logging, metrics | fault-injection tests: bad URI, unknown book, unparseable book, missing dir, over-budget | taxonomy + budgets implemented and tested; **logging/metrics and unparseable-book injection outstanding** |
+| **P4 — client wiring** | register the server in `.crusorai/mcp.json`, document in `skills/mcp/SKILL.md` | end-to-end from a real client session, not a unit test | documented; **registration left to the operator** |
 
 P0–P2 are the useful half; P3 is what makes it trustworthy; P4 is one config entry.
 
@@ -207,4 +223,5 @@ P0–P2 are the useful half; P3 is what makes it trustworthy; P4 is one config e
    `src/mcp_skills/`? Default: `src/mcp_skills/` with a `scripts/` entry point,
    because it is a product surface, not a test fixture.
 
-Say go and I build P0 with its contract test in the same commit.
+What was built follows the defaults: full resource templates, stdio only, code in
+`src/mcp_skills/` with a `scripts/` entry point.

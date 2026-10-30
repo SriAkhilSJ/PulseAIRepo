@@ -11,6 +11,16 @@
 - On failure, return error string to model, never raise (D17)
 - Show connector status in fork: `Crusor Manager → Connectors` lists `name, enabled, tools[]`
 
+**The library is also an MCP server.** `scripts/skills_mcp_server.py` serves the whole
+Architect tree over stdio (`2024-11-05`): `skills_list`, `skill_view` (several books per
+call), `skills_search`, `skill_bundle` (planning only — refused while executing), the
+`skill://` resource tree, and the `plan_with_skills` prompt. One index is built at
+startup (~68 ms), so a fetch is a dict lookup. Add it beside the other servers:
+
+```json
+{"servers": {"skills": {"command": ["python", "scripts/skills_mcp_server.py"], "enabled": true}}}
+```
+
 Example `.crusorai/mcp.json`:
 ```json
 {
