@@ -63,3 +63,18 @@ def test_an_unreadable_catalog_never_reports_a_model_as_offered():
     """An empty catalog means unknown, and unknown must not be printed as a tick."""
     source = (REPO_ROOT / "scripts" / "check_velona_keys.py").read_text(encoding="utf-8")
     assert "(m in ids if ids else None)" in source
+
+
+def test_model_ids_are_found_in_any_catalog_shape():
+    """The live catalog answered 200 with a shape the old parser read as zero."""
+    assert checker.extract_model_ids({"data": [{"id": "z-ai/glm-5.3-flash"}]}) == ["z-ai/glm-5.3-flash"]
+    assert checker.extract_model_ids([{"id": "z-ai/glm-5.3-flash"}]) == ["z-ai/glm-5.3-flash"]
+    assert checker.extract_model_ids({"models": {"a": {"model_id": "deepseek/deepseek-v4.1-flash"}}}) \
+        == ["deepseek/deepseek-v4.1-flash"]
+    assert checker.extract_model_ids({"gateway": {"items": [{"name": "qwen/qwen3.7-flash"}]}}) \
+        == ["qwen/qwen3.7-flash"]
+
+
+def test_a_shape_description_never_leaks_values():
+    shape = checker.describe_shape({"api_key": "key_live_secret", "data": []})
+    assert "api_key" in shape and "key_live_secret" not in shape

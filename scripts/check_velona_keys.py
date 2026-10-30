@@ -93,6 +93,47 @@ def check_shape(key: str) -> tuple[bool, str]:
     return True, "key_live_*, no whitespace"
 
 
+def extract_model_ids(body: object) -> list[str]:
+    """Model ids from any catalog shape.
+
+    The gateway answered 200 with a payload this code could not read, which made
+    "is the model on offer" unanswerable while looking like an empty catalog. So:
+    walk whatever shape arrives and collect anything that names a model. A wrong
+    guess here now yields ids, not a silent zero.
+    """
+    ids: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key in ("id", "model", "model_id", "name"):
+                value = node.get(key)
+                if isinstance(value, str) and value.strip() and ("/" in value or len(value) > 3):
+                    ids.append(value.strip())
+                    break
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(body)
+    seen, unique = set(), []
+    for mid in ids:
+        if mid not in seen:
+            seen.add(mid)
+            unique.append(mid)
+    return unique[:500]
+
+
+def describe_shape(body: object) -> str:
+    """Top-level structure only — never values, so this is safe to print."""
+    if isinstance(body, dict):
+        return "object with keys: " + ", ".join(list(body)[:12])
+    if isinstance(body, list):
+        return f"list of {len(body)}" + ("" if not body else f"; first is {type(body[0]).__name__}")
+    return type(body).__name__
+
+
 def _get(url: str, key: str) -> tuple[int, dict | str, float]:
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {key}",
@@ -169,14 +210,7 @@ def main() -> int:
             continue
 
         status, body, secs = _get(f"{gateway_root}/gateway/v1/models", key)
-        ids: list[str] = []
-        if isinstance(body, dict):
-            raw = body.get("data") or body.get("models") or []
-            for item in raw if isinstance(raw, list) else []:
-                if isinstance(item, dict):
-                    mid = item.get("id") or item.get("model") or item.get("name")
-                    if mid:
-                        ids.append(str(mid))
+        ids = extract_model_ids(body) if status == 200 else []
         # No catalog parsed => we know nothing. Never report "offered" on a guess.
         offered = {m: (m in ids if ids else None) for m, _r in MODELS}
         catalog_ok = catalog_ok or (status == 200)
@@ -185,6 +219,7 @@ def main() -> int:
             "ok": status == 200,
             "seconds": round(secs, 2),
             "model_count": len(ids),
+            "catalog_shape": describe_shape(body) if status == 200 else None,
             "offered": offered,
             "note": None if status == 200 else str(body)[:200],
         }
@@ -253,6 +288,7 @@ def main() -> int:
                 print(f"  catalog {'ok  ' if cat.get('ok') else 'FAIL'} "
                       f"HTTP {cat.get('status')} in {cat.get('seconds')}s, "
                       f"{cat.get('model_count')} models"
+                      + (f" ({cat['catalog_shape']})" if cat.get("catalog_shape") else "")
                       + ("" if cat.get("ok") else f" — {cat.get('note')}"))
                 for model, present in (cat.get("offered") or {}).items():
                     mark = "?" if present is None else ("✓" if present else "✗")
