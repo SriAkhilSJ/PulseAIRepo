@@ -5,7 +5,7 @@ license: MIT
 compatibility: Kafka, Kinesis, Pulsar, Flink, Spark Structured Streaming, Redpanda
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/streaming-architect
+  crusor-path: data-engineering-architect/event-streams-architect/streaming-architect
   crusor-origin: original
   crusor-sources: "kafka.apache.org/documentation; nightlies.apache.org/flink/flink-docs-stable; docs.aws.amazon.com/streaming"
   crusor-triggers: "streaming, kafka, kinesis, event stream, pub sub, real time, flink, exactly once, watermark, event driven pipeline, consumer group"

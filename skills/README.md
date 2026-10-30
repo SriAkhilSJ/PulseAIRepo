@@ -12,7 +12,8 @@ skills/
 │                            data services, IaC, platform, operations
 ├── ai-ml-architect/       8 shelves: providers, llm, retrieval, evaluation,
 │                          training, serving, mlops, agents
-├── data-engineering-architect/  batch, streaming, warehouse, orchestration, quality, dbt
+├── data-engineering-architect/  7 shelves: ingestion, streams, storage,
+│                          transform, scheduling, quality, delivery
 └── …                      (process skills: flat, one directory per skill)
 ```
 
@@ -52,6 +53,6 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | `desktop-architect/` | 9 | runtime choice, Electron, Tauri, native, IPC, local storage, security, updates, distribution |
 | `cloud-and-devops-architect/` | 36 | providers (AWS/GCP/Azure/Cloudflare), IAM, VPC/DNS, EC2/ECS/Lambda/K8s, storage/DB/messaging/cache, Terraform/Pulumi/CFN/Ansible, Helm/GitOps/mesh/K8s-security/IDP, reliability/cost/observability/chaos/DR/incident |
 | `ai-ml-architect/` | 31 | model boundary, OpenAI/Anthropic/Gemini/open-weights, prompting & schemas, chunking/embeddings/vector stores/hybrid search, evals & judges & red-teaming, fine-tuning & classic ML & recommenders & vision, GPU/quantisation/speech, MLOps & feature stores & monitoring, agents |
-| `data-engineering-architect/` | 7 | topology, batch, streaming, warehouse modelling, orchestration, quality, dbt |
+| `data-engineering-architect/` | 29 | ingestion (batch/CDC/API/files), Kafka/Flink/schemas, Snowflake/BigQuery/Databricks/Iceberg/Spark/DuckDB, dbt/semantic layer/SQL modelling, Airflow/Dagster, quality/lineage/governance/observability, reverse ETL/data APIs |
 
 See `website-architect/VERIFICATION.md` for the current conformance audit.

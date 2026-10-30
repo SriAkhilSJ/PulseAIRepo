@@ -5,7 +5,7 @@ license: MIT
 compatibility: dbt, Spark, SQL warehouses, Airflow/Dagster, Fivetran/Airbyte
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/batch-pipeline-architect
+  crusor-path: data-engineering-architect/ingestion-architect/batch-pipeline-architect
   crusor-origin: original
   crusor-sources: "docs.getdbt.com/docs/build/incremental-models; spark.apache.org/docs/latest/sql-performance-tuning.html"
   crusor-triggers: "etl, elt, batch job, incremental load, backfill, watermark, spark job, nightly job, data ingestion, cdc, nightly etl, duplicate rows"

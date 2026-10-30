@@ -8,37 +8,37 @@ Generated 2026-10-30 from repository state.
 |---|---|
 | `ai-ml-architect/` | 31 |
 | `cloud-and-devops-architect/` | 36 |
-| `data-engineering-architect/` | 7 |
+| `data-engineering-architect/` | 29 |
 | `desktop-architect/` | 9 |
 | `mobile-architect/` | 13 |
 | `website-architect/` | 76 |
-| **total** | **172** |
+| **total** | **194** |
 
 ## Breadth status
 
 | Domain | Books | Status |
 |---|---|---|
-| `website-architect/` | 76 | reference resolution — one book per framework |
+| `website-architect/` | 76 | reference resolution |
 | `cloud-and-devops-architect/` | 36 | at reference resolution, 7 shelves |
 | `ai-ml-architect/` | 31 | at reference resolution, 8 shelves |
+| `data-engineering-architect/` | 29 | at reference resolution, 7 shelves |
 | `mobile-architect/` | 13 | deepened once; not yet at reference resolution |
 | `desktop-architect/` | 9 | deepened once; not yet at reference resolution |
-| `data-engineering-architect/` | 7 | not yet widened |
 
 ## Spec conformance
 
-- files checked: **172**
-- name == parent directory: **172/172**
-- crusor-path == path from skills/: **172/172**
-- unique names: **172/172**
+- files checked: **194**
+- name == parent directory: **194/194**
+- crusor-path == path from skills/: **194/194**
+- unique names: **194/194**
 - longest body: **5955 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **172/172**
+- provenance present: **194/194**
 
 ## Runtime
 
-- discovered as bundled skills: **192**
-- phase = planning: **172**
+- discovered as bundled skills: **214**
+- phase = planning: **194**
 - injected while executing: **1**
 - injected while planning: **2**
 
@@ -49,25 +49,30 @@ Generated 2026-10-30 from repository state.
 | set up our aws accounts | aws-architect |
 | terraform state is a mess | cloud-and-devops-architect, terraform-architect |
 | our cloud bill doubled | cost-optimization-architect |
-| kafka consumer lag is growing | streaming-architect |
+| should we use snowflake or iceberg | iceberg-architect, snowflake-architect, warehouse-architect |
+| grain is wrong in the fact table | sql-modelling-architect |
+| we need cdc from postgres | batch-pipeline-architect, cdc-architect, db-connector, mcp, postgres-architect |
+| partner sends us csv files on sftp | file-ingestion-architect |
+| kafka topic partition count | kafka-architect, streaming-architect |
+| flink watermarks never fire | batch-pipeline-architect, flink-architect, streaming-architect |
+| schema registry compatibility mode | event-schema-architect, graphql-architect, typescript-architect |
+| dbt incremental model has duplicates | analytics-engineering-architect, data-quality-architect, dbt-architect |
+| spark job is slow because of skew | batch-pipeline-architect, spark-architect |
+| duckdb instead of a warehouse | duckdb-architect |
+| impact analysis before renaming a column | lineage-architect |
+| pii masking in the warehouse | governance-architect |
+| airflow backfill stuck | airflow-architect, batch-pipeline-architect, orchestration-architect |
+| dagster assets design | dagster-architect, orchestration-architect |
+| one metric definition for revenue | analytics-engineering-architect, semantic-layer-architect |
+| sync scores into salesforce | reverse-etl-architect |
+| our dashboards show stale data | data-observability-architect, mobile-offline-sync-architect, observability-architect, sre-observability-architect |
+| expose analytics to partners via api | data-api-architect, data-engineering-architect |
 | which model should we pick for support | model-selection-architect |
-| the model returns invalid json sometimes | structured-output-architect |
 | prompt injection through support tickets | ai-ml-architect, prompting-architect, red-teaming-architect |
-| our search misses error codes | hybrid-search-architect, systematic-debugging |
-| pdf chunks come out garbled | chunking-architect |
-| lora fine tune on our support data | ai-ml-architect, fine-tuning-architect |
-| churn prediction with xgboost | classic-ml-architect, mlops-platform-architect |
-| what should we recommend to users | recommender-architect |
-| gpu memory is not enough for context | gpu-capacity-architect, inference-serving-architect |
-| transcribe our sales calls | speech-architect |
-| model decay in production | model-monitoring-architect |
-| supervisor agent with two specialists | agent-architect, ai-ml-architect, multi-agent-architect |
-| build a nightly etl into the warehouse | batch-pipeline-architect, data-engineering-architect |
-| our dbt project is a mess | analytics-engineering-architect |
 | build an ios app with swiftui | ios-architect, ios-swiftui-architect, mobile-architect |
 | app works offline in the field | mobile-architect, mobile-offline-sync-architect, pwa-architect |
-| tauri vs electron | desktop-architect, electron-architect, tauri-architect |
-| auto update keeps failing | desktop-architect, desktop-distribution-architect, desktop-update-architect, systematic-debugging |
+| electron app needs a secure bridge | desktop-architect, desktop-ipc-architect, electron-architect |
+| design a rest api | rest-architect, rest-graphql-debug |
 
 ## Verification runs
 
@@ -78,5 +83,5 @@ Generated 2026-10-30 from repository state.
 ## Known gaps
 
 - All skills are `crusor-origin: original`: GitHub access is unavailable here, so no body is adapted from an upstream repository.
-- data-engineering is still at topic resolution; the breadth pass continues there next.
+- mobile (13) and desktop (9) are still below reference resolution; the breadth pass continues there.
 - The MCP hierarchy mirroring this tree is not built yet.

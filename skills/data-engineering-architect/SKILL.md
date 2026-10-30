@@ -20,15 +20,17 @@ and lineage visible before a dashboard lies to an executive.
 
 ## The shelf
 
-| Question | Book |
+Seven shelves, 28 books.
+
+| Shelf | Books |
 |---|---|
-| what is the flow, who owns each hop, what is the envelope? | this file |
-| batch/ELT shape, incremental strategy, backfills | `batch-pipeline-architect` |
-| event streams, exactly-once claims, watermarks, replay | `streaming-architect` |
-| warehouse vs lake vs lakehouse, modelling, partitioning | `warehouse-architect` |
-| scheduling, dependencies, SLAs, recovery | `orchestration-architect` |
-| contracts, tests, freshness and anomaly detection | `data-quality-architect` |
-| dbt projects, semantic layer, metrics someone trusts | `analytics-engineering-architect` |
+| `ingestion-architect/` | `batch-pipeline` · `cdc` · `api-ingestion` · `file-ingestion` |
+| `event-streams-architect/` | `streaming` · `kafka` · `flink` · `event-schema` |
+| `storage-architect/` | `warehouse` · `snowflake` · `bigquery` · `databricks` · `iceberg` · `spark` · `duckdb` |
+| `transform-architect/` | `analytics-engineering` · `dbt` · `semantic-layer` · `sql-modelling` |
+| `scheduling-architect/` | `orchestration` · `airflow` · `dagster` |
+| `quality-architect/` | `data-quality` · `lineage` · `governance` · `data-observability` |
+| `delivery-architect/` | `reverse-etl` · `data-api` |
 
 Read the crown, then the one or two books the plan actually needs.
 

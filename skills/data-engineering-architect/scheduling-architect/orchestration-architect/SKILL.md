@@ -5,7 +5,7 @@ license: MIT
 compatibility: Airflow, Dagster, Prefect, Argo Workflows, dbt Cloud, Step Functions
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/orchestration-architect
+  crusor-path: data-engineering-architect/scheduling-architect/orchestration-architect
   crusor-origin: original
   crusor-sources: "airflow.apache.org/docs; docs.dagster.io; docs.prefect.io; argo-workflows.readthedocs.io"
   crusor-triggers: "airflow, dagster, prefect, orchestration, dag, scheduler, cron, workflow, sla, retry, backfill job"

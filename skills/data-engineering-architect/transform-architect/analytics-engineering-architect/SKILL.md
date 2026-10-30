@@ -5,7 +5,7 @@ license: MIT
 compatibility: dbt Core/Cloud, SQLMesh, LookML, Cube, MetricFlow
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/analytics-engineering-architect
+  crusor-path: data-engineering-architect/transform-architect/analytics-engineering-architect
   crusor-origin: original
   crusor-sources: "docs.getdbt.com; docs.getdbt.com/docs/build/semantic-models; cube.dev/docs; sqlmesh.readthedocs.io"
   crusor-triggers: "dbt, analytics engineering, semantic layer, metrics, sql models, staging models, lookml, metric definition, data mart, transformed model, disagree, revenue number, metric drift"

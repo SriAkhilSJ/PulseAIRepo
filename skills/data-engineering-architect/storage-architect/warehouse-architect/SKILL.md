@@ -5,7 +5,7 @@ license: MIT
 compatibility: Snowflake, BigQuery, Redshift, Databricks, Iceberg/Delta, DuckDB
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/warehouse-architect
+  crusor-path: data-engineering-architect/storage-architect/warehouse-architect
   crusor-origin: original
   crusor-sources: "docs.snowflake.com; cloud.google.com/bigquery/docs; iceberg.apache.org; databricks.com/discover/lakehouse"
   crusor-triggers: "data warehouse, data lake, lakehouse, star schema, dimensional model, snowflake, bigquery, iceberg, partitioning, medallion, analytical model"

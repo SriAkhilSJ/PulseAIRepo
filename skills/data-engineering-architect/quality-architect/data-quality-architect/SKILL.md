@@ -5,7 +5,7 @@ license: MIT
 compatibility: dbt tests, Great Expectations, Soda, Monte Carlo, OpenLineage
 metadata:
   crusor-domain: data-engineering-architect
-  crusor-path: data-engineering-architect/data-quality-architect
+  crusor-path: data-engineering-architect/quality-architect/data-quality-architect
   crusor-origin: original
   crusor-sources: "docs.getdbt.com/docs/build/tests; greatexpectations.io/docs; openlineage.io/docs"
   crusor-triggers: "data quality, data contract, data test, freshness, schema drift, anomaly detection, data incident, lineage, validity check, null spike, duplicate, duplicates, disagree"
