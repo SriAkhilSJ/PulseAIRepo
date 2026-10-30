@@ -85,7 +85,12 @@ def test_relevant_skills_skip_archived_and_disabled_and_record_use(tmp_path):
     ])
     sm = SkillManager(storage_path=path)
     insts = sm.get_relevant_skills("write python code")
-    assert len(insts) == 1
+    # Bundled library skills may legitimately match "python" too; what matters is
+    # that the stored skills are filtered by state/enabled and never duplicated.
+    matching = [i for i in insts if i.startswith("**Active:**")]
+    assert len(matching) == 1
+    assert not any("old" == i or i.endswith(": old") for i in insts)
+    assert not any(i.endswith(": off") for i in insts)
     assert sm.get_usage("Active")["use_count"] == 1
     assert sm.get_usage("Archived")["use_count"] == 0
 
