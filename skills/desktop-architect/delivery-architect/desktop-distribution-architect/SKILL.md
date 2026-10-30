@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any desktop stack; Authenticode, Apple notarization, MSIX/DMG/AppImage/Flatpak
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/desktop-distribution-architect
+  crusor-path: desktop-architect/delivery-architect/desktop-distribution-architect
   crusor-origin: original
   crusor-sources: "developer.apple.com/documentation/security/notarizing; learn.microsoft.com/windows/msix; electron.build; v2.tauri.app/distribute"
   crusor-triggers: "signing, sign the app, code signing, certificate, notarization, installer, msix, dmg, appimage, auto update, staged rollout, silent install, mdm, mac app, sign our"

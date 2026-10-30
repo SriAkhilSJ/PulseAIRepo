@@ -5,7 +5,7 @@ license: MIT
 compatibility: Electron contextBridge/ipcMain, Tauri commands, Chromium IPC
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/desktop-ipc-architect
+  crusor-path: desktop-architect/platform-architect/desktop-ipc-architect
   crusor-origin: original
   crusor-sources: "electronjs.org/docs/latest/tutorial/context-isolation; electronjs.org/docs/latest/tutorial/ipc; v2.tauri.app/develop/calling-rust"
   crusor-triggers: "ipc, contextbridge, ipcmain, tauri command, preload script, context isolation, renderer, main process, sandbox, worker thread, bridge, secure bridge, freeze, freezes, blocking the ui"

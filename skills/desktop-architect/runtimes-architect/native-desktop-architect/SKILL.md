@@ -5,7 +5,7 @@ license: MIT
 compatibility: macOS AppKit/SwiftUI, Windows WinUI/WPF, Linux GTK/Qt; C++/C#/Swift/Rust cores
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/native-desktop-architect
+  crusor-path: desktop-architect/runtimes-architect/native-desktop-architect
   crusor-origin: original
   crusor-sources: "developer.apple.com/documentation/appkit; learn.microsoft.com/windows/apps/winui; docs.gtk.org"
   crusor-triggers: "native desktop, winui, wpf, appkit, gtk, qt, sandbox, code signing, native app architecture"

@@ -20,16 +20,17 @@ why the boundaries matter more than on the web.
 
 ## Leaf map
 
-| Need | Skill |
+Five shelves, 17 books.
+
+| Shelf | Books |
 |---|---|
-| web stack, huge ecosystem, fast delivery | `electron-architect` |
-| small binary, low memory, Rust backend | `tauri-architect` |
-| platform-perfect integration, native UI | `native-desktop-architect` |
-| typed bridges between UI and privileged core | `desktop-ipc-architect` |
-| local database, durability, corruption | `desktop-offline-storage-architect` |
-| keychain, CSP, file exposure, hardening | `desktop-security-architect` |
-| channels, staged rollout, migrations, rollback | `desktop-update-architect` |
-| signing, notarization, updates, installers | `desktop-distribution-architect` |
+| `runtimes-architect/` | `electron` · `tauri` · `native-desktop` · `winui` · `appkit` · `gtk` |
+| `platform-architect/` | `desktop-ipc` · `desktop-tray-and-menus` · `desktop-hardware` · `desktop-accessibility` · `desktop-localization` |
+| `data-architect/` | `desktop-offline-storage` · `desktop-security` |
+| `quality-architect/` | `desktop-testing` · `desktop-telemetry` |
+| `delivery-architect/` | `desktop-distribution` · `desktop-update` |
+
+Read the crown, then the one or two books the plan actually needs.
 
 ## Decision 1 — Runtime choice
 

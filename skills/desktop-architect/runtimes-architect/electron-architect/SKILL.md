@@ -5,7 +5,7 @@ license: MIT
 compatibility: Electron 30+; Node 20+
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/electron-architect
+  crusor-path: desktop-architect/runtimes-architect/electron-architect
   crusor-origin: original
   crusor-sources: "electronjs.org/docs/latest; electronjs.org/docs/latest/tutorial/security"
   crusor-triggers: "electron, main process, renderer, preload, contextbridge, ipc, electron builder"

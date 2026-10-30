@@ -5,7 +5,7 @@ license: MIT
 compatibility: Electron, Tauri, native; Windows/macOS/Linux
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/desktop-security-architect
+  crusor-path: desktop-architect/data-architect/desktop-security-architect
   crusor-origin: original
   crusor-sources: "electronjs.org/docs/latest/tutorial/security; developer.apple.com/documentation/security; learn.microsoft.com/windows/security"
   crusor-triggers: "desktop security, keychain, credential manager, csp, remote content, sandbox, code signing, mdm, local file access, threat model, security review, desktop hardening"

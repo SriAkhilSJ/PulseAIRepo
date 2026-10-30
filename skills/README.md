@@ -7,7 +7,7 @@ shelf holds books, and the agent takes the books its task needs.
 skills/
 ├── website-architect/     the web product, end to end
 ├── mobile-architect/      5 shelves: platforms, quality, data, devices, delivery
-├── desktop-architect/     Electron, Tauri, native, IPC, storage, security, update, distribution
+├── desktop-architect/     5 shelves: runtimes, platform, data, quality, delivery
 ├── cloud-and-devops-architect/  7 shelves: providers, identity, networking, compute,
 │                            data services, IaC, platform, operations
 ├── ai-ml-architect/       8 shelves: providers, llm, retrieval, evaluation,
@@ -50,7 +50,7 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 |---|---|---|
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
 | `mobile-architect/` | 28 | platform choice, iOS/SwiftUI/UIKit, Android/Compose/Views, RN, Flutter, KMP, offline sync, security, performance, testing, accessibility, observability, analytics, devices (camera/BLE/location/wearables/TV/car), push, deep links, localisation, adaptive layouts, release, builds, modules, purchases |
-| `desktop-architect/` | 9 | runtime choice, Electron, Tauri, native, IPC, local storage, security, updates, distribution |
+| `desktop-architect/` | 18 | runtime choice, Electron, Tauri, native, WinUI, AppKit, GTK, IPC, tray/menus, hardware (serial/USB/printers), accessibility, localisation, offline storage, security, testing, telemetry, packaging, updates |
 | `cloud-and-devops-architect/` | 36 | providers (AWS/GCP/Azure/Cloudflare), IAM, VPC/DNS, EC2/ECS/Lambda/K8s, storage/DB/messaging/cache, Terraform/Pulumi/CFN/Ansible, Helm/GitOps/mesh/K8s-security/IDP, reliability/cost/observability/chaos/DR/incident |
 | `ai-ml-architect/` | 31 | model boundary, OpenAI/Anthropic/Gemini/open-weights, prompting & schemas, chunking/embeddings/vector stores/hybrid search, evals & judges & red-teaming, fine-tuning & classic ML & recommenders & vision, GPU/quantisation/speech, MLOps & feature stores & monitoring, agents |
 | `data-engineering-architect/` | 29 | ingestion (batch/CDC/API/files), Kafka/Flink/schemas, Snowflake/BigQuery/Databricks/Iceberg/Spark/DuckDB, dbt/semantic layer/SQL modelling, Airflow/Dagster, quality/lineage/governance/observability, reverse ETL/data APIs |

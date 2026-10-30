@@ -5,7 +5,7 @@ license: MIT
 compatibility: electron-updater, Tauri updater, Sparkle, MSIX, MSI, snap/flatpak
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/desktop-update-architect
+  crusor-path: desktop-architect/delivery-architect/desktop-update-architect
   crusor-origin: original
   crusor-sources: "electron.build/auto-update; v2.tauri.app/plugin/updater; sparkle-project.org; learn.microsoft.com/windows/msix"
   crusor-triggers: "auto update, updater, update channel, delta update, rollback, staged rollout, forced update, electron-updater, sparkle, app upgrade"

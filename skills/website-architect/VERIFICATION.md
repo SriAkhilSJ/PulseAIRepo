@@ -1,6 +1,7 @@
 # Verification — the Architect library
 
-Generated 2026-10-30 from repository state.
+Generated 2026-10-30 from repository state, after the breadth pass across
+cloud, ai-ml, data, mobile and desktop.
 
 ## Inventory
 
@@ -9,10 +10,12 @@ Generated 2026-10-30 from repository state.
 | `ai-ml-architect/` | 31 |
 | `cloud-and-devops-architect/` | 36 |
 | `data-engineering-architect/` | 29 |
-| `desktop-architect/` | 9 |
-| `mobile-architect/` | 13 |
+| `desktop-architect/` | 18 |
+| `mobile-architect/` | 28 |
 | `website-architect/` | 76 |
-| **total** | **194** |
+| **total** | **218** |
+
+Counts include each domain's crown skill.
 
 ## Breadth status
 
@@ -22,66 +25,69 @@ Generated 2026-10-30 from repository state.
 | `cloud-and-devops-architect/` | 36 | at reference resolution, 7 shelves |
 | `ai-ml-architect/` | 31 | at reference resolution, 8 shelves |
 | `data-engineering-architect/` | 29 | at reference resolution, 7 shelves |
-| `mobile-architect/` | 13 | deepened once; not yet at reference resolution |
-| `desktop-architect/` | 9 | deepened once; not yet at reference resolution |
+| `mobile-architect/` | 28 | at reference resolution, 5 shelves |
+| `desktop-architect/` | 18 | at reference resolution, 5 shelves |
+
+Reference resolution means: one book per framework or primitive, so a task lands on
+the book about SQS rather than a book about messaging. It does not mean depth —
+each book is 3–5 KB of decisions, failure modes and verification receipts.
+`references/` material with real upstream citations would be a separate pass.
 
 ## Spec conformance
 
-- files checked: **194**
-- name == parent directory: **194/194**
-- crusor-path == path from skills/: **194/194**
-- unique names: **194/194**
-- longest body: **5955 chars** (cap 6000)
+- files checked: **218**
+- name == parent directory: **218/218**
+- crusor-path == path from skills/: **218/218**
+- unique names: **218/218**
+- longest body: **5958 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **194/194**
+- provenance present: **218/218** (`crusor-origin`, `crusor-sources`, `crusor-verified-on`)
+- brand gate: `grep -rin "^description:.*nous" skills/` → no matches
 
 ## Runtime
 
-- discovered as bundled skills: **214**
-- phase = planning: **194**
-- injected while executing: **1**
-- injected while planning: **2**
+- discovered as bundled skills: **238** (218 architect + 20 process/connector skills)
+- architect skills with `phase: planning`: **218/218**
+- `get_relevant_skills(task, phase="executing")` → **0** architect skills
+- `get_relevant_skills(task, phase="planning")` → routed normally
 
-## Routing (whole-word trigger match)
+## Routing (whole-word trigger match, phase=planning)
 
 | Task | Skills selected |
 |---|---|
-| set up our aws accounts | aws-architect |
-| terraform state is a mess | cloud-and-devops-architect, terraform-architect |
-| our cloud bill doubled | cost-optimization-architect |
-| should we use snowflake or iceberg | iceberg-architect, snowflake-architect, warehouse-architect |
-| grain is wrong in the fact table | sql-modelling-architect |
-| we need cdc from postgres | batch-pipeline-architect, cdc-architect, db-connector, mcp, postgres-architect |
-| partner sends us csv files on sftp | file-ingestion-architect |
-| kafka topic partition count | kafka-architect, streaming-architect |
-| flink watermarks never fire | batch-pipeline-architect, flink-architect, streaming-architect |
-| schema registry compatibility mode | event-schema-architect, graphql-architect, typescript-architect |
-| dbt incremental model has duplicates | analytics-engineering-architect, data-quality-architect, dbt-architect |
-| spark job is slow because of skew | batch-pipeline-architect, spark-architect |
-| duckdb instead of a warehouse | duckdb-architect |
-| impact analysis before renaming a column | lineage-architect |
-| pii masking in the warehouse | governance-architect |
-| airflow backfill stuck | airflow-architect, batch-pipeline-architect, orchestration-architect |
-| dagster assets design | dagster-architect, orchestration-architect |
-| one metric definition for revenue | analytics-engineering-architect, semantic-layer-architect |
-| sync scores into salesforce | reverse-etl-architect |
-| our dashboards show stale data | data-observability-architect, mobile-offline-sync-architect, observability-architect, sre-observability-architect |
-| expose analytics to partners via api | data-api-architect, data-engineering-architect |
-| which model should we pick for support | model-selection-architect |
-| prompt injection through support tickets | ai-ml-architect, prompting-architect, red-teaming-architect |
+| build a windows native app | mobile-architect, winui-architect |
+| mac app with menu bar | appkit-architect, desktop-distribution-architect |
+| ship a linux app via flatpak | gtk-architect |
+| screen reader support in our desktop app | accessibility-architect, desktop-accessibility-architect, desktop-architect, mobile-accessibility-architect |
+| serial port scale integration | desktop-hardware-architect |
+| app should run in the tray | desktop-tray-and-menus-architect, terminal-connector |
+| translate the installer | desktop-distribution-architect, desktop-localization-architect |
+| crash reports from desktop users | desktop-telemetry-architect, mobile-observability-architect, systematic-debugging |
+| test our electron installer | desktop-architect, desktop-distribution-architect, electron-architect |
+| auto update keeps failing | desktop-architect, desktop-distribution-architect, desktop-update-architect, systematic-debugging |
+| electron app needs a secure bridge | desktop-architect, desktop-ipc-architect, electron-architect |
 | build an ios app with swiftui | ios-architect, ios-swiftui-architect, mobile-architect |
 | app works offline in the field | mobile-architect, mobile-offline-sync-architect, pwa-architect |
-| electron app needs a secure bridge | desktop-architect, desktop-ipc-architect, electron-architect |
 | design a rest api | rest-architect, rest-graphql-debug |
+
+Skill selection is additive by design — cross-domain hits (e.g. a screen-reader task
+reaching both the desktop and mobile accessibility books) are deduplicated when the
+prompt is assembled.
 
 ## Verification runs
 
-- `pytest src/tests -q` → 2975 passed, 20 failed, 23 skipped, 1 xfailed — the 20 are the repository's pre-existing unrelated failures.
+- 9 focused skill suites → **224 passed, 1 skipped**
+  (`test_agent_skills_tree`, `test_skill_library`, `test_skill_tools`,
+  `test_skill_bundled`, `test_skill_lifecycle`, `test_skills_hub`,
+  `test_skills_invalidation`, `test_hermes_prompt_parity`,
+  `test_hermes_tool_name_parity`).
 - `pytest src/tests/test_agent_skills_tree.py` → 21 passed.
-- `pytest src/tests/test_skill_library.py` → 13 passed.
+- Full `pytest src/tests -q` baseline at this branch: 2975 passed / 20 pre-existing
+  unrelated failures.
 
 ## Known gaps
 
-- All skills are `crusor-origin: original`: GitHub access is unavailable here, so no body is adapted from an upstream repository.
-- mobile (13) and desktop (9) are still below reference resolution; the breadth pass continues there.
-- The MCP hierarchy mirroring this tree is not built yet.
+- Every book is `crusor-origin: original`: GitHub access is unavailable here, so no
+  body is adapted from an upstream repository. These are authored architect books.
+- No `references/` depth yet — books carry decisions and receipts, not citations.
+- The MCP hierarchy mirroring this tree is deferred by instruction.

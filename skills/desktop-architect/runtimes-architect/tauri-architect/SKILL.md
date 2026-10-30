@@ -5,7 +5,7 @@ license: MIT
 compatibility: Tauri 2.x; Rust 1.75+; system webviews
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/tauri-architect
+  crusor-path: desktop-architect/runtimes-architect/tauri-architect
   crusor-origin: original
   crusor-sources: "v2.tauri.app/start; v2.tauri.app/security/capabilities; v2.tauri.app/plugin/updater"
   crusor-triggers: "tauri, rust desktop, webview2, wkwebview, tauri commands, capabilities, tauri updater"

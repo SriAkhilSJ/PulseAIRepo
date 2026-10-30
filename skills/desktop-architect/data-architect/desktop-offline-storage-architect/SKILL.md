@@ -5,7 +5,7 @@ license: MIT
 compatibility: SQLite, DuckDB, LevelDB, IndexedDB, LMDB, filesystem
 metadata:
   crusor-domain: desktop-architect
-  crusor-path: desktop-architect/desktop-offline-storage-architect
+  crusor-path: desktop-architect/data-architect/desktop-offline-storage-architect
   crusor-origin: original
   crusor-sources: "sqlite.org/wal.html; sqlite.org/lang_vacuum.html; developer.apple.com/documentation/foundation/file_system; learn.microsoft.com/windows/apps/design/app-settings"
   crusor-triggers: "local database, sqlite, app data, local storage, offline data, file corruption, backup, data directory, embedded database, local cache, loses data, data loss, crash recovery"
