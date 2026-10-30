@@ -721,10 +721,19 @@ def _deliverable_candidates(workspace: str, target: str):
     import os as _os
 
     ws = Path(workspace)
+    # Every candidate must be rooted at the BOUND workspace. A bare
+    # ``Path(target)`` was also checked, which resolves against the engine
+    # process's CWD — so the same task could report a deliverable as
+    # present or missing depending on where the engine was launched from.
+    # Field shape (2026-10-30): workspace=<tmp>, task ledger lists
+    # ``README.md``; the repository the engine runs inside has a README.md,
+    # so the completion gate treated the deliverable as delivered without
+    # anything being written to the workspace. Deliverable evidence must be
+    # workspace-bound, never CWD-bound. An absolute target is still honoured
+    # because ``ws / <absolute>`` collapses to the absolute path.
     candidates = [
         ws / target,
         Path(str(ws), target.lstrip("/\\").replace("\\", "/")),
-        Path(target),
     ]
     t_parts = Path(target).parts
     if t_parts:

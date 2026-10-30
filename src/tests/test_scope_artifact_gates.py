@@ -78,6 +78,33 @@ def test_bullet_listed_root_code_files_are_explicit_deliverables(tmp_path):
     assert _deliverables_missing_on_disk(state, str(tmp_path)) == ["README.md"]
 
 
+def test_deliverable_evidence_is_workspace_bound_not_cwd_bound(tmp_path, monkeypatch):
+    """A same-named file in the engine's CWD is not delivery evidence.
+
+    Regression pin (2026-10-30): ``_deliverable_candidates`` also probed a
+    bare CWD-relative ``Path(target)``, so a workspace that never received
+    ``README.md`` reported it present whenever *the directory the engine was
+    launched from* contained one. The completion gate must answer from the
+    bound workspace alone.
+    """
+    launch_dir = tmp_path / "launch-dir"
+    launch_dir.mkdir()
+    (launch_dir / "README.md").write_text("engine CWD decoy", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    monkeypatch.chdir(launch_dir)
+    state = state_for(
+        "Deliver exactly these files at the workspace root:\n- README.md\n",
+        workspace,
+    )
+
+    assert _deliverables_missing_on_disk(state, str(workspace)) == ["README.md"]
+
+    (workspace / "README.md").write_text("real deliverable", encoding="utf-8")
+    assert _deliverables_missing_on_disk(state, str(workspace)) == []
+
+
 def test_prose_bullet_is_not_mistaken_for_a_root_file_ledger(tmp_path):
     task = """Build a chat app with Next.js.
     - Use app.js to explain the browser bundle in the documentation.
