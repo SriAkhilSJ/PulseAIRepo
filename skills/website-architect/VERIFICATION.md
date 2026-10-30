@@ -10,10 +10,10 @@ cloud, ai-ml, data, mobile and desktop.
 | `ai-ml-architect/` | 31 |
 | `cloud-and-devops-architect/` | 36 |
 | `data-engineering-architect/` | 29 |
-| `desktop-architect/` | 18 |
+| `desktop-architect/` | 20 |
 | `mobile-architect/` | 28 |
 | `website-architect/` | 76 |
-| **total** | **218** |
+| **total** | **220** |
 
 Counts include each domain's crown skill.
 
@@ -26,7 +26,7 @@ Counts include each domain's crown skill.
 | `ai-ml-architect/` | 31 | at reference resolution, 8 shelves |
 | `data-engineering-architect/` | 29 | at reference resolution, 7 shelves |
 | `mobile-architect/` | 28 | at reference resolution, 5 shelves |
-| `desktop-architect/` | 18 | at reference resolution, 5 shelves |
+| `desktop-architect/` | 20 | at reference resolution, 5 shelves |
 
 Reference resolution means: one book per framework or primitive, so a task lands on
 the book about SQS rather than a book about messaging. It does not mean depth —
@@ -35,19 +35,19 @@ each book is 3–5 KB of decisions, failure modes and verification receipts.
 
 ## Spec conformance
 
-- files checked: **218**
-- name == parent directory: **218/218**
-- crusor-path == path from skills/: **218/218**
-- unique names: **218/218**
+- files checked: **220**
+- name == parent directory: **220/220**
+- crusor-path == path from skills/: **220/220**
+- unique names: **220/220**
 - longest body: **5958 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **218/218** (`crusor-origin`, `crusor-sources`, `crusor-verified-on`)
+- provenance present: **220/220** (218 original, 2 adapted) (`crusor-origin`, `crusor-sources`, `crusor-verified-on`)
 - brand gate: `grep -rin "^description:.*nous" skills/` → no matches
 
 ## Runtime
 
-- discovered as bundled skills: **238** (218 architect + 20 process/connector skills)
-- architect skills with `phase: planning`: **218/218**
+- discovered as bundled skills: **240** (220 architect + 20 process/connector skills)
+- architect skills with `phase: planning`: **220/220**
 - `get_relevant_skills(task, phase="executing")` → **0** architect skills
 - `get_relevant_skills(task, phase="planning")` → routed normally
 
@@ -87,7 +87,9 @@ prompt is assembled.
 
 ## Known gaps
 
-- Every book is `crusor-origin: original`: GitHub access is unavailable here, so no
-  body is adapted from an upstream repository. These are authored architect books.
+- Provenance is mixed: 218 books are `crusor-origin: original`; 2 desktop books are
+  `adapted` from public MIT/Apache-2.0 skill repositories, pinned by commit SHA in
+  `skills/PROVENANCE.md`. The rest of the public corpus surveyed was thin, unlicensed
+  or out of scope — see that file for the per-repo verdicts.
 - No `references/` depth yet — books carry decisions and receipts, not citations.
 - The MCP hierarchy mirroring this tree is deferred by instruction.

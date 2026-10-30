@@ -303,6 +303,8 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "desktop-localization-architect",
         "desktop-telemetry-architect",
         "desktop-testing-architect",
+        "native-feel-architect",
+        "desktop-automation-architect",
         "gcp-architect",
         "azure-architect",
         "cloudflare-architect",
@@ -654,6 +656,8 @@ DESKTOP_CAPABILITIES = {
     "languages and installers": "desktop-localization-architect",
     "crashes and release health": "desktop-telemetry-architect",
     "testing a packaged app": "desktop-testing-architect",
+    "native feel on multiple OSes": "native-feel-architect",
+    "agents and scripts driving the UI": "desktop-automation-architect",
 }
 
 

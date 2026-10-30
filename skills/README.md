@@ -50,9 +50,10 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 |---|---|---|
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
 | `mobile-architect/` | 28 | platform choice, iOS/SwiftUI/UIKit, Android/Compose/Views, RN, Flutter, KMP, offline sync, security, performance, testing, accessibility, observability, analytics, devices (camera/BLE/location/wearables/TV/car), push, deep links, localisation, adaptive layouts, release, builds, modules, purchases |
-| `desktop-architect/` | 18 | runtime choice, Electron, Tauri, native, WinUI, AppKit, GTK, IPC, tray/menus, hardware (serial/USB/printers), accessibility, localisation, offline storage, security, testing, telemetry, packaging, updates |
+| `desktop-architect/` | 20 | runtime choice, Electron, Tauri, native, WinUI, AppKit, GTK, IPC, tray/menus, hardware (serial/USB/printers), accessibility, localisation, offline storage, security, testing, telemetry, packaging, updates |
 | `cloud-and-devops-architect/` | 36 | providers (AWS/GCP/Azure/Cloudflare), IAM, VPC/DNS, EC2/ECS/Lambda/K8s, storage/DB/messaging/cache, Terraform/Pulumi/CFN/Ansible, Helm/GitOps/mesh/K8s-security/IDP, reliability/cost/observability/chaos/DR/incident |
 | `ai-ml-architect/` | 31 | model boundary, OpenAI/Anthropic/Gemini/open-weights, prompting & schemas, chunking/embeddings/vector stores/hybrid search, evals & judges & red-teaming, fine-tuning & classic ML & recommenders & vision, GPU/quantisation/speech, MLOps & feature stores & monitoring, agents |
 | `data-engineering-architect/` | 29 | ingestion (batch/CDC/API/files), Kafka/Flink/schemas, Snowflake/BigQuery/Databricks/Iceberg/Spark/DuckDB, dbt/semantic layer/SQL modelling, Airflow/Dagster, quality/lineage/governance/observability, reverse ETL/data APIs |
 
-See `website-architect/VERIFICATION.md` for the current conformance audit.
+See `website-architect/VERIFICATION.md` for the conformance audit and
+`PROVENANCE.md` for where the content comes from.

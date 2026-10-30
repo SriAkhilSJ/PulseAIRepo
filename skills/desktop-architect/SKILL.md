@@ -20,12 +20,12 @@ why the boundaries matter more than on the web.
 
 ## Leaf map
 
-Five shelves, 17 books.
+Five shelves, 19 books.
 
 | Shelf | Books |
 |---|---|
-| `runtimes-architect/` | `electron` · `tauri` · `native-desktop` · `winui` · `appkit` · `gtk` |
-| `platform-architect/` | `desktop-ipc` · `desktop-tray-and-menus` · `desktop-hardware` · `desktop-accessibility` · `desktop-localization` |
+| `runtimes-architect/` | `electron` · `tauri` · `native-desktop` · `native-feel` · `winui` · `appkit` · `gtk` |
+| `platform-architect/` | `desktop-ipc` · `desktop-tray-and-menus` · `desktop-hardware` · `desktop-accessibility` · `desktop-automation` · `desktop-localization` |
 | `data-architect/` | `desktop-offline-storage` · `desktop-security` |
 | `quality-architect/` | `desktop-testing` · `desktop-telemetry` |
 | `delivery-architect/` | `desktop-distribution` · `desktop-update` |
