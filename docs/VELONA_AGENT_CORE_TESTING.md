@@ -32,6 +32,33 @@ a later paid run.
 > sure `.env` is absent or contains the same non-secret route values and a correctly
 > trimmed key. Never commit `.env`.
 
+## 0. Is the key real? One command, no tokens spent on a turn
+
+`scripts/check_velona_keys.py` answers that before anything else:
+
+```bash
+export CUSTOM_API_KEY='...'          # or CUSTOM_API_KEYS='a,b'
+python scripts/check_velona_keys.py           # add --offline for shape only, --json for machines
+```
+
+It reports the key's fingerprint (length + last four — never the key), whether it
+authenticates against the gateway catalog, and one 1-token chat call per pinned
+model. Exit 0 green, 1 failed, 2 nothing to check.
+
+On CI the same check runs as `Verify provider key` against the `CUSTOM_API_KEY`
+repository secret and posts its verdict to issue #28, because the secret can only
+be exercised on a runner. Measured 2026-10-30 (commit `6e114be6`):
+
+| Model | Route | Result | 1-token latency |
+|---|---|---|---|
+| `z-ai/glm-5.3-flash` | main | HTTP 200 | 13.8 s |
+| `deepseek/deepseek-v4.1-flash` | main | HTTP 200 | 1.0 s |
+| `qwen/qwen3.7-flash` | aux | HTTP 200 | 1.3 s |
+
+GLM's first token is an order of magnitude slower at `max_tokens=1`: it spends the
+budget on reasoning before emitting. Budget for that on the main route; do not read
+it as a network problem.
+
 ## 1. Install the supported runtime
 
 From the repository root:
