@@ -10,15 +10,17 @@ injected into the model.
 
 ## Branches
 
-| Branch | Status | Covers |
+| Branch | Skills | Covers |
 |---|---|---|
-| `frontend-development-architect/` | **complete (38)** | markup, languages, styling, build, motion, pwa, a11y, perf, seo, i18n, forms, tests, frameworks, runtime, 3d |
-| `backend-development-architect/` | started (5) | service layout, runtime, frameworks (python: flask/fastapi/django; node: express/nestjs/fastify) |
-| `database-engineering-architect/` | started (6) | engines (postgres, mongodb, redis), ORMs (prisma, drizzle), schema/migrations/transactions |
-| `api-development-architect/` | started (7) | contracts, versioning, REST/GraphQL/tRPC/gRPC, auth, quotas |
-| `ui-ux-implementation-architect/` | planned | interaction patterns, design handoff, design-system ops |
-| `security-architect/` | started (6) | threat models, OWASP classes, authz models, secrets, supply chain, browser boundaries |
-| `testing-and-deployment-architect/` | started (7) | test strategy, CI gates, containers, observability, rollout, incidents |
+| `frontend-development-architect/` | 33 | markup, languages, styling, build, motion, pwa, a11y, perf, seo, i18n, forms, tests, frameworks, runtime, 3d |
+| `backend-development-architect/` | 5 | service layout, runtimes, python (flask/fastapi/django), node (express/nestjs/fastify) |
+| `database-engineering-architect/` | 6 | postgres, mongodb, redis, prisma, drizzle, schema/migrations/transactions |
+| `api-development-architect/` | 7 | contracts, REST, GraphQL, tRPC, gRPC, auth, rate limiting |
+| `ui-ux-implementation-architect/` | 5 | handoff contract, interaction patterns, design-system ops, microcopy |
+| `security-architect/` | 6 | threat models, OWASP classes, authz models, secrets, supply chain, browser |
+| `testing-and-deployment-architect/` | 7 | test strategy, CI gates, containers, observability, rollout, incidents |
+
+`69` architect skills in total; every branch directory carries its own `SKILL.md`.
 
 ## What "architect-level" means here
 

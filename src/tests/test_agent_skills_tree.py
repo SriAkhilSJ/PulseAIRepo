@@ -179,6 +179,11 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "observability-architect",
         "release-strategy-architect",
         "incident-response-architect",
+        "ui-ux-implementation-architect",
+        "design-handoff-architect",
+        "interaction-patterns-architect",
+        "design-system-ops-architect",
+        "content-microcopy-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -357,3 +362,39 @@ def test_delivery_branch_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in DELIVERY_CAPABILITIES.items() if s not in available}
     assert not missing, f"delivery capabilities without a skill: {missing}"
+
+
+UI_CAPABILITIES = {
+    "design to code contract": "design-handoff-architect",
+    "behaviour and state patterns": "interaction-patterns-architect",
+    "component system operation": "design-system-ops-architect",
+    "interface words": "content-microcopy-architect",
+    "implementation direction": "ui-ux-implementation-architect",
+}
+
+
+def test_ui_branch_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in UI_CAPABILITIES.items() if s not in available}
+    assert not missing, f"UI capabilities without a skill: {missing}"
+
+
+def test_website_architect_tree_is_complete():
+    """Every planned branch carries a SKILL.md of its own."""
+    from pathlib import Path
+
+    root = Path("skills/website-architect")
+    planned = [
+        "frontend-development-architect",
+        "backend-development-architect",
+        "database-engineering-architect",
+        "api-development-architect",
+        "ui-ux-implementation-architect",
+        "security-architect",
+        "testing-and-deployment-architect",
+    ]
+    missing = [b for b in planned if not (root / b / "SKILL.md").is_file()]
+    assert not missing, f"branches without a branch-level skill: {missing}"
