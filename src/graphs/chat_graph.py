@@ -576,6 +576,7 @@ from src.tools.terminal_tools import (
 from src.tools.web_tools import web_search, web_fetch, web_extract
 from src.tools.media_tools import media_search, media_download, generate_image
 from src.tools.skill_tools import skills_list, skill_view, skill_manage
+from src.tools.mcp_tool import mcp_servers, mcp_tools, mcp_call
 from src.tools.skill_hub_tools import hub_search, hub_install, hub_update, hub_list, hub_remove
 # #8 (external review): fault-tolerant browser-tool import. The optional
 # stack must never break engine boot — if it is missing the browser tools
@@ -1367,6 +1368,12 @@ tools = [
     skills_list,
     skill_view,
     skill_manage,
+
+    # MCP meta-tools — third-party servers as a flat-cost waist. The catalog
+    # is pulled, never bound: a 90-tool server must not cost 90 schemas a turn.
+    mcp_servers,
+    mcp_tools,
+    mcp_call,
 
     # Skills Hub — the INSTALL side: search the curated catalog, install
     # community SKILL.md skills (SHA-pinned, capped, traversal-proof), list

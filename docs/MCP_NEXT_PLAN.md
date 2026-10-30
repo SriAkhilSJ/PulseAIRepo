@@ -54,16 +54,23 @@ So the waist is three fixed tools, constant cost:
 | Tool | Job | Cost |
 |---|---|---|
 | `mcp_servers` | which servers exist, alive/dead, tool counts, read-only share | ~60 tok |
-| `mcp_tools(server?, query?)` | the catalog, filtered — schemas only for the tools asked about | ~120 tok |
-| `mcp_call(server, tool, args)` | run it, guarded, receipted | ~100 tok |
+| `mcp_tools(server?, query?)` | the catalog, filtered — schemas only for the tools asked about | ~180 tok |
+| `mcp_call(server, tool, args)` | run it, approval-gated, receipted | ~140 tok |
 
-Total ~300 tok, flat, whether the workspace has one server or ten. The model pays
+Measured: the three schemas are **2 144 bytes ≈ 564 tokens**, flat, whether the
+workspace has one server or ten. For comparison, our own 4-tool server costs 354
+bytes/tool (93 tok) of schema; bound directly, a 90-tool server (GitHub's size)
+would be **~8 400 tokens on every turn** — before a browser server joins. The model pays
 one round trip to see a schema instead of every turn paying for all of them —
 the same trade as `skills_search` (1 call) versus injecting the whole library.
 
 ## Plan
 
-**P0 — wire the waist (not done; this is the blocking gap).**
+**P0 — wire the waist. DONE.** `src/tools/mcp_tool.py` (`mcp_servers`,
+`mcp_tools`, `mcp_call`), registered in `chat_graph.tools` and carried on the
+always-on waist (`toolsets._MCP_TOOLS`); 11 end-to-end tests in
+`src/tests/test_mcp_meta_tools.py`, including the counter proof that an
+unconfirmed mutating call **does not execute**. Original acceptance criteria:
 Register `mcp_servers`, `mcp_tools`, `mcp_call` in `src/tools/toolsets.py`
 (`_MCP_TOOLS`, always on, like `_SKILL_TOOLS`), implement them in
 `src/tools/mcp_tool.py` over the pooled client, and route `mcp_call` through the

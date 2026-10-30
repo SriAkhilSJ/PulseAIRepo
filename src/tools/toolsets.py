@@ -72,6 +72,9 @@ _SKILL_TOOLS: tuple[str, ...] = (
     "skills_list", "skill_view", "skill_manage",
     "hub_search", "hub_install", "hub_update", "hub_list", "hub_remove",
 )
+# MCP meta-tools ride the always-on waist, exactly like the skill pull tools:
+# three schemas total, whatever the workspace's server count.
+_MCP_TOOLS: tuple[str, ...] = ("mcp_servers", "mcp_tools", "mcp_call")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
 )
@@ -97,6 +100,7 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
     """Map one immutable profile to ordered, de-duplicated real tool names."""
     names: list[str] = list(_CORE_TOOLS)
     names.extend(_SKILL_TOOLS)
+    names.extend(_MCP_TOOLS)
     caps = set(profile.capabilities)
 
     if CAP_WORKSPACE_READ in caps:
@@ -144,6 +148,7 @@ def all_known_tool_names() -> list[str]:
     names = [
         *_CORE_TOOLS,
         *_SKILL_TOOLS,
+        *_MCP_TOOLS,
         *_WORKSPACE_READ_TOOLS,
         *_WORKSPACE_WRITE_TOOLS,
         *_EXECUTION_TOOLS,
