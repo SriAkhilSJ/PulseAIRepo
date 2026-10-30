@@ -17,7 +17,7 @@ injected into the model.
 | `database-engineering-architect/` | started (6) | engines (postgres, mongodb, redis), ORMs (prisma, drizzle), schema/migrations/transactions |
 | `api-development-architect/` | started (7) | contracts, versioning, REST/GraphQL/tRPC/gRPC, auth, quotas |
 | `ui-ux-implementation-architect/` | planned | interaction patterns, design handoff, design-system ops |
-| `security-architect/` | planned | authn/authz, input boundaries, secrets, supply chain |
+| `security-architect/` | started (6) | threat models, OWASP classes, authz models, secrets, supply chain, browser boundaries |
 | `testing-and-deployment-architect/` | planned | test strategy, CI, release topology, observability |
 
 ## What "architect-level" means here

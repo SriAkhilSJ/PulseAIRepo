@@ -9,7 +9,7 @@ metadata:
   crusor-origin: original
   crusor-sources: "react.dev/learn/managing-state; tanstack.com/query; zustand docs; redux-toolkit docs; vercel-labs/agent-skills@063bee94 (react-best-practices)"
   crusor-verified-on: "2026-10-30"
-  crusor-triggers: "state-management, zustand, redux, tanstack-query, swr, jotai, context, store, url-state"
+  crusor-triggers: "state management, zustand, jotai, context vs store, url state, client state, app state, state ownership, server state ownership"
 ---
 
 # React State Management (decision skill)

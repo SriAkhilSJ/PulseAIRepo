@@ -166,6 +166,12 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "grpc-architect",
         "api-auth-architect",
         "rate-limiting-architect",
+        "security-architect",
+        "owasp-top10-architect",
+        "authz-models-architect",
+        "secrets-management-architect",
+        "supply-chain-architect",
+        "browser-security-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -305,3 +311,22 @@ def test_api_branch_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in API_CAPABILITIES.items() if s not in available}
     assert not missing, f"API capabilities without a skill: {missing}"
+
+
+SECURITY_CAPABILITIES = {
+    "threat modelling and boundaries": "security-architect",
+    "vulnerability classes": "owasp-top10-architect",
+    "permission modelling and enforcement": "authz-models-architect",
+    "credential custody and rotation": "secrets-management-architect",
+    "dependency and pipeline integrity": "supply-chain-architect",
+    "browser boundaries and headers": "browser-security-architect",
+}
+
+
+def test_security_branch_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in SECURITY_CAPABILITIES.items() if s not in available}
+    assert not missing, f"security capabilities without a skill: {missing}"
