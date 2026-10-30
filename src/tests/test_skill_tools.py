@@ -105,7 +105,12 @@ def test_skill_view_is_case_insensitive_and_never_raises(sm):
     assert "# skill: media-sourcing" in skill_view.invoke({"name": "Media-Sourcing"})
     out = skill_view.invoke({"name": "does-not-exist"})
     assert out.startswith("skill_view error:")
-    assert "media-sourcing" in out  # available list so the model can recover
+    # With dozens of skills the error cannot dump the catalogue; it points at
+    # browsing instead (and offers close matches when any exist).
+    assert "skills_list()" in out
+    out = skill_view.invoke({"name": "postgres"})
+    assert out.startswith("skill_view error:")
+    assert "postgres-architect" in out  # close match, so the model can recover
 
 
 # ---------------------------------------------------------------------------

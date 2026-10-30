@@ -23,7 +23,12 @@ the framework. Choose the leaf, then hold the contracts below.
 |---|---|
 | Python service | `python-architect` → `flask-` / `fastapi-` / `django-architect` |
 | Node service | `nodejs-architect` → `express-` / `nestjs-` / `fastify-architect` |
-| Go / Java / Rust / .NET | language skill → its framework leaf |
+| Go service | `go-architect` |
+| Java/JVM service | `java-architect` |
+| Rust service | `rust-architect` |
+| .NET service | `dotnet-architect` |
+| Ruby service | `ruby-architect` |
+| PHP service | `php-architect` |
 
 Rules of the tree: one skill per framework, chosen by task; the language skill
 holds what is portable, the framework skill holds what actually differs.

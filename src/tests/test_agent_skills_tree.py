@@ -184,6 +184,12 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "interaction-patterns-architect",
         "design-system-ops-architect",
         "content-microcopy-architect",
+        "go-architect",
+        "java-architect",
+        "rust-architect",
+        "dotnet-architect",
+        "ruby-architect",
+        "php-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -398,3 +404,26 @@ def test_website_architect_tree_is_complete():
     ]
     missing = [b for b in planned if not (root / b / "SKILL.md").is_file()]
     assert not missing, f"branches without a branch-level skill: {missing}"
+
+
+BACKEND_CAPABILITIES = {
+    "python services": "python-architect",
+    "node services": "nodejs-architect",
+    "go services": "go-architect",
+    "jvm services": "java-architect",
+    "rust services": "rust-architect",
+    "dotnet services": "dotnet-architect",
+    "ruby services": "ruby-architect",
+    "php services": "php-architect",
+    "framework leaves (python)": "flask-architect",
+    "framework leaves (node)": "nestjs-architect",
+}
+
+
+def test_backend_branch_covers_every_language():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in BACKEND_CAPABILITIES.items() if s not in available}
+    assert not missing, f"backend capabilities without a skill: {missing}"

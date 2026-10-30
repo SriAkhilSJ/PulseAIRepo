@@ -11,17 +11,18 @@ backend-development-architect/
     └── django-architect/        # apps, ORM/migrations, DRF, admin
 ```
 
-## Planned
+## Branches present
 
-| Language | Framework leaves |
-|---|---|
-| `nodejs-architect` (see react branch) | `express-architect`, `nestjs-architect`, `fastify-architect` |
-| `java-architect` | `spring-boot-architect`, `quarkus-architect` |
-| `go-architect` | `gin-architect`, `fiber-architect`, `net-http-architect` |
-| `rust-architect` | `axum-architect`, `actix-architect` |
-| `dotnet-architect` | `aspnet-core-architect` |
-| `ruby-architect` | `rails-architect`, `sinatra-architect` |
-| `php-architect` | `laravel-architect`, `symfony-architect` |
+| Language | Skill | Framework leaves |
+|---|---|---|
+| Python | `python-architect` | flask, fastapi, django |
+| Node | `nodejs-architect` (in the react branch) | express, nestjs, fastify |
+| Go | `go-architect` | leaf map inside |
+| Java | `java-architect` | leaf map inside |
+| Rust | `rust-architect` | leaf map inside |
+| .NET | `dotnet-architect` | leaf map inside |
+| Ruby | `ruby-architect` | leaf map inside |
+| PHP | `php-architect` | leaf map inside |
 
 Each leaf answers: when to choose this over its siblings, canonical structure,
 boundaries, failure modes, verification receipts.

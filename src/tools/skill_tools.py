@@ -189,16 +189,21 @@ def skill_view(name: str) -> str:
         rendered.append(text)
 
     if not rendered:
+        # A library of dozens cannot list itself in an error message; point the
+        # model at browsing and show only close matches.
         names = sorted(
             str(s.get("name", ""))
             for s in _manager().list_skills()
             if s.get("enabled", True) and s.get("state") != "archived"
         )
-        shown = ", ".join(names[:_MAX_LISTED_NAMES])
-        if len(names) > _MAX_LISTED_NAMES:
-            shown += ", ..."
+        tokens = [t for t in re.split(r"[-_,.\s]+", " ".join(errors).lower()) if len(t) > 2]
+        close = [n for n in names if any(t in n for t in tokens)][:8]
         missing = ", ".join(errors)
-        return f"skill_view error: no skill named {missing}. Available: {shown}"
+        hint = f" Close matches: {', '.join(close)}." if close else ""
+        return (
+            f"skill_view error: no skill named {missing}.{hint} "
+            'Browse the library with skills_list() or skills_list(shelf="…").'
+        )
 
     out = "\n\n---\n\n".join(rendered)
     if len(out) > _MAX_VIEW_CHARS:
