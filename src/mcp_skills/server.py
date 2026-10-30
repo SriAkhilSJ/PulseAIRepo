@@ -16,12 +16,15 @@ Design rules carried over from the internal tools:
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
 import traceback
 import uuid
 from typing import Any
 
 from src.mcp_skills.index import SCHEME, SkillIndex, get_index
+from src.mcp_skills.telemetry import METRICS, log
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "crusor-skills", "version": "1.0.0"}
@@ -37,6 +40,7 @@ ERROR_CODES = {
     "PHASE_DENIED": "architect skills are planning instruments",
     "BUDGET_EXCEEDED": "response budget reached",
     "SKILL_INVALID": "book could not be read",
+    "UNKNOWN_TOOL": "no such tool",
     "LIBRARY_UNAVAILABLE": "skills library not readable",
     "INTERNAL": "server error",
 }
@@ -66,9 +70,14 @@ def tool_error(err: ToolError) -> dict[str, Any]:
 
 
 class SkillMCPServer:
-    def __init__(self, index: SkillIndex | None = None):
-        self._index_override = index
+    def __init__(self, index: SkillIndex | None = None, refresh_seconds: float | None = None):
         self._index: SkillIndex | None = index
+        self._pinned = index is not None  # a test-supplied index never auto-refreshes
+        self._last_check = 0.0
+        self.refresh_seconds = float(
+            refresh_seconds if refresh_seconds is not None
+            else os.environ.get("SKILLS_MCP_REFRESH_SECONDS", "5")
+        )
 
     # -- index --------------------------------------------------------------
 
@@ -77,10 +86,31 @@ class SkillMCPServer:
         if self._index is not None:
             return self._index
         try:
-            self._index = self._index_override or get_index()
-        except Exception as exc:  # pragma: no cover - defensive
-            raise ToolError("LIBRARY_UNAVAILABLE", f"could not build skill index: {exc}") from exc
+            self._index = get_index()
+        except Exception as exc:
+            raise ToolError("LIBRARY_UNAVAILABLE", f"could not build the skill index: {exc}",
+                            hint="check that skills/ exists and is readable") from exc
         return self._index
+
+    def maybe_refresh(self) -> None:
+        """Reload when a book changed on disk — a stat sweep, throttled."""
+        if self._pinned or self.refresh_seconds <= 0:
+            return
+        now = time.time()
+        if now - self._last_check < self.refresh_seconds:
+            return
+        self._last_check = now
+        try:
+            current = self._index or get_index()
+            if not current.is_stale():
+                return
+            fresh = SkillIndex.build()
+        except Exception as exc:
+            log("warn", "index_refresh_failed", error=str(exc))
+            return
+        self._index = fresh
+        METRICS.index_refreshes += 1
+        log("info", "index_refreshed", books=len(fresh.books))
 
     # -- tools --------------------------------------------------------------
 
@@ -133,6 +163,7 @@ class SkillMCPServer:
         ]
 
     def call_tool(self, name: str, args: dict[str, Any], meta: dict[str, Any] | None = None) -> dict:
+        self.maybe_refresh()
         try:
             if name == "skills_list":
                 return tool_text(self._skills_list(str(args.get("shelf") or "")))
@@ -143,8 +174,11 @@ class SkillMCPServer:
             if name == "skill_bundle":
                 phase = str(args.get("phase") or (meta or {}).get("phase") or "planning")
                 return tool_text(self._bundle(str(args.get("task") or ""), phase))
-            raise ToolError("INTERNAL", f"unknown tool {name!r}", tools=[t["name"] for t in self.tool_defs()])
+            raise ToolError("UNKNOWN_TOOL", f"no tool named {name!r}",
+                            tools=[t["name"] for t in self.tool_defs()],
+                            hint="call tools/list")
         except ToolError as err:
+            METRICS.record_error(err.code)
             return tool_error(err)
 
     def _skills_list(self, shelf: str) -> str:
@@ -232,6 +266,9 @@ class SkillMCPServer:
             {"uri": SCHEME + "catalog", "name": "Skill catalog",
              "description": "Domains, book counts and one-line descriptions.",
              "mimeType": "application/json"},
+            {"uri": SCHEME + "health", "name": "Server health",
+             "description": "Uptime, request counts, error counts by code, index state.",
+             "mimeType": "application/json"},
             *[
                 {"uri": SCHEME + d, "name": d,
                  "description": f"Domain {d}", "mimeType": "text/markdown"}
@@ -256,9 +293,17 @@ class SkillMCPServer:
         ]
 
     def read_resource(self, uri: str) -> dict[str, Any]:
+        self.maybe_refresh()
         if not uri.startswith(SCHEME):
             raise ToolError("BAD_URI", f"expected a {SCHEME}… uri, got {uri!r}")
         path = uri[len(SCHEME):].strip("/")
+        if path == "health":
+            health = {"server": SERVER_INFO, "protocolVersion": PROTOCOL_VERSION,
+                      "index": {"books": len(self.index.books), "skipped": len(self.index.skipped),
+                                "builds": max(1, self.index.builds)},
+                      "metrics": METRICS.snapshot()}
+            return {"contents": [{"uri": uri, "mimeType": "application/json",
+                                  "text": json.dumps(health, indent=1)}]}
         if path == "catalog":
             catalog = {
                 "total": len(self.index.books),
@@ -332,6 +377,8 @@ class SkillMCPServer:
         def fail(code: int, msg: str) -> dict[str, Any]:
             return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": code, "message": msg}}
 
+        start = time.time()
+        while_serving = True
         try:
             if method == "initialize":
                 return ok({
@@ -344,15 +391,18 @@ class SkillMCPServer:
             if method == "tools/list":
                 return ok({"tools": self.tool_defs()})
             if method == "tools/call":
-                return ok(self.call_tool(str(params.get("name") or ""),
-                                         params.get("arguments") or {},
+                tool_name = str(params.get("name") or "")
+                METRICS.tools[tool_name] += 1
+                return ok(self.call_tool(tool_name, params.get("arguments") or {},
                                          params.get("_meta") or {}))
             if method == "resources/list":
                 return ok({"resources": self.resource_defs()})
             if method == "resources/templates/list":
                 return ok({"resourceTemplates": self.resource_templates()})
             if method == "resources/read":
-                return ok(self.read_resource(str(params.get("uri") or "")))
+                uri = str(params.get("uri") or "")
+                METRICS.resources[uri.split("/")[2] if uri.count("/") > 2 else uri] += 1
+                return ok(self.read_resource(uri))
             if method == "prompts/list":
                 return ok({"prompts": self.prompt_defs()})
             if method == "prompts/get":
@@ -361,12 +411,20 @@ class SkillMCPServer:
                 return ok({})
             return fail(-32601, f"method not found: {method}")
         except ToolError as err:
+            METRICS.record_error(err.code)
             return fail(-32000, json.dumps(err.payload()))
         except Exception:  # pragma: no cover - last resort
             cid = uuid.uuid4().hex[:8]
             print(traceback.format_exc(), file=sys.stderr)
+            METRICS.record_error("INTERNAL")
+            log("error", "internal_error", correlation_id=cid, method=method)
             return fail(-32603, json.dumps({"code": "INTERNAL", "message": "unexpected error",
                                             "correlation_id": cid}))
+        finally:
+            METRICS.requests += 1
+            elapsed = (time.time() - start) * 1000
+            if elapsed > 500:
+                log("warn", "slow_request", method=method, ms=round(elapsed, 1))
 
     def serve(self) -> None:
         for line in sys.stdin:
@@ -376,6 +434,7 @@ class SkillMCPServer:
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
+                METRICS.record_error("PARSE_ERROR")
                 print(json.dumps({"jsonrpc": "2.0", "id": None,
                                   "error": {"code": -32700, "message": "parse error"}}), flush=True)
                 continue

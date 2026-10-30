@@ -63,9 +63,20 @@ class SkillIndex:
     def build(cls) -> "SkillIndex":
         from src.agents.skill_manager import SkillManager
 
+        try:
+            skills = SkillManager().list_skills()
+        except Exception as exc:  # library unreadable: report, do not crash
+            raise RuntimeError(f"skill manager unavailable: {exc}") from exc
+        index = cls.build_from(skills)
+        index.builds = 1
+        index.snapshot = index.fingerprint()
+        return index
+
+    @classmethod
+    def build_from(cls, skills: Any) -> "SkillIndex":
+        """Build from raw skill dicts — also how tests inject broken books."""
         index = cls()
-        manager = SkillManager()
-        for skill in manager.list_skills():
+        for skill in skills:
             name = str(skill.get("name") or "")
             path = str(skill.get("path") or "")
             if not name or not path:
@@ -87,6 +98,27 @@ class SkillIndex:
             index.books[name] = book
             index.by_path[path] = book
         return index
+
+    # -- freshness ----------------------------------------------------------
+
+    def fingerprint(self) -> dict[str, float]:
+        """mtime of every SKILL.md, so an edit on disk is noticed without a watcher."""
+        root = self.roots()
+        stamp: dict[str, float] = {}
+        try:
+            for path in root.rglob("SKILL.md"):
+                try:
+                    stamp[str(path)] = path.stat().st_mtime
+                except OSError:
+                    continue
+        except OSError:
+            return {}
+        return stamp
+
+    def is_stale(self) -> bool:
+        if not self.snapshot:
+            return False
+        return self.fingerprint() != self.snapshot
 
     # -- tree ---------------------------------------------------------------
 

@@ -18,7 +18,7 @@ call), `skills_search`, `skill_bundle` (planning only — refused while executin
 startup (~68 ms), so a fetch is a dict lookup. Add it beside the other servers:
 
 ```json
-{"servers": {"skills": {"command": ["python", "scripts/skills_mcp_server.py"], "enabled": true}}}
+{"servers": {"skills": {"command": "python3", "args": ["scripts/skills_mcp_server.py"], "enabled": true}}}
 ```
 
 Example `.crusorai/mcp.json`:

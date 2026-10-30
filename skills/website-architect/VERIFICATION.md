@@ -88,11 +88,12 @@ prompt is assembled.
 
 ## Verification runs
 
-- 10 focused skill suites (including the conformance gate) → **229 passed, 1 skipped**
+- 12 focused skill suites (including the conformance gate and the MCP server) → **261 passed, 1 skipped**
   (`test_agent_skills_tree`, `test_skill_library`, `test_skill_tools`,
   `test_skill_bundled`, `test_skill_lifecycle`, `test_skills_hub`,
   `test_skills_invalidation`, `test_hermes_prompt_parity`,
-  `test_hermes_tool_name_parity`, `test_skill_library_conformance`).
+  `test_hermes_tool_name_parity`, `test_skill_library_conformance`,
+  `test_skills_mcp_server`, `test_mcp_client`).
 - `pytest src/tests/test_agent_skills_tree.py` → 21 passed.
 - Full `pytest src/tests -q` baseline at this branch: 2975 passed / 20 pre-existing
   unrelated failures.

@@ -173,3 +173,102 @@ def test_stdio_session_with_the_real_client():
         assert "git-workflow-architect" in out
     finally:
         client.close()
+
+
+# -- fault injection --------------------------------------------------------
+
+def test_unreadable_book_is_skipped_and_the_rest_still_serve():
+    index = SkillIndex.build_from([
+        {"name": "good-architect", "path": "demo/good-architect", "instruction": "# Good",
+         "description": "d", "triggers": ["good"]},
+        {"name": "broken-architect", "path": "demo/broken-architect", "instruction": "",
+         "description": "d", "triggers": ["broken"]},
+        {"path": "demo/no-name", "instruction": "# x"},
+    ])
+    server = SkillMCPServer(index=index)
+    catalog = json.loads(call(server, "resources/read", {"uri": "skill://catalog"})
+                         ["result"]["contents"][0]["text"])
+    assert catalog["total"] == 1
+    assert len(catalog["skipped"]) == 2
+    text, is_error = tool(server, "skill_view", {"names": "good-architect"})
+    assert not is_error and "**good-architect**" in text
+
+
+def test_missing_library_reports_library_unavailable(monkeypatch):
+    import src.mcp_skills.server as server_mod
+
+    def boom(refresh: bool = False):
+        raise RuntimeError("skills/ is gone")
+
+    monkeypatch.setattr(server_mod, "get_index", boom)
+    server = SkillMCPServer()
+    response = call(server, "tools/call", {"name": "skills_list", "arguments": {}})
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["code"] == "LIBRARY_UNAVAILABLE"
+    assert "skills/" in payload["message"]
+
+
+def test_unknown_tool_is_a_code_not_a_crash(server):
+    payload, is_error = tool(server, "no_such_tool")
+    assert is_error and payload["code"] == "UNKNOWN_TOOL"
+    assert "skills_list" in payload["tools"]
+
+
+def test_health_resource_reports_metrics(server):
+    tool(server, "skills_list")
+    tool(server, "skill_view", {"names": "no-such-book"})  # provokes an error count
+    health = json.loads(call(server, "resources/read", {"uri": "skill://health"})
+                        ["result"]["contents"][0]["text"])
+    assert health["server"]["name"] == "crusor-skills"
+    assert health["metrics"]["requests"] >= 2
+    assert health["metrics"]["errors"].get("UNKNOWN_BOOK", 0) >= 1
+
+
+# -- freshness --------------------------------------------------------------
+
+def test_editing_a_book_on_disk_makes_the_index_stale():
+    index = SkillIndex.build()
+    assert not index.is_stale()
+    target = next(iter(index.snapshot))
+    original = pathlib.Path(target).stat().st_mtime
+    try:
+        future = original + 120
+        import os
+
+        os.utime(target, (future, future))
+        assert index.is_stale()
+    finally:
+        import os
+
+        os.utime(target, (original, original))
+    assert not index.is_stale()
+
+
+def test_server_refreshes_without_a_restart():
+    server = SkillMCPServer(refresh_seconds=0)
+    before = len(server.index.books)
+    server.maybe_refresh()
+    assert len(server.index.books) == before
+
+
+# -- client wiring (P4) -----------------------------------------------------
+
+def test_server_is_discoverable_through_the_repository_client(tmp_path):
+    """The real discovery path: .crusorai/mcp.json -> load -> list_tools -> call."""
+    from src.tools.mcp_client import call_mcp_tool, discover_mcp_tools
+
+    script = REPO_ROOT / "scripts" / "skills_mcp_server.py"
+    config_dir = tmp_path / ".crusorai"
+    config_dir.mkdir()
+    (config_dir / "mcp.json").write_text(json.dumps({
+        # canonical config shape: command is one string, args carry the rest
+        "servers": {"skills": {"command": sys.executable, "args": [str(script)], "enabled": True}}
+    }), encoding="utf-8")
+
+    tools = discover_mcp_tools(str(tmp_path))
+    names = {t["name"] for t in tools}
+    assert {"mcp_skills_skills_list", "mcp_skills_skill_view"} <= names
+    assert all(t["guarded"] for t in tools)
+
+    out = call_mcp_tool(str(tmp_path), "skills", "skills_list", {})
+    assert "website-architect/" in out

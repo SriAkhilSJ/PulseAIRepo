@@ -1,8 +1,8 @@
 # MCP for the Architect library — plan
 
-Status: **P0–P2 built and tested** (`src/mcp_skills/`, `scripts/skills_mcp_server.py`,
-`src/tests/test_skills_mcp_server.py`, 16 tests green). P3 (fault injection beyond the
-taxonomy already implemented) and P4 (client wiring) remain.
+Status: **P0–P4 built and tested** (`src/mcp_skills/`, `scripts/skills_mcp_server.py`,
+`src/tests/test_skills_mcp_server.py`, 23 tests green), including wiring through the
+repository's own `.crusorai/mcp.json` → `discover_mcp_tools` → `call_mcp_tool` path.
 
 Answer to "fastest, easiest, highest quality": **one index built once from the
 `SkillManager` the internal tools already use, served over stdio, tools first and
@@ -190,8 +190,8 @@ report quotes the command that produced the number.
 | **P0 — skeleton** | `scripts/skills_mcp_server.py` (stdio, `2024-11-05`), `initialize`/`tools/list`, `skills_list` + `skill_view` backed by `SkillManager` | contract test over stdio: init → list → view 2 books; byte-identical body to internal `skill_view` | **done** — real client session test; body parity asserted |
 | **P1 — resources** | catalog + templates + per-book resources, `mimeType`, annotations | every one of the 220 books resolvable as a resource; resource set == disk set | **done** — resource set == index set, asserted |
 | **P2 — search & bundle** | `skills_search`, `skill_bundle`, phase gating | self-retrieval parity: each book found via its triggers through MCP; `PHASE_DENIED` proven | **done** — ranking asserted, gating proven |
-| **P3 — errors & budgets** | full taxonomy, truncation contract, logging, metrics | fault-injection tests: bad URI, unknown book, unparseable book, missing dir, over-budget | taxonomy + budgets implemented and tested; **logging/metrics and unparseable-book injection outstanding** |
-| **P4 — client wiring** | register the server in `.crusorai/mcp.json`, document in `skills/mcp/SKILL.md` | end-to-end from a real client session, not a unit test | documented; **registration left to the operator** |
+| **P3 — errors & budgets** | full taxonomy, truncation contract, logging, metrics | fault-injection tests: bad URI, unknown book, unparseable book, missing dir, over-budget | **done** — `skill://health` exposes counters; unreadable books are skipped and reported; `LIBRARY_UNAVAILABLE` proven by fault injection |
+| **P4 — client wiring** | register the server in `.crusorai/mcp.json`, document in `skills/mcp/SKILL.md` | end-to-end from a real client session, not a unit test | **done** — `docs/skills-mcp.example.json`, live `.crusorai/mcp.json`, and a test that discovers the tools through `mcp_client` |
 
 P0–P2 are the useful half; P3 is what makes it trustworthy; P4 is one config entry.
 
@@ -225,3 +225,16 @@ P0–P2 are the useful half; P3 is what makes it trustworthy; P4 is one config e
 
 What was built follows the defaults: full resource templates, stdio only, code in
 `src/mcp_skills/` with a `scripts/` entry point.
+
+
+## Operational notes
+
+- **Logs never touch stdout** — stdout is the protocol. Structured JSON lines go to
+  stderr, level from `SKILLS_MCP_LOG` (`debug|info|warn|error`).
+- **`skill://health`** returns uptime, per-tool and per-resource counts, error counts
+  by code, index builds and refreshes.
+- **Freshness** — the index reloads when a `SKILL.md` mtime changes, throttled to once
+  every `SKILLS_MCP_REFRESH_SECONDS` (default 5 s), so editing a book does not require
+  a restart.
+- **Config shape** — `command` is a single string and `args` is the list. A list in
+  `command` never launches, which is what the wiring test asserts against.

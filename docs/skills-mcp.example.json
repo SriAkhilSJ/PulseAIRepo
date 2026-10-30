@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "skills": {
+      "command": "python3",
+      "args": ["scripts/skills_mcp_server.py"],
+      "enabled": true
+    }
+  }
+}
