@@ -21,7 +21,9 @@ frontend-development-architect/
     ├── react-router-architect/SKILL.md   # routing, loaders, guards (non-Next)
     ├── react-state-management-architect/SKILL.md
     ├── react-ui-libraries-architect/SKILL.md
-    └── react-testing-architect/SKILL.md
+    ├── react-testing-architect/SKILL.md
+    ├── nodejs-architect/SKILL.md
+    └── threejs-architect/SKILL.md
 ```
 
 ## Rules

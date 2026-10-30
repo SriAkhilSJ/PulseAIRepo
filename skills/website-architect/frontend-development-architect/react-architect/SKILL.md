@@ -27,6 +27,8 @@ and names the leaf skill that owns each concern.
 | state ownership and libraries | `react-state-management-architect` |
 | component libraries, headless primitives, theming | `react-ui-libraries-architect` |
 | what to test at which layer | `react-testing-architect` |
+| Node.js services, streams, workers, shutdown | `nodejs-architect` |
+| 3D / WebGL scenes, render-loop budgets | `threejs-architect` |
 
 ## Decision 1 — Framework, before components
 
