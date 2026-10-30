@@ -175,36 +175,56 @@ class SkillIndex:
                 scored.append((overlap, book.name))
         return [n for _, n in sorted(scored, key=lambda x: (-x[0], x[1]))[:limit]]
 
+    # Words that appear in every other task sentence; matching them ranked noise.
+    _STOP = {
+        "the", "and", "for", "with", "our", "app", "apps", "does", "did", "not", "use",
+        "using", "should", "would", "can", "could", "how", "what", "why", "when", "big",
+        "new", "get", "got", "make", "made", "need", "needs", "want", "into", "from",
+        "have", "has", "had", "are", "was", "were", "its", "out", "off", "per", "via",
+    }
+
     def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        words = [w for w in re.split(r"[^a-z0-9]+", query.lower()) if len(w) > 2]
+        """Ranked search. Precise on purpose — the bundle path is the router.
+
+        Three rules keep it honest, each learned from a measured failure:
+        * name matches are word-boundary (`big` must not match `bigquery`);
+        * stop-words are ignored (`app`, `our`, `not` matched half the library);
+        * a shelf crown is damped when one of its own books matched — the crown
+          is an index, and it was winning ties against its children.
+        """
+        words = [w for w in re.split(r"[^a-z0-9]+", query.lower())
+                 if len(w) > 2 and w not in self._STOP]
         if not words:
             return []
-        hits = []
+        hits: list[dict[str, Any]] = []
+        matched_paths: list[str] = []
         for book in self.books.values():
-            triggers = " , ".join(book.triggers).lower()
+            triggers = ", ".join(book.triggers).lower()
             name = book.name.lower()
             desc = book.description.lower()
             matched = []
             score = 0.0
             for word in set(words):
-                if re.search(r"\b%s\b" % re.escape(word), triggers):
+                if re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(word), triggers):
                     score += 3.0
                     matched.append(word)
-                if word in name:
-                    score += 2.0
+                if re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(word), name):
+                    score += 2.5
                     matched.append(word)
-                if re.search(r"\b%s\b" % re.escape(word), desc):
-                    score += 1.0
+                if re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(word), desc):
+                    score += 0.75
                     matched.append(word)
             if score:
-                hits.append(
-                    {
-                        "name": book.name,
-                        "shelf": book.shelf,
-                        "score": round(score, 1),
-                        "why_matched": "matched: " + ", ".join(sorted(set(matched))[:6]),
-                    }
-                )
+                hits.append({"name": book.name, "shelf": book.shelf, "path": book.path,
+                             "score": score, "why_matched": "matched: " + ", ".join(sorted(set(matched))[:6])})
+                matched_paths.append(book.path)
+        for hit in hits:  # crown damping, after every book has been scored
+            if any(other != hit["path"] and other.startswith(hit["path"] + "/")
+                   for other in matched_paths):
+                hit["score"] *= 0.5
+                hit["why_matched"] += " (crown damped: a book beneath it matched)"
+            hit["score"] = round(hit["score"], 1)
+            hit.pop("path", None)
         return sorted(hits, key=lambda h: (-h["score"], h["name"]))[:limit]
 
     def bundle(self, task: str, limit: int = 3) -> list[dict[str, Any]]:
