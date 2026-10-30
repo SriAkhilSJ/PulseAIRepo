@@ -47,6 +47,23 @@ def _manager() -> Any:
     return skill_manager
 
 
+def _skill_file(skill: dict) -> Path | None:
+    """Locate a bundled skill's SKILL.md from its recorded shelf path.
+
+    The library is nested (domain -> branch -> technology -> skill), so
+    ``skills/<name>/SKILL.md`` is only correct for flat legacy skills.
+    """
+    rel = str(skill.get("path") or skill.get("name") or "").strip()
+    if not rel:
+        return None
+    candidate = (_skills_dir() / rel / "SKILL.md").resolve()
+    try:
+        candidate.relative_to(_skills_dir().resolve())
+    except ValueError:
+        return None  # never read outside the library
+    return candidate if candidate.is_file() else None
+
+
 def _find(name: str) -> dict | None:
     raw = (name or "").strip()
     if not raw:
@@ -96,8 +113,8 @@ def skill_view(name: str) -> str:
 
     body = ""
     support_note = ""
-    skill_md = _skills_dir() / skill_name / "SKILL.md"
-    if skill.get("created_by") == "bundled" and skill_md.is_file():
+    skill_md = _skill_file(skill)
+    if skill.get("created_by") == "bundled" and skill_md is not None:
         # Read the file itself: the stored instruction is capped, skill_view
         # must return the whole body.
         from src.agents.skill_manager import _parse_skill_frontmatter
@@ -137,31 +154,72 @@ def skill_view(name: str) -> str:
 
 
 @tool
-def skills_list() -> str:
-    """List installed skills (name, source, triggers, state, use count) — the
-    skills index as a tool. Load one with skill_view(name)."""
-    rows: list[str] = []
-    for s in _manager().list_skills():
+def skills_list(shelf: str = "") -> str:
+    """Browse the skills library — shelves first, then the books on them.
+
+    The library is a tree: domain -> branch -> technology -> skill. Call with no
+    argument to see the top-level shelves, then call again with a shelf path to
+    see what is on it. Open one book with skill_view(name).
+
+    Args:
+        shelf: shelf path to browse, e.g. "website-architect" or
+            "website-architect/backend-development-architect/python-architect".
+            Empty browses the library root.
+    """
+    manager = _manager()
+    shelf = (shelf or "").strip().strip("/")
+
+    shelves: set[str] = set()
+    books: list[dict] = []
+    for s in manager.list_skills():
         name = str(s.get("name", ""))
         if not name:
             continue
-        source = "bundled" if s.get("created_by") == "bundled" else str(s.get("created_by", "user"))
-        flags = []
-        if not s.get("enabled", True):
-            flags.append("disabled")
-        if s.get("state") == "archived":
-            flags.append("archived")
-        flag_txt = f" [{' '.join(flags)}]" if flags else ""
-        triggers = ", ".join(s.get("triggers", []) or [])
-        rows.append(
-            f"- {name} ({source}){flag_txt} triggers: {triggers or '-'} "
-            f"use_count: {s.get('use_count', 0)}"
-        )
-    if not rows:
-        return "No skills installed."
-    return (
-        "Available skills (load one with skill_view(name)):\n" + "\n".join(rows)
-    )
+        path = str(s.get("path") or name)
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        if parent == shelf:
+            books.append(s)
+        elif parent.startswith(shelf + "/") if shelf else parent:
+            # First path segment below the requested shelf.
+            rest = parent[len(shelf) + 1:] if shelf else parent
+            segment = rest.split("/", 1)[0]
+            if segment:
+                shelves.add(segment)
+
+    # A shelf may itself be a skill (the branch/language skill): it belongs on
+    # its own listing, first, above the books underneath it.
+    if shelf:
+        own = [s for s in manager.list_skills() if str(s.get("path") or "") == shelf]
+        books = own + books
+
+    lines: list[str] = []
+    if shelves:
+        header = f"Shelves in {shelf}/" if shelf else "Shelves:"
+        lines.append(header)
+        lines.extend(f"- {seg}/" for seg in sorted(shelves))
+    if books:
+        if lines:
+            lines.append("")
+        header = f"Skills in {shelf}/" if shelf else "Skills at the library root:"
+        lines.append(header)
+        for s in sorted(books, key=lambda x: str(x.get("name", ""))):
+            flags = []
+            if not s.get("enabled", True):
+                flags.append("disabled")
+            if s.get("state") == "archived":
+                flags.append("archived")
+            flag_txt = f" [{' '.join(flags)}]" if flags else ""
+            desc = str(s.get("description") or "").strip()
+            if len(desc) > 160:
+                desc = desc[:157].rstrip() + "..."
+            lines.append(f"- {s['name']}{flag_txt}" + (f" — {desc}" if desc else ""))
+
+    if not lines:
+        hint = f"No shelf or skill at {shelf!r}. " if shelf else ""
+        return hint + "Browse from the root with skills_list()."
+
+    trailer = "\n\nOpen one with skill_view(name) — read it, then follow it."
+    return "\n".join(lines) + trailer
 
 
 @tool

@@ -115,10 +115,15 @@ def test_skill_view_is_case_insensitive_and_never_raises(sm):
 def test_skills_list_is_the_index_as_a_tool(sm):
     sm.add_skill("listed-user", triggers=["t-one"], instruction="x", description="d")
     out = skills_list.invoke({})
-    assert out.startswith("Available skills")
+    # The library root shows shelves and the books shelved directly there.
+    assert "Shelves:" in out and "- website-architect/" in out
     assert "skill_view(name)" in out
-    assert "- media-sourcing (bundled)" in out
-    assert "- listed-user (user)" in out
+    assert "- media-sourcing" in out   # legacy flat skill = book at the root
+    assert "- listed-user" in out
+
+    # …and a shelf lists the books under it, one level at a time.
+    shelf = skills_list.invoke({"shelf": "website-architect"})
+    assert "frontend-development-architect" in shelf
 
 
 # ---------------------------------------------------------------------------

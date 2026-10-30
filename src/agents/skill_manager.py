@@ -280,8 +280,14 @@ class SkillManager:
                 # skills carry real workflow (hermes injects full bodies), so
                 # the cap is higher than the user-skill default.
                 instruction = body.strip()[:_BUNDLED_INSTRUCTION_CAP]
+                rel_path = os.path.relpath(root, skills_root).replace(os.sep, "/")
                 self._skills.append(self._ensure_metadata({
                     "name": entry,
+                    # Where the book sits on the shelf. Needed because the
+                    # library is nested: skill_view must be able to open the
+                    # file again, and browsing needs the shelf structure.
+                    "path": rel_path,
+                    "shelf": os.path.dirname(rel_path),
                     "description": str(frontmatter.get("description", "") or "").strip(),
                     "triggers": triggers,
                     "instruction": instruction,
