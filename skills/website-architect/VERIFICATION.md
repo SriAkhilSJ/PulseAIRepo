@@ -6,25 +6,26 @@ Generated 2026-10-30 from repository state.
 
 | Domain | Skills |
 |---|---|
+| `cloud-and-devops-architect/` | 7 |
 | `desktop-architect/` | 5 |
 | `mobile-architect/` | 6 |
 | `website-architect/` | 76 |
-| **total** | **87** |
+| **total** | **94** |
 
 ## Spec conformance
 
-- files checked: **87**
-- name == parent directory: **87/87**
-- crusor-path == path from skills/: **87/87**
-- unique names: **87/87**
+- files checked: **94**
+- name == parent directory: **94/94**
+- crusor-path == path from skills/: **94/94**
+- unique names: **94/94**
 - longest body: **5955 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **87/87**
+- provenance present: **94/94**
 
 ## Runtime
 
-- discovered as bundled skills: **107**
-- phase = planning: **87**
+- discovered as bundled skills: **114**
+- phase = planning: **94**
 - injected while executing: **1**
 - injected while planning: **2**
 
@@ -35,33 +36,27 @@ Generated 2026-10-30 from repository state.
 | the site is slow on mobile | web-performance-architect |
 | add a csp header | browser-security-architect |
 | design a rest api | rest-architect, rest-graphql-debug |
-| our graphql resolves n+1 | graphql-architect, rest-graphql-debug |
 | postgres query is slow | db-connector, mcp, postgres-architect |
-| add redis caching for sessions | nextjs-architect, redis-architect |
 | our pipeline takes 40 minutes | ci-cd-architect, testing-and-deployment-architect |
 | we need a canary rollout | release-strategy-architect, testing-and-deployment-architect |
 | implement this figma design | design-handoff-architect |
-| add oauth login | api-auth-architect |
-| harden our ci pipeline | ci-cd-architect, supply-chain-architect, testing-and-deployment-architect |
-| should we use trpc or rest | rest-architect, trpc-architect |
 | how do we store api keys | secrets-management-architect |
-| write a dockerfile for the service | containerization-architect |
-| add tracing for the api | observability-architect |
 | build an ios app | ios-architect, mobile-architect |
-| android compose navigation | android-architect, mobile-architect |
-| react native performance | react-native-architect |
 | flutter state management | flutter-architect |
-| app store signing | desktop-distribution-architect, mobile-release-architect |
-| build a desktop app in electron | desktop-architect, electron-architect |
 | tauri vs electron | desktop-architect, electron-architect, tauri-architect |
 | sign our mac app | — (browse fallback) |
-| auto update for windows | desktop-architect, desktop-distribution-architect |
+| set up our aws accounts | aws-architect |
+| kubernetes pod keeps restarting | cloud-and-devops-architect, containerization-architect, kubernetes-architect |
+| terraform state is a mess | cloud-and-devops-architect, terraform-architect |
+| lambda cold starts are slow | aws-architect, serverless-architect |
+| our cloud bill doubled | cost-optimization-architect |
+| what availability should we promise | reliability-architect |
 
 ## Verification runs
 
 - `pytest src/tests -q` → 2975 passed, 20 failed, 23 skipped, 1 xfailed — the 20 are the repository's pre-existing unrelated failures (baseline 21).
-- `pytest src/tests/test_agent_skills_tree.py` → 18 passed: spec conformance, uniqueness, path integrity, domain crowns, capability contracts, discovery.
-- `pytest src/tests/test_skill_library.py` → 13 passed: shelf recording, browsing, full-body reads, planning phase, batch views.
+- `pytest src/tests/test_agent_skills_tree.py` → 19 passed (spec conformance, uniqueness, path integrity, domain crowns, capability contracts, discovery).
+- `pytest src/tests/test_skill_library.py` → 13 passed (shelf recording, browsing, full-body reads, planning phase, batch views).
 
 ## Known gaps
 

@@ -201,6 +201,13 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "tauri-architect",
         "native-desktop-architect",
         "desktop-distribution-architect",
+        "cloud-and-devops-architect",
+        "aws-architect",
+        "kubernetes-architect",
+        "terraform-architect",
+        "serverless-architect",
+        "reliability-architect",
+        "cost-optimization-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -469,7 +476,10 @@ def test_every_domain_has_a_crown_skill():
         domain = (frontmatter.get("metadata") or {}).get("crusor-domain")
         if domain:
             domains.add(str(domain))
-    assert domains >= {"website-architect", "mobile-architect", "desktop-architect"}
+    assert domains >= {
+        "website-architect", "mobile-architect", "desktop-architect",
+        "cloud-and-devops-architect",
+    }
     for domain in sorted(domains):
         crown = Path("skills") / domain / "SKILL.md"
         assert crown.is_file(), f"domain {domain!r} has no crown skill at {crown}"
@@ -493,3 +503,23 @@ def test_desktop_domain_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in DESKTOP_CAPABILITIES.items() if s not in available}
     assert not missing, f"desktop capabilities without a skill: {missing}"
+
+
+CLOUD_CAPABILITIES = {
+    "topology, identity and cost direction": "cloud-and-devops-architect",
+    "provider primitives": "aws-architect",
+    "container orchestration": "kubernetes-architect",
+    "infrastructure as code": "terraform-architect",
+    "scale-to-zero workloads": "serverless-architect",
+    "SLOs, HA and DR": "reliability-architect",
+    "spend attribution and unit economics": "cost-optimization-architect",
+}
+
+
+def test_cloud_domain_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in CLOUD_CAPABILITIES.items() if s not in available}
+    assert not missing, f"cloud capabilities without a skill: {missing}"
