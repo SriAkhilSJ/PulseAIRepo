@@ -1894,6 +1894,10 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # binding + execution-time allowlist above; batching within it stays legal.
     configurable.pop("phase_max_file_mutations", None)
     configurable["phase_guidance"] = phase.guidance
+    # Plan Mode gate for capability tools: the flag the UI actually sets
+    # (execution_mode) travels to the tool, so a plan turn cannot take a
+    # side effect through an MCP server. mcp_call reads this.
+    configurable["tool_phase"] = str(state.get("execution_mode") or "agent")
     # Dynamic agent list (OpenCode builds the task tool's description
     # from the live registry): refresh the delegate tools' descriptions
     # with the agents THIS workspace has, so the model can name custom

@@ -77,6 +77,14 @@ def _cached_tools(workspace: str, server: str) -> list[dict] | None:
     return hit[1] if hit else None
 
 
+def _phase(config: RunnableConfig | None) -> str:
+    """The turn's phase, as set by the graph from `execution_mode`."""
+    try:
+        return str((config or {}).get("configurable", {}).get("tool_phase") or "agent")  # type: ignore[union-attr]
+    except Exception:
+        return "agent"
+
+
 def _trim(text: str, limit: int = _MAX_DESC) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
@@ -197,6 +205,20 @@ def mcp_call(server: str, tool: str, arguments: dict | None = None,
         return f"{server!r} has no tool {tool!r}.{hint} Call mcp_tools({server!r}) to list them."
 
     read_only = bool((meta.get("annotations") or {}).get("readOnlyHint"))
+
+    # Plan Mode never takes a side effect. Asking the human to approve a
+    # mutation mid-plan is the wrong question — the plan is the place to
+    # decide it, so the call is refused outright with a reason the model can
+    # act on.
+    phase = _phase(config)
+    if phase == "plan" and not read_only:
+        return (
+            f"⛔ PHASE_DENIED — Plan Mode: {server}/{tool} is not declared read-only. "
+            "Plan Mode may inspect third-party state but not change it. Write the "
+            "step into the plan (plan_update) and run it after the plan is approved; "
+            "read-only tools remain available now."
+        )
+
     if not read_only and not confirm:
         preview = json.dumps(arguments or {}, ensure_ascii=False)
         if len(preview) > 400:
@@ -212,6 +234,19 @@ def mcp_call(server: str, tool: str, arguments: dict | None = None,
     started = time.monotonic()
     result = call_mcp_tool(workspace, server, str(tool), arguments or {})
     elapsed = (time.monotonic() - started) * 1000
+
+    # A receipt per call: a slow or failing server becomes attributable instead
+    # of being felt as "the agent is slow".
+    try:
+        from src.telemetry import call_ledger
+        call_ledger.record_mcp_call(
+            str((config or {}).get("configurable", {}).get("thread_id") or "default"),  # type: ignore[union-attr]
+            server, str(tool), wall_s=elapsed / 1000.0,
+            ok=not result.startswith("mcp "), chars=len(result),
+        )
+    except Exception:
+        pass  # metering never breaks the call it meters
+
     return f"[mcp {server}/{tool} · {elapsed:.0f} ms]\n{result}"
 
 

@@ -53,6 +53,11 @@ class MCPStdioClient:
         self._proc: subprocess.Popen | None = None
         self._req_id = 0
         self._lock = threading.Lock()
+        # Spec: a server announces catalog changes rather than being re-polled.
+        # Notifications arrive on the same stream as responses and are read
+        # while a request is in flight, so the flag is picked up by the next
+        # catalog read at the latest.
+        self._tools_changed = False
 
     # -- transport ----------------------------------------------------------
 
@@ -95,6 +100,10 @@ class MCPStdioClient:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if "id" not in msg:
+                    if msg.get("method") == "notifications/tools/list_changed":
+                        self._tools_changed = True
+                    continue
                 if msg.get("id") == expected:
                     if "error" in msg:
                         raise MCPError(f"mcp {self.name}/{method}: {msg['error']}")
@@ -110,6 +119,13 @@ class MCPStdioClient:
         })
         self._rpc("notifications/initialized", {}, notify=True)
         return result or {}
+
+    def take_tools_changed(self) -> bool:
+        """True once, if the server announced a tools/list change since the last
+        read. Consuming the flag is what makes the invalidation happen exactly
+        once instead of on every later call."""
+        changed, self._tools_changed = self._tools_changed, False
+        return changed
 
     def is_alive(self) -> bool:
         """A session is reusable only while its process is still running."""
@@ -301,6 +317,9 @@ def server_tools(workspace: str, server: str) -> list[dict]:
     """One server's tools, cached with a TTL so discovery is not a spawn."""
     key = _key(workspace, server)
     now = time.time()
+    session = _POOL.get(key)
+    if session is not None and session.take_tools_changed():
+        _TOOLS_CACHE.pop(key, None)  # the server said its catalog moved
     cached = _TOOLS_CACHE.get(key)
     if cached and now - cached[0] < _TOOLS_TTL_S:
         return cached[1]

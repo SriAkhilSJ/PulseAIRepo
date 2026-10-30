@@ -82,19 +82,24 @@ string, never raises.
 **P1 — session pool. DONE.** 24.4 ms → 0.2 ms, 7 tests
 (`src/tests/test_mcp_session_pool.py`).
 
-**P2 — catalog lifecycle.** Consume `notifications/tools/list_changed` in
-`_rpc` (today non-matching lines are skipped, so the notice is read and thrown
-away) and call `invalidate_mcp_cache`; honor `ttlMs`/`cacheScope` when a server
-sends them. Acceptance: a server that adds a tool exposes it on the next
-`mcp_tools` call without a restart.
+**P2 — catalog lifecycle. DONE.** `_rpc` now keeps notifications instead of
+skipping them: `notifications/tools/list_changed` sets a flag on the session,
+and the next catalog read consumes it once and drops that server's cache entry.
+Tested with a server that gains a tool mid-call and announces it while answering
+(the response is still matched by id, not by arrival order). Still open from the
+original scope: honoring `ttlMs`/`cacheScope` when a server sends them.
 
-**P3 — phase gate.** `read_only` (spec `annotations.readOnlyHint`) tools are
-allowed during Plan Mode; anything else is denied with `PHASE_DENIED`, mirroring
-the skills gate. Acceptance: plan-mode turn calls a read-only server tool, and
-is denied a write one, with the reason in the transcript.
+**P3 — phase gate. DONE.** `_resolve_bound_tools` now writes
+`configurable["tool_phase"]` from `state["execution_mode"]` — the flag the UI
+actually sets — and `mcp_call` refuses a non-read-only tool in Plan Mode with
+`PHASE_DENIED`. A plan may inspect third-party state and may not change it;
+asking a human to approve a mutation mid-plan is the wrong question. Read-only
+tools stay available.
 
-**P4 — receipts.** Every `mcp_call` records server, tool, ms, bytes in
-`call_ledger`, so a slow server is attributable instead of felt.
+**P4 — receipts. DONE.** Every executed `mcp_call` writes a `mcp_call` line to
+the ledger (`thread`, `server`, `tool`, `wall_s`, `ok`, `chars`), kind-separated
+from model `call` rows so a token summary is never polluted. A phase-denied or
+approval-pending call writes nothing, because nothing ran.
 
 ## What this buys
 

@@ -160,6 +160,36 @@ def record_run(
     _append(record, directory=directory)
 
 
+def record_mcp_call(
+    thread_id: str,
+    server: str,
+    tool: str,
+    *,
+    wall_s: float,
+    ok: bool,
+    chars: int = 0,
+    directory: str | None = None,
+) -> None:
+    """Meter one third-party MCP tool call.
+
+    Model calls were metered and tool calls were not, so "the agent is slow"
+    could not be attributed to a server. Kind is separate from ``call`` so a
+    token summary is never polluted by a tool call.
+    """
+    if not telemetry_enabled():
+        return
+    _append({
+        "kind": "mcp_call",
+        "ts": datetime.now().isoformat(timespec="seconds"),
+        "thread": str(thread_id or "default"),
+        "server": str(server or "")[:80],
+        "tool": str(tool or "")[:80],
+        "wall_s": round(float(wall_s or 0.0), 3),
+        "ok": bool(ok),
+        "chars": int(chars or 0),
+    }, directory=directory)
+
+
 # --------------------------------------------------------------------------
 # Reading + monthly summary
 # --------------------------------------------------------------------------
