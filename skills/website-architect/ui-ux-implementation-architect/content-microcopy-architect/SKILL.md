@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; i18n catalogues (see i18n-architect)
 metadata:
   crusor-domain: website-architect
-  crusor-path: ui-ux-implementation-architect/content-microcopy-architect
+  crusor-path: website-architect/ui-ux-implementation-architect/content-microcopy-architect
   crusor-origin: original
   crusor-sources: "nngroup.com/articles (microcopy, error messages); gov.uk content design guidance"
   crusor-triggers: "microcopy, ux writing, interface copy, error messages, empty state copy, terminology, tone of voice"

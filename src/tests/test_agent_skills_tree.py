@@ -42,20 +42,20 @@ def _manager(tmp_path) -> SkillManager:
 def test_nested_skill_is_discovered_at_any_depth(tmp_path):
     root = tmp_path / "skills"
     _write(
-        root / "website-architect" / "frontend-development" / "react" / "demo-nextjs" / "SKILL.md",
+        root / "demo-domain" / "frontend-development" / "react" / "demo-nextjs" / "SKILL.md",
         "demo-nextjs",
         "Architect-level Next.js guidance.",
         triggers="nextjs, app router",
     )
     # A container with no SKILL.md must not become a skill.
-    (root / "website-architect" / "backend-development").mkdir(parents=True)
+    (root / "demo-domain" / "backend-development").mkdir(parents=True)
 
     mgr = _manager(tmp_path)
     mgr._load_bundled_skills(str(root))
 
     by_name = {s["name"]: s for s in mgr._skills}
     assert "demo-nextjs" in by_name
-    assert "website-architect" not in by_name
+    assert "demo-domain" not in by_name
     assert "frontend-development" not in by_name
     skill = by_name["demo-nextjs"]
     assert skill["description"] == "Architect-level Next.js guidance."
@@ -196,7 +196,8 @@ def test_repo_architect_library_is_discoverable(tmp_path):
 
 
 def test_architect_leaves_conform_to_the_agent_skills_spec():
-    """Every shipped Architect skill: name==dir, spec-safe slug, bounded body."""
+    """Every shipped Architect skill, in every domain: name==dir, spec-safe
+    slug, bounded description and body, mandatory provenance."""
     import re
     from pathlib import Path
 
@@ -206,11 +207,15 @@ def test_architect_leaves_conform_to_the_agent_skills_spec():
     )
 
     slug = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    leaves = list(Path("skills/website-architect").rglob("SKILL.md"))
-    assert leaves, "Website Architect tree is missing"
-
-    for path in leaves:
+    leaves = []
+    for path in sorted(Path("skills").rglob("SKILL.md")):
         frontmatter, body = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
+        if not (frontmatter.get("metadata") or {}).get("crusor-domain"):
+            continue  # legacy flat skills predate the library contract
+        leaves.append((path, frontmatter, body))
+    assert leaves, "Architect library is missing"
+
+    for path, frontmatter, body in leaves:
         name = str(frontmatter.get("name", ""))
         description = str(frontmatter.get("description", ""))
         assert name == path.parent.name, f"{path}: name must equal directory"
@@ -220,43 +225,35 @@ def test_architect_leaves_conform_to_the_agent_skills_spec():
             f"{path}: body {len(body)} exceeds injection cap "
             f"{_BUNDLED_INSTRUCTION_CAP} and would be silently truncated"
         )
-        # Provenance is mandatory in this library.
         assert frontmatter.get("metadata", {}).get("crusor-origin"), path
 
 
 def test_skill_names_unique_and_crusor_path_matches_location():
-    """A tree is only navigable if names are unique and paths tell the truth."""
+    """Names are globally unique and crusor-path tells the truth about depth."""
     from pathlib import Path
 
     from src.agents.skill_manager import _parse_skill_frontmatter
 
     root = Path("skills")
-    tree = root / "website-architect"
-
-    # Names used elsewhere in the repository, so the tree cannot shadow them.
-    taken = {}
-    for path in root.rglob("SKILL.md"):
-        if tree in path.parents:
-            continue
-        fm, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
-        if fm.get("name"):
-            taken[str(fm["name"])] = path
-
-    seen = {}
-    for path in sorted(tree.rglob("SKILL.md")):
-        fm, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
-        name = str(fm["name"])
+    seen: dict[str, Path] = {}
+    checked = 0
+    for path in sorted(root.rglob("SKILL.md")):
+        frontmatter, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
+        name = str(frontmatter.get("name", ""))
+        if not name:
+            continue  # legacy docs-style SKILL.md without frontmatter
         assert name not in seen, f"{name} declared in both {seen[name]} and {path}"
-        assert name not in taken, f"{name} collides with {taken[name]}"
         seen[name] = path
 
-        expected = path.parent.relative_to(tree).as_posix()
-        declared = fm.get("metadata", {}).get("crusor-path")
+        if not (frontmatter.get("metadata") or {}).get("crusor-domain"):
+            continue
+        expected = path.parent.relative_to(root).as_posix()
+        declared = frontmatter.get("metadata", {}).get("crusor-path")
         assert declared == expected, f"{path}: crusor-path {declared!r} != {expected!r}"
+        checked += 1
+    assert checked >= 80
 
 
-# Capability -> skill. This is the definition of "the frontend branch is
-# complete": every capability a website frontend needs has a book on the shelf.
 FRONTEND_CAPABILITIES = {
     "markup and cascade": "html-css-architect",
     "language runtime": "javascript-architect",
@@ -427,3 +424,43 @@ def test_backend_branch_covers_every_language():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in BACKEND_CAPABILITIES.items() if s not in available}
     assert not missing, f"backend capabilities without a skill: {missing}"
+
+
+MOBILE_CAPABILITIES = {
+    "platform choice and shared architecture": "mobile-architect",
+    "apple platform": "ios-architect",
+    "android platform": "android-architect",
+    "shared typescript stack": "react-native-architect",
+    "shared dart stack": "flutter-architect",
+    "stores, signing, rollout": "mobile-release-architect",
+}
+
+
+def test_mobile_domain_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in MOBILE_CAPABILITIES.items() if s not in available}
+    assert not missing, f"mobile capabilities without a skill: {missing}"
+
+
+def test_every_domain_has_a_crown_skill():
+    """Each top-level domain directory in the library states its own entry
+    point, so an agent landing on `skills/<domain>/` always has a book there."""
+    from pathlib import Path
+
+    from src.agents.skill_manager import _parse_skill_frontmatter
+
+    domains = set()
+    for path in Path("skills").rglob("SKILL.md"):
+        frontmatter, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
+        domain = (frontmatter.get("metadata") or {}).get("crusor-domain")
+        if domain:
+            domains.add(str(domain))
+    assert domains >= {"website-architect", "mobile-architect"}
+    for domain in sorted(domains):
+        crown = Path("skills") / domain / "SKILL.md"
+        assert crown.is_file(), f"domain {domain!r} has no crown skill at {crown}"
+        frontmatter, _ = _parse_skill_frontmatter(crown.read_text(encoding="utf-8"))
+        assert frontmatter.get("name") == domain

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; schema validation (zod/valibot/yup)
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/forms-architect
+  crusor-path: website-architect/frontend-development-architect/forms-architect
   crusor-origin: original
   crusor-sources: "developer.mozilla.org/Forms; html.spec.whatwg.org/form-control-infrastructure; zod.dev"
   crusor-triggers: "forms, form validation, form state, react hook form, zod schema, multi-step form, input validation, submit"

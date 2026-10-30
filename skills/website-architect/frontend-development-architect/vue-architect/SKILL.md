@@ -5,7 +5,7 @@ license: MIT
 compatibility: Vue 3.4+; Nuxt 3/4
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/vue-architect
+  crusor-path: website-architect/frontend-development-architect/vue-architect
   crusor-origin: original
   crusor-sources: "vuejs.org/guide; nuxt.com/docs; pinia.vuejs.org"
   crusor-triggers: "vue, nuxt, composition-api, pinia, composables, reactivity, sfc"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Tailwind CSS 3.4+/4.x with a token source
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/tailwind-architect
+  crusor-path: website-architect/frontend-development-architect/tailwind-architect
   crusor-origin: original
   crusor-sources: "tailwindcss.com/docs; tailwindcss.com/blog/tailwindcss-v4"
   crusor-triggers: "tailwind, tailwindcss, utility css, tailwind theme, design tokens"

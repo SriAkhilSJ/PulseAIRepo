@@ -5,11 +5,11 @@ license: MIT
 compatibility: React 18+; framework-agnostic
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/react-state-management-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/react-state-management-architect
   crusor-origin: original
   crusor-sources: "react.dev/learn/managing-state; tanstack.com/query; zustand docs; redux-toolkit docs; vercel-labs/agent-skills@063bee94 (react-best-practices)"
   crusor-verified-on: "2026-10-30"
-  crusor-triggers: "state management, zustand, jotai, context vs store, url state, client state, app state, state ownership, server state ownership"
+  crusor-triggers: "react state, client state, state ownership, zustand, jotai, context vs store, url state, app state, server state ownership"
 ---
 
 # React State Management (decision skill)

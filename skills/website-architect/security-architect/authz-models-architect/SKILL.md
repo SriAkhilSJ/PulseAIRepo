@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; policy engines (OPA/Cedar) optional
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect/authz-models-architect
+  crusor-path: website-architect/security-architect/authz-models-architect
   crusor-origin: original
   crusor-sources: "owasp.org/www-project-authorization-cheat-sheet; openpolicyagent.org/docs; docs.cerbos.dev"
   crusor-triggers: "rbac, abac, rebac, permissions, roles, policy, fine grained authorization, multi tenant, privilege escalation"

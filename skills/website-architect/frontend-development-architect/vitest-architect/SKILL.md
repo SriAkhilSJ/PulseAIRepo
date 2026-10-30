@@ -5,7 +5,7 @@ license: MIT
 compatibility: Vitest 1/2+; jsdom or happy-dom; @testing-library
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/vitest-architect
+  crusor-path: website-architect/frontend-development-architect/vitest-architect
   crusor-origin: original
   crusor-sources: "vitest.dev; testing-library.com/docs/queries/about; mswjs.io"
   crusor-triggers: "vitest, unit tests, testing library, msw, mocking, coverage, fake timers, component tests"

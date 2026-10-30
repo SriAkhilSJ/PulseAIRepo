@@ -5,7 +5,7 @@ license: MIT
 compatibility: Go 1.22+
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/go-architect
+  crusor-path: website-architect/backend-development-architect/go-architect
   crusor-origin: original
   crusor-sources: "go.dev/doc/effective_go; go.dev/blog/context; go.dev/doc/faq"
   crusor-triggers: "go, golang, goroutines, channels, context cancellation, go modules, gin, echo"

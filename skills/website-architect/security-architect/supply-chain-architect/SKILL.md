@@ -5,7 +5,7 @@ license: MIT
 compatibility: npm/pnpm/yarn, pip/uv, Go modules, Cargo; GitHub Actions or equivalent
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect/supply-chain-architect
+  crusor-path: website-architect/security-architect/supply-chain-architect
   crusor-origin: original
   crusor-sources: "slsa.dev; owasp.org/www-project-top-10-ci-cd-security-risks; docs.github.com/actions/security-guides"
   crusor-triggers: "supply chain, dependencies, lockfile, npm audit, slsa, provenance, ci security, ci pipeline, pipeline hardening, typosquatting, sbom"

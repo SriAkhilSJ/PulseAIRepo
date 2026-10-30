@@ -5,7 +5,7 @@ license: MIT
 compatibility: Drizzle ORM 0.30+; drizzle-kit; PostgreSQL/MySQL/SQLite
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect/drizzle-architect
+  crusor-path: website-architect/database-engineering-architect/drizzle-architect
   crusor-origin: original
   crusor-sources: "orm.drizzle.team/docs/overview; orm.drizzle.team/docs/migrations"
   crusor-triggers: "drizzle, drizzle orm, drizzle kit, sql first orm, typescript sql"

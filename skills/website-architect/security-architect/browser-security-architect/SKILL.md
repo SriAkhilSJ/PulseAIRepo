@@ -5,7 +5,7 @@ license: MIT
 compatibility: Modern browsers; any frontend stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect/browser-security-architect
+  crusor-path: website-architect/security-architect/browser-security-architect
   crusor-origin: original
   crusor-sources: "owasp.org/www-project-secure-headers; developer.mozilla.org/Content_Security_Policy; web.dev/articles/csp"
   crusor-triggers: "csp, content security policy, security headers, cors, cookies, xss, clickjacking, postmessage, same-site"

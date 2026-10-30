@@ -5,7 +5,7 @@ license: MIT
 compatibility: Language-agnostic (Python, Node, Go, Java, Rust, .NET, Ruby, PHP). Requires ability to read and edit server source.
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect
+  crusor-path: website-architect/backend-development-architect
   crusor-origin: original
   crusor-sources: "12factor.net; OWASP ASVS; language/framework official docs"
   crusor-triggers: "backend architecture, microservice, microservices, grpc, backend design, service architecture"

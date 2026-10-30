@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any language; any test runner
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/test-strategy-architect
+  crusor-path: website-architect/testing-and-deployment-architect/test-strategy-architect
   crusor-origin: original
   crusor-sources: "martinfowler.com/articles/practical-test-pyramid.html; testing.googleblog.com (test sizes); xunitpatterns.com"
   crusor-triggers: "test strategy, test plan, test pyramid, testing pyramid, test suite, flaky, test coverage, e2e strategy, integration tests, contract tests, testability, fixtures"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: GitHub Actions / GitLab CI / Buildkite or equivalent
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/ci-cd-architect
+  crusor-path: website-architect/testing-and-deployment-architect/ci-cd-architect
   crusor-origin: original
   crusor-sources: "docs.github.com/actions; 12factor.net/build-release-run; slsa.dev"
   crusor-triggers: "ci cd, pipeline, github actions, build pipeline, deployment pipeline, artefacts, caching ci, gates"

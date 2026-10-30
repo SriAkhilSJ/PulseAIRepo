@@ -5,7 +5,7 @@ license: MIT
 compatibility: HTTP/1.1–2–3; OpenAPI 3.1
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/rest-architect
+  crusor-path: website-architect/api-development-architect/rest-architect
   crusor-origin: original
   crusor-sources: "RFC 9110 (HTTP semantics); RFC 9457 (problem details); OpenAPI 3.1"
   crusor-triggers: "rest, restful, http api, openapi, status codes, http caching, pagination, hal"

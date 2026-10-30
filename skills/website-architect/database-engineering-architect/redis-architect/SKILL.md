@@ -5,7 +5,7 @@ license: MIT
 compatibility: Redis 7+ (or Valkey)
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect/redis-architect
+  crusor-path: website-architect/database-engineering-architect/redis-architect
   crusor-origin: original
   crusor-sources: "redis.io/docs/latest; redis.io/docs/latest/develop/reference/eviction"
   crusor-triggers: "redis, cache, caching, session store, rate limit, pub sub, eviction, key expiry, valkey"

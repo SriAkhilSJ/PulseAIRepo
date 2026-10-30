@@ -5,7 +5,7 @@ license: MIT
 compatibility: Java 21+ (LTS); Spring Boot / Quarkus / plain JVM
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/java-architect
+  crusor-path: website-architect/backend-development-architect/java-architect
   crusor-origin: original
   crusor-sources: "docs.oracle.com/en/java; spring.io/guides; quarkus.io/guides"
   crusor-triggers: "java, jvm, spring, spring boot, maven, gradle, virtual threads, hibernate"

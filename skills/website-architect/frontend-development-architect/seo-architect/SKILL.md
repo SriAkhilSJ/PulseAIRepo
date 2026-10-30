@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; SSR/SSG/SPA
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/seo-architect
+  crusor-path: website-architect/frontend-development-architect/seo-architect
   crusor-origin: original
   crusor-sources: "developers.google.com/search/docs; developers.google.com/search/docs/appearance/structured-data"
   crusor-triggers: "seo, metadata, canonical, robots, sitemap, structured data, json-ld, indexability, meta tags"

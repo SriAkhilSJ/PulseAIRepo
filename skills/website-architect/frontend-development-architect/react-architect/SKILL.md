@@ -5,10 +5,10 @@ license: MIT
 compatibility: React 18+ / 19; framework: Next.js, React Router, TanStack Start, Vite SPA
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect
   crusor-origin: original
   crusor-sources: "react.dev; nextjs.org; tanstack.com/router; reactrouter.com"
-  crusor-triggers: "react, app-structure, routing, app-shell, spa, nextjs, react-router, frontend-framework"
+  crusor-triggers: "react app structure, react app shell, react spa, nextjs, react-router, react framework choice"
   crusor-verified-on: "2026-10-30"
 ---
 

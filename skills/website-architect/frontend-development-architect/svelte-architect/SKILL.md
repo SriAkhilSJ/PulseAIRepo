@@ -5,7 +5,7 @@ license: MIT
 compatibility: Svelte 5 (runes); SvelteKit 2
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/svelte-architect
+  crusor-path: website-architect/frontend-development-architect/svelte-architect
   crusor-origin: original
   crusor-sources: "svelte.dev/docs; kit.svelte.dev/docs"
   crusor-triggers: "svelte, sveltekit, runes, load-functions, form-actions, ssr, reactivity"

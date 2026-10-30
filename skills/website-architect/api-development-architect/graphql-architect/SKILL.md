@@ -5,7 +5,7 @@ license: MIT
 compatibility: GraphQL 16+; Apollo/Yoga/graphql-js; any server language
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/graphql-architect
+  crusor-path: website-architect/api-development-architect/graphql-architect
   crusor-origin: original
   crusor-sources: "graphql.org/learn; spec.graphql.org; graphql.org/learn/security"
   crusor-triggers: "graphql, schema, resolvers, dataloader, n+1 graphql, apollo, graphql federation, query depth"

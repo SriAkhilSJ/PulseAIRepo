@@ -5,7 +5,7 @@ license: MIT
 compatibility: Web applications and APIs; any stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect/owasp-top10-architect
+  crusor-path: website-architect/security-architect/owasp-top10-architect
   crusor-origin: original
   crusor-sources: "owasp.org/www-project-top-ten; owasp.org/www-project-cheat-sheets; owasp.org/www-project-asvs"
   crusor-triggers: "owasp, top 10, sql injection, xss, csrf, ssrf, idor, insecure deserialization, broken access control"

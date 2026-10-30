@@ -5,7 +5,7 @@ license: MIT
 compatibility: Redux Toolkit 2.x; React 18+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/redux-toolkit-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/redux-toolkit-architect
   crusor-origin: original
   crusor-sources: "redux-toolkit.js.org; redux.js.org/style-guide"
   crusor-triggers: "redux, rtk, redux toolkit, redux slice, createasyncthunk"

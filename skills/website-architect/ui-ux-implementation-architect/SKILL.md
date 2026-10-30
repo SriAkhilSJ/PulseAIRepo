@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; any design tool (Figma) and frontend stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: ui-ux-implementation-architect
+  crusor-path: website-architect/ui-ux-implementation-architect
   crusor-origin: original
   crusor-sources: "design systems practice; w3.org/WAI/ARIA/apg; nngroup.com/articles (interaction patterns)"
   crusor-triggers: "design handoff, implement design, figma to code, pixel perfect, ui implementation, design qa"

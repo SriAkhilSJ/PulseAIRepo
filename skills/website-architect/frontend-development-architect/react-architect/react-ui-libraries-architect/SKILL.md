@@ -5,7 +5,7 @@ license: MIT
 compatibility: React 18+; Radix, shadcn/ui, MUI, Chakra, Headless UI
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/react-ui-libraries-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/react-ui-libraries-architect
   crusor-origin: original
   crusor-sources: "radix-ui.com; ui.shadcn.com; mui.com; chakra-ui.com"
   crusor-triggers: "ui-library, component-library, shadcn, radix, mui, chakra, design-system, theming, accessibility"

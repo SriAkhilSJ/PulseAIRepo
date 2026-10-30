@@ -5,7 +5,7 @@ license: MIT
 compatibility: Transport-agnostic (HTTP/REST, GraphQL, tRPC, gRPC)
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect
+  crusor-path: website-architect/api-development-architect
   crusor-origin: original
   crusor-sources: "openapis.org; graphql.org/learn; grpc.io/docs; trpc.io/docs"
   crusor-triggers: "api design, api contract, openapi, api versioning, rest vs graphql, api architecture"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Web applications and APIs; any stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect
+  crusor-path: website-architect/security-architect
   crusor-origin: original
   crusor-sources: "owasp.org/www-project-top-ten; owasp.org/www-project-asvs; threatmodelingmanifesto.org"
   crusor-triggers: "security, threat model, trust boundary, owasp, secure design, penetration test, vulnerability, hardening"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Astro 4/5; optional React/Vue/Svelte islands
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/astro-architect
+  crusor-path: website-architect/frontend-development-architect/astro-architect
   crusor-origin: original
   crusor-sources: "docs.astro.build (islands, content collections, rendering modes)"
   crusor-triggers: "astro, islands, content-collections, ssr, static-site, hydration, marketing-site, docs"

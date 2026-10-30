@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any stack; vault/KMS/cloud secret managers
 metadata:
   crusor-domain: website-architect
-  crusor-path: security-architect/secrets-management-architect
+  crusor-path: website-architect/security-architect/secrets-management-architect
   crusor-origin: original
   crusor-sources: "owasp.org/www-project-secrets-management-cheat-sheet; 12factor.net/config; cloud provider KMS docs"
   crusor-triggers: "secrets, api keys, secret manager, vault, kms, rotation, credentials, leaking keys, dotenv, environment variables"

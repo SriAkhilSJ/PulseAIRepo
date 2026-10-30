@@ -5,7 +5,7 @@ license: MIT
 compatibility: Node 20+ LTS; ESM-first
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/nodejs-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect
   crusor-origin: original
   crusor-sources: "nodejs.org/api; nodejs.org/en/learn (event loop, streams); OWASP Node security"
   crusor-triggers: "nodejs, node runtime, node streams, worker threads, event loop, graceful shutdown"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Ruby 3.2+; Rails 7/8 or Sinatra/Rack
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/ruby-architect
+  crusor-path: website-architect/backend-development-architect/ruby-architect
   crusor-origin: original
   crusor-sources: "guides.rubyonrails.org; api.rubyonrails.org; shopify.github.io/ruby-style-guide"
   crusor-triggers: "ruby, rails, activerecord, sidekiq, rack, ruby on rails, service objects"

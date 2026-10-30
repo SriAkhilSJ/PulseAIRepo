@@ -5,7 +5,7 @@ license: MIT
 compatibility: MongoDB 6/7+; any driver or ODM
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect/mongodb-architect
+  crusor-path: website-architect/database-engineering-architect/mongodb-architect
   crusor-origin: original
   crusor-sources: "mongodb.com/docs/manual; mongodb.com/docs/manual/data-modeling"
   crusor-triggers: "mongodb, mongo, documents, aggregation pipeline, embed, references, nosql, mongoose"

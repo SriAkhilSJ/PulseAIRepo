@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic
 metadata:
   crusor-domain: website-architect
-  crusor-path: ui-ux-implementation-architect/interaction-patterns-architect
+  crusor-path: website-architect/ui-ux-implementation-architect/interaction-patterns-architect
   crusor-origin: original
   crusor-sources: "nngroup.com/articles (interaction patterns); w3.org/WAI/ARIA/apg; apple.com/design/human-interface-guidelines"
   crusor-triggers: "interaction design, ux patterns, modal, toast, confirmation dialog, destructive action, loading state, empty state"

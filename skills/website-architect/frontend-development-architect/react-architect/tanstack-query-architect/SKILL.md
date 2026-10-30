@@ -5,7 +5,7 @@ license: MIT
 compatibility: TanStack Query v5; React 18+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/tanstack-query-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/tanstack-query-architect
   crusor-origin: original
   crusor-sources: "tanstack.com/query/latest/docs/framework/react/overview"
   crusor-triggers: "tanstack query, react query, usequery, usemutation, server state, invalidation"

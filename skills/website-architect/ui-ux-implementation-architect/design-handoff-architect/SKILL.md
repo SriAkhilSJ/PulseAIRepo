@@ -5,7 +5,7 @@ license: MIT
 compatibility: Figma (or equivalent) + any frontend stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: ui-ux-implementation-architect/design-handoff-architect
+  crusor-path: website-architect/ui-ux-implementation-architect/design-handoff-architect
   crusor-origin: original
   crusor-sources: "design systems practice; Figma dev mode docs; w3.org/WAI/ARIA/apg"
   crusor-triggers: "design handoff, figma, specs, design tokens, states matrix, responsive spec, design review"

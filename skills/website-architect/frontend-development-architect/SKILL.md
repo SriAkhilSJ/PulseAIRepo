@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: Framework-agnostic (React, Vue, Angular, Svelte, static HTML). Requires the ability to read and edit the frontend source.
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect
+  crusor-path: website-architect/frontend-development-architect
   crusor-origin: adapted
   crusor-sources: "anthropics/skills@8a1541c4 (frontend-design); vercel-labs/agent-skills@063bee94 (web-design-guidelines)"
   crusor-verified-on: "2026-10-30"

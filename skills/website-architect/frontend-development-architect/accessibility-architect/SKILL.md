@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic (React, Vue, Angular, Svelte, static HTML)
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/accessibility-architect
+  crusor-path: website-architect/frontend-development-architect/accessibility-architect
   crusor-origin: original
   crusor-sources: "w3.org/TR/WCAG22; w3.org/WAI/ARIA/apg; web.dev/accessibility"
   crusor-triggers: "accessibility, a11y, wcag, aria, screen reader, keyboard navigation, focus management, contrast"

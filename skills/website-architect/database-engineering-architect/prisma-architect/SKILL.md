@@ -5,7 +5,7 @@ license: MIT
 compatibility: Prisma 5/6+; PostgreSQL/MySQL/SQLite
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect/prisma-architect
+  crusor-path: website-architect/database-engineering-architect/prisma-architect
   crusor-origin: original
   crusor-sources: "prisma.io/docs/orm; prisma.io/docs/orm/prisma-client/queries/relation-queries"
   crusor-triggers: "prisma, prisma schema, prisma migrate, orm, typescript orm, drizzle vs prisma"

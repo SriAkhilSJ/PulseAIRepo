@@ -5,7 +5,7 @@ license: MIT
 compatibility: OpenTelemetry; any backend (Prometheus, Loki, Tempo, vendor APM)
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/observability-architect
+  crusor-path: website-architect/testing-and-deployment-architect/observability-architect
   crusor-origin: original
   crusor-sources: "opentelemetry.io/docs; sre.google/sre-book (SLOs); sre.google/workbook/alerting-on-slos"
   crusor-triggers: "observability, logging, metrics, tracing, opentelemetry, slo, sli, alerting, dashboards, cardinality"

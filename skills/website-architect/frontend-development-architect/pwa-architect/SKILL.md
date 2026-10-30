@@ -5,7 +5,7 @@ license: MIT
 compatibility: Service Workers, Cache Storage, Workbox or hand-rolled; any framework
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/pwa-architect
+  crusor-path: website-architect/frontend-development-architect/pwa-architect
   crusor-origin: original
   crusor-sources: "developer.mozilla.org/Service_Worker_API; web.dev/learn/pwa; web.dev/service-worker-caching-and-http-caching"
   crusor-triggers: "pwa, service worker, offline, cache storage, workbox, install prompt, web app manifest, stale-while-revalidate"

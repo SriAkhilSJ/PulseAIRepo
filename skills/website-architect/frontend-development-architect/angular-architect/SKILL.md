@@ -5,7 +5,7 @@ license: MIT
 compatibility: Angular 17+ (standalone defaults), signals
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/angular-architect
+  crusor-path: website-architect/frontend-development-architect/angular-architect
   crusor-origin: original
   crusor-sources: "angular.dev/guide; angular.dev/guide/signals; rxjs.dev"
   crusor-triggers: "angular, standalone-components, signals, rxjs, dependency-injection, lazy-loading, change-detection"

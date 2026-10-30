@@ -5,10 +5,10 @@ license: MIT
 compatibility: Framework-agnostic; any CDN and browser
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/web-performance-architect
+  crusor-path: website-architect/frontend-development-architect/web-performance-architect
   crusor-origin: original
   crusor-sources: "web.dev/vitals; web.dev/learn/performance; developer.mozilla.org/Performance"
-  crusor-triggers: "performance, core web vitals, lcp, inp, cls, lighthouse, bundle size, page speed, slow site, slow page, site is slow, caching, fonts"
+  crusor-triggers: "web performance, core web vitals, lcp, inp, cls, lighthouse, bundle size, page speed, slow site, slow page, site is slow, http caching, web fonts"
   crusor-verified-on: "2026-10-30"
 ---
 

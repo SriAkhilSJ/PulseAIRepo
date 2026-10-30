@@ -5,7 +5,7 @@ license: MIT
 compatibility: Rust 2021+; tokio/axum or actix
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/rust-architect
+  crusor-path: website-architect/backend-development-architect/rust-architect
   crusor-origin: original
   crusor-sources: "doc.rust-lang.org/book; tokio.rs/tokio/tutorial; rust-lang.github.io/api-guidelines"
   crusor-triggers: "rust, cargo, tokio, axum, ownership, borrow checker, async rust, cli in rust"

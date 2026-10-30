@@ -5,7 +5,7 @@ license: MIT
 compatibility: PHP 8.2+; Laravel / Symfony / plain PSR-15
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/php-architect
+  crusor-path: website-architect/backend-development-architect/php-architect
   crusor-origin: original
   crusor-sources: "php.net/manual; laravel.com/docs; symfony.com/doc/current; php-fig.org/psr"
   crusor-triggers: "php, laravel, symfony, php-fpm, composer, psr, eloquent, blade"

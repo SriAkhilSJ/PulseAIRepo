@@ -5,7 +5,7 @@ license: MIT
 compatibility: OAuth 2.1 / OIDC; JWT; session cookies
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/api-auth-architect
+  crusor-path: website-architect/api-development-architect/api-auth-architect
   crusor-origin: original
   crusor-sources: "oauth.net/2.1; openid.net/specs; draft-ietf-oauth-security-topics; owasp.org/ASVS"
   crusor-triggers: "authentication, authorization, oauth, oidc, jwt, session cookies, token refresh, rbac, authz"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any component library; Storybook or equivalent; token pipeline (Style Dictionary)
 metadata:
   crusor-domain: website-architect
-  crusor-path: ui-ux-implementation-architect/design-system-ops-architect
+  crusor-path: website-architect/ui-ux-implementation-architect/design-system-ops-architect
   crusor-origin: original
   crusor-sources: "design-tokens.github.io/community-group; storybook.js.org/docs; component governance practice"
   crusor-triggers: "design system, component library, storybook, tokens pipeline, component api, component variants, style drift, design drift, inconsistent styles, adoption, governance"

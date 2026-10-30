@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; CSS transitions + View Transitions / Framer Motion / GSAP
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/motion-architect
+  crusor-path: website-architect/frontend-development-architect/motion-architect
   crusor-origin: original
   crusor-sources: "web.dev/animations; developer.mozilla.org/CSS/transitions; w3.org/WAI/WCAG22 (2.3.3)"
   crusor-triggers: "motion, animation, transition, transitions, page transition, framer motion, easing, view transitions, micro-interactions, prefers-reduced-motion"

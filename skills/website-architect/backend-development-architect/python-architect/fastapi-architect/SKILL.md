@@ -5,7 +5,7 @@ license: MIT
 compatibility: FastAPI 0.110+, pydantic v2, uvicorn/gunicorn
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/python-architect/fastapi-architect
+  crusor-path: website-architect/backend-development-architect/python-architect/fastapi-architect
   crusor-origin: original
   crusor-sources: "fastapi.tiangolo.com; docs.pydantic.dev; asgi.readthedocs.io"
   crusor-triggers: "fastapi, pydantic, asgi, dependency injection, openapi, uvicorn"

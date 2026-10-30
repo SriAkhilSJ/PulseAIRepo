@@ -5,7 +5,7 @@ license: MIT
 compatibility: Framework-agnostic; ICU MessageFormat (FormatJS / i18next / framework built-ins)
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/i18n-architect
+  crusor-path: website-architect/frontend-development-architect/i18n-architect
   crusor-origin: original
   crusor-sources: "unicode.org/reports/tr35; formatjs.io/docs; developer.mozilla.org/Intl"
   crusor-triggers: "i18n, internationalization, localization, translation, locale, rtl, plurals, intl"

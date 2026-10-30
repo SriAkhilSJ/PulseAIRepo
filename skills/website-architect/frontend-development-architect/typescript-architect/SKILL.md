@@ -5,7 +5,7 @@ license: MIT
 compatibility: TypeScript 5.x; strict mode
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/typescript-architect
+  crusor-path: website-architect/frontend-development-architect/typescript-architect
   crusor-origin: original
   crusor-sources: "typescriptlang.org handbook; Zod/valibot docs"
   crusor-triggers: "typescript, types, generics, discriminated-union, zod, schema, strict, tsconfig, type-safety"

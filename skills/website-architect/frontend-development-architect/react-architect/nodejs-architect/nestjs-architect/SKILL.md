@@ -5,7 +5,7 @@ license: MIT
 compatibility: NestJS 10/11; TypeScript; Node 20+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/nodejs-architect/nestjs-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/nestjs-architect
   crusor-origin: original
   crusor-sources: "docs.nestjs.com; docs.nestjs.com/fundamentals/injection-scopes"
   crusor-triggers: "nestjs, nestjs module, nestjs guard, nestjs interceptor, dependency injection"

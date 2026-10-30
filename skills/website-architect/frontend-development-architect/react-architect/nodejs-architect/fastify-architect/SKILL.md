@@ -5,7 +5,7 @@ license: MIT
 compatibility: Fastify 4/5; Node 20+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/nodejs-architect/fastify-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/fastify-architect
   crusor-origin: original
   crusor-sources: "fastify.dev/docs/latest; json-schema.org"
   crusor-triggers: "fastify, fastify plugin, fastify schema"

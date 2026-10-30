@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any HTTP stack; Redis or an edge provider typical
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/rate-limiting-architect
+  crusor-path: website-architect/api-development-architect/rate-limiting-architect
   crusor-origin: original
   crusor-sources: "datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers; cloud.google.com/architecture/rate-limiting-strategies-techniques"
   crusor-triggers: "rate limit, rate limiting, throttling, throttle, quota, 429, abuse, scraping, backpressure, token bucket"

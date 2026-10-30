@@ -5,10 +5,10 @@ license: MIT
 compatibility: React 18+; React Router 7, TanStack Router/Start
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/react-router-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/react-router-architect
   crusor-origin: original
   crusor-sources: "reactrouter.com; tanstack.com/router"
-  crusor-triggers: "react-router, routing, spa, loaders, tanstack-router, navigation, url-state, nested-routes"
+  crusor-triggers: "react-router, react router, client routing, route loaders, tanstack router, nested routes, url state routing"
   crusor-verified-on: "2026-10-30"
 ---
 

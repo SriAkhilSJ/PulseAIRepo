@@ -5,7 +5,7 @@ license: MIT
 compatibility: Express 4/5; Node 20+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect/nodejs-architect/express-architect
+  crusor-path: website-architect/frontend-development-architect/react-architect/nodejs-architect/express-architect
   crusor-origin: original
   crusor-sources: "expressjs.com/en/guide; nodejs.org/api/http"
   crusor-triggers: "express, expressjs, express middleware, express router"

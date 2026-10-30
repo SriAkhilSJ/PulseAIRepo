@@ -5,7 +5,7 @@ license: MIT
 compatibility: Vite 5/6+; Node 20+
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/vite-architect
+  crusor-path: website-architect/frontend-development-architect/vite-architect
   crusor-origin: original
   crusor-sources: "vite.dev/config; rollupjs.org"
   crusor-triggers: "vite, vite config, bundler, rollup, esbuild, code splitting, hmr"

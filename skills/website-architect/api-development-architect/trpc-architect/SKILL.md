@@ -5,7 +5,7 @@ license: MIT
 compatibility: tRPC v11; TypeScript 5+; React/Next/Vue clients
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/trpc-architect
+  crusor-path: website-architect/api-development-architect/trpc-architect
   crusor-origin: original
   crusor-sources: "trpc.io/docs; trpc.io/docs/server/procedures"
   crusor-triggers: "trpc, typescript rpc, procedures, routers, end-to-end typesafety, rsc trpc"

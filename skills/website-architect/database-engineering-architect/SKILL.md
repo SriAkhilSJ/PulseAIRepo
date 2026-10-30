@@ -5,7 +5,7 @@ license: MIT
 compatibility: Engine-agnostic (PostgreSQL, MongoDB, Redis, SQLite); any ORM
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect
+  crusor-path: website-architect/database-engineering-architect
   crusor-origin: original
   crusor-sources: "postgresql.org/docs; mongodb.com/docs; redis.io/docs; use-the-index-luke.com"
   crusor-triggers: "database, data model, schema design, migrations, transactions, indexing, sql, data layer"

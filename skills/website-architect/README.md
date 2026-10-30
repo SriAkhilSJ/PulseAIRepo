@@ -3,10 +3,11 @@
 Architect-level skills for building web products: frontend, backend, data, API,
 UI/UX, security, testing and deployment.
 
-This is a **taxonomy container**, not a skill. Only leaf directories that carry a
-`SKILL.md` are loadable skills (Agent Skills standard —
-`agentskills.io/specification`). Containers hold structure; they are never
-injected into the model.
+The domain root is itself a skill (`website-architect`) that names which branch
+owns a given decision. Inside it, each branch directory carries its own
+`SKILL.md`, and each leaf is one architect skill. Containers never become skills —
+only directories that hold a `SKILL.md` do (Agent Skills standard,
+`agentskills.io/specification`).
 
 ## Branches
 

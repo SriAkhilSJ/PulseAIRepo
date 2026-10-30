@@ -5,7 +5,7 @@ license: MIT
 compatibility: .NET 8/9; ASP.NET Core; EF Core
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/dotnet-architect
+  crusor-path: website-architect/backend-development-architect/dotnet-architect
   crusor-origin: original
   crusor-sources: "learn.microsoft.com/aspnet/core; learn.microsoft.com/ef/core; learn.microsoft.com/dotnet/standard/asynchronous-patterns"
   crusor-triggers: "dotnet, .net, csharp, asp net core, ef core, dependency injection lifetimes, minimal api"

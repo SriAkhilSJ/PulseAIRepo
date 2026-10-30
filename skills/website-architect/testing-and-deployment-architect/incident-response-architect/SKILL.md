@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any team and stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/incident-response-architect
+  crusor-path: website-architect/testing-and-deployment-architect/incident-response-architect
   crusor-origin: original
   crusor-sources: "sre.google/sre-book/managing-incidents; sre.google/sre-book/postmortem-culture; incident.io/blog"
   crusor-triggers: "incident, outage, postmortem, on call, sev1, rollback during incident, runbook, blameless review"

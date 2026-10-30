@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any stack; any CI provider
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect
+  crusor-path: website-architect/testing-and-deployment-architect
   crusor-origin: original
   crusor-sources: "martinfowler.com/articles/practical-test-pyramid.html; 12factor.net; sre.google/sre-book"
   crusor-triggers: "deployment, release, ci cd, pipeline, testing strategy, environments, rollout, sre"

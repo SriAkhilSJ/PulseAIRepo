@@ -5,7 +5,7 @@ license: MIT
 compatibility: Playwright 1.40+; any frontend stack
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/playwright-architect
+  crusor-path: website-architect/frontend-development-architect/playwright-architect
   crusor-origin: original
   crusor-sources: "playwright.dev/docs/best-practices; playwright.dev/docs/test-fixtures"
   crusor-triggers: "playwright, e2e test, end-to-end, browser test, flaky test"

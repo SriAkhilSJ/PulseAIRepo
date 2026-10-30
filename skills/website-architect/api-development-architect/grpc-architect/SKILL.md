@@ -5,7 +5,7 @@ license: MIT
 compatibility: gRPC (HTTP/2), protobuf 3; grpc-web for browsers
 metadata:
   crusor-domain: website-architect
-  crusor-path: api-development-architect/grpc-architect
+  crusor-path: website-architect/api-development-architect/grpc-architect
   crusor-origin: original
   crusor-sources: "grpc.io/docs; protobuf.dev/programming-guides/proto3; grpc.io/docs/guides/deadlines"
   crusor-triggers: "grpc, protobuf, proto3, streaming, grpc-web, service mesh, rpc"

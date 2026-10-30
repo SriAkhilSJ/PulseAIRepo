@@ -5,7 +5,7 @@ license: MIT
 compatibility: Docker/OCI images; Kubernetes or a PaaS
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/containerization-architect
+  crusor-path: website-architect/testing-and-deployment-architect/containerization-architect
   crusor-origin: original
   crusor-sources: "docs.docker.com/build/building/best-practices; 12factor.net; kubernetes.io/docs/concepts/configuration"
   crusor-triggers: "docker, container, dockerfile, image, kubernetes, k8s, deployment topology, healthcheck, environment parity"

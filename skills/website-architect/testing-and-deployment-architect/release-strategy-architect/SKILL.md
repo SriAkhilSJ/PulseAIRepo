@@ -5,7 +5,7 @@ license: MIT
 compatibility: Any stack; feature flag service optional
 metadata:
   crusor-domain: website-architect
-  crusor-path: testing-and-deployment-architect/release-strategy-architect
+  crusor-path: website-architect/testing-and-deployment-architect/release-strategy-architect
   crusor-origin: original
   crusor-sources: "12factor.net; martinfowler.com/articles/feature-toggles.html; sre.google/workbook/canarying-releases"
   crusor-triggers: "release strategy, feature flags, canary, blue green, rollback, rollout, deployment frequency, versioning"

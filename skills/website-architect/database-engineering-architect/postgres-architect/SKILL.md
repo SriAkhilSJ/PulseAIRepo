@@ -5,7 +5,7 @@ license: MIT
 compatibility: PostgreSQL 14+
 metadata:
   crusor-domain: website-architect
-  crusor-path: database-engineering-architect/postgres-architect
+  crusor-path: website-architect/database-engineering-architect/postgres-architect
   crusor-origin: original
   crusor-sources: "postgresql.org/docs/current; use-the-index-luke.com; wiki.postgresql.org (lock monitoring)"
   crusor-triggers: "postgres, postgresql, psql, explain analyze, indexes, vacuum, partitioning, sql tuning, isolation level"
