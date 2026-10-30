@@ -176,3 +176,42 @@ def test_a_user_skill_is_never_shadowed_by_a_shipped_one(tmp_path):
     sm._load_bundled_skills(str(root))
     entry = next(s for s in sm.list_skills() if s["name"] == "deploy")
     assert entry["instruction"] == "MINE"
+
+
+# ---------------------------------------------------------------------------
+# taking more than one book
+# ---------------------------------------------------------------------------
+
+def test_skill_view_takes_several_books_in_one_call(library):
+    out = skill_tools.skill_view.invoke({"name": "nextjs-architect, website-architect"})
+    assert out.count("# skill:") == 2
+    assert "# skill: nextjs-architect" in out
+    assert "# skill: website-architect" in out
+    assert "Domain body." in out
+
+
+def test_skill_view_returns_what_exists_and_names_what_does_not(library):
+    out = skill_tools.skill_view.invoke({"name": "nextjs-architect, ghost-skill"})
+    assert "LAST LINE MARKER" in out          # the real book is still returned
+    assert "Skipped (not found): ghost-skill" in out
+
+
+def test_skill_view_caps_a_single_call_and_says_what_is_left(tmp_path, monkeypatch):
+    root = tmp_path / "skills"
+    names = [f"book-{i}-architect" for i in range(8)]
+    for n in names:
+        _write_skill(root, f"dom/{n}", n, body=f"body of {n}")
+    sm = _manager(tmp_path, root)
+    monkeypatch.setattr(skill_tools, "_manager", lambda: sm)
+    monkeypatch.setattr(skill_tools, "_skills_dir", lambda: root)
+
+    out = skill_tools.skill_view.invoke({"name": ", ".join(names)})
+    assert out.count("# skill:") == 6
+    assert "Not opened (limit 6 books per call)" in out
+    assert "book-6-architect, book-7-architect" in out
+
+
+def test_skill_view_tracks_each_book_read(library):
+    skill_tools.skill_view.invoke({"name": "nextjs-architect website-architect"})
+    assert library.get_usage("nextjs-architect")["view_count"] == 1
+    assert library.get_usage("website-architect")["view_count"] == 1

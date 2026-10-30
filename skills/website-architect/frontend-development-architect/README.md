@@ -49,3 +49,11 @@ The loader records `phase="planning"` for every `*-architect` skill (override
 with `metadata.crusor-phase`). `get_relevant_skills(task, phase=...)` refuses to
 inject a planning skill while executing, so an architect skill can never drift
 into a mid-run instruction.
+
+## How many books at once
+
+As many as the plan needs — `skill_view("fastapi-architect, django-architect")`
+opens both, labelled and separated. A plan spanning several technologies reads
+several skills; the only limits are mechanical: 6 books per call and a 60k-char
+budget, after which the model is told what was left over so it can take the rest
+in a second call.

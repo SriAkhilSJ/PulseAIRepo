@@ -24,6 +24,7 @@ never raised.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,8 @@ from langchain_core.tools import tool
 _SKILL_SUPPORT_DIRS = ("references", "assets", "scripts", "templates")
 _MAX_SUPPORT_FILES = 20
 _MAX_LISTED_NAMES = 40
+_MAX_BOOKS_PER_VIEW = 6
+_MAX_VIEW_CHARS = 60000
 
 
 def _repo_root() -> Path:
@@ -79,31 +82,8 @@ def _find(name: str) -> dict | None:
     return None
 
 
-@tool
-def skill_view(name: str) -> str:
-    """Load a skill's full instructions into context — do this when the skills
-    index lists a skill relevant to the current task, then follow its body.
-
-    Returns the skill body (frontmatter stripped) and, for bundled skills, the
-    skill folder's supporting files (scripts, references, templates). Covers
-    bundled SKILL.md skills and user-created skills alike.
-
-    Args:
-        name: skill name exactly as it appears in the skills index,
-            e.g. "media-sourcing".
-    """
-    skill = _find(name)
-    if skill is None:
-        names = sorted(
-            str(s.get("name", ""))
-            for s in _manager().list_skills()
-            if s.get("enabled", True) and s.get("state") != "archived"
-        )
-        shown = ", ".join(names[:_MAX_LISTED_NAMES])
-        if len(names) > _MAX_LISTED_NAMES:
-            shown += ", ..."
-        return f"skill_view error: no skill named {name!r}. Available: {shown}"
-
+def _render_skill(skill: dict) -> str | None:
+    """Render one skill as the text the model reads. None if it has no body."""
     skill_name = str(skill["name"])
     source = "bundled" if skill.get("created_by") == "bundled" else str(skill.get("created_by", "user"))
     parts = [
@@ -150,7 +130,7 @@ def skill_view(name: str) -> str:
 
     body = (body or "").strip()
     if not body:
-        return f"skill_view error: skill {skill_name!r} has an empty body"
+        return None
 
     _manager().record_usage(skill_name, "view")
     parts.append(body)
@@ -160,8 +140,78 @@ def skill_view(name: str) -> str:
 
 
 @tool
+def skill_view(name: str) -> str:
+    """Load one or more skills' full instructions into context — take every
+    book the task needs, not just one: a plan that touches a framework and its
+    testing strategy wants both. Then follow what you read.
+
+    Returns each skill body (frontmatter stripped) and, for bundled skills, the
+    skill folder's supporting files (scripts, references, templates). Covers
+    bundled SKILL.md skills and user-created skills alike.
+
+    Args:
+        name: one skill name, or several separated by commas/spaces, exactly as
+            they appear in the library — e.g.
+            "fastapi-architect, react-testing-architect".
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return "skill_view error: name is required (skills_list to browse the library)"
+
+    requested: list[str] = []
+    for token in re.split(r"[,;\s]+", raw):
+        token = token.strip()
+        if token and token not in requested:
+            requested.append(token)
+
+    if len(requested) > _MAX_BOOKS_PER_VIEW:
+        extra = requested[_MAX_BOOKS_PER_VIEW:]
+        requested = requested[:_MAX_BOOKS_PER_VIEW]
+        overflow = (
+            f"\n\nNot opened (limit {_MAX_BOOKS_PER_VIEW} books per call): "
+            + ", ".join(extra)
+            + " — call skill_view again for these if the plan needs them."
+        )
+    else:
+        overflow = ""
+
+    rendered: list[str] = []
+    errors: list[str] = []
+    for token in requested:
+        skill = _find(token)
+        if skill is None:
+            errors.append(token)
+            continue
+        text = _render_skill(skill)
+        if text is None:
+            errors.append(f"{token} (empty body)")
+            continue
+        rendered.append(text)
+
+    if not rendered:
+        names = sorted(
+            str(s.get("name", ""))
+            for s in _manager().list_skills()
+            if s.get("enabled", True) and s.get("state") != "archived"
+        )
+        shown = ", ".join(names[:_MAX_LISTED_NAMES])
+        if len(names) > _MAX_LISTED_NAMES:
+            shown += ", ..."
+        missing = ", ".join(errors)
+        return f"skill_view error: no skill named {missing}. Available: {shown}"
+
+    out = "\n\n---\n\n".join(rendered)
+    if len(out) > _MAX_VIEW_CHARS:
+        out = out[:_MAX_VIEW_CHARS] + "\n\n[... skill_view budget reached — open the rest separately]"
+    if errors:
+        out += "\n\nSkipped (not found): " + ", ".join(errors)
+    return out + overflow
+
+
+@tool
 def skills_list(shelf: str = "") -> str:
     """Browse the skills library — shelves first, then the books on them.
+    Take as many books as the plan needs with skill_view("a, b, c").
 
     The library is a tree: domain -> branch -> technology -> skill. Call with no
     argument to see the top-level shelves, then call again with a shelf path to
