@@ -190,6 +190,17 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "dotnet-architect",
         "ruby-architect",
         "php-architect",
+        "mobile-architect",
+        "ios-architect",
+        "android-architect",
+        "react-native-architect",
+        "flutter-architect",
+        "mobile-release-architect",
+        "desktop-architect",
+        "electron-architect",
+        "tauri-architect",
+        "native-desktop-architect",
+        "desktop-distribution-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -458,9 +469,27 @@ def test_every_domain_has_a_crown_skill():
         domain = (frontmatter.get("metadata") or {}).get("crusor-domain")
         if domain:
             domains.add(str(domain))
-    assert domains >= {"website-architect", "mobile-architect"}
+    assert domains >= {"website-architect", "mobile-architect", "desktop-architect"}
     for domain in sorted(domains):
         crown = Path("skills") / domain / "SKILL.md"
         assert crown.is_file(), f"domain {domain!r} has no crown skill at {crown}"
         frontmatter, _ = _parse_skill_frontmatter(crown.read_text(encoding="utf-8"))
         assert frontmatter.get("name") == domain
+
+
+DESKTOP_CAPABILITIES = {
+    "runtime choice and process boundaries": "desktop-architect",
+    "web stack runtime": "electron-architect",
+    "system webview runtime": "tauri-architect",
+    "platform-native stack": "native-desktop-architect",
+    "signing, packaging, updates": "desktop-distribution-architect",
+}
+
+
+def test_desktop_domain_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in DESKTOP_CAPABILITIES.items() if s not in available}
+    assert not missing, f"desktop capabilities without a skill: {missing}"

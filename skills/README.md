@@ -7,6 +7,7 @@ shelf holds books, and the agent takes the books its task needs.
 skills/
 ├── website-architect/     the web product, end to end
 ├── mobile-architect/      iOS, Android, React Native, Flutter, release
+├── desktop-architect/     Electron, Tauri, native, distribution
 └── …                      (process skills: flat, one directory per skill)
 ```
 
@@ -43,5 +44,6 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 |---|---|---|
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
 | `mobile-architect/` | 6 | platform choice, iOS, Android, React Native, Flutter, stores and rollout |
+| `desktop-architect/` | 5 | runtime choice, Electron, Tauri, native, signing and updates |
 
 See `website-architect/VERIFICATION.md` for the current conformance audit.

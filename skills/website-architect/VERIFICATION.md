@@ -6,24 +6,25 @@ Generated 2026-10-30 from repository state.
 
 | Domain | Skills |
 |---|---|
+| `desktop-architect/` | 5 |
 | `mobile-architect/` | 6 |
 | `website-architect/` | 76 |
-| **total** | **82** |
+| **total** | **87** |
 
 ## Spec conformance
 
-- files checked: **82**
-- name == parent directory: **82/82**
-- crusor-path == path from skills/: **82/82**
-- unique names: **82/82**
+- files checked: **87**
+- name == parent directory: **87/87**
+- crusor-path == path from skills/: **87/87**
+- unique names: **87/87**
 - longest body: **5955 chars** (cap 6000)
 - longest description: **406 chars** (limit 1024)
-- provenance present: **82/82**
+- provenance present: **87/87**
 
 ## Runtime
 
-- discovered as bundled skills: **102**
-- phase = planning: **82**
+- discovered as bundled skills: **107**
+- phase = planning: **87**
 - injected while executing: **1**
 - injected while planning: **2**
 
@@ -50,16 +51,20 @@ Generated 2026-10-30 from repository state.
 | android compose navigation | android-architect, mobile-architect |
 | react native performance | react-native-architect |
 | flutter state management | flutter-architect |
-| app store signing | mobile-release-architect |
+| app store signing | desktop-distribution-architect, mobile-release-architect |
+| build a desktop app in electron | desktop-architect, electron-architect |
+| tauri vs electron | desktop-architect, electron-architect, tauri-architect |
+| sign our mac app | — (browse fallback) |
+| auto update for windows | desktop-architect, desktop-distribution-architect |
 
 ## Verification runs
 
-- `pytest src/tests -q` → 2975 passed, 20 failed, 23 skipped, 1 xfailed — the 20 are the repository's pre-existing unrelated failures (baseline was 21).
-- `pytest src/tests/test_agent_skills_tree.py` → 17 passed (spec conformance, uniqueness, path integrity, domain crowns, capability contracts, library discovery).
-- `pytest src/tests/test_skill_library.py` → 13 passed (shelf recording, browsing, full-body reads, planning phase, batch views).
+- `pytest src/tests -q` → 2975 passed, 20 failed, 23 skipped, 1 xfailed — the 20 are the repository's pre-existing unrelated failures (baseline 21).
+- `pytest src/tests/test_agent_skills_tree.py` → 18 passed: spec conformance, uniqueness, path integrity, domain crowns, capability contracts, discovery.
+- `pytest src/tests/test_skill_library.py` → 13 passed: shelf recording, browsing, full-body reads, planning phase, batch views.
 
 ## Known gaps
 
-- Every skill is `crusor-origin: original`: GitHub access is unavailable in this environment, so no body was adapted from an upstream repository.
+- Every skill is `crusor-origin: original`: GitHub access is unavailable here, so no body was adapted from an upstream repository.
 - The MCP hierarchy mirroring this tree is not built yet.
 
