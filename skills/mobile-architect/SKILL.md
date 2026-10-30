@@ -8,7 +8,7 @@ metadata:
   crusor-path: mobile-architect
   crusor-origin: original
   crusor-sources: "developer.apple.com/design; developer.android.com/design; reactnative.dev; docs.flutter.dev"
-  crusor-triggers: "mobile app, ios, android, cross platform, native app, app architecture, offline first, mobile release"
+  crusor-triggers: "mobile app, ios, android, cross platform, native app, app architecture, offline first, mobile release, mobile security, mobile testing, accessibility, app performance, offline sync, offline"
   crusor-verified-on: "2026-10-30"
 ---
 
@@ -25,6 +25,13 @@ an OS that can kill you at any moment, and a release you cannot hotfix instantly
 | Android, Kotlin/Compose | `android-architect` |
 | one TypeScript codebase for both | `react-native-architect` |
 | one Dart codebase, high UI consistency | `flutter-architect` |
+| iOS screens, state and Swift concurrency | `ios-swiftui-architect` |
+| Android screens, state and process death | `android-compose-architect` |
+| offline database, outbox and conflicts | `mobile-offline-sync-architect` |
+| tokens, biometrics, deep links, tampering | `mobile-security-architect` |
+| start-up, jank, memory, battery, size | `mobile-performance-architect` |
+| unit/UI/E2E layers and device matrix | `mobile-testing-architect` |
+| screen readers, dynamic type, contrast | `mobile-accessibility-architect` |
 | signing, stores, staged rollout, OTA | `mobile-release-architect` |
 
 ## Decision 1 — Native vs cross-platform

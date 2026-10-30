@@ -8,7 +8,7 @@ metadata:
   crusor-path: desktop-architect
   crusor-origin: original
   crusor-sources: "electronjs.org/docs; v2.tauri.app; developer.apple.com/documentation; learn.microsoft.com/windows/apps"
-  crusor-triggers: "desktop app, electron, tauri, native desktop, cross platform desktop, auto update, desktop architecture"
+  crusor-triggers: "desktop app, electron, tauri, native desktop, cross platform desktop, auto update, desktop architecture, ipc, local database, desktop security, update channel"
   crusor-verified-on: "2026-10-30"
 ---
 
@@ -25,6 +25,10 @@ why the boundaries matter more than on the web.
 | web stack, huge ecosystem, fast delivery | `electron-architect` |
 | small binary, low memory, Rust backend | `tauri-architect` |
 | platform-perfect integration, native UI | `native-desktop-architect` |
+| typed bridges between UI and privileged core | `desktop-ipc-architect` |
+| local database, durability, corruption | `desktop-offline-storage-architect` |
+| keychain, CSP, file exposure, hardening | `desktop-security-architect` |
+| channels, staged rollout, migrations, rollback | `desktop-update-architect` |
 | signing, notarization, updates, installers | `desktop-distribution-architect` |
 
 ## Decision 1 — Runtime choice

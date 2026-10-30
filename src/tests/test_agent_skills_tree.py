@@ -222,6 +222,17 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "orchestration-architect",
         "data-quality-architect",
         "analytics-engineering-architect",
+        "ios-swiftui-architect",
+        "android-compose-architect",
+        "mobile-offline-sync-architect",
+        "mobile-security-architect",
+        "mobile-performance-architect",
+        "mobile-testing-architect",
+        "mobile-accessibility-architect",
+        "desktop-ipc-architect",
+        "desktop-offline-storage-architect",
+        "desktop-security-architect",
+        "desktop-update-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -465,6 +476,13 @@ MOBILE_CAPABILITIES = {
     "shared typescript stack": "react-native-architect",
     "shared dart stack": "flutter-architect",
     "stores, signing, rollout": "mobile-release-architect",
+    "ios screens and state": "ios-swiftui-architect",
+    "android screens and state": "android-compose-architect",
+    "offline store and conflicts": "mobile-offline-sync-architect",
+    "tokens, biometrics, tampering": "mobile-security-architect",
+    "start-up, jank, memory, size": "mobile-performance-architect",
+    "test layers and device matrix": "mobile-testing-architect",
+    "screen readers and scaling": "mobile-accessibility-architect",
 }
 
 
@@ -509,6 +527,10 @@ DESKTOP_CAPABILITIES = {
     "system webview runtime": "tauri-architect",
     "platform-native stack": "native-desktop-architect",
     "signing, packaging, updates": "desktop-distribution-architect",
+    "typed bridge to the privileged core": "desktop-ipc-architect",
+    "local database and durability": "desktop-offline-storage-architect",
+    "keychain, CSP and local exposure": "desktop-security-architect",
+    "channels, staged rollout, migrations": "desktop-update-architect",
 }
 
 

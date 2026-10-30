@@ -6,8 +6,8 @@ shelf holds books, and the agent takes the books its task needs.
 ```
 skills/
 ├── website-architect/     the web product, end to end
-├── mobile-architect/      iOS, Android, React Native, Flutter, release
-├── desktop-architect/     Electron, Tauri, native, distribution
+├── mobile-architect/      iOS, Android, RN, Flutter, offline, security, perf, testing, a11y, release
+├── desktop-architect/     Electron, Tauri, native, IPC, storage, security, update, distribution
 ├── cloud-and-devops-architect/  cloud primitives, k8s, IaC, serverless, reliability, cost
 ├── ai-ml-architect/       LLM apps, RAG, evals, serving, MLOps, agents
 ├── data-engineering-architect/  batch, streaming, warehouse, orchestration, quality, dbt
@@ -46,8 +46,8 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | Domain | Skills | Covers |
 |---|---|---|
 | `website-architect/` | 76 | frontend, backend, data, API, UI implementation, security, delivery |
-| `mobile-architect/` | 6 | platform choice, iOS, Android, React Native, Flutter, stores and rollout |
-| `desktop-architect/` | 5 | runtime choice, Electron, Tauri, native, signing and updates |
+| `mobile-architect/` | 13 | platform choice, iOS/SwiftUI, Android/Compose, RN, Flutter, offline sync, security, performance, testing, accessibility, release |
+| `desktop-architect/` | 9 | runtime choice, Electron, Tauri, native, IPC, local storage, security, updates, distribution |
 | `cloud-and-devops-architect/` | 7 | cloud topology, AWS, Kubernetes, Terraform, serverless, reliability, cost |
 | `ai-ml-architect/` | 7 | model boundary, LLM apps, RAG, evals, inference serving, MLOps, agents |
 | `data-engineering-architect/` | 7 | topology, batch, streaming, warehouse modelling, orchestration, quality, dbt |
