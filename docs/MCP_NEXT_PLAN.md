@@ -57,10 +57,18 @@ So the waist is three fixed tools, constant cost:
 | `mcp_tools(server?, query?)` | the catalog, filtered — schemas only for the tools asked about | ~180 tok |
 | `mcp_call(server, tool, args)` | run it, approval-gated, receipted | ~140 tok |
 
-Measured: the three schemas are **2 144 bytes ≈ 564 tokens**, flat, whether the
-workspace has one server or ten. For comparison, our own 4-tool server costs 354
-bytes/tool (93 tok) of schema; bound directly, a 90-tool server (GitHub's size)
-would be **~8 400 tokens on every turn** — before a browser server joins. The model pays
+Measured (`scripts/bench_skill_retrieval.py --mcp-tools N`, the same harness that
+measures skills):
+
+| Server tools | Meta-tools (per turn) | `mcp_tools` listing | Bound directly instead |
+|---|---|---|---|
+| 10 | 564 tok | 325 tok | 749 tok (1.3×) |
+| 40 | 564 tok | 661 tok | 3 011 tok (5.3×) |
+| 200 | 564 tok | **662 tok** | 15 126 tok (**26.8×**) |
+
+Two things fall out of that table. The per-turn cost is **flat at 564 tokens**
+however many servers or tools exist. And the listing is **bounded by its own
+`limit` (20), not by the server** — 200 tools cost the same to list as 40. The model pays
 one round trip to see a schema instead of every turn paying for all of them —
 the same trade as `skills_search` (1 call) versus injecting the whole library.
 
