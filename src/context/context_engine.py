@@ -198,6 +198,23 @@ def _get_shared_classifier(allow_embedding_compute: bool = False) -> "TaskClassi
     return _SHARED_CLASSIFIER
 
 
+def _skills_phase(state: dict[str, Any]) -> str:
+    """Is this turn the plan-mode turn?
+
+    Plan Mode in this codebase is `execution_mode == "plan"` — that is what the
+    UI toggle sets and what the planner branches on. `phase` and `plan_mode`
+    stay supported for callers that set them directly. The gate matters: before
+    this, nothing upstream set any of them, so the skills layer always computed
+    "executing" and no architect book ever reached a plan.
+    """
+    return "planning" if (
+        state.get("execution_mode") == "plan"
+        or state.get("mode") == "plan"
+        or state.get("phase") == "planning"
+        or state.get("plan_mode")
+    ) else "executing"
+
+
 class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     """
     The Context Engine class.
@@ -2144,10 +2161,14 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         task = state.get("current_task", "")
         if not task:
             return None
-        # Architect skills are planning instruments: they may only be injected
-        # while a plan or todo list is being produced. Anything else is
-        # execution, where the model pulls a skill deliberately with skill_view.
-        phase = "planning" if (state.get("phase") == "planning" or state.get("plan_mode")) else "executing"
+        # Architect skills are planning instruments: they are injected on the
+        # plan-mode turn, before the model writes the plan, and nowhere else.
+        # Plan mode in this codebase is `execution_mode == "plan"` (the UI's Plan
+        # Mode toggle sets it); `phase`/`plan_mode` are kept for callers that set
+        # them directly. Before this, nothing upstream set either flag, so the
+        # layer always computed "executing" and no architect book ever reached a
+        # plan.
+        phase = _skills_phase(state)
         text = skill_manager.get_skills_text(task, phase=phase)
         if not text:
             return None

@@ -200,6 +200,57 @@ def _iso_to_dt(iso: str) -> datetime | None:
         return None
 
 
+
+# ---------------------------------------------------------------------------
+# Plan Mode stack spine
+#
+# "An architect-level plan is not one book." A product plan has to answer the
+# same concerns in every domain — shell, boundary, data, security, delivery —
+# and trigger matching alone cannot supply that: "build a SaaS for field
+# service teams" matches three books, none of them the API or the data model.
+# So a product-shaped task also gets a spine: one book per concern, per domain
+# its words point at. Narrow tasks ("add retry to the bridge") get none.
+# ---------------------------------------------------------------------------
+_STACK_SPINE: dict[str, tuple[str, ...]] = {
+    "website": ("frontend-development-architect", "backend-development-architect",
+                "api-development-architect", "database-engineering-architect",
+                "security-architect", "testing-and-deployment-architect"),
+    "mobile": ("mobile-architect", "mobile-offline-sync-architect",
+               "mobile-release-architect", "mobile-security-architect"),
+    "desktop": ("desktop-architect", "desktop-ipc-architect",
+                "desktop-distribution-architect", "desktop-update-architect"),
+    "data": ("data-engineering-architect", "warehouse-architect",
+             "ingestion-architect", "analytics-engineering-architect"),
+    "ai-ml": ("ai-ml-architect", "model-selection-architect", "rag-architect",
+              "evals-architect"),
+    "cloud-and-devops": ("cloud-and-devops-architect", "aws-architect",
+                         "terraform-architect", "kubernetes-architect",
+                         "sre-observability-architect"),
+}
+
+_DOMAIN_WORDS: dict[str, tuple[str, ...]] = {
+    "website": ("saas", "web", "webapp", "website", "product", "platform", "marketplace",
+                "dashboard", "portal", "b2b", "subscription", "billing", "signup", "login",
+                "api", "backend", "frontend", "full stack", "multi tenant", "multi-tenant"),
+    "mobile": ("mobile", "ios", "android", "iphone", "ipad", "tablet", "app store",
+               "play store", "flutter", "react native", "field team", "field service"),
+    "desktop": ("desktop", "electron", "windows app", "mac app", "menu bar", "system tray"),
+    "data": ("analytics", "warehouse", "etl", "elt", "reporting", "metrics", "data pipeline",
+             "ingestion", "bi"),
+    "ai-ml": ("llm", "ai", "ml", "model", "rag", "agent", "chatbot", "embedding", "inference"),
+    "cloud-and-devops": ("cloud", "aws", "gcp", "azure", "kubernetes", "deploy", "infra",
+                         "infrastructure", "terraform", "scale", "docker", "ci/cd"),
+}
+
+# Verbs that mean "design a system", not "change a line".
+_PRODUCT_VERBS = ("build", "create", "design", "launch", "plan", "ship", "architect",
+                  "start", "develop", "implement", "add support for", "migrate", "rewrite")
+
+
+def _has_word(text: str, word: str) -> bool:
+    return re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(word), text) is not None
+
+
 class SkillManager:
     """
     Manages user-defined skills that inject into agent context.
@@ -649,6 +700,104 @@ class SkillManager:
                 kept.append((score, skill))
         return kept
 
+    # How much architect material Plan Mode may carry. A plan that a strong SaaS
+    # is built from is not one book: it needs the stack — shell, API, data,
+    # security, delivery — plus the domain specifics. 60 000 chars ≈ 15 800
+    # tokens, which is affordable once per planning turn and catastrophic only
+    # if it happened every turn (it does not: the gate is the plan-mode turn).
+    _PLAN_KIT_CHARS = int(os.environ.get("SKILL_PLAN_KIT_CHARS", "60000"))
+
+    def _spine_for(self, task: str) -> list[tuple[str, str]]:
+        """Books a product plan must cover, derived from the domains the task names."""
+        if not self._is_product_task(task):
+            return []
+        spine: list[tuple[str, str]] = []
+        for domain in self._detect_domains(task):
+            for name in _STACK_SPINE.get(domain, ()):
+                spine.append((name, domain))
+        return spine
+
+    def get_skill(self, name: str) -> dict | None:
+        return next((s for s in self._skills if s.get("name") == name), None)
+
+    def _detect_domains(self, task: str) -> list[str]:
+        low = (task or "").lower()
+        found = [d for d, words in _DOMAIN_WORDS.items() if any(_has_word(low, w) for w in words)]
+        return found
+
+    def _is_product_task(self, task: str) -> bool:
+        low = (task or "").lower()
+        return any(_has_word(low, v) or v in low for v in _PRODUCT_VERBS)
+
+    def plan_kit(self, task: str, budget_chars: int | None = None) -> dict[str, list[dict]]:
+        """The books an architect-level plan needs, grouped by how much they matter.
+
+        Tiers, in reading order:
+          core    — the crown(s) of the matched domain(s): the map and the rules
+          stack   — shelf crowns that matched: one per concern (API, data, security…)
+          detail  — matched books: the framework-level decisions
+
+        Built rather than picked: a single skill cannot produce a plan that spans
+        a product, and returning three books was the old behaviour.
+        """
+        budget = budget_chars or self._PLAN_KIT_CHARS
+        ranked = self.ranked_for_task(task, phase="planning")
+        spine = self._spine_for(task)
+
+        if not ranked and not spine:
+            return {"core": [], "stack": [], "detail": []}
+
+        by_path = {str(s.get("path") or s["name"]): s for _score, s in ranked}
+        core: list[dict] = []
+        stack: list[dict] = []
+        detail: list[dict] = []
+
+        chosen_names: set[str] = set()
+        for name, role in spine:
+            skill = self.get_skill(name)
+            if not skill:
+                continue
+            entry = {"name": name, "path": str(skill.get("path") or name),
+                     "score": 0.0, "role": role,
+                     "description": str(skill.get("description") or "")[:160],
+                     "chars": len(str(skill.get("instruction") or ""))}
+            (core if skill.get("path", "").count("/") == 0 else stack).append(entry)
+            chosen_names.add(name)
+
+        for score, skill in ranked:
+            if skill["name"] in chosen_names:
+                continue
+            path = str(skill.get("path") or skill["name"])
+            depth = path.count("/")
+            entry = {"name": skill["name"], "path": path, "score": round(score, 2),
+                     "description": str(skill.get("description") or "")[:160],
+                     "chars": len(str(skill.get("instruction") or ""))}
+            if depth == 0 and len(core) < 2:
+                core.append(entry)
+            elif depth == 1 and len(stack) < 8:
+                # a shelf crown earns the stack slot only if its own books matched
+                stack.append(entry)
+            else:
+                detail.append(entry)
+
+        # Fill the budget in tier order, dropping the weakest detail first.
+        def total(entries: list[dict]) -> int:
+            return sum(e["chars"] for e in entries)
+
+        kept_before = len(core) + len(stack) + len(detail)
+        while core + stack + detail and total(core + stack + detail) > budget:
+            if len(detail) > 3:
+                detail.pop()
+            elif len(stack) > 2:
+                stack.pop()
+            elif len(core) > 1:
+                core.pop()
+            else:
+                break
+        kept = len(core) + len(stack) + len(detail)
+        return {"core": core, "stack": stack, "detail": detail,
+                "dropped": max(0, len(ranked) + len(spine) - kept)}
+
     def get_skills_text(self, task: str, phase: str = "executing") -> str:
         """Budgeted, ranked injection — the zero-call path.
 
@@ -658,32 +807,54 @@ class SkillManager:
         strongest few inside `_INJECT_CHARS` and says how many were left, so
         the agent knows to pull the rest deliberately.
         """
-        ranked = self.ranked_for_task(task, phase=phase)
-        if not ranked:
+        planning = phase == "planning"
+        if not planning:
+            ranked = self.ranked_for_task(task, phase=phase)
+            if not ranked:
+                return ""
+            chosen = []
+            for _score, skill in ranked:
+                chosen.append(f"**{skill['name']}:** {skill['instruction']}")
+                self.record_usage(skill["name"], "use", persist=False)
+            if chosen:
+                self._maybe_flush_usage()
+            return "\n".join(["=== ACTIVE SKILLS ===", *chosen])
+
+        kit = self.plan_kit(task)
+        sections: list[str] = []
+        labels = {
+            "core": "The domain map and its rules — read first.",
+            "stack": "One book per concern the plan must cover.",
+            "detail": "Framework-level decisions for the parts being built.",
+        }
+        for tier in ("core", "stack", "detail"):
+            entries = kit[tier]
+            if not entries:
+                continue
+            sections.append(f"### {tier.upper()} — {labels[tier]}")
+            for entry in entries:
+                skill = self.get_skill(entry["name"])
+                if not skill:
+                    continue
+                sections.append(f"**{skill['name']}:** {skill['instruction']}")
+                self.record_usage(skill["name"], "use", persist=False)
+        if not sections:
             return ""
-        chosen: list[str] = []
-        used = 0
-        for _score, skill in ranked:
-            block = f"**{skill['name']}:** {skill['instruction']}"
-            if chosen and used + len(block) > _INJECT_CHARS:
-                break
-            chosen.append(block)
-            used += len(block)
-            self.record_usage(skill["name"], "use", persist=False)
-        if chosen:
-            self._maybe_flush_usage()  # throttled: never per book, never per turn
-        left = len(ranked) - len(chosen)
-        lines = ["=== ACTIVE SKILLS ==="]
-        lines.append("Architect books selected for this task, in priority order:\n")
-        for inst in chosen:
-            lines.append(f"- {inst}")
-        if left > 0:
-            lines.append(
-                f"\n{left} more book(s) matched and were left out of the budget. "
-                "Pull them deliberately with skill_view(\"name-a, name-b\") "
-                "or browse with skills_list()."
+        self._maybe_flush_usage()
+        count = sum(len(kit[t]) for t in ("core", "stack", "detail"))
+        tail = []
+        if kit.get("dropped"):
+            tail.append(
+                f"\n{kit['dropped']} more book(s) matched and were left out of the budget. "
+                'Pull them deliberately with skill_view("name-a, name-b").'
             )
-        return "\n".join(lines)
+        return "\n\n".join([
+            "=== ACTIVE SKILLS ===",
+            f"Plan Mode: {count} architect books are loaded. An architect-level plan "
+            "is not one book — cover the stack, then decide.",
+            *sections,
+            *tail,
+        ])
 
     def skills_manifest(self) -> str:
         """D39: compact, byte-stable index of all enabled skills. Stable as

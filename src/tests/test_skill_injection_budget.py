@@ -21,16 +21,15 @@ def manager():
     return SkillManager(storage_path=NamedTemporaryFile(suffix=".json").name)
 
 
-def test_injection_stays_inside_the_budget(manager, monkeypatch):
-    monkeypatch.setattr(sm_mod, "_INJECT_CHARS", 6000)
-    text = manager.get_skills_text("kafka consumer lag is growing", phase="planning")
-    assert 0 < len(text) < 9000  # one book plus the header and the hint
-    assert "more book(s) matched" in text or len(text) < 6000
+def test_injection_stays_inside_the_budget(manager):
+    text = manager.get_skills_text(
+        "build a multi-tenant SaaS with billing", phase="planning")
+    assert 0 < len(text) <= manager._PLAN_KIT_CHARS + 4000
 
 
 def test_overflow_is_announced_not_hidden(manager, monkeypatch):
-    monkeypatch.setattr(sm_mod, "_INJECT_CHARS", 3500)
-    text = manager.get_skills_text("kafka consumer lag is growing", phase="planning")
+    monkeypatch.setattr(manager, "_PLAN_KIT_CHARS", 6000)
+    text = manager.get_skills_text("build a multi-tenant SaaS with billing", phase="planning")
     assert "left out of the budget" in text
     assert "skill_view" in text
 
@@ -74,3 +73,50 @@ def test_zero_call_routing_finds_the_right_book(manager, task, expected):
     """No tool call at all: the book is already in the injected planning text."""
     text = manager.get_skills_text(task, phase="planning")
     assert expected in text, f"{expected} was not injected for {task!r}"
+
+
+# -- Plan Mode: the plan is built from many books, not one ------------------
+
+def test_plan_kit_covers_the_stack_for_a_product_task(manager):
+    """"Build a SaaS" must yield a stack, not three books."""
+    kit = manager.plan_kit(
+        "build a multi-tenant SaaS for field service teams with billing and offline mobile"
+    )
+    names = [e["name"] for tier in ("core", "stack", "detail") for e in kit[tier]]
+    assert len(names) >= 8, names
+    for required in ("backend-development-architect", "api-development-architect",
+                     "database-engineering-architect", "security-architect"):
+        assert required in names, f"{required} missing from the SaaS plan kit"
+
+
+def test_plan_kit_spans_more_than_one_domain(manager):
+    kit = manager.plan_kit("build a SaaS product with a mobile app and a data warehouse")
+    domains = {e["path"].split("/")[0]
+               for tier in ("core", "stack", "detail") for e in kit[tier]}
+    assert len(domains) >= 3, domains
+
+
+def test_narrow_tasks_do_not_get_a_kit(manager):
+    kit = manager.plan_kit("add retry to the bridge")
+    count = sum(len(kit[t]) for t in ("core", "stack", "detail"))
+    assert count <= 3, f"a narrow task pulled {count} books"
+
+
+def test_plan_mode_text_is_labelled_and_bounded(manager):
+    text = manager.get_skills_text(
+        "build a multi-tenant SaaS for field service teams with billing", phase="planning"
+    )
+    assert "Plan Mode" in text
+    assert "CORE" in text and "STACK" in text
+    assert len(text) <= manager._PLAN_KIT_CHARS + 4000
+
+
+def test_plan_mode_is_detected_from_the_repo_state_flag():
+    """The gate reads `execution_mode == "plan"` — the flag the UI actually sets."""
+    from src.context.context_engine import _skills_phase
+
+    assert _skills_phase({"execution_mode": "plan"}) == "planning"
+    assert _skills_phase({"mode": "plan"}) == "planning"
+    assert _skills_phase({"plan_mode": True}) == "planning"
+    assert _skills_phase({"execution_mode": "agent"}) == "executing"
+    assert _skills_phase({}) == "executing"
