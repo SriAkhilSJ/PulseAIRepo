@@ -8,7 +8,7 @@ metadata:
   crusor-path: backend-development-architect/python-architect
   crusor-origin: original
   crusor-sources: "docs.python.org/3; packaging.python.org; docs.astral.sh/uv; docs.pytest.org"
-  crusor-triggers: "python, packaging, pyproject, uv, ruff, mypy, pytest, asyncio, project-layout"
+  crusor-triggers: "python, pyproject, uv, ruff, mypy, pytest, asyncio, project layout"
   crusor-verified-on: "2026-10-30"
 ---
 

@@ -118,8 +118,13 @@ def _frontmatter_triggers(frontmatter: dict) -> list[str]:
 
     def _scan(node: Any) -> None:
         if isinstance(node, str):
-            for t in node.replace(",", " ").split():
-                collected.append(t.lower())
+            # Commas separate triggers, whitespace does NOT: "server state"
+            # is one phrase. Word-splitting it produced "server" and "state",
+            # which match almost any task and flood the injection.
+            for part in node.split(","):
+                t = part.strip().lower()
+                if t:
+                    collected.append(t)
         elif isinstance(node, list):
             for item in node:
                 _scan(item)

@@ -6,24 +6,33 @@ its **own architect skill** (`SKILL.md`); this directory itself is also a skill
 
 ```
 frontend-development-architect/
-├── SKILL.md                              # branch architect: visual direction, tokens, budgets
-├── html-css-architect/SKILL.md           # semantics, cascade, layout, responsive strategy
-├── javascript-architect/SKILL.md         # module boundaries, async/error flow, runtime split
-├── typescript-architect/SKILL.md         # contracts, unions, strictness, schema-derived types
-├── vue-architect/SKILL.md                # Composition API, Pinia, Nuxt
-├── angular-architect/SKILL.md            # standalone, signals vs RxJS, DI scopes
-├── svelte-architect/SKILL.md             # runes, SvelteKit load/actions
-├── astro-architect/SKILL.md              # islands, content collections, output modes
+├── SKILL.md                                # branch architect: visual direction, tokens, budgets
+├── html-css-architect/SKILL.md             # semantics, cascade, layout, responsive strategy
+├── javascript-architect/SKILL.md           # module boundaries, async/error flow, runtime split
+├── typescript-architect/SKILL.md           # contracts, unions, strictness, schema-derived types
+├── tailwind-architect/SKILL.md             # token delivery, theme strategy, variant layering
+├── vite-architect/SKILL.md                 # dev vs build, chunking, env, budgets
+├── playwright-architect/SKILL.md           # E2E scope, fixtures, determinism, CI policy
+├── vue-architect/SKILL.md                  # Composition API, Pinia, Nuxt
+├── angular-architect/SKILL.md              # standalone, signals vs RxJS, DI scopes
+├── svelte-architect/SKILL.md               # runes, SvelteKit load/actions
+├── astro-architect/SKILL.md                # islands, content collections, output modes
 └── react-architect/
-    ├── SKILL.md                          # React entry point: framework/shell/routing decisions
-    ├── react-core-architect/SKILL.md     # component boundaries, composition, boundaries
-    ├── nextjs-architect/SKILL.md         # App Router, rendering strategy, cache layers
-    ├── react-router-architect/SKILL.md   # routing, loaders, guards (non-Next)
-    ├── react-state-management-architect/SKILL.md
-    ├── react-ui-libraries-architect/SKILL.md
-    ├── react-testing-architect/SKILL.md
-    ├── nodejs-architect/SKILL.md
-    └── threejs-architect/SKILL.md
+    ├── SKILL.md                            # React entry point: framework/shell/routing decisions
+    ├── react-core-architect/SKILL.md       # component boundaries, composition, error boundaries
+    ├── nextjs-architect/SKILL.md           # App Router, rendering strategy, cache layers
+    ├── react-router-architect/SKILL.md     # routing, loaders, guards (non-Next)
+    ├── react-state-management-architect/SKILL.md  # state homes, context vs store
+    ├── tanstack-query-architect/SKILL.md   # server state, keys, invalidation
+    ├── redux-toolkit-architect/SKILL.md    # slices, selectors, effects
+    ├── react-ui-libraries-architect/SKILL.md      # headless vs styled, wrappers, a11y
+    ├── react-testing-architect/SKILL.md    # testing layers and boundaries
+    ├── threejs-architect/SKILL.md          # scene graph, frame/draw budgets
+    └── nodejs-architect/
+        ├── SKILL.md                        # runtime: loop, streams, workers, shutdown
+        ├── express-architect/SKILL.md      # middleware chain, layering
+        ├── nestjs-architect/SKILL.md       # modules, DI scopes, pipeline
+        └── fastify-architect/SKILL.md      # schemas, plugins, hooks
 ```
 
 ## Rules

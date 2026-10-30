@@ -8,7 +8,7 @@ metadata:
   crusor-path: backend-development-architect/python-architect/fastapi-architect
   crusor-origin: original
   crusor-sources: "fastapi.tiangolo.com; docs.pydantic.dev; asgi.readthedocs.io"
-  crusor-triggers: "fastapi, pydantic, asgi, async, dependency-injection, openapi, uvicorn, routers"
+  crusor-triggers: "fastapi, pydantic, asgi, dependency injection, openapi, uvicorn"
   crusor-verified-on: "2026-10-30"
 ---
 

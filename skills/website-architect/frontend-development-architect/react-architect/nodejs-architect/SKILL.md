@@ -8,7 +8,7 @@ metadata:
   crusor-path: frontend-development-architect/react-architect/nodejs-architect
   crusor-origin: original
   crusor-sources: "nodejs.org/api; nodejs.org/en/learn (event loop, streams); OWASP Node security"
-  crusor-triggers: "nodejs, node, express, fastify, streams, workers, event-loop, backend, runtime, server"
+  crusor-triggers: "nodejs, node runtime, node streams, worker threads, event loop, graceful shutdown"
   crusor-verified-on: "2026-10-30"
 ---
 
@@ -29,6 +29,14 @@ or leaking a resource.
 
 - A pure frontend task with no server runtime.
 - A one-file script with no operational surface.
+
+## Leaf map
+
+| Need | Skill |
+|---|---|
+| minimal, explicit HTTP API | `express-architect` |
+| structured DI, guards, modules | `nestjs-architect` |
+| schema-first, high-throughput JSON | `fastify-architect` |
 
 ## Decision 1 — Process model
 

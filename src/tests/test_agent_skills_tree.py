@@ -137,6 +137,14 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "flask-architect",
         "fastapi-architect",
         "django-architect",
+        "tailwind-architect",
+        "vite-architect",
+        "playwright-architect",
+        "tanstack-query-architect",
+        "redux-toolkit-architect",
+        "express-architect",
+        "nestjs-architect",
+        "fastify-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names

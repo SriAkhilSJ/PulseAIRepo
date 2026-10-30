@@ -8,7 +8,7 @@ metadata:
   crusor-path: backend-development-architect/python-architect/flask-architect
   crusor-origin: original
   crusor-sources: "flask.palletsprojects.com; wsgi.readthedocs.io"
-  crusor-triggers: "flask, wsgi, blueprints, app-factory, jinja, gunicorn, sync"
+  crusor-triggers: "flask, wsgi, blueprints, app factory, jinja, gunicorn"
   crusor-verified-on: "2026-10-30"
 ---
 

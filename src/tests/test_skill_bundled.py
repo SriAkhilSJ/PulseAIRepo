@@ -85,7 +85,12 @@ def test_frontmatter_unclosed_treated_as_absent():
 def test_frontmatter_triggers_use_keywords_not_tags():
     fm, _ = _parse_skill_frontmatter(SKILLS_DOC)
     triggers = _frontmatter_triggers(fm)
-    assert "alpha" in triggers and "gamma" in triggers  # from keywords
+    assert "alpha" in triggers  # from keywords
+    # A comma separates triggers; whitespace does not. "beta gamma" is ONE
+    # phrase — splitting it into "beta"/"gamma" made generic single words
+    # ("server", "state", "node") match nearly every task.
+    assert "beta gamma" in triggers
+    assert "gamma" not in triggers
     assert "tag-one" not in triggers  # tags are taxonomy, not triggers
 
 

@@ -8,7 +8,7 @@ metadata:
   crusor-path: backend-development-architect/python-architect/django-architect
   crusor-origin: original
   crusor-sources: "docs.djangoproject.com; www.django-rest-framework.org"
-  crusor-triggers: "django, drf, orm, migrations, admin, django-rest-framework, postgres"
+  crusor-triggers: "django, drf, django orm, django migration, django admin, django-rest-framework"
   crusor-verified-on: "2026-10-30"
 ---
 

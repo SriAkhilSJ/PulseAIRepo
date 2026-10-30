@@ -8,7 +8,7 @@ metadata:
   crusor-path: backend-development-architect
   crusor-origin: original
   crusor-sources: "12factor.net; OWASP ASVS; language/framework official docs"
-  crusor-triggers: "backend, server, api, service, microservice, rest, grpc, deployment, backend architecture"
+  crusor-triggers: "backend architecture, microservice, microservices, grpc, backend design, service architecture"
   crusor-verified-on: "2026-10-30"
 ---
 

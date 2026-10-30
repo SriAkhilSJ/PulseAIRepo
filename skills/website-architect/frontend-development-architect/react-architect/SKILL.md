@@ -28,6 +28,8 @@ and names the leaf skill that owns each concern.
 | component libraries, headless primitives, theming | `react-ui-libraries-architect` |
 | what to test at which layer | `react-testing-architect` |
 | Node.js services, streams, workers, shutdown | `nodejs-architect` |
+| remote data, caching, invalidation | `tanstack-query-architect` |
+| genuine global client state | `redux-toolkit-architect` |
 | 3D / WebGL scenes, render-loop budgets | `threejs-architect` |
 
 ## Decision 1 — Framework, before components
