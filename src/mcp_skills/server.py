@@ -26,7 +26,13 @@ from typing import Any
 from src.mcp_skills.index import SCHEME, SkillIndex, get_index
 from src.mcp_skills.telemetry import METRICS, log
 
-PROTOCOL_VERSION = "2024-11-05"
+# Supported protocol revisions, newest first. We negotiate down to whatever the
+# client asked for; a client that asks for something unknown gets the newest we
+# speak, and is free to close. 2026-07-28 is the revision this server is written
+# against for resource caching and completion.
+SUPPORTED_VERSIONS = ("2026-07-28", "2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSION = SUPPORTED_VERSIONS[0]
+LEGACY_VERSION = "2024-11-05"
 SERVER_INFO = {"name": "crusor-skills", "version": "1.0.0"}
 
 MAX_VIEW_CHARS = 24_000
@@ -74,6 +80,8 @@ class SkillMCPServer:
         self._index: SkillIndex | None = index
         self._pinned = index is not None  # a test-supplied index never auto-refreshes
         self._last_check = 0.0
+        self._version = PROTOCOL_VERSION
+        self._pending_notices: list[dict[str, Any]] = []
         self.refresh_seconds = float(
             refresh_seconds if refresh_seconds is not None
             else os.environ.get("SKILLS_MCP_REFRESH_SECONDS", "5")
@@ -94,7 +102,7 @@ class SkillMCPServer:
 
     def maybe_refresh(self) -> None:
         """Reload when a book changed on disk — a stat sweep, throttled."""
-        if self._pinned or self.refresh_seconds <= 0:
+        if self._pinned or self.refresh_seconds < 0:
             return
         now = time.time()
         if now - self._last_check < self.refresh_seconds:
@@ -110,14 +118,20 @@ class SkillMCPServer:
             return
         self._index = fresh
         METRICS.index_refreshes += 1
+        old_uris = set()
+        self._pending_notices.append({"jsonrpc": "2.0",
+                                      "method": "notifications/resources/list_changed"})
         log("info", "index_refreshed", books=len(fresh.books))
 
     # -- tools --------------------------------------------------------------
+
+    READ_ONLY = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
 
     def tool_defs(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": "skills_list",
+                "annotations": dict(self.READ_ONLY),
                 "description": "Browse the Architect library: shelves first, then the books on them.",
                 "inputSchema": {
                     "type": "object",
@@ -128,6 +142,7 @@ class SkillMCPServer:
             },
             {
                 "name": "skill_view",
+                "annotations": dict(self.READ_ONLY),
                 "description": "Read one or more books whole. Pass several names separated by commas.",
                 "inputSchema": {
                     "type": "object",
@@ -137,6 +152,7 @@ class SkillMCPServer:
             },
             {
                 "name": "skills_search",
+                "annotations": dict(self.READ_ONLY),
                 "description": "Ranked search over 220 architect books, with the reason for each hit.",
                 "inputSchema": {
                     "type": "object",
@@ -149,6 +165,7 @@ class SkillMCPServer:
             },
             {
                 "name": "skill_bundle",
+                "annotations": dict(self.READ_ONLY),
                 "description": ("Planning-phase selection for a task: the domain crown plus the "
                                 "best-matching books. Refused while executing."),
                 "inputSchema": {
@@ -325,8 +342,11 @@ class SkillMCPServer:
                 "scheme": SCHEME,
                 "skipped": self.index.skipped,
             }
-            return {"contents": [{"uri": uri, "mimeType": "application/json",
-                                  "text": json.dumps(catalog, indent=1)}]}
+            result: dict[str, Any] = {"contents": [{"uri": uri, "mimeType": "application/json",
+                                                   "text": json.dumps(catalog, indent=1)}]}
+            if self._version >= "2025-06-18":  # caching fields exist from here on
+                result.update({"ttlMs": 60_000, "cacheScope": "public"})
+            return result
         book = self.index.by_path.get(path)
         if book is not None:
             text = book.body[:MAX_RESOURCE_CHARS]
@@ -341,6 +361,46 @@ class SkillMCPServer:
         raise ToolError("BAD_URI", f"no node at {uri!r}",
                         domains=self.index.domains(),
                         hint="start at skill://catalog")
+
+    # -- completion ---------------------------------------------------------
+
+    def complete(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Argument auto-completion for the resource templates and prompts.
+
+        Cheap here because the index is in memory: a host can offer real book and
+        shelf names instead of making the model guess a path.
+        """
+        ref = params.get("ref") or {}
+        argument = params.get("argument") or {}
+        name = str(argument.get("name") or "")
+        value = str(argument.get("value") or "").lower()
+        uri = str(ref.get("uri") or "")
+
+        if ref.get("type") == "ref/prompt":
+            values = ["plan_with_skills"]
+        elif name in ("book", "name"):
+            values = [b.name for b in self.index.books.values()]
+        elif name == "domain":
+            values = list(self.index.domains())
+        elif name in ("shelf", "path"):
+            values = list(self.index.domains())
+            for d in self.index.domains():
+                shelves, _ = self.index.children_of(d)
+                values.extend(f"{d}/{s}" for s in shelves)
+        else:
+            # infer from the uri the client is completing
+            parts = uri[len(SCHEME):].strip("/").split("/") if uri.startswith(SCHEME) else []
+            if len(parts) <= 1:
+                values = self.index.domains()
+            elif len(parts) == 2:
+                shelves, _ = self.index.children_of(parts[0])
+                values = [f"{parts[0]}/{s}" for s in shelves]
+            else:
+                _shelves, books = self.index.children_of("/".join(parts[:2]))
+                values = books
+        values = [v for v in values if value in v.lower()]
+        return {"completion": {"values": sorted(values)[:100],
+                               "total": len(values), "hasMore": len(values) > 100}}
 
     # -- prompts ------------------------------------------------------------
 
@@ -391,11 +451,21 @@ class SkillMCPServer:
         while_serving = True
         try:
             if method == "initialize":
+                asked = str(params.get("protocolVersion") or "")
+                agreed = asked if asked in SUPPORTED_VERSIONS else PROTOCOL_VERSION
+                self._version = agreed
+                log("info", "initialize", client_version=asked or None, agreed=agreed)
                 return ok({
-                    "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
+                    "protocolVersion": agreed,
+                    "capabilities": {"tools": {}, "resources": {"listChanged": True},
+                                     "prompts": {}, "completions": {}},
                     "serverInfo": SERVER_INFO,
+                    "instructions": ("Architect skill library. Planning phase: call "
+                                     "skill_bundle(task) once, or read the injected books. "
+                                     "Execution phase: open books deliberately with skill_view."),
                 })
+            if method == "completion/complete":
+                return ok(self.complete(params))
             if method == "ping":
                 return ok({})
             if method == "tools/list":
@@ -436,6 +506,10 @@ class SkillMCPServer:
             if elapsed > 500:
                 log("warn", "slow_request", method=method, ms=round(elapsed, 1))
 
+    def drain_notices(self) -> list[dict[str, Any]]:
+        notices, self._pending_notices = self._pending_notices, []
+        return notices
+
     def serve(self) -> None:
         for line in sys.stdin:
             line = line.strip()
@@ -451,6 +525,8 @@ class SkillMCPServer:
             response = self.handle(message)
             if response is not None:
                 print(json.dumps(response), flush=True)
+            for notice in self.drain_notices():
+                print(json.dumps(notice), flush=True)
 
 
 def main() -> None:  # pragma: no cover - process entry point

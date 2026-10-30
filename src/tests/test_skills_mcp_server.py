@@ -47,10 +47,17 @@ def tool(server, name, args=None, meta=None):
 
 # -- protocol ---------------------------------------------------------------
 
-def test_initialize_advertises_all_three_capabilities(server):
+def test_initialize_negotiates_the_client_version(server):
     result = call(server, "initialize", {"protocolVersion": "2024-11-05"})["result"]
-    assert result["protocolVersion"] == "2024-11-05"
-    assert set(result["capabilities"]) == {"tools", "resources", "prompts"}
+    assert result["protocolVersion"] == "2024-11-05"  # negotiated down, not up
+    assert {"tools", "resources", "prompts", "completions"} <= set(result["capabilities"])
+    assert result["capabilities"]["resources"]["listChanged"] is True
+    assert "skills" in result["serverInfo"]["name"]
+
+
+def test_initialize_with_unknown_version_offers_the_newest(server):
+    result = call(server, "initialize", {"protocolVersion": "1999-01-01"})["result"]
+    assert result["protocolVersion"] == "2026-07-28"
 
 
 def test_unknown_method_is_a_protocol_error(server):
@@ -285,3 +292,52 @@ def test_server_is_discoverable_through_the_repository_client(tmp_path):
 
     out = call_mcp_tool(str(tmp_path), "skills", "skills_list", {})
     assert "website-architect/" in out
+
+
+# -- protocol citizenship ---------------------------------------------------
+
+def test_tools_declare_read_only_annotations(server):
+    tools = call(server, "tools/list")["result"]["tools"]
+    assert tools
+    for tool in tools:
+        assert tool["annotations"]["readOnlyHint"] is True
+        assert tool["annotations"]["idempotentHint"] is True
+
+
+def test_completion_offers_real_book_names(server):
+    result = call(server, "completion/complete", {
+        "ref": {"type": "ref/resource", "uri": "skill://{domain}/{shelf}/{book}"},
+        "argument": {"name": "book", "value": "kafka"},
+    })["result"]["completion"]
+    assert "kafka-architect" in result["values"]
+
+
+def test_completion_offers_domains_and_shelves(server):
+    result = call(server, "completion/complete", {
+        "ref": {"type": "ref/resource", "uri": "skill://{domain}"},
+        "argument": {"name": "domain", "value": "desk"},
+    })["result"]["completion"]
+    assert result["values"] == ["desktop-architect"]
+
+
+def test_refresh_queues_a_list_changed_notification():
+    server = SkillMCPServer(refresh_seconds=0)
+    assert server.drain_notices() == []
+    index = server.index
+    # pretend the tree changed, then let the server notice
+    index.snapshot = {**index.snapshot, "sentinel": 0.0}
+    server.maybe_refresh()
+    notices = server.drain_notices()
+    assert any(n["method"] == "notifications/resources/list_changed" for n in notices)
+
+
+def test_catalog_carries_cache_hints_on_modern_versions(server):
+    call(server, "initialize", {"protocolVersion": "2026-07-28"})
+    result = call(server, "resources/read", {"uri": "skill://catalog"})["result"]
+    assert result.get("ttlMs") and result.get("cacheScope") == "public"
+
+
+def test_old_clients_get_no_unknown_cache_fields(server):
+    call(server, "initialize", {"protocolVersion": "2024-11-05"})
+    result = call(server, "resources/read", {"uri": "skill://catalog"})["result"]
+    assert "ttlMs" not in result
