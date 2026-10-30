@@ -8,13 +8,17 @@ name: Verify provider key
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # Arena branches too: that is where the checker is developed, and a run on
+    # the pushed ref is the only way to test the secret without touching main.
+
+    branches: [main, 'arena/**']
     paths:
       - 'scripts/check_velona_keys.py'
       - '.github/workflows/verify-provider-key.yml'
 
 permissions:
   contents: read
+  issues: write   # the verdict is posted to issue #28: Actions logs are not readable everywhere
 
 jobs:
   velona:
@@ -47,6 +51,39 @@ jobs:
           set -o pipefail
           python scripts/check_velona_keys.py --json | tee velona-key-report.json
           python scripts/check_velona_keys.py
+
+      # Actions logs are served from a host that is not reachable from every
+      # environment. The verdict therefore also lands on api.github.com, where
+      # it can be read with a plain `gh api` call.
+      - name: Post the verdict to issue #28
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: '28'
+        run: |
+          set -euo pipefail
+          VERDICT=$(python - <<'PY'
+          import json
+          try:
+              r = json.load(open("velona-key-report.json"))
+          except Exception:
+              print("report unreadable"); raise SystemExit(0)
+          print(r.get("verdict", "no verdict"))
+          for k in r.get("keys", []):
+              print(f"- key {k['source']} {k['fingerprint']}: shape {'ok' if k['shape']['ok'] else 'FAIL'}")
+              c = k.get("catalog") or {}
+              if not c.get("skipped"):
+                  print(f"  catalog HTTP {c.get('status')} ({c.get('model_count')} models)")
+              for m in k.get("live", []):
+                  print(f"  {'PASS' if m['ok'] else 'FAIL'} {m['model']} HTTP {m['status']} {m['seconds']}s")
+          PY
+          )
+          printf '%s\n' "$VERDICT" > verdict.txt
+          BODY=$(printf '**Provider key verification** — `%s` @ `%s`\n\n```\n%s\n```\n' \
+            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "$VERDICT")
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
+            -f body="$BODY" > /dev/null && echo "verdict posted to issue #$ISSUE"
+          exit 0
 
       - name: Upload the report
         if: always()
