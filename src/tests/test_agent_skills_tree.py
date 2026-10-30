@@ -169,3 +169,34 @@ def test_architect_leaves_conform_to_the_agent_skills_spec():
         )
         # Provenance is mandatory in this library.
         assert frontmatter.get("metadata", {}).get("crusor-origin"), path
+
+
+def test_skill_names_unique_and_crusor_path_matches_location():
+    """A tree is only navigable if names are unique and paths tell the truth."""
+    from pathlib import Path
+
+    from src.agents.skill_manager import _parse_skill_frontmatter
+
+    root = Path("skills")
+    tree = root / "website-architect"
+
+    # Names used elsewhere in the repository, so the tree cannot shadow them.
+    taken = {}
+    for path in root.rglob("SKILL.md"):
+        if tree in path.parents:
+            continue
+        fm, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
+        if fm.get("name"):
+            taken[str(fm["name"])] = path
+
+    seen = {}
+    for path in sorted(tree.rglob("SKILL.md")):
+        fm, _ = _parse_skill_frontmatter(path.read_text(encoding="utf-8"))
+        name = str(fm["name"])
+        assert name not in seen, f"{name} declared in both {seen[name]} and {path}"
+        assert name not in taken, f"{name} collides with {taken[name]}"
+        seen[name] = path
+
+        expected = path.parent.relative_to(tree).as_posix()
+        declared = fm.get("metadata", {}).get("crusor-path")
+        assert declared == expected, f"{path}: crusor-path {declared!r} != {expected!r}"

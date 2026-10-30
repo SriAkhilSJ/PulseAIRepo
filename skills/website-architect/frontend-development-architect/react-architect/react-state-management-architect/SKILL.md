@@ -5,7 +5,7 @@ license: MIT
 compatibility: React 18+; framework-agnostic
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: frontend-development-architect/react-architect/react-state-management-architect
   crusor-origin: original
   crusor-sources: "react.dev/learn/managing-state; tanstack.com/query; zustand docs; redux-toolkit docs; vercel-labs/agent-skills@063bee94 (react-best-practices)"
   crusor-verified-on: "2026-10-30"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Django 4.2/5.x, Django REST Framework, PostgreSQL
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/python-architect
+  crusor-path: backend-development-architect/python-architect/django-architect
   crusor-origin: original
   crusor-sources: "docs.djangoproject.com; www.django-rest-framework.org"
   crusor-triggers: "django, drf, orm, migrations, admin, django-rest-framework, postgres"

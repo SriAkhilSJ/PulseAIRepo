@@ -5,7 +5,7 @@ license: MIT
 compatibility: Python 3.11+; uv or pip; ruff + mypy/pyright
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect
+  crusor-path: backend-development-architect/python-architect
   crusor-origin: original
   crusor-sources: "docs.python.org/3; packaging.python.org; docs.astral.sh/uv; docs.pytest.org"
   crusor-triggers: "python, packaging, pyproject, uv, ruff, mypy, pytest, asyncio, project-layout"

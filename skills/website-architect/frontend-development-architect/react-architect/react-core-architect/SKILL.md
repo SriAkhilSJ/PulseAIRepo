@@ -5,7 +5,7 @@ license: MIT
 compatibility: React 18+ and React 19; framework-agnostic (Vite, Next, Remix, React Router)
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: frontend-development-architect/react-architect/react-core-architect
   crusor-origin: adapted
   crusor-sources: "vercel-labs/agent-skills@063bee94 (react-best-practices, composition-patterns)"
   crusor-verified-on: "2026-10-30"

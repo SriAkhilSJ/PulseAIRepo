@@ -5,7 +5,7 @@ license: MIT
 compatibility: React 18+; Vitest or Jest, React Testing Library, Playwright
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: frontend-development-architect/react-architect/react-testing-architect
   crusor-origin: original
   crusor-sources: "testing-library.com/docs/queries/about; playwright.dev/best-practices; vercel-labs/agent-skills@063bee94 (react-best-practices)"
   crusor-verified-on: "2026-10-30"

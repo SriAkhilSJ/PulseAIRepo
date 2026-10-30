@@ -5,7 +5,7 @@ license: MIT
 compatibility: three r150+; optional @react-three/fiber + drei
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: frontend-development-architect/react-architect/threejs-architect
   crusor-origin: original
   crusor-sources: "threejs.org/docs; threejs.org/manual (optimize lots of objects); r3f docs"
   crusor-triggers: "threejs, three.js, webgl, 3d, react-three-fiber, r3f, scene-graph, shaders, gpu, render-loop"

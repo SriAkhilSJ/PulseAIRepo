@@ -5,7 +5,7 @@ license: MIT
 compatibility: ES2022+, Node 20+ and evergreen browsers
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect
+  crusor-path: frontend-development-architect/javascript-architect
   crusor-origin: original
   crusor-sources: "MDN JavaScript; ECMAScript 2024; Node.js docs"
   crusor-triggers: "javascript, modules, async, event-loop, promises, errors, immutability, bundling, esm, cjs"

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Next.js 14+ (App Router). Pages Router is covered only for migration decisions.
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect/react-architect
+  crusor-path: frontend-development-architect/react-architect/nextjs-architect
   crusor-origin: original
   crusor-sources: "nextjs.org/docs (App Router, caching, server actions); vercel-labs/agent-skills@063bee94 (react-best-practices server rules)"
   crusor-verified-on: "2026-10-30"

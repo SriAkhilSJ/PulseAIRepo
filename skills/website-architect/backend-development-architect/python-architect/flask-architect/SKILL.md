@@ -5,7 +5,7 @@ license: MIT
 compatibility: Flask 3.x, WSGI (gunicorn/uWSGI)
 metadata:
   crusor-domain: website-architect
-  crusor-path: backend-development-architect/python-architect
+  crusor-path: backend-development-architect/python-architect/flask-architect
   crusor-origin: original
   crusor-sources: "flask.palletsprojects.com; wsgi.readthedocs.io"
   crusor-triggers: "flask, wsgi, blueprints, app-factory, jinja, gunicorn, sync"

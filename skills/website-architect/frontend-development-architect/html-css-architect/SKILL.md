@@ -5,7 +5,7 @@ license: MIT
 compatibility: Modern evergreen browsers; framework-agnostic
 metadata:
   crusor-domain: website-architect
-  crusor-path: frontend-development-architect
+  crusor-path: frontend-development-architect/html-css-architect
   crusor-origin: original
   crusor-sources: "WHATWG HTML; MDN CSS layout; W3C WCAG 2.2"
   crusor-triggers: "html, css, layout, flexbox, grid, responsive, cascade, specificity, container-queries, semantics, accessibility"
