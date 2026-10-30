@@ -212,7 +212,7 @@ def _iso_to_dt(iso: str) -> datetime | None:
 # its words point at. Narrow tasks ("add retry to the bridge") get none.
 # ---------------------------------------------------------------------------
 _STACK_SPINE: dict[str, tuple[str, ...]] = {
-    "website": ("frontend-development-architect", "backend-development-architect",
+    "website": ("website-architect", "frontend-development-architect", "backend-development-architect",
                 "api-development-architect", "database-engineering-architect",
                 "security-architect", "testing-and-deployment-architect"),
     "mobile": ("mobile-architect", "mobile-offline-sync-architect",
@@ -797,6 +797,44 @@ class SkillManager:
         kept = len(core) + len(stack) + len(detail)
         return {"core": core, "stack": stack, "detail": detail,
                 "dropped": max(0, len(ranked) + len(spine) - kept)}
+
+    _PLAN_DIGEST_CHARS = int(os.environ.get("SKILL_PLAN_DIGEST_CHARS", "4000"))
+
+    def plan_digest(self, task: str, budget_chars: int | None = None) -> str:
+        """What the build phase needs from the books the plan was written from.
+
+        Plan Mode gets the books whole; execution cannot, and should not — 13 000
+        tokens of prose on every build turn is the wrong trade. What execution
+        does need is the *constraints* those books imposed: which decisions were
+        taken, so the code matches the plan instead of drifting from it.
+
+        So: the same kit derivation, reduced to each book's decision headings.
+        ~100 chars per book, and the full text is one skill_view away.
+        """
+        budget = budget_chars or self._PLAN_DIGEST_CHARS
+        kit = self.plan_kit(task)
+        entries = [e for tier in ("core", "stack", "detail") for e in kit[tier]]
+        if not entries:
+            return ""
+        lines = ["=== PLAN CONSTRAINTS (architect books behind this plan) ==="]
+        used = len(lines[0])
+        for entry in entries:
+            skill = self.get_skill(entry["name"])
+            if not skill:
+                continue
+            body = str(skill.get("instruction") or "")
+            decisions = [line.strip("# ").strip() for line in body.splitlines()
+                         if line.startswith("## Decision") or line.startswith("## Step")]
+            if not decisions:
+                decisions = [line.strip("# ").strip() for line in body.splitlines()
+                             if line.startswith("## ")][:4]
+            line = f"- {entry['name']}: " + "; ".join(decisions[:6])
+            if used + len(line) > budget:
+                lines.append(f"- ({len(entries)} books total — open any with skill_view(\"name\"))")
+                break
+            lines.append(line)
+            used += len(line)
+        return "\n".join(lines)
 
     def get_skills_text(self, task: str, phase: str = "executing") -> str:
         """Budgeted, ranked injection — the zero-call path.

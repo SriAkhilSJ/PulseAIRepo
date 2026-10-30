@@ -215,6 +215,26 @@ def _skills_phase(state: dict[str, Any]) -> str:
     ) else "executing"
 
 
+def _skills_text(state: dict[str, Any], task: str) -> str:
+    """What the skills layer injects for this turn.
+
+    Planning: the whole kit (stack + book decisions), because a plan needs them.
+    Building: the *constraints* of those same books — their decision headings —
+    because execution needs to match the plan, not re-read 13 000 tokens of
+    prose on every turn. No plan yet means nothing to constrain.
+    """
+    from src.agents.skill_manager import skill_manager
+
+    if _skills_phase(state) == "planning":
+        return skill_manager.get_skills_text(task, phase="planning")
+    plan = state.get("plan") or []
+    plan_text = " ".join(str(step.get("description") or "") for step in plan
+                         if isinstance(step, dict))
+    if not plan_text:
+        return ""
+    return skill_manager.plan_digest(f"{task} {plan_text}")
+
+
 class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     """
     The Context Engine class.
@@ -2168,8 +2188,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # them directly. Before this, nothing upstream set either flag, so the
         # layer always computed "executing" and no architect book ever reached a
         # plan.
-        phase = _skills_phase(state)
-        text = skill_manager.get_skills_text(task, phase=phase)
+        text = _skills_text(state, task)
         if not text:
             return None
         return SystemMessage(content=text)

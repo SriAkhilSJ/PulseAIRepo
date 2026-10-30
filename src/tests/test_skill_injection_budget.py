@@ -120,3 +120,46 @@ def test_plan_mode_is_detected_from_the_repo_state_flag():
     assert _skills_phase({"plan_mode": True}) == "planning"
     assert _skills_phase({"execution_mode": "agent"}) == "executing"
     assert _skills_phase({}) == "executing"
+
+
+# -- build phase: what happens after the plan --------------------------------
+
+def test_plan_digest_carries_the_constraints_not_the_prose(manager):
+    digest = manager.plan_digest(
+        "build a multi-tenant SaaS for field service teams with billing and offline mobile"
+    )
+    assert digest.startswith("=== PLAN CONSTRAINTS")
+    assert "backend-development-architect" in digest
+    assert "Decision 1" in digest
+    assert len(digest) <= manager._PLAN_DIGEST_CHARS + 200
+    # one line per book, not the book
+    assert len(digest.splitlines()) <= 16
+
+
+def test_execution_injects_the_digest_when_a_plan_exists():
+    from src.context.context_engine import _skills_text
+
+    state = {
+        "execution_mode": "agent",
+        "current_task": "build the tenant isolation layer",
+        "plan": [{"description": "create tenant isolation in the SaaS backend"},
+                 {"description": "add billing with stripe"}],
+    }
+    text = _skills_text(state, state["current_task"])
+    assert text.startswith("=== PLAN CONSTRAINTS")
+    assert "security-architect" in text or "backend-development-architect" in text
+
+
+def test_execution_injects_nothing_without_a_plan():
+    from src.context.context_engine import _skills_text
+
+    assert _skills_text({"execution_mode": "agent", "current_task": "add retry"}, "add retry") == ""
+
+
+def test_plan_mode_still_gets_the_whole_kit():
+    from src.context.context_engine import _skills_text
+
+    state = {"execution_mode": "plan",
+             "current_task": "build a multi-tenant SaaS with billing"}
+    text = _skills_text(state, state["current_task"])
+    assert "Plan Mode" in text and "CORE" in text and "STACK" in text
