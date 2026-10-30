@@ -10,9 +10,9 @@
 
 Developers using Cursor, Claude Code, Codex, Aider, and OpenHands consistently hit severe failure boundaries when moving beyond simple 10-line script autocompletion into autonomous real-world engineering. 
 
-An exhaustive analysis of thousands of GitHub issues, developer rants, Discord bug reports, and benchmarks reveals that **over 95% of all agent failures collapse into 10 fundamental pathological categories containing 100+ concrete failure scenarios**.
+An exhaustive analysis of developer bug reports, GitHub issue trackers, Discord triage threads, and agent evaluation benchmarks reveals recurring pathological patterns across 10 core operational domains spanning 100+ concrete failure scenarios.
 
-Rather than inventing 100 separate band-aids, this document outlines the **Unified Cognitive Architecture** that eliminates all 100+ failure scenarios deterministically.
+Rather than making ungrounded claims of eliminating non-deterministic model errors, CrusorAI 2.1 establishes a **Hardened Cognitive Architecture** with deterministic boundaries: strict schema validation, an Autonomous Reliability & Recovery Engine (ARRE) with bounded budgets, process-aware connection handling, and a 5-tier living project memory.
 
 ---
 
@@ -242,27 +242,34 @@ graph TD
 
 ---
 
-### Organ 4: Musculoskeletal Hands (Surgical Diffs & Dynamic MCP Scoping)
-*Eliminates Scenarios: 15, 20, 21, 27, 34, 53, 54, 55, 59*
+### Organ 4: Musculoskeletal Hands (Surgical Diffs & Strict Schema Normalization)
+*Mitigates Scenarios: 15, 20, 21, 27, 34, 53, 54, 55, 59*
 
 * **9-Strategy Fuzzy Surgical Diff Engine**: Replaces whole-file rewrites with line-level search-and-replace. If indentation or whitespace shifts, fallback matching (trimmed lines, line-anchor normalization, AST block matching) prevents file wiping.
 * **Dynamic MCP Tool Scoping**: The agent never sees 100 tools at once. It only mounts tools matching its current phase and active framework (Database MCP for schemas, Playwright MCP for web testing).
-* **Deterministic Tool Argument Coercion**: Automatically normalizes hallucinated keys (`filepath` $\to$ `path`, `old_text` $\to$ `old_string`) at the runtime barrier without failing turns.
+* **Strict Schema-Guarded Aliasing (`SafeArgumentNormalizer`)**:
+  * Unambiguous canonical parameter mapping for whitelisted tools (e.g. `read_file`: `filepath` $\to$ `path`; `edit_file`: `old_string` $\to$ `old_text`, `new_string` $\to$ `new_text`).
+  * **Ambiguity Rejection**: In multi-target tools (e.g. `copy_file(src, dst)`), ambiguous aliases (e.g. `path`) are rejected without guesswork.
+  * **Recursive Secret Redaction**: Sensitive parameter keys (`password`, `api_key`, `access_token`) are redacted before audit recording.
 
 ---
 
-### Organ 5: Immune Defense (AST Syntax Gates, Ledger & Doom-Breaker)
-*Eliminates Scenarios: 19, 25, 28, 43, 44, 45, 46, 63, 64, 65, 67*
+### Organ 5: Immune Defense (15-Class ARRE Recovery & Verification Governance)
+*Mitigates Scenarios: 19, 25, 28, 43, 44, 45, 46, 63, 64, 65, 67*
 
-* **Pre-Flight AST Syntax Checker**: Intercepts broken code locally in `< 10ms` before saving to disk or executing tests. Exact line-number errors are fed back to the model instantly.
-* **Cryptographic Verification Debt Ledger**: Any failing test generates a hashed debt receipt. The agent is mathematically barred from claiming completion until that exact failed check passes with `exit_code == 0`.
-* **Alternating Edit-Verify Invariant**: After a test failure, the test runner tool is **locked** until a file mutation occurs. The agent cannot blindly re-run tests hoping for a miracle.
-* **Rolling-Hash Doom-Loop Breaker**: Tracks the last 3 tool invocations; detects repeating loops and forces cognitive reallocation.
+* **Autonomous Reliability & Recovery Engine (ARRE)**:
+  * 15 distinct operational failure classes decoupling provider errors (HTTP 400 fail-closed, 401/403 fail-fast, 429 Retry-After parsing, 5xx exponential backoff with jitter).
+  * Strict default idempotency: `is_idempotent` defaults to `False`; timeouts on stateful operations fail closed.
+  * Process-aware connection decision table: Relaunch owned dead servers, poll warming sockets, fail closed on foreign processes without killing third-party PIDs.
+* **Recovery Strategy Dispatcher (`RecoveryStrategyDispatcher`)**: Separates recommendation from concrete execution (supervised process relaunch, log drain, OOM subprocess termination, and prompt guidance).
+* **Atomic Global Recovery Budget Tracker**: Mutex-guarded per-session ceilings (max 8 recovery attempts, 180s wall clock, doom-loop repeat breaker) persisted across session resumes.
+* **Alternating Mutation Lock**: After a test failure, test runner execution is locked until relevant code mutations land in the workspace ledger.
+* **Flaky-Test Tolerance**: Distinguishes transient network timeouts from hard code regressions with a 2-attempt retry threshold.
 
 ---
 
 ### Organ 6: Optical Retina (Playwright & A2UI Live DOM Verification)
-*Eliminates Scenarios: 36, 41, 42, 66, 72, 83, 84, 85, 89, 90*
+*Mitigates Scenarios: 36, 41, 42, 66, 72, 83, 84, 85, 89, 90*
 
 * **Living DOM Ground Truth**: Uses headless Chromium to navigate local dev servers, verify button visibility, execute real click events, inspect console logs for errors, and verify responsive viewports.
 * **Visual Receipt Generation**: Automatically captures real high-resolution screenshots into the chat transcript as verifiable proof of work.
@@ -272,18 +279,18 @@ graph TD
 
 ## 4. Master Diagnostic Cross-Reference: 100 Scenarios to Architecture Fix
 
-| Failure Scenario # | Root Pathology | Culprit Systems | CrusorAI 2.0 Architectural Fix |
+| Failure Scenario # | Root Pathology | Culprit Systems | CrusorAI 2.1 Architectural Mitigation |
 | :--- | :--- | :--- | :--- |
 | **#1–#12** | Context decay, prompt amnesia, log explosions | Cursor, Claude, OpenHands | **Organ 2**: Prefix cache stability, landed-write compaction, binary shielding. |
 | **#13–#22** | Midway project bulldozing, style destruction | Cursor Composer, Codex CLI | **Organ 3**: Project archaeology pre-flight, framework Architect Skills, surgical diffs. |
-| **#23–#32** | Infinite loops, repeating identical errors | AutoGen, Devin, Cline | **Organ 5**: Rolling-hash doom-loop breaker, alternating edit-verify lock. |
+| **#23–#32** | Infinite loops, repeating identical errors | AutoGen, Devin, Cline | **Organ 5**: Atomic doom-loop breaker, alternating mutation lock. |
 | **#33–#42** | Lazy `TODO` stubs, incomplete code, mock data | ChatGPT, Sonnet, Cursor | **Organ 6**: Zero-placeholder constraint, multi-file parallel scaffolding, AST checks. |
 | **#43–#52** | AST syntax errors, indentation drift, bad quotes | GPT-4o-mini, Haiku, Qwen | **Organ 5**: Pre-flight local AST gate with immediate line-level feedback (<10ms). |
-| **#53–#62** | Tool argument hallucinations, wrong names | Gemini Flash, GLM, DeepSeek | **Organ 4**: Tool boundary auto-coercion, dynamic phase-scoped tool masking. |
+| **#53–#62** | Tool argument hallucinations, wrong names | Gemini Flash, GLM, DeepSeek | **Organ 4**: SafeArgumentNormalizer (anti-coercion, ambiguity rejection, secret redaction). |
 | **#63–#72** | False claims of completion, fake passes | Claude Code, Cursor Composer | **Organ 5**: Tri-status contract (`verified`/`failed`), hashed verification debt ledger. |
 | **#73–#82** | SQLite thread crashes, locks, deadlocks | Multi-agent swarms | **Organ 3 & 4**: Framework concurrency guidance (WAL mode, per-request DB pools). |
 | **#83–#92** | Blank white screens, broken UI, dead buttons | v0, Bolt.new, CopilotKit | **Organ 6**: Playwright DOM inspection, live screenshot verification, responsive checks. |
-| **#93–#102** | Session amnesia, disk bloat, assumption drift | All standard LLMs | **Organ 1 & 3**: Stream-vs-persist decoupling (1,800x savings), rule memory flywheel. |
+| **#93–#102** | Session amnesia, disk bloat, assumption drift | All standard LLMs | **Organ 1, 3 & 5**: 5-Tier living memory (Blueprint, Decisions, Error Graveyard), ARRE log drainage. |
 
 ---
 
@@ -293,6 +300,6 @@ True agent intelligence does not come from waiting for larger foundational model
 
 1. **Level 1 (Chatbot / Copilot)**: Generates unverified text suggestions directly into the editor.
 2. **Level 2 (ReAct Agent)**: Runs tools in an unconstrained loop; prone to doom-loops, context decay, and hallucinations.
-3. **Level 3 (Hardened Autonomous Engine - CrusorAI 2.0)**: Governed by strict physiological subsystems—bounded memory lungs, surgical diff hands, dynamic skills, pre-flight AST gates, live Playwright optical sensors, and cryptographic verification ledgers.
+3. **Level 3 (Hardened Autonomous Engine - CrusorAI 2.1)**: Governed by strict physiological subsystems—bounded memory lungs, surgical diff hands, dynamic skills, pre-flight AST gates, live Playwright optical sensors, 5-tier living memory, and the Autonomous Reliability & Recovery Engine (ARRE).
 
-By implementing this unified architecture, **100% of the 102 documented failure modes are converted into deterministic, self-healing engineering steps.**
+Rather than making unrealistic claims of eliminating all errors in non-deterministic systems, CrusorAI 2.1 establishes **verifiable boundaries, strict schema enforcement, disciplined recovery budgets, and graceful fail-closed invariants** that convert uncontrolled agent crashes into transparent, self-healing, or safely halted engineering states.

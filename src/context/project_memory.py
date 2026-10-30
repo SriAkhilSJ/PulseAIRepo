@@ -101,8 +101,66 @@ class ProjectMemoryManager:
         })
         self._atomic_write(self.project_memory_file, data)
 
+    def set_blueprint_entry(self, key: str, value: Any) -> None:
+        data = self._read_json(self.project_memory_file)
+        data.setdefault("blueprint", {})[key] = value
+        self._atomic_write(self.project_memory_file, data)
+
+    def set_active_scratchpad(self, content: Dict[str, Any]) -> None:
+        data = self._read_json(self.project_memory_file)
+        data["session_scratchpad"] = content
+        self._atomic_write(self.project_memory_file, data)
+
+    def get_active_scratchpad(self) -> Dict[str, Any]:
+        return self._read_json(self.project_memory_file).get("session_scratchpad", {})
+
     def get_project_memory(self) -> Dict[str, Any]:
         return self._read_json(self.project_memory_file)
+
+    def build_system_prompt(self, max_decisions: int = 5, max_errors: int = 5) -> str:
+        """Render bounded, secret-redacted 5-tier living memory block for model prompt injection."""
+        project_mem = self.get_project_memory()
+        user_prefs = self.get_user_preferences()
+
+        sections: List[str] = []
+
+        # Tier 4: Scoped User Preferences
+        if user_prefs:
+            pref_lines = [f"- **{k}**: {v}" for k, v in user_prefs.items()]
+            sections.append("### Scoped User Preferences\n" + "\n".join(pref_lines))
+
+        # Tier 1: Project Blueprint & Architecture
+        blueprint = project_mem.get("blueprint", {})
+        if blueprint:
+            bp_lines = [f"- **{k}**: {v}" for k, v in blueprint.items()]
+            sections.append("### Project Blueprint & Architecture\n" + "\n".join(bp_lines))
+
+        # Tier 2: Decision Ledger (most recent decisions first)
+        decisions = project_mem.get("decision_ledger", [])
+        if decisions:
+            recent_decisions = decisions[-max_decisions:]
+            dec_lines = [
+                f"- **{d.get('topic', 'General')}**: {d.get('decision')} (Rationale: {d.get('reason')})"
+                for d in reversed(recent_decisions)
+            ]
+            sections.append("### Key Architectural Decisions\n" + "\n".join(dec_lines))
+
+        # Tier 3: Error Graveyard (prevent re-introducing past resolved bugs)
+        errors = project_mem.get("error_graveyard", [])
+        if errors:
+            recent_errors = errors[-max_errors:]
+            err_lines = [
+                f"- **Known Pitfall**: `{e.get('error_pattern')}` in tool `{e.get('tool')}` -> **Verified Fix**: {e.get('verified_fix')}"
+                for e in reversed(recent_errors)
+            ]
+            sections.append("### Error Graveyard (Past Resolved Pitfalls - Do Not Repeat)\n" + "\n".join(err_lines))
+
+        if not sections:
+            return ""
+
+        header = "<living_project_memory>\n"
+        footer = "\n</living_project_memory>"
+        return header + "\n\n".join(sections) + footer
 
     # --- User-Scoped Memory ---
 

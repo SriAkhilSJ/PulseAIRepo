@@ -23,11 +23,28 @@ _ENV_FAILURE_MARKERS = (
     "exit code: 127",
 )
 
+_FLAKY_TIMEOUT_MARKERS = (
+    "timeouterror",
+    "the operation timed out",
+    "operation timed out",
+    "connection reset",
+    "socket hang up",
+    "econnreset",
+    "etimedout",
+    "timed out after",
+)
+
 
 def classify_env_failure(result: str) -> bool:
     """Whether a failed command needs an environment pivot, not source repair."""
     normalized = str(result or "").lower()
     return any(marker in normalized for marker in _ENV_FAILURE_MARKERS)
+
+
+def classify_flaky_failure(result: str) -> bool:
+    """Whether a failed verification run is a transient network/timeout flake rather than a deterministic code assertion failure."""
+    normalized = str(result or "").lower()
+    return any(marker in normalized for marker in _FLAKY_TIMEOUT_MARKERS)
 
 
 def command_fingerprint(tool_name: str, tool_args: dict[str, Any]) -> str | None:

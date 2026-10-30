@@ -66,3 +66,24 @@ def test_error_graveyard_persistence(tmp_path):
     graveyard = mem.get("error_graveyard", [])
     assert len(graveyard) == 1
     assert "journal_mode=WAL" in graveyard[0]["verified_fix"]
+
+
+def test_build_system_prompt_injection(tmp_path):
+    base_dir = str(tmp_path / ".crusorai")
+    mem_mgr = ProjectMemoryManager(workspace_path="/workspace/app", base_dir=base_dir)
+
+    mem_mgr.set_user_preference("indentation", "2 spaces")
+    mem_mgr.set_blueprint_entry("framework", "FastAPI + React")
+    mem_mgr.record_decision("database", "Use SQLite WAL", "Avoid thread locks")
+    mem_mgr.record_resolved_error("EADDRINUSE: 8000", "Use dynamic port lookup", "terminal")
+
+    prompt = mem_mgr.build_system_prompt()
+    assert "<living_project_memory>" in prompt
+    assert "</living_project_memory>" in prompt
+    assert "Scoped User Preferences" in prompt
+    assert "indentation" in prompt
+    assert "FastAPI + React" in prompt
+    assert "Key Architectural Decisions" in prompt
+    assert "Use SQLite WAL" in prompt
+    assert "Error Graveyard (Past Resolved Pitfalls - Do Not Repeat)" in prompt
+    assert "EADDRINUSE: 8000" in prompt

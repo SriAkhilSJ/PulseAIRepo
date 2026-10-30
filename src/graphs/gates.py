@@ -25,6 +25,7 @@ from src.graphs.state import AgentState
 from src.graphs.budget import _budget_exhausted
 from src.graphs.verification_helpers import (
     classify_env_failure,
+    classify_flaky_failure,
     command_fingerprint,
 )
 
@@ -482,6 +483,10 @@ def _unresolved_failed_verification_checks(state: AgentState) -> list[dict[str, 
         if status in {"failed", "error", "failure"}:
             if classify_env_failure(result):
                 continue
+            if classify_flaky_failure(result):
+                flaky_attempts = int(item.get("flaky_attempts", 0) or 0)
+                if flaky_attempts < 2:
+                    continue
             debts[fingerprint] = {
                 "fingerprint": fingerprint,
                 "tool": canonical_tool,
