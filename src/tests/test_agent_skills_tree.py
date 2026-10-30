@@ -208,6 +208,13 @@ def test_repo_architect_library_is_discoverable(tmp_path):
         "serverless-architect",
         "reliability-architect",
         "cost-optimization-architect",
+        "ai-ml-architect",
+        "llm-app-architect",
+        "rag-architect",
+        "evals-architect",
+        "inference-serving-architect",
+        "mlops-architect",
+        "agent-architect",
     } <= names
     # Existing flat process skills must survive the recursive discovery change.
     assert "systematic-debugging" in names
@@ -479,6 +486,7 @@ def test_every_domain_has_a_crown_skill():
     assert domains >= {
         "website-architect", "mobile-architect", "desktop-architect",
         "cloud-and-devops-architect",
+        "ai-ml-architect",
     }
     for domain in sorted(domains):
         crown = Path("skills") / domain / "SKILL.md"
@@ -523,3 +531,23 @@ def test_cloud_domain_covers_every_capability():
     available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
     missing = {c: s for c, s in CLOUD_CAPABILITIES.items() if s not in available}
     assert not missing, f"cloud capabilities without a skill: {missing}"
+
+
+AI_ML_CAPABILITIES = {
+    "model boundary, envelope and eval-first ordering": "ai-ml-architect",
+    "prompting, structured output and routing": "llm-app-architect",
+    "grounded answers over a private corpus": "rag-architect",
+    "quality measurement and regression gates": "evals-architect",
+    "latency, throughput and self-hosting": "inference-serving-architect",
+    "training pipelines and model lifecycle": "mlops-architect",
+    "multi-step autonomy and tool permissions": "agent-architect",
+}
+
+
+def test_ai_ml_domain_covers_every_capability():
+    from src.agents.skill_manager import SkillManager
+
+    sm = SkillManager(storage_path=str(__import__("tempfile").NamedTemporaryFile(suffix=".json").name))
+    available = {s["name"] for s in sm.list_skills() if s.get("created_by") == "bundled"}
+    missing = {c: s for c, s in AI_ML_CAPABILITIES.items() if s not in available}
+    assert not missing, f"ai/ml capabilities without a skill: {missing}"

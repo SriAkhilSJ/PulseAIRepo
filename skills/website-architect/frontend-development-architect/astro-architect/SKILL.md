@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/astro-architect
   crusor-origin: original
   crusor-sources: "docs.astro.build (islands, content collections, rendering modes)"
-  crusor-triggers: "astro, islands, content-collections, ssr, static-site, hydration, marketing-site, docs"
+  crusor-triggers: "astro, islands, content-collections, ssr, static-site, hydration, marketing-site, docs-site, docs site, documentation site"
   crusor-verified-on: "2026-10-30"
 ---
 

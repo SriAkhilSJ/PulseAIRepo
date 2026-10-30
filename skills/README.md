@@ -9,6 +9,7 @@ skills/
 ├── mobile-architect/      iOS, Android, React Native, Flutter, release
 ├── desktop-architect/     Electron, Tauri, native, distribution
 ├── cloud-and-devops-architect/  cloud primitives, k8s, IaC, serverless, reliability, cost
+├── ai-ml-architect/       LLM apps, RAG, evals, serving, MLOps, agents
 └── …                      (process skills: flat, one directory per skill)
 ```
 
@@ -47,5 +48,6 @@ skill_view("rest-architect, graphql-architect")   # one, or several
 | `mobile-architect/` | 6 | platform choice, iOS, Android, React Native, Flutter, stores and rollout |
 | `desktop-architect/` | 5 | runtime choice, Electron, Tauri, native, signing and updates |
 | `cloud-and-devops-architect/` | 7 | cloud topology, AWS, Kubernetes, Terraform, serverless, reliability, cost |
+| `ai-ml-architect/` | 7 | model boundary, LLM apps, RAG, evals, inference serving, MLOps, agents |
 
 See `website-architect/VERIFICATION.md` for the current conformance audit.

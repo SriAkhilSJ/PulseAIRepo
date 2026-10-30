@@ -8,7 +8,7 @@ metadata:
   crusor-path: website-architect/frontend-development-architect/react-architect/threejs-architect
   crusor-origin: original
   crusor-sources: "threejs.org/docs; threejs.org/manual (optimize lots of objects); r3f docs"
-  crusor-triggers: "threejs, three.js, webgl, 3d, react-three-fiber, r3f, scene-graph, shaders, gpu, render-loop"
+  crusor-triggers: "threejs, three.js, webgl, 3d, react-three-fiber, r3f, scene-graph, shaders, render-loop, gpu-shaders"
   crusor-verified-on: "2026-10-30"
 ---
 
