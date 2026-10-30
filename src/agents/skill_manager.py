@@ -128,6 +128,15 @@ def _frontmatter_triggers(frontmatter: dict) -> list[str]:
         val = frontmatter.get(key)
         if val:
             _scan(val if isinstance(val, list) else [val])
+    # Agent Skills spec keeps the frontmatter surface closed, so a skill that
+    # wants routing keywords without inventing top-level fields carries them in
+    # the free-form `metadata` map instead. `crusor-triggers` is that slot.
+    meta = frontmatter.get("metadata")
+    if isinstance(meta, dict):
+        for key in ("crusor-triggers", "keywords", "triggers"):
+            val = meta.get(key)
+            if val:
+                _scan(val if isinstance(val, list) else [val])
     seen: set[str] = set()
     triggers: list[str] = []
     for t in collected:
@@ -204,7 +213,13 @@ class SkillManager:
             self._skills = []
 
     def _load_bundled_skills(self, skills_dir: str | None = None) -> None:
-        """Load enterprise SKILL.md from PulseAIRepo/skills/*/SKILL.md (hermes parity).
+        """Load bundled SKILL.md files from the skills tree (hermes parity).
+
+        Discovery is RECURSIVE: every directory that contains a `SKILL.md` is a
+        skill, whatever its depth. Taxonomy containers (no `SKILL.md`) carry
+        structure only and are never injected — this is what lets the Architect
+        library nest domain -> branch -> technology -> skill while every skill
+        still obeys the Agent Skills rule "name == parent directory".
 
         Each SKILL.md becomes a pinned, enabled skill (`created_by=bundled`,
         never auto-archived). Trigger derivation, in priority order (hermes
@@ -222,10 +237,25 @@ class SkillManager:
                 skills_dir = os.path.join(repo_root, "skills")
             if not os.path.isdir(skills_dir):
                 return
-            for entry in os.listdir(skills_dir):
-                md = os.path.join(skills_dir, entry, "SKILL.md")
-                if not os.path.isfile(md):
+            # Deterministic discovery order: os.walk yields a directory before
+            # its children; dirs.sort() keeps sibling order stable across
+            # filesystems. Names must be globally unique (Agent Skills spec), so
+            # the first skill discovered with a given name wins and later
+            # duplicates are skipped rather than silently shadowing it.
+            seen_names = {s["name"] for s in self._skills}
+            skills_root = os.path.abspath(skills_dir)
+            for root, dirs, files in os.walk(skills_dir):
+                dirs.sort()
+                # The tree root is a container (it may carry an index
+                # SKILL.md describing the library); it has never been a skill.
+                if os.path.abspath(root) == skills_root:
                     continue
+                if "SKILL.md" not in files:
+                    continue
+                entry = os.path.basename(root.rstrip(os.sep))
+                if not entry or entry in seen_names:
+                    continue
+                md = os.path.join(root, "SKILL.md")
                 text = open(md, encoding="utf-8").read()
                 frontmatter, body = _parse_skill_frontmatter(text)
                 # 1) explicit **Triggers:** line
@@ -246,9 +276,6 @@ class SkillManager:
                     triggers = _frontmatter_triggers(frontmatter)
                 if not triggers:
                     triggers = [entry.lower()]
-                # Avoid duplicate
-                if any(s["name"] == entry for s in self._skills):
-                    continue
                 # Instruction = body without frontmatter, capped. Bundled
                 # skills carry real workflow (hermes injects full bodies), so
                 # the cap is higher than the user-skill default.
@@ -266,6 +293,7 @@ class SkillManager:
                     "updated_at": _NOW(),
                     "last_activity_at": _NOW(),
                 }))
+                seen_names.add(entry)
         except Exception:
             pass
 
