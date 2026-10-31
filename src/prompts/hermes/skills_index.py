@@ -277,6 +277,180 @@ def _skills_lead(tools: Optional[Iterable[str]], basic_tools: str) -> str:
     )
 
 
+# -- prompt-budget for the index -------------------------------------------
+# MEASURED COST (2026-10-31): with the installed skill tree (241 SKILL.md
+# files, 240 enabled) the index rendered here is 76,270 chars = 19,078 tokens,
+# i.e. 86.5% of the whole assembled system prompt (22,066 tokens), and it is
+# re-sent on EVERY provider call of EVERY turn (budget.py allows 20-45 calls).
+# The demotion tier upstream ships (`compact_categories` -> names-only) was
+# never actually driven by any caller, so the index grew without a ceiling.
+#
+# So it now has one. Over budget, every skill keeps its NAME (discovery is
+# never lost) and descriptions are spent cheapest-first, round-robin across
+# categories, until the budget is full. Deterministic, cache-safe, and honest:
+# a footer states how many entries were trimmed and how to load one.
+DEFAULT_SKILLS_INDEX_MAX_TOKENS = 3000
+_CHARS_PER_TOKEN = 4  # the same ~chars/4 contract as tokenizer_fallback
+
+
+def skills_index_token_budget() -> int:
+    """Token ceiling for the rendered index; 0 disables budgeting (legacy).
+
+    Read per call (the standing env rule): rotating the value must not
+    require a process restart.
+    """
+    raw = (os.environ.get("CRUSORAI_SKILLS_INDEX_MAX_TOKENS") or "").strip()
+    if not raw:
+        return DEFAULT_SKILLS_INDEX_MAX_TOKENS
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return DEFAULT_SKILLS_INDEX_MAX_TOKENS
+
+
+def _entry_name(line: str) -> str:
+    body = line.strip()
+    if body.startswith("- "):
+        body = body[2:]
+    return body.split(":", 1)[0].strip()
+
+
+def _category_of(lines: List[str]) -> str:
+    """Category a rendered entry belongs to ('' for the flat SkillManager list)."""
+    for line in reversed(lines):
+        stripped = line.strip()
+        if stripped.endswith(":") and not stripped.startswith("- "):
+            return stripped[:-1]
+    return ""
+
+
+def _entries_budget(lead: str) -> int:
+    """Budget for the entry list alone: the ceiling MINUS the fixed scaffolding.
+
+    The env knob is documented as the ceiling for the whole skills block, so the
+    lead sentence, the tags and the trim footer are charged against it — a
+    budget that only governed the entries would silently overshoot by ~600
+    tokens every call.
+    """
+    budget = skills_index_token_budget()
+    if budget <= 0:
+        return 0
+    overhead = (len(lead) // _CHARS_PER_TOKEN) + 40  # tags + trim footer allowance
+    return max(200, budget - overhead)
+
+
+def apply_skills_index_budget(
+    index_lines: List[str], max_tokens: int | None = None
+) -> tuple[List[str], int]:
+    """Trim ``index_lines`` to ``max_tokens`` (approx) by name-demoting entries.
+
+    Returns (lines, trimmed_count). ``max_tokens <= 0`` returns the input
+    untouched, which is the legacy behaviour and the rollback switch.
+    """
+    budget = skills_index_token_budget() if max_tokens is None else max_tokens
+    if budget <= 0 or not index_lines:
+        return index_lines, 0
+    budget_chars = budget * _CHARS_PER_TOKEN
+    total_chars = sum(len(line) + 1 for line in index_lines)
+    if total_chars <= budget_chars:
+        return index_lines, 0
+
+    # Phase 1 — the floor: names only. Discovery must survive any budget.
+    # A names-only row for a long description is ~30 chars; the floor cost is
+    # computed from the REAL names so a small budget is reported honestly
+    # rather than silently dropping skills.
+    slots: list[dict] = []
+    for line in index_lines:
+        stripped = line.strip()
+        if stripped.endswith(":") and not stripped.startswith("- "):
+            slots.append({"kind": "category", "line": line, "category": stripped[:-1]})
+        elif stripped.startswith("- "):
+            name = _entry_name(line)
+            slots.append(
+                {
+                    "kind": "entry",
+                    "name": name,
+                    "full": line,
+                    "name_only": f"    - {name}",
+                    "desc_chars": max(0, len(line) - len(name) - 8),
+                    "category": "",
+                }
+            )
+    current_category = ""
+    for slot in slots:
+        if slot["kind"] == "category":
+            current_category = slot["category"]
+        elif slot["kind"] == "entry":
+            slot["category"] = current_category
+
+    floor = sum(
+        len(s["line"] if s["kind"] == "category" else s["name_only"]) + 1 for s in slots
+    )
+    if floor > budget_chars:
+        # Even names do not fit: keep the alphabetically first N names and say so.
+        kept: list[str] = []
+        used = 0
+        dropped = 0
+        for slot in slots:
+            if slot["kind"] != "entry":
+                continue
+            row = slot["name_only"]
+            if used + len(row) + 1 > budget_chars:
+                dropped += 1
+                continue
+            kept.append(row)
+            used += len(row) + 1
+        footer = (
+            f"(Skills index truncated to {len(kept)} of {len(kept) + dropped} names "
+            f"to fit the prompt budget — use hub_search to find others.)"
+        )
+        return kept + [footer], dropped
+
+    # Phase 2 — spend what is left on descriptions, cheapest first within each
+    # category, round-robin across categories so no single category monopolises
+    # the budget (upstream's demotion tier, finally driven).
+    by_category: dict[str, list[int]] = {}
+    for idx, slot in enumerate(slots):
+        if slot["kind"] == "entry":
+            by_category.setdefault(slot["category"], []).append(idx)
+    for indices in by_category.values():
+        indices.sort(key=lambda i: (slots[i]["desc_chars"], slots[i]["name"]))
+
+    remaining = budget_chars - floor
+    promoted: set[int] = set()
+    order = sorted(by_category)
+    cursors = {category: 0 for category in order}
+    progressed = True
+    while progressed and remaining > 0:
+        progressed = False
+        for category in order:
+            indices = by_category[category]
+            cursor = cursors[category]
+            if cursor >= len(indices):
+                continue
+            slot_idx = indices[cursor]
+            cursors[category] = cursor + 1
+            progressed = True
+            extra = len(slots[slot_idx]["full"]) - len(slots[slot_idx]["name_only"])
+            if extra <= remaining:
+                promoted.add(slot_idx)
+                remaining -= extra
+
+    trimmed = sum(1 for i, s in enumerate(slots) if s["kind"] == "entry" and i not in promoted)
+    out: list[str] = []
+    for idx, slot in enumerate(slots):
+        if slot["kind"] == "category":
+            out.append(slot["line"])
+        else:
+            out.append(slot["full"] if idx in promoted else slot["name_only"])
+    if trimmed:
+        out.append(
+            f"({trimmed} of {trimmed + len(promoted)} skills are listed by name only "
+            f"to fit the prompt budget — load one with skill_view(name).)"
+        )
+    return out, trimmed
+
+
 def build_skills_system_prompt(
     available_tools: Optional[Iterable[str]] = None,
     available_toolsets: Optional[Iterable[str]] = None,
@@ -303,6 +477,9 @@ def build_skills_system_prompt(
         None if toolsets is None else tuple(sorted(toolsets)),
         tuple(sorted(demoted)),
         tuple((e["name"], e["description"], e["category"]) for e in user_entries),
+        # The rendered text now depends on the budget: an env change must not
+        # serve a render produced under the old ceiling.
+        skills_index_token_budget(),
     )
 
     with _SKILLS_PROMPT_CACHE_LOCK:
@@ -348,6 +525,9 @@ def build_skills_system_prompt(
 
     lead = _skills_lead(tools, basic_tools)
 
+    index_lines, _trimmed = apply_skills_index_budget(
+        index_lines, max_tokens=_entries_budget(lead)
+    )
     result = (
         "## Skills\n"
         + lead
@@ -409,6 +589,12 @@ def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
     if tools is not None and "web_search" not in tools:
         basic_tools = "terminal"
     lead = _skills_lead(tools, basic_tools)
+    # The real path for an installed catalog (240 entries measured at 19,078
+    # tokens) — the budget is applied here, before caching, so the cached
+    # value is already trimmed.
+    index_lines, _trimmed = apply_skills_index_budget(
+        index_lines, max_tokens=_entries_budget(lead)
+    )
     result = (
         "## Skills\n"
         + lead
@@ -427,7 +613,10 @@ def _from_skill_manager(tools, demoted: frozenset, cache_key: tuple) -> str:
 
 
 __all__ = [
+    "DEFAULT_SKILLS_INDEX_MAX_TOKENS",
+    "apply_skills_index_budget",
     "build_skills_system_prompt",
+    "skills_index_token_budget",
     "clear_skills_system_prompt_cache",
     "extract_skill_description",
     "parse_frontmatter",
