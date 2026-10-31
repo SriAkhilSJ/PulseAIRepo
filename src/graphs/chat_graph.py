@@ -1664,6 +1664,47 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     except Exception:
         pass  # scoping must never break binding; worst case = today's surface
 
+    # ── Capability waist (opt-in) ─────────────────────────────────────────
+    # MEASURED 2026-10-31: the registry default binds 68 schemas on every call
+    # = 25,382 tokens of tool JSON — 4.3x the whole system prompt — re-sent on
+    # every provider call (20-45 per turn). Nothing about a "fix this bug" turn
+    # needs the device/browser/media/hub families. `resolve_runtime_profile`
+    # already computes a deterministic capability set from the task + config
+    # (the same resolver sub-agent children use via scope_capabilities_strict);
+    # this applies it to the PARENT turn when asked.
+    #
+    # Opt-in on purpose: intersecting the waist can hide a capability a model
+    # wants (measured: 68 -> 48 tools for an app-build task, 68 -> 36 for a
+    # bugfix). Turn it on per deployment with CRUSORAI_TOOL_WAIST=profile and
+    # measure your own traces; "all" (default) keeps today's behaviour.
+    _waist_mode = (os.getenv("CRUSORAI_TOOL_WAIST", "all") or "all").strip().lower()
+    if _waist_mode in {"profile", "auto", "narrow"}:
+        try:
+            from src.agents.runtime_profile import resolve_runtime_profile
+            from src.tools.toolsets import resolve_runtime_tool_names
+
+            _task_text = str(
+                state.get("current_task")
+                or state.get("latest_instruction")
+                or ""
+            )
+            _profile = resolve_runtime_profile(_task_text, config)
+            _waist = set(resolve_runtime_tool_names(_profile, config))
+            _narrowed = [n for n in resolved_names if n in _waist]
+            # Never narrow below the universal core: a turn with three tools it
+            # cannot use is worse than a turn with forty it never calls.
+            if len(_narrowed) >= 8:
+                if len(_narrowed) < len(resolved_names):
+                    print(
+                        f"[tools] waist=profile: binding {len(_narrowed)} of "
+                        f"{len(resolved_names)} tools (caps "
+                        f"{sorted(getattr(_profile, 'capabilities', ()) or [])})",
+                        flush=True,
+                    )
+                resolved_names = _narrowed
+        except Exception:
+            pass  # waist narrowing must never break binding
+
     read_only_interest = _read_only_interest(state)
     no_change_action_interest = _no_change_action_interest(state)
     interest_allowlist = (

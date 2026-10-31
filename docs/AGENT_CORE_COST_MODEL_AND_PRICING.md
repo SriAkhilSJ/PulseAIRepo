@@ -56,6 +56,16 @@ skills/parity suites (140 passed, 1 skipped).
 
 ---
 
+> **CORRECTION 2026-10-31 (later the same day).** The per-turn figures below
+> measure the **system prompt only** and omit the **tool schemas**, which the
+> registry re-sends on every call: **68 schemas = 25,382 tokens**, 4.3× the
+> budgeted prompt. Corrected mid-tier numbers: **$0.3182/turn ($700/month)**
+> with all tools bound, **$0.2166 ($477)** with `CRUSORAI_TOOL_WAIST=profile`,
+> **$0.1092 ($240)** with the waist plus 90% cache reads. Everything below
+> understates cost by ~2.5×; the pricing conclusions (meter turns, default to
+> the cheap tier) still hold and are in fact strengthened.
+> See `docs/COMPETITIVE_BODY_CHECKUP_2026-10-31.md` §4.
+
 ## 2. Unit economics (measured prompt × configurable prices)
 
 Assumptions are inputs, not claims: **25 provider calls/turn** (budget allows

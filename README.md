@@ -88,6 +88,15 @@ Some semantic-memory features intentionally degrade to heuristics when local emb
 
 > **Reliability status (2026-10-27):** historical failed runs remain immutable. The newest authorized full-stack run (`40576857348`) produced all five required files and passed 4/5 tests, but failed SQLite persistence with `sqlite3.OperationalError: no such table: tasks`; no site was accepted or committed. The general follow-up repair at `f8108ccd` enforces mutation-before-recheck, exact-check debt clearing, same-response file batching, and bounded monitoring annotations. Provider-free evidence is 34/34 affected tests and 2,802 passing tests in a clean detached full-suite run, with the same 25 failing test identities as the clean pre-merge `main` baseline and 0 new failures. No live run has tested the follow-up repair yet, so end-to-end status remains **FAIL / not revalidated**, not PASS. See [`core.md`](core.md) and the [full-stack benchmark record](docs/CRUSOR_FULLSTACK_BENCHMARK.md).
 
+## Recent Changes 2026-10-31 — Competitive Body Checkup (measured, peers + costs)
+
+> Full record: [`docs/COMPETITIVE_BODY_CHECKUP_2026-10-31.md`](docs/COMPETITIVE_BODY_CHECKUP_2026-10-31.md).
+
+| Area | Change | Verification |
+|---|---|---|
+| **Tool schemas were the real bill** | The registry binds **68 tool schemas = 25,382 tokens on every provider call**, i.e. **4.3× the whole budgeted system prompt (5,840)** — a line item missing from the first cost model, which understated mid-tier cost ~2.5×. Added an **opt-in** capability waist: `CRUSORAI_TOOL_WAIST=profile` applies the existing `resolve_runtime_profile()` resolver to the parent turn (never below 8 tools, never breaks binding, off by default). `scripts/cost_model.py` now measures tool schemas instead of assuming them away. | 68→47 tools for an app build, 68→35 bugfix, 68→16 chit-chat; **17,684 fixed tokens/call**, mid-tier **$0.3182 → $0.2166/turn**, **$700 → $477/month** (waist + 90% cache: $0.1092 / $240). `src/tests/test_tool_waist.py` 7 pins |
+| **Body checkup vs 7 leading agent repos** | One script, one snapshot, six dimensions: performance, skills, MCP, agent core, context engine, error handling — plus **their** costs. Reliability is our strongest axis (core-file keyword density leads 5/6 axes: retry 26, failover 49, approval 141 vs codex 10/26/0), skills is the largest library measured (~304 `SKILL.md` vs gemini-cli 26), MCP is mid-pack (**no elicitation, no conformance suite**), and **quality performance is unmeasured — no pass rate is claimed**. | `scripts/competitor_snapshot.py` (re-runnable, `--json`/`--diff`/`--only`); committed baseline `snapshots/competitors-2026-10-31.json`; GitHub API data for all 7 repos, 2026-10-31 |
+
 ## Recent Changes 2026-10-31 — Agent Core Backend Verification Pass (suite green)
 
 > Full record: [`docs/AGENT_CORE_BACKEND_PASS_2026-10-31.md`](docs/AGENT_CORE_BACKEND_PASS_2026-10-31.md).
