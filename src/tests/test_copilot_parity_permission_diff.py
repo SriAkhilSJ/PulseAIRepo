@@ -98,20 +98,33 @@ def test_workbench_service_tracks_active_diffs_and_resolves():
     assert "this._onDidResolveDiff.fire({ toolId: diff.toolId, approved: false })" in service_ts
 
 
-def test_approval_dock_renders_inline_diff_and_warning():
-    """Approval dock renders the inline diff preview with stats and the
-    plain-language hint. (The warning box / risk badge this test once
-    pinned were the amber design the founder rejected 2026-10-15; the
-    dock is OpenCode's permission dock now — header, one plain hint,
-    the diff, Deny | Allow always | Allow once.)"""
+def test_approval_dock_offers_the_diff_as_a_review_action():
+    """The permission dock ships one plain hint, a diff REVIEW action, and the
+    keyboard contract — no inline diff, no amber warning.
+
+    History of this pin: it first asserted an inline diff preview with stats
+    plus a warning box and risk badge; the amber design was rejected
+    (2026-10-15) and the dock became OpenCode's permission dock. The dock then
+    dropped its inline `crusorai-approval-diff-preview` block entirely: the
+    diff is opened in the editor by `host.openDiff(toolId)` behind a
+    `Review change` action, so the pane never renders a second diff renderer
+    that can drift from the editor's.
+    """
     renderer = _text("browser", "crusorAIRenderer.ts")
     css = _text("browser", "media", "crusorAI.css")
-    assert "crusorai-approval-diff-preview" in renderer
-    assert "crusorai-approval-diff-header" in renderer
+    assert "function approvalDock" in renderer
+    assert "crusorai-approval-dock" in renderer
     assert "function approvalHintText" in renderer
+    # The diff is one click away and owned by the editor, not re-rendered here.
+    assert "Review change" in renderer
+    assert "host.openDiff(approval.toolId)" in renderer
+    assert "crusorai-approval-diff-preview" not in renderer
+    # Keyboard contract stays visible on the buttons.
+    assert "crusorai-approval-kbd" in renderer
+    # The rejected amber design must never come back.
     assert "crusorai-approval-warning" not in renderer
     assert "crusorai-approval-risk-badge" not in renderer
-    assert ".crusorai-approval-diff-preview" in css
+    assert ".crusorai-approval-dock" in css
     assert ".crusorai-approval-warning" not in css
 
 

@@ -170,9 +170,35 @@ def test_truncation_reaches_the_status_channel_not_the_prompt():
     assert isinstance(view.status_sink, list)
 
 
-def test_session_stats_report_the_tier_split():
+def test_session_stats_report_the_tier_split(monkeypatch):
+    """The stats surface separates the tiers and the stable band does not move.
+
+    "Stable dominates volatile" is only true when the skills INDEX is out of
+    the picture: on a repo whose skill catalog is large the volatile skills
+    index legitimately outweighs the persona (measured: ~77k chars of index vs
+    ~11k of stable), so the size claim is pinned with the index off. What must
+    hold in BOTH configurations — the property the KV cache actually depends
+    on — is that the tiers are reported separately, `static_bytes` is exactly
+    the stable band, and that band is byte-identical on a rebuild.
+    """
+    # Index off: the persona band is the only sizeable tier.
+    monkeypatch.setenv("CRUSORAI_SKILLS_INDEX", "0")
+    session_mod.invalidate_all_sessions()
     session_mod.system_prompt_for_session(_config("stats-thread"), {})
     stats = session_mod.session_stats(_config("stats-thread"))
     assert stats["cached"] is True
     assert stats["stable_chars"] > stats["volatile_chars"], "the cacheable band must dominate"
     assert stats["static_bytes"] == stats["stable_chars"]
+
+    # Index on (the shipped default): sizes differ by environment, the
+    # stability contract does not.
+    monkeypatch.delenv("CRUSORAI_SKILLS_INDEX", raising=False)
+    session_mod.invalidate_all_sessions()
+    session_mod.system_prompt_for_session(_config("stats-thread-live"), {})
+    live = session_mod.session_stats(_config("stats-thread-live"))
+    again = session_mod.session_stats(_config("stats-thread-live"))
+    assert live["cached"] is True
+    assert live["stable_chars"] > 1_000, "the persona band must never collapse"
+    assert live["static_bytes"] == live["stable_chars"]
+    assert again["stable_chars"] == live["stable_chars"], "the stable prefix must not move"
+    assert again["volatile_chars"] == live["volatile_chars"]

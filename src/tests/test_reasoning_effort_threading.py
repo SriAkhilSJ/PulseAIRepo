@@ -115,17 +115,41 @@ def test_anthropic_adaptive_and_legacy_budgets():
 
 
 def test_openai_compatible_reasoning_effort():
+    """Custom/cheap gateways get the effort ONLY where the wire allows it.
+
+    Top-level `reasoning_effort` is an OpenAI-native parameter. Velona /
+    LiteLLM / vLLM / OpenRouter front-ends and foreign models (GLM, DeepSeek,
+    Qwen) answer an unknown top-level parameter with HTTP 400, so
+    `build_model_kwargs_for_reasoning` sends it only for OpenAI-family models
+    on those endpoints; everyone else still receives the effort as a
+    `thinking.budget_tokens` tier, which is the parameter they do implement.
+    """
     from src.config.reasoning_config import build_model_kwargs_for_reasoning
 
-    # OpenAI-compatible custom/cheap endpoints send reasoning_effort and extra_body thinking budget
-    for provider in ("openai", "custom", "cheap"):
-        kwargs = build_model_kwargs_for_reasoning(
-            provider, "any-model", {"enabled": True, "effort": "low"}
+    # OpenAI-native model served through an OpenAI-compatible gateway.
+    kwargs = build_model_kwargs_for_reasoning(
+        "custom", "gpt-4o-mini", {"enabled": True, "effort": "low"}
+    )
+    assert kwargs["reasoning_effort"] == "low"
+    assert kwargs["extra_body"]["reasoning"]["effort"] == "low"
+    assert kwargs["extra_body"]["thinking"]["budget_tokens"] == 4000
+
+    # Foreign model on the same gateway: intent still travels, as a budget.
+    for provider in ("custom", "cheap"):
+        foreign = build_model_kwargs_for_reasoning(
+            provider, "glm-5.3-flash", {"enabled": True, "effort": "low"}
         )
-        assert kwargs["reasoning_effort"] == "low"
-        assert "extra_body" in kwargs
-        assert kwargs["extra_body"]["reasoning"]["effort"] == "low"
-        assert kwargs["extra_body"]["thinking"]["budget_tokens"] == 4000
+        assert "reasoning_effort" not in foreign
+        assert foreign["extra_body"]["thinking"] == {"type": "enabled", "budget_tokens": 4000}
+        assert foreign["extra_body"]["chat_template_kwargs"] == {"thinking": True}
+
+    # The native OpenAI adapter sends both.
+    openai_kwargs = build_model_kwargs_for_reasoning(
+        "openai", "any-model", {"enabled": True, "effort": "low"}
+    )
+    assert openai_kwargs["reasoning_effort"] == "low"
+    assert openai_kwargs["extra_body"]["reasoning"] == {"effort": "low", "max_tokens": 4000}
+    assert openai_kwargs["extra_body"]["thinking"]["budget_tokens"] == 4000
 
     # Groq sends reasoning_effort and parsed reasoning_format
     groq_kwargs = build_model_kwargs_for_reasoning(
@@ -148,16 +172,15 @@ def test_disabled_thinking_across_all_providers():
         "anthropic", "claude-opus-4-7-20260101", {"enabled": False}
     ) == {"thinking": {"type": "disabled"}}
 
-    # OpenAI / Custom / Cheap send wire-level disable payloads
+    # OpenAI-compatible gateways: an explicit Off sends NO foreign parameter
+    # at all — the suppression payload itself is what used to 400. "Think:
+    # Off" is therefore enforced by omission, not by a wire marker.
     for provider in ("custom", "cheap"):
-        kwargs = build_model_kwargs_for_reasoning(
+        assert build_model_kwargs_for_reasoning(
             provider, "glm-5.3-flash", {"enabled": False}
-        )
-        assert kwargs["reasoning_effort"] == "none"
-        assert kwargs["extra_body"]["reasoning"] == {"effort": "none", "max_tokens": 0}
-        assert kwargs["extra_body"]["thinking"] == {"type": "disabled", "budget_tokens": 0}
-        assert kwargs["extra_body"]["chat_template_kwargs"] == {"thinking": False}
+        ) == {}
 
+    # ...the native OpenAI adapter does send the suppression payload.
     openai_kwargs = build_model_kwargs_for_reasoning(
         "openai", "gpt-5", {"enabled": False}
     )

@@ -255,16 +255,29 @@ def test_fork_glyph_names_are_the_ones_the_webview_resolves():
 def test_both_surfaces_mount_the_same_column_and_teardown_the_timers():
     renderer = FORK_RENDERER.read_text(encoding="utf-8")
     assert "function createActivityState" in renderer and "function agentColumn" in renderer
-    assert renderer.count("...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)") == 2, \
-        "both the pane and the Manager chat box must come from one column"
+    # Signature-robust on purpose: the column gained `closedTools` and an exact
+    # literal count broke on that purely additive change. The CONTRACT is "two
+    # mount sites, one wiring", so count the spread call sites and require
+    # identical arguments rather than one frozen spelling.
+    calls = re.findall(r"\.\.\.agentColumn\(([^)]*)\)", renderer)
+    assert len(calls) == 2, (
+        "both the pane and the Manager chat box must come from one column; "
+        f"found {len(calls)} mount site(s)"
+    )
+    signatures = {tuple(part.strip() for part in call.split(",")) for call in calls}
+    assert len(signatures) == 1, f"the two mount sites pass different arguments: {signatures}"
     assert "activity.row(model)" not in renderer, \
         "the breathing status row under the transcript was deleted 2026-10-15 (OpenCode streams the turn)"
     assert "activity.sync(model)" in renderer and "activity.dispose()" in renderer, \
         "a ticking row that outlives its mount keeps repainting a dead surface"
     assert "transcript(model, host, openTools)," not in renderer, \
         "the Manager used to bolt the transcript on by itself; the column owns it now"
-    for glyph in ("icon('brain')", "renderToolIcon(name)"):
-        assert glyph in renderer
+    # Thinking row: one shared glyph table, not a local codicon choice.
+    # `icon('brain')` was the pre-icons spelling and is gone; the row's glyph now
+    # resolves through renderToolIcon(name) like every other tool row, and the
+    # label contract is Hermes' Thinking/Thought pair.
+    assert "return renderToolIcon(name);" in renderer
+    assert "(isPending ? 'Thinking' : 'Thought')" in renderer
     css = (BROWSER / "media" / "crusorAI.css").read_text(encoding="utf-8")
     for rule in ("@keyframes crusorai-sweep",
                  ".crusorai-disclosure-caret", ".crusorai-thought-body"):

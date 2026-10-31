@@ -877,3 +877,123 @@ def test_dual_status_separation_safety_denial_with_verified_app(tmp_path):
     assert out["application_verification_status"] == "verified"
     assert out["required_checks_passed"] is True
 
+
+
+# ---------------------------------------------------------------------------
+# 5. The published frame cannot contradict itself (audit 2026-10-31)
+# ---------------------------------------------------------------------------
+
+def _assert_frame_is_self_consistent(out: dict) -> None:
+    """One turn, one truth.
+
+    finalize_node publishes five overlapping fields plus the nested contract.
+    Before this pin they were derived by three independent chains, so a run
+    that wrote code but ran no receipt came back as
+    `task_completed=False`, `task_status="completed"`,
+    `verification_status="not_required"`, `run_outcome="completed"` — with the
+    nested `status_contract` disagreeing with the top level. A caller (bridge
+    `turn_done`, AG-UI, the receipt row, the UI badge) could read any of them
+    and get a different answer about the same turn.
+    """
+    from src.runtime.status_contract import derive_legacy_completed
+
+    contract = out["status_contract"]
+    for key in (
+        "run_outcome",
+        "verification_status",
+        "specification_status",
+        "failure_reason",
+    ):
+        assert out[key] == contract[key], (
+            f"top-level {key}={out[key]!r} disagrees with the status contract "
+            f"{contract[key]!r}"
+        )
+
+    derived = derive_legacy_completed(
+        contract["run_outcome"],
+        contract["verification_status"],
+        contract["specification_status"],
+        code_deliverables_produced=contract["verification_status"] != "not_required"
+        or out["verification_status"] == "verified",
+    )
+    assert out["task_completed"] is derived
+    if out["task_completed"]:
+        assert out["task_status"] == "completed"
+        assert out["run_outcome"] == "completed"
+        assert out["verification_status"] in {"verified", "not_required"}
+        assert out["specification_status"] == "complete"
+    else:
+        assert out["task_status"] != "completed"
+        assert out["run_outcome"] != "completed"
+
+
+def test_frame_written_code_without_receipt_is_unverified_not_completed(_no_memory):
+    """The exact shape that contradicted itself: code landed, nothing proved it.
+
+    The contract's safeguard rewrites `not_required` -> `unverified` whenever
+    code deliverables were produced; the node must publish THAT answer, not the
+    pre-safeguard one.
+    """
+    out = _finalize({
+        "messages": [HumanMessage(content="hi"), AIMessage(content="Done!")],
+        "current_task": "hi",
+        "steps_completed": ["Wrote file: app/page.tsx"],
+        "failed_steps": [],
+        "plan": [],
+    })
+    assert out["task_completed"] is False
+    assert out["task_status"] == "unverified"
+    assert out["verification_status"] == "unverified"
+    assert out["run_outcome"] == "failed"
+    assert out["failure_reason"] == "unverified"
+    _assert_frame_is_self_consistent(out)
+
+
+def test_frame_named_deliverable_missing_is_specification_incomplete(_no_memory, tmp_path):
+    """A run that names its deliverable and never lands it cannot report a
+    completed execution, even though no code was produced to verify."""
+    out = _finalize({
+        "workspace": str(tmp_path),
+        "messages": [
+            HumanMessage(content="Create a Flutter app called flutterdemo"),
+            AIMessage(content="", tool_calls=[
+                {"name": "run_terminal", "args": {"command": "flutter create flutterdemo"}, "id": "c1"},
+            ]),
+            ToolMessage(content="Creating project flutterdemo... All done!", tool_call_id="c1"),
+            AIMessage(content="Created flutterdemo and verified it runs."),
+        ],
+        "current_task": "Create a Flutter app called flutterdemo",
+        "steps_completed": ["Install Flutter toolchain"],
+        "failed_steps": [],
+        "plan": [],
+    })
+    assert out["task_completed"] is False
+    assert out["task_status"] == "failed"
+    assert out["run_outcome"] == "failed"
+    assert out["specification_status"] == "partial"
+    assert out["failure_reason"] == "specification_incomplete"
+    _assert_frame_is_self_consistent(out)
+
+
+def test_frame_verified_code_run_is_completed_on_every_field(_no_memory):
+    """The green direction of the same pin: a receipt-backed run agrees with
+    itself everywhere (this is what the bridge reports as `turn_done.completed`)."""
+    out = _finalize({
+        "messages": [
+            HumanMessage(content="clean up the stylesheet"),
+            AIMessage(content="", tool_calls=[{"name": "typecheck_workspace", "args": {}, "id": "v"}],
+                     ),
+            ToolMessage(content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+                        tool_call_id="v", name="typecheck_workspace"),
+            AIMessage(content="All checks pass."),
+        ],
+        "current_task": "clean up the stylesheet",
+        "steps_completed": ["Wrote file: app/globals.css"],
+        "failed_steps": [],
+        "plan": [],
+    })
+    assert out["task_completed"] is True
+    assert out["task_status"] == "completed"
+    assert out["verification_status"] == "verified"
+    assert out["run_outcome"] == "completed"
+    _assert_frame_is_self_consistent(out)

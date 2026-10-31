@@ -219,11 +219,21 @@ def test_model_wall_is_accounted_per_thread(monkeypatch):
 
 
 def test_bridge_receipt_splits_model_vs_non_model_wall():
+    """The receipt must survive the accounting refactor.
+
+    `turn_model_wall()` became `pop_turn_model_accounting()` when sub-agent
+    model seconds were attributed to the parent turn (read-and-clear, so turn
+    N+1 is not charged for turn N). The RECEIPT contract did not change: the
+    turn-end line still splits model wall from non-model wall and names both.
+    """
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall" in bridge
+    assert "pop_turn_model_accounting(" in bridge
+    assert "turn_model_wall(" not in bridge, "the cumulative read is retired — it double-charged turns"
     assert "non-model" in bridge, "the receipt must name where non-model wall lives"
+    # Sub-agent model time is reported separately, never folded into the turn's own.
+    assert "sub-agent model" in bridge
 
 
 def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
@@ -233,8 +243,8 @@ def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall(sid)" in bridge
-    assert "turn_model_wall(session_id)" not in bridge
+    assert "pop_turn_model_accounting(sid)" in bridge
+    assert "pop_turn_model_accounting(session_id)" not in bridge
 
 
 def test_grace_print_names_both_budget_legs_and_the_tripped_one(monkeypatch):

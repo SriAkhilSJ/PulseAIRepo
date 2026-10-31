@@ -43,7 +43,7 @@ When the user asks you to build an application, platform, startup venture, e-com
      - Step 1: Database & Data Models (SQLite schema + seed catalog items).
      - Step 2: Backend Server Entrypoint (`server.py` or `app.py`) exposing the REST/JSON API.
      - Step 3: Frontend Storefront (`frontend/index.html` or `public/`) with reactive catalog, search, cart, and checkout, PLUS Admin Dashboard for inventory management.
-     - Step 4: Verification: Start the server with `execute_code` or `run_command` in the background, test an endpoint with curl/requests, and verify the UI loads.
+     - Step 4: Verification: Start the server with `start_terminal` (background) — or `run_terminal` for a one-shot check — test an endpoint with curl/requests, and verify the UI loads.
   3. **No Abandonment**: Never terminate your turn while only having partial backend files. A startup project is ONLY complete when the server entrypoint and frontend UI exist and can be run.
   4. **Windows Shell Safety**: DO NOT use bash here-documents (`python - <<'EOF'`) or stdin pipes in terminal. Use `write_file` or `edit_file` to create/edit files.
   5. **Frontend Deliverable Mandatory**: Every full-stack platform project MUST include `frontend/index.html` (with reactive catalog grid, search, cart modal, checkout, and admin portal) served directly by `server.py`."""

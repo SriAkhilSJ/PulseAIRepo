@@ -291,8 +291,18 @@ def test_d28_write_file_protects_existing_python_only(tmp_path):
     assert "rejected" in out.lower()
     assert target.read_text() == before
 
-    # Brand-new .py with placeholders: allowed (skeletons/templates).
-    out2 = WRITE(path="skeleton.py", content="def todo(...) -> ...:\n    ...\n",
+    # Brand-new .py: the universal pre-flight AST gate (2026-10-29 hardening)
+    # applies to CREATION too, so a placeholder signature that is not valid
+    # Python is refused before it touches disk — a `def todo(...)` stub used to
+    # be waved through as a "skeleton" and then crashed the first import.
+    out_bad = WRITE(path="skeleton.py", content="def todo(...) -> ...:\n    ...\n",
+                    config={"configurable": {"workspace": ws}})
+    assert "rejected" in out_bad.lower()
+    assert not (Path(ws) / "skeleton.py").exists()
+
+    # ...a VALID stub is still a stub: skeleton authoring is not blocked, only
+    # non-compiling skeletons are.
+    out2 = WRITE(path="skeleton.py", content="def todo() -> None:\n    ...\n",
                  config={"configurable": {"workspace": ws}})
     assert out2.startswith("File written")
 

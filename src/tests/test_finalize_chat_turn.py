@@ -47,6 +47,29 @@ def test_pure_chat_turn_stamps_nothing(_no_memory):
     assert out["task_status"] == "completed"
 
 
+def _passing_typecheck() -> list:
+    """A fresh passing verification receipt (the shape gates.py recognises).
+
+    Under the 2026-10-29 tri-dimensional contract a run that wrote code and
+    ran NO receipt is `unverified` — not completed — so a test about the
+    PROSE of a *successful* work run must carry the evidence that makes it
+    successful. The verdict itself is pinned in test_verdict_honesty.py.
+    """
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    return [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": "typecheck_workspace", "args": {}, "id": "v1"}],
+        ),
+        ToolMessage(
+            content="✅ typecheck_workspace: tsc --noEmit passed with 0 errors.",
+            tool_call_id="v1",
+            name="typecheck_workspace",
+        ),
+    ]
+
+
 def test_successful_work_run_stamps_nothing(_no_memory):
     """hermes parity (owner, 2026-09-04): even a run that DID work gets NO
     finalize prose on success — no "Finished" stamp, no "What I did"
@@ -56,10 +79,12 @@ def test_successful_work_run_stamps_nothing(_no_memory):
 
     state = _chat_state()
     state["steps_completed"] = ["Wrote file: app/page.tsx"]
+    state["messages"] = [*state["messages"], *_passing_typecheck()]
     out = finalize_node(dict(state), {"configurable": {}})
     assert out["messages"] == []
     assert out["task_completed"] is True
     assert out["task_status"] == "completed"
+    assert out["verification_status"] == "verified"
 
 
 def test_finalize_report_counts_filtered_informational_execution(_no_memory, monkeypatch):
@@ -255,9 +280,16 @@ def test_nudged_but_never_acted_is_not_completed(_no_memory):
     assert out["task_status"] == "failed"
 
 
-def test_acting_after_the_nudge_still_completes(_no_memory):
-    """The marker only fails turns where NO work followed the last nudge;
-    a model that acts and then summarizes stays completed."""
+def test_acting_after_the_nudge_clears_the_marker(_no_memory):
+    """The marker only fails turns where NO work followed the last nudge.
+
+    This pins the MARKER, not the prose verdict: the state below still has no
+    verified `flutterdemo` on disk, so under the 2.0 tri-dimensional contract
+    it ends `failed` with `specification_incomplete` (the deliverable the task
+    named is missing). What must never appear is `failure_reason ==
+    "ended_mid_task"` — that reason is reserved for the model that announced
+    "Creating the project now:" and then never acted (the state pinned by
+    `test_nudged_but_never_acted_is_not_completed`)."""
     from langchain_core.messages import AIMessage, ToolMessage
 
     from src.graphs.chat_graph import finalize_node
@@ -278,5 +310,7 @@ def test_acting_after_the_nudge_still_completes(_no_memory):
         AIMessage(content="Created flutterdemo and verified it runs."),
     ]
     out = finalize_node(state, {"configurable": {}})
-    assert out["task_completed"] is True
-    assert out["task_status"] == "completed"
+    assert out["failure_reason"] != "ended_mid_task"
+    # ...and the un-acted twin is still stamped with it.
+    twin = finalize_node(_install_then_promise_state(), {"configurable": {}})
+    assert twin["failure_reason"] == "ended_mid_task"

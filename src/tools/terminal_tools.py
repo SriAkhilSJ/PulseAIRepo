@@ -1137,9 +1137,21 @@ def terminal(
             capture_truncated = bool(process_data.get("capture_truncated"))
         if status == "timeout":
             partial = _limit_terminal_output(output.strip(), _max_chars) if output.strip() else ""
+            # Both timeout paths must give the model the SAME pivot guidance.
+            # The subprocess.TimeoutExpired path below always said this; this
+            # captured-process path said only "retry with a longer timeout",
+            # which is the wrong lesson for a blocked/interactive command —
+            # the model retried the same command instead of pivoting to
+            # non-interactive flags or start_terminal (and then burned its
+            # nudge budget on an "ENVIRONMENT failure" it was never told
+            # about). Text is model-facing; the ledger's own classification
+            # (graphs/verification_helpers) does not read this sentence.
             message = (
                 f"⛔ run_terminal timed out after {timeout}s (command may be blocked or hung): {command}. "
-                "Retry only with a justified longer timeout, or use start_terminal for a long-running process. "
+                "TIP: this is an ENVIRONMENT failure — do NOT retry the same interactive "
+                "command or pipe canned input. Pivot: use non-interactive flags (--yes, "
+                "--no-input), raise timeout= (foreground max 600s), or use start_terminal "
+                "for a long-running process and read_terminal_output. "
                 f"Captured output remains available with read_terminal_output(process_id='{process_id}')."
             )
             return f"{message}\n\nPartial output:\n{partial}" if partial else message

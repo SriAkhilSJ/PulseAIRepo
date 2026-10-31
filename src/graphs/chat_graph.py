@@ -3141,7 +3141,10 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "failed" if has_failed_tests else "unverified"
     )
 
-    from src.runtime.status_contract import synthesize_status_contract
+    from src.runtime.status_contract import (
+        safeguard_verification_status,
+        synthesize_status_contract,
+    )
 
     # CrusorAI 2.0 Tri-Dimensional Status Contract Synthesis
     failure_reason: str | None = None
@@ -3178,6 +3181,19 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         run_outcome = "completed"
         failure_reason = None
 
+    # ONE source of truth for the deliverable requirement. It is read by the
+    # verification branch, the safeguard below, and the contract synthesis, and
+    # those three used to disagree: a turn that wrote code but ran no receipt
+    # derived `not_required` from the interest mode, the contract's safeguard
+    # then rewrote it to `unverified` (correct — code was produced), and the
+    # node returned the RAW `not_required` on top while `task_completed` came
+    # from the protected contract. Callers received a frame that contradicted
+    # itself: task_completed=False beside task_status="completed" and
+    # verification_status="not_required" (regressions:
+    # test_verdict_honesty.py::test_frame_written_code_without_receipt_is_unverified_not_completed
+    # and its _assert_frame_is_self_consistent helper).
+    code_produced = _produced_code_deliverable(state)
+
     if verified_ok:
         curr_rev = int(state.get("workspace_revision") or 0)
         last_rev = state.get("last_verified_revision")
@@ -3185,23 +3201,44 @@ def finalize_node(state: AgentState, config: RunnableConfig):
             verif_status = "stale"
         else:
             verif_status = "verified"
-    elif interest.mode in {"answer", "social"} or not _produced_code_deliverable(state):
-        verif_status = "not_required"
-    elif has_failed_tests:
+    elif has_failed_tests and code_produced:
         verif_status = "failed"
+    elif interest.mode in {"answer", "social"} or not code_produced:
+        verif_status = "not_required"
     else:
         verif_status = "unverified"
 
-    if interest.mode in {"answer", "social"}:
+    if interest.mode in {"answer", "social"} and not code_produced:
         spec_status = "complete"
     elif no_work_done:
         spec_status = "partial"
     elif _deliverables_missing_on_disk(state, state.get("workspace", ".")):
         spec_status = "partial"
-    elif (verified_ok or not _produced_code_deliverable(state)) and (not trailing_failed or trailing_optional_diagnostic):
+    elif (verified_ok or not code_produced) and (not trailing_failed or trailing_optional_diagnostic):
         spec_status = "complete"
     else:
         spec_status = "unknown"
+
+    # Apply the contract's own safeguard HERE, once, so every field the node
+    # publishes (run_outcome, verification_status, specification_status,
+    # task_status, task_completed) is derived from the same protected value.
+    # A run that produced code can never claim "not_required".
+    verif_status = safeguard_verification_status(verif_status, code_produced)
+
+    # Reconcile the execution outcome with the two other dimensions: an
+    # "execution completed" that produced unverified code, stale evidence, or
+    # a partial specification did NOT complete. Leaving run_outcome="completed"
+    # here is what let the terminal frame read success while task_completed
+    # read failure.
+    if run_outcome == "completed":
+        if verif_status in {"unverified", "failed", "stale"}:
+            run_outcome = "failed"
+            exec_status = "unverified" if verif_status != "failed" else "failed"
+            failure_reason = verif_status
+        elif spec_status != "complete":
+            run_outcome = "failed"
+            exec_status = "failed"
+            failure_reason = "specification_incomplete"
 
     diagnostics_list = []
     if trailing_failed:
@@ -3221,7 +3258,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         specification_status=spec_status,
         diagnostics=diagnostics_list,
         failure_reason=failure_reason,
-        code_deliverables_produced=_produced_code_deliverable(state),
+        code_deliverables_produced=code_produced,
     )
 
     # Audit 2026-10-12: the verdict is computed ONCE and used for both the
@@ -3229,14 +3266,23 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # `no_work_done` flipped task_completed to False while the print still
     # said "done: completed", so the field log contradicted the verdict the
     # UI rendered and nobody could tell which was true.
-    verdict = (
-        "budget_exhausted" if (budget_cut and not verified_ok)
-        else "failed" if (state.get("task_status") == "failed" or state.get("task_completed") is False)
-        else "unverified" if unverified
-        else "stale" if verif_status == "stale"
-        else "failed" if ((trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or spec_status == "partial")
-        else "completed"
-    )
+    # The verdict is READ OFF the contract, never re-derived beside it. The old
+    # chain recomputed the same question from the raw (un-safeguarded) locals,
+    # so the returned task_completed and task_status could disagree — the exact
+    # class of defect this function's "one verdict, one voice" comment claims
+    # to be immune to.
+    if budget_cut and not verified_ok:
+        verdict = "budget_exhausted"
+    elif run_outcome == "failed":
+        # Name the honest, specific failure: unverified/stale evidence are
+        # their own verdicts (the UI renders both separately from hard failure).
+        verdict = failure_reason if failure_reason in {"unverified", "stale"} else "failed"
+    elif verif_status == "stale":
+        verdict = "stale"
+    elif not status_contract_dict["task_completed"]:
+        verdict = "unverified" if verif_status != "verified" else "failed"
+    else:
+        verdict = "completed"
     task_succeeded = status_contract_dict["task_completed"] and (verdict == "completed")
     try:
         from src.telemetry import call_ledger

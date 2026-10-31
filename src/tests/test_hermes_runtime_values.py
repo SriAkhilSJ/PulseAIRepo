@@ -182,8 +182,12 @@ def test_foreground_cancel_answers_when_a_grandchild_holds_the_pipes(monkeypatch
     from src.tools import terminal_tools
 
     monkeypatch.setattr(terminal_tools.os, "killpg", lambda *a, **k: None)
-    # Keep the test quick; the shipped value is what the fix protects.
-    monkeypatch.setattr(terminal_tools, "_CANCEL_DRAIN_TIMEOUT_S", 0.5)
+    # Keep the test quick; the shipped value is what the fix protects. The
+    # cancel/timeout drain constants were unified into
+    # _TERMINAL_DRAIN_TIMEOUT_S (one monotonic deadline for both pipes, so a
+    # leaked descendant cannot grant each pipe a fresh timeout) — this patch
+    # names the current one.
+    monkeypatch.setattr(terminal_tools, "_TERMINAL_DRAIN_TIMEOUT_S", 0.5)
     # The hermes foreground/background guard (terminal_tool_guards port)
     # refuses this fixture's `&` shape before spawn — correct in production,
     # but THIS test needs the unguarded pipe-holding shape to exercise the
