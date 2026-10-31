@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GatePulse Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>GatePulse Rate Limiting Simulator</h1>
+        <div class="client-input">
+            <label for="client_id">Client ID:</label>
+            <select id="client_id">
+                <option value="client_A">Client A</option>
+                <option value="client_B">Client B</option>
+            </select>
+        </div>
+        <button id="send_request">Send Request</button>
+        <button id="burst_traffic">Burst Traffic (5x)</button>
+        <div id="gauge" class="gauge">Quota remaining: <span id="remaining">5</span></div>
+        <div class="metrics">
+            <div>Total Requests: <span id="total_requests">0</span></div>
+            <div>Accepted: <span id="accepted_requests">0</span></div>
+            <div>Rejected: <span id="rejected_requests">0</span></div>
+            <div>Rejection Rate: <span id="rejection_rate">0</span>%</div>
+        </div>
+        <div id="history">
+            <h2>Request History</h2>
+            <ul id="request_log"></ul>
+        </div>
+        <button id="reset_simulation">Reset Simulation</button>
+        <div id="feedback"></div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

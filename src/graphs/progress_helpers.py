@@ -113,7 +113,7 @@ def next_after_progress(
     the model is told to deliver its final answer, and only if it keeps
     tooling past that does the shortcut finalize."""
     if recovery_mode and recovery_attempts >= RECOVERY_LIMIT:
-        if env_failures >= 2 and pivot_count < MAX_PIVOTS:
+        if pivot_count < MAX_PIVOTS:
             return "pivot"
         return "recovery_limit"
     # (replanner route REMOVED with the engine re-plan consult — hermes has

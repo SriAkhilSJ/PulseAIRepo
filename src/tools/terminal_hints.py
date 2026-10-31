@@ -51,6 +51,9 @@ def _missing_command_hint(missing: str) -> str:
 # Ordered by production frequency — first match wins.
 _OUTPUT_HINTS: list[Callable[[str, str], Optional[str]]] = [
     # gh version drift; gh already prints the valid field list.
+    _regex_hint(r"here-document at line|syntax error near unexpected token|AttributeError: '_io\.TextIOWrapper' object has no attribute",
+                "Bash here-documents (<<'EOF') and complex inline stdin scripts fail in this shell. "
+                "Do NOT use bash here-docs or stdin python pipes. Use `write_file`, `edit_file`, or `read_file` directly."),
     _regex_hint(r'Unknown JSON field: "?(\w+)',
                 "The installed gh does not support the JSON field '{0}'. The valid field list is "
                 "printed in the output above — retry using only fields from that list."),

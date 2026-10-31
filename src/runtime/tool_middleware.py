@@ -208,6 +208,26 @@ def execute_tool_transaction(
     tool_error: Exception | None = None
 
     status = "ok"
+    target_str = str(
+        args.get("path")
+        or args.get("file_path")
+        or args.get("target")
+        or args.get("pattern")
+        or args.get("query")
+        or args.get("command")
+        or args.get("code")
+        or ""
+    )
+    prog_warning = None
+    run_state = None
+    try:
+        from src.runtime.run_state_ledger import get_run_state_ledger
+        from src.graphs.progress_guard import evaluate_operation_progress
+        run_state = get_run_state_ledger(session_id)
+        prog_warning = evaluate_operation_progress(run_state, name, target_str)
+    except Exception:
+        pass
+
     _tool_ctx_token = _current_tool.set({
         "session_id": session_id, "turn_id": turn_id,
         "tool_call_id": tool_call_id, "name": name,
@@ -246,6 +266,28 @@ def execute_tool_transaction(
             pass
     finally:
         _current_tool.reset(_tool_ctx_token)
+
+    if prog_warning:
+        content += (
+            f"\n\n[PROGRESS GUARD ADVISORY - {prog_warning['status'].upper()}]: "
+            f"{prog_warning['reason']}\nRequired Action: {prog_warning['required_action']}"
+        )
+
+    if run_state is not None:
+        try:
+            is_mutation = name in {"write_file", "edit_file", "patch_file", "append_file"} or (
+                name in {"terminal", "execute_code"} and status == "ok"
+            )
+            run_state.record_tool_call(
+                tool_name=name,
+                target=target_str,
+                state_mutated=is_mutation,
+                new_info=bool(content and not content.startswith("Error")),
+                exit_code=1 if status == "error" else 0,
+                output_text=content[:200],
+            )
+        except Exception:
+            pass
     try:
         from src.runtime.otel_tracing import tool_span_end
 

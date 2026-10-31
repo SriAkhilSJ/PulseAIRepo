@@ -26,6 +26,28 @@ from src.prompts.hermes.environment import build_environment_hints, mode_hint, r
 from src.prompts.hermes.skills_index import build_skills_system_prompt
 from src.prompts.hermes.view import CrusorPromptView
 
+
+PRODUCTION_ENGINEERING_MANDATE = """# Production Engineering & Anti-Mock Mandate
+When the user asks you to build an application, platform, startup venture, e-commerce store, SaaS, or complex system:
+- **Respect Founder Emotion & High-Stakes Goals**: A non-technical user saying "for my startup" or "an Amazon for my business" is expressing an emotion, a dream, and a business commitment. Act like their 10x Principal CTO.
+- **NEVER Downgrade to Static HTML/CSS Mocks**: Static single-file HTML/CSS/JS mockups without real data or backend functionality are FORBIDDEN for platform/startup requests.
+- **Mandatory Production Architecture**:
+  1. Relational database schema with real tables and persistence (e.g. SQLite / SQLAlchemy / Prisma).
+  2. Runnable backend API routes with real validation and business logic.
+  3. Interactive, reactive UI with live search, filters, state management, and shopping cart operations.
+  4. Role separation: Customer Storefront + Admin / Vendor Hub.
+  5. Automated verification: Run unit/integration tests and verify endpoints before declaring completion.
+- **Milestone Progression & Anti-Paralysis Directive (SWE-agent & Devin Parity)**:
+  1. **Do Not Over-Inspect**: Once you write code (e.g. database schema, models, API routes), DO NOT get trapped repeatedly searching your own internal symbols or files. Trust your generated code or run a quick test.
+  2. **Mandatory Delivery Sequence**:
+     - Step 1: Database & Data Models (SQLite schema + seed catalog items).
+     - Step 2: Backend Server Entrypoint (`server.py` or `app.py`) exposing the REST/JSON API.
+     - Step 3: Frontend Storefront (`frontend/index.html` or `public/`) with reactive catalog, search, cart, and checkout, PLUS Admin Dashboard for inventory management.
+     - Step 4: Verification: Start the server with `execute_code` or `run_command` in the background, test an endpoint with curl/requests, and verify the UI loads.
+  3. **No Abandonment**: Never terminate your turn while only having partial backend files. A startup project is ONLY complete when the server entrypoint and frontend UI exist and can be run.
+  4. **Windows Shell Safety**: DO NOT use bash here-documents (`python - <<'EOF'`) or stdin pipes in terminal. Use `write_file` or `edit_file` to create/edit files.
+  5. **Frontend Deliverable Mandatory**: Every full-stack platform project MUST include `frontend/index.html` (with reactive catalog grid, search, cart modal, checkout, and admin portal) served directly by `server.py`."""
+
 logger = logging.getLogger(__name__)
 
 # The plugin/skill-section frame: a coarse anchor carried in the volatile tail
@@ -188,6 +210,10 @@ def build_system_prompt_parts(view: CrusorPromptView, system_message: Optional[s
     platform_hint = resolve_platform_hint("", str(view.platform or ""), view.platform_hint_overrides)
     if platform_hint:
         stable_parts.append(platform_hint)
+
+    # 8. Production engineering & anti-downgrade mandate
+    if _has_tools(view):
+        stable_parts.append(PRODUCTION_ENGINEERING_MANDATE)
 
     # ── Context tier (cwd-dependent; may change between sessions) ──────────
     context_parts: List[str] = []

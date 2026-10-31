@@ -15,13 +15,16 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+import dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+dotenv.load_dotenv(REPO_ROOT / ".env")
 DEFAULT_SHOWCASE_DIR = REPO_ROOT / "showcase" / "agent_pulsetask"
 DEFAULT_BENCHMARK_PROMPT = REPO_ROOT / "benchmark_agent_task.txt"
 RESULTS_DIR = REPO_ROOT / "bench-results"
 
 KNOWN_HASHES = {
+    "benchmark_ecommerce_prompt.txt": "8E98B4886C4241F4F66E6F6A575C192BF917D07CF2ADF2272E0DFA63046C315C",
     "benchmark_agent_task.txt": "C184E32DA17735287F4049502E793AC68A4F56D42A641BA6CA9CEF4D5A5CC972",
     "benchmark_logpulse_task.txt": "4A7D33EDA603BAFA3B3C126A1944025980C65BB1C470F79CD4821C0B69492D22",
     "benchmark_gatepulse_task.txt": "427BF7B29A3BB3581FEA8FC05CA28F36590A85950797F10BA20978890BC7582D",
@@ -74,8 +77,9 @@ def run_benchmark(
         window, source = resolve_context_window(model, provider="custom", allow_network=False)
         usable_budget = usable_window_budget(window)
         # Distinguish single-request context window capacity from multi-turn cumulative credit budget:
-        # A 128k window model needs ~121.6k per-request context, but 500k cumulative token allowance for a multi-call build.
-        cumulative_budget = 1_000_000 if window >= 500_000 else 500_000 if window >= 128_000 else 250_000
+        # A 128k window model needs ~121.6k per-request context, but 1M cumulative token allowance for a multi-call build.
+        # A 1M window model needs 2.5M cumulative allowance for complete full-stack platform builds.
+        cumulative_budget = 2_500_000 if window >= 500_000 else 1_000_000 if window >= 128_000 else 500_000
         max_input_tokens = str(cumulative_budget)
         print(f"[BUDGET] Model limits for {model}: window={window:,} ({source}), single_call_usable={usable_budget:,}, cumulative_budget={cumulative_budget:,}")
     except Exception as e:

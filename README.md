@@ -2,11 +2,12 @@
 
 CrusorAI IDE is a Code OSS fork with a first-party autonomous coding agent named **Crusor**. The repository contains the desktop IDE, the Python agent runtime, the versioned stdio bridge between them, and a browser-based UI lab used to develop and verify Crusor surfaces.
 
-> **Project status:** CrusorAI 2.0 Hardened Core (Production-Hardened Agent Engine).
+> **Project status:** CrusorAI 2.0 Hardened Core (Production-Hardened Agent Engine & Autonomous Stress Benchmark).
 >
-> **Agent Core Status (2026-10-29):** **100% Full-Stack Verification Milestone.**
-> All three evaluated frontier models (**OpenAI GPT-4o-mini**, **DeepSeek-V4.1-Flash**, and **GLM-5.3-Flash**) achieved **16/16 Backend (100%)** and **9/9 Browser Playwright E2E (100%)** passes against the cryptographically pinned GatePulse task specification (`SHA-256: 427BF7B29A3BB3581FEA8FC05CA28F36590A85950797F10BA20978890BC7582D`).
-> Start with [CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md](CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md) for the full Agent Core architectural reference, [docs/AGENTIC_UI_BODY_CHECKUP.md](docs/AGENTIC_UI_BODY_CHECKUP.md) for the Agentic UI & Playwright diagnostic audit, and [ench-results/GATEPULSE_BENCHMARK_REPORT.md](bench-results/GATEPULSE_BENCHMARK_REPORT.md) for the definitive cross-model scorecard.
+> **Agent Core Status (October 31, 2026):** **Hardened Production Architecture & Forensic Weakness Audit.**
+> - **Live Stress Benchmark (Open-ended E-Commerce)**: Evaluated across multiple autonomous headless runs (ecommerce_amazon_live_test_v4, gent_core_stress_test_live_a_to_z, gent_core_stress_test_live_run_2). The Agent Core demonstrated massive autonomous code generation (**806-line Python server.py with 19 REST endpoints compiled with 0 errors**), while uncovering 4 critical operational failure modes: Milestone Lock-in, Linux bash syntax leaks on Windows, Diagnostic re-read polling, and Provider single-point-of-failure wallet exhaustion.
+> - **GatePulse Benchmark**: All three evaluated frontier models (**OpenAI GPT-4o-mini**, **DeepSeek-V4.1-Flash**, and **GLM-5.3-Flash**) achieved **16/16 Backend (100%)** and **9/9 Browser Playwright E2E (100%)** passes against the cryptographically pinned GatePulse task specification.
+> - **Architectural Reference**: Start with [docs/AGENT_CORE_CHECKUP.md](docs/AGENT_CORE_CHECKUP.md) for the complete A-to-Z architectural checkup and forensic audit, and [CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md](CRUSORAI_AGENT_CORE_ARCHITECTURE_AUDIT.md) for subsystem blueprints.
 
 ## What is in this repository
 

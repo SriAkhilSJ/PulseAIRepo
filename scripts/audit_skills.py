@@ -80,8 +80,8 @@ def check(book: dict) -> list[str]:
         v.append("missing license")
     if book["domain"] != rel.parts[0]:
         v.append(f"crusor-domain {book['domain']!r} != {rel.parts[0]!r}")
-    if book["path"] != str(rel):
-        v.append(f"crusor-path {book['path']!r} != {str(rel)!r}")
+    if book["path"] != rel.as_posix():
+        v.append(f"crusor-path {book['path']!r} != {rel.as_posix()!r}")
     if book["origin"] not in ("original", "adapted"):
         v.append(f"crusor-origin {book['origin']!r} not original|adapted")
     if not book["verified_on"]:

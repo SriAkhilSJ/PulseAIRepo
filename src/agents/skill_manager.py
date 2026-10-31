@@ -927,10 +927,27 @@ class SkillManager:
                 f"\n{kit['dropped']} more book(s) matched and were left out of the budget. "
                 'Pull them deliberately with skill_view("name-a, name-b").'
             )
+        manifest_entries = []
+        for tier in ("core", "stack"):
+            for e in kit.get(tier, []):
+                s = self.get_skill(e["name"])
+                if not s:
+                    continue
+                body = str(s.get("instruction") or "")
+                decs = [line.strip("# ").strip() for line in body.splitlines()
+                        if line.startswith("## Decision") or line.startswith("## Step")]
+                if decs:
+                    manifest_entries.append(f"- [{e['name']}]: " + "; ".join(decs[:4]))
+        manifest_block = [
+            "### ARCHITECTURAL MANIFEST (Matched from loaded books)",
+            *manifest_entries
+        ] if manifest_entries else []
+
         return "\n\n".join([
             "=== ACTIVE SKILLS ===",
             f"Plan Mode: {count} architect books are loaded. An architect-level plan "
             "is not one book — cover the stack, then decide.",
+            *manifest_block,
             *sections,
             *tail,
         ])

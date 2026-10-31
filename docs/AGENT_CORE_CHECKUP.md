@@ -220,3 +220,78 @@ Across all three evaluated model tiers on the cryptographically pinned 16-test G
 | **DeepSeek-V4.1-Flash** | **Production Hardened** | **16 / 16** | **100%** | PASS | PASS | PASS |
 | **GLM-5.3-Flash** | **Production Hardened** | **16 / 16** | **100%** | PASS | PASS | PASS |
 
+---
+
+## 8. mcptest Diagnostic Server: Deep Agent Core Subsystem Probing
+
+To guarantee strict architectural compliance and zero mock hallucinations, `mcptest` (`scripts/mcptest_server.py`) exposes dedicated JSON-RPC diagnostic tools testing every granular subsystem:
+
+### Subsystem Verification Matrix
+
+| Subsystem | MCP Diagnostic Tool | Tested Capabilities | Status | Duration |
+| :--- | :--- | :--- | :---: | :---: |
+| **1. Context Engine** | `test_context_engine` | Token budget calculation (786k tokens / 1M window), 10-category breakdown assembly (`system_prompt`, `skills`, `rules`, `repo_map`, `conversation`), dynamic threshold percentage (0.75), and memory context sanitization with redaction bounds. | **PASS** | ~580 ms |
+| **2. Memory** | `test_memory` | VectorMemory v3 initialization, storage indexing, exact KNN / scan similarity search, similarity score retrieval, memory isolation, and full memory clearing. | **PASS** | ~18 ms |
+| **3. Context Compressor** | `test_context_compressor` | HistoryCompactor & SmartCompressor prune-first logic, absolute head turn protection, tail protection, middle tool replacement with `_PRUNED_TOOL_PLACEHOLDER`, character reclamation (13,720 chars reclaimed), and tool-call pairing integrity (no orphan ToolMessages). | **PASS** | ~1,010 ms |
+| **4. Context Summarizer** | `test_context_summarizer` | SmartSummarizer short output bypass (<800 chars untouched), heuristic summarization of 800–3000 character dumps, and critical error preservation (ensuring `FATAL`, `OutOfMemoryError`, and `Traceback` lines are never dropped). | **PASS** | ~0.12 ms |
+| **5. Full Pipeline Flow** | `test_pipeline_flow` | Compilation of `chat_graph` (15 active nodes: `__start__`, `task_manager`, `planner`, `ai`, `tools`, `finalize`, `finish_gate`), execution of `finalize_node`, `StatusContract` generation (`completed`, `verified`, `satisfied`), and 4-state verification receipt calculation. | **PASS** | ~3,558 ms |
+| **All-in-One Runner** | `run_all_agent_core_tests` | Executes all 5 subsystem diagnostics in a single automated pass, collects timings and metrics, and returns structured JSON telemetry. | **PASS (5/5)** | ~23.2 s |
+
+```json
+{
+  "overall_status": "PASS",
+  "tests_passed": 5,
+  "tests_total": 5,
+  "subsystems": {
+    "context_engine": { "status": "PASS", "sanitization_verified": true },
+    "memory": { "status": "PASS", "indexing_mode": "sqlite-vec", "search_verified": true },
+    "context_compressor": { "status": "PASS", "head_tail_protected": true, "turn_atomicity": true },
+    "context_summarizer": { "status": "PASS", "short_bypass": true, "critical_error_preserved": true },
+    "pipeline_flow": { "status": "PASS", "graph_nodes": 15, "status_contract_verified": true }
+  }
+}
+```
+
+Every diagnostic check is executed in the continuous minute health runner (`scripts/test_agent_core.py`) and verified by `src/tests/test_mcptest_server.py` with 100% test pass rate across 44 core test suites.
+
+---
+
+## 9. Live E-Commerce Benchmark & Autonomous Stress Test Audits
+
+To measure real-world pair-programming capability beyond canned synthetic fixtures, the Agent Core was benchmarked live on an open-ended specification: `Build a amazon like Ecommerce website for my startup`.
+
+### Empirical Run History & Forensic Progression
+
+| Metric / Dimension | Run 4: Un-hardened Baseline | Run 7: Live Stress Test (A-to-Z) | Run 8: Hardened Live Stress Test 2 |
+| :--- | :--- | :--- | :--- |
+| **Run ID** | `ecommerce_amazon_live_test_v4` | `agent_core_stress_test_live_a_to_z` | `agent_core_stress_test_live_run_2` |
+| **Model Engine** | `z-ai/glm-5.3-flash` (Velona) | `z-ai/glm-5.3-flash` (Velona) | `z-ai/glm-5.3-flash` (Velona) |
+| **Exit Outcome** | `budget_exhausted` (Exit 1) | `turn_failed` (Exit 1) | `budget_exhausted` (Exit 1) |
+| **LLM Calls Used** | 28 calls | 8 calls (truncated by upstream) | 26 calls (hit 25-call safety cap) |
+| **Cumulative Tokens** | **987,476 tokens** (runaway) | ~140,000 tokens | ~210,000 tokens |
+| **Tool Success Rate** | 12 succeeded / 17 failed (41%) | **13 succeeded / 0 failed (100%)** | **23 succeeded / 5 failed (82%)** |
+| **Delivered Code Base** | Broken fragments & monologues | `database.py` (257 L), `README.md` (81 L) | **`server.py` (806 lines / 34 KB, pure Python)** |
+| **Syntax Verification** | Failed | Passed (Code 0) | **Passed (Code 0 via `py_compile`)** |
+| **Primary Failure Cause** | Monolithic generation, bash syntax errors, redundant file reads | Upstream API wallet credit exhaustion mid-stream | **Milestone Lock-in Trap** (obsessed on backend, 0 frontend) |
+
+### The 4 Fatal Weaknesses Diagnosed Under Stress
+1. **The Milestone Lock-in Trap**: The agent generated a complete 806-line `server.py` in Turn 2, but spent the remaining 24 turns fine-tuning minor regex routes and SQLite helper methods instead of advancing to `frontend/index.html`.
+2. **Linux Shell Syntax Bleed on Windows**: Emitted Linux bash idioms (`2>/dev/null; true`, `cd ... && ...`) on Windows PowerShell, causing 5 security policy denials.
+3. **Diagnostic Polling Loop**: Repeatedly called `read_file` on a static 151-byte log 6 times across turns 7 to 15.
+4. **First-Turn Thinking Latency**: High-thinking models consume 106–158 seconds in silent CoT before emitting the first tool call.
+
+---
+
+## 10. The 6 Hardened Pillars & Layer-Budget Governor Roadmap
+
+To eliminate the diagnosed weaknesses permanently:
+
+1. **Deterministic Run State Ledger (`src/runtime/run_state_ledger.py`)**: Persistent ledger tracking file hashes, state revisions, and verification debt outside volatile LLM context.
+2. **Context-Aware Read Cache (`src/tools/read_cache.py`)**: Prevents re-reading resident files; rejects static log polling loops.
+3. **Progress-Aware Loop Interceptor (`src/graphs/progress_guard.py`)**: Traps operations that execute $\ge 3$ times with zero state progress ($\Delta\text{Rev}=0$).
+4. **Structured Process Boundary (`src/tools/process_boundary.py`)**: Enforces structured `argv` arrays and sanitizes Linux-specific bash syntax before Windows execution.
+5. **Layer-Budget Governor (`src/graphs/milestone_governor.py`)**: Enforces a strict 5-turn maximum per architectural tier (Backend $\rightarrow$ Frontend $\rightarrow$ Verification), forcibly breaking the milestone lock-in trap.
+6. **Multi-Provider Fallback Cascade (`src/runtime/llm_client.py`)**: Automatically fails over to alternate providers upon HTTP 402/429/500 errors to guarantee zero mid-stream aborts.
+
+
+

@@ -33,7 +33,7 @@ def test_core_imports_and_contracts():
     from src.graphs.gates import derive_4state_verification_receipt, _verification_receipt_status
     from src.runtime.status_contract import synthesize_status_contract, StatusContract
     from src.runtime.workspace_controller import WorkspaceController
-    from src.tools.mcp_client import discover_mcp_tools, call_mcp_tool
+    from src.tools.mcp_client import discover_mcp_tools, call_mcp_tool, close_all
 
     # Verify graph can compile
     assert graph is not None, "Failed to compile chat graph"
@@ -71,8 +71,22 @@ def test_core_imports_and_contracts():
     # Verify mcptest tools discovery
     tools = discover_mcp_tools(".")
     mcptest_tools = [t["name"] for t in tools if "mcptest" in t["name"]]
-    assert len(mcptest_tools) >= 1, "mcptest server not discovered"
-    log(f"  [PASS] MCP client & mcptest discovered: {mcptest_tools}")
+    assert len(mcptest_tools) >= 9, f"Expected 9 mcptest tools, discovered: {len(mcptest_tools)}"
+    log(f"  [PASS] MCP client & mcptest discovered ({len(mcptest_tools)} tools): {mcptest_tools}")
+
+    # Directly execute mcptest diagnostic probes for Context Engine and Summarizer
+    log("  Probing Context Engine via mcptest MCP...")
+    ce_diag = call_mcp_tool(".", "mcptest", "test_context_engine")
+    assert "PASS" in ce_diag, f"mcptest test_context_engine failed: {ce_diag}"
+    log("  [PASS] Context Engine verified via mcptest tool")
+
+    log("  Probing Context Summarizer via mcptest MCP...")
+    sum_diag = call_mcp_tool(".", "mcptest", "test_context_summarizer")
+    assert "PASS" in sum_diag, f"mcptest test_context_summarizer failed: {sum_diag}"
+    log("  [PASS] Context Summarizer verified via mcptest tool")
+
+    # Clean pooled subprocess sessions before launching pytest runner
+    close_all()
 
 
 def run_focused_pytest_suite():

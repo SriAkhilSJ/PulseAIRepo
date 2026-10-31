@@ -285,6 +285,20 @@ def read_file(
             )
         return f"Error: File not found: '{path}'.{root_hint}"
 
+    # Hardened Read Cache (Pillar 1: Context-Residency Aware Caching)
+    try:
+        from src.runtime.run_state_ledger import get_run_state_ledger
+        from src.tools.read_cache import HardenedReadCache
+        configurable = (config or {}).get("configurable", {})
+        session_id = str(configurable.get("thread_id", "default"))
+        ledger = get_run_state_ledger(session_id)
+        cache = HardenedReadCache(ledger)
+        receipt, is_hit = cache.execute_read(safe_path)
+        if is_hit:
+            return receipt
+    except Exception:
+        pass
+
     # D32: stamp "this agent has seen the current content" — the file-state
     # guard's knowledge base for clobber detection (never raises).
     from src.tools import file_state

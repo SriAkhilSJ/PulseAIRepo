@@ -847,18 +847,26 @@ def main() -> int:
                 # 16k-32k reasoning models. Coalesce in memory and write on llm.response.
                 if ftype in ("reasoning", "reasoning.update"):
                     delta = str(frame.get("text") or frame.get("delta") or frame.get("content") or "")
-                    if delta:
+                    if delta and len(accumulated_reasoning) < 500:
                         accumulated_reasoning.append(delta)
 
                 if ftype in EPHEMERAL_CHUNK_TYPES and not raw_stream_chunks:
                     pass
                 else:
                     if ftype == "llm.response" and accumulated_reasoning:
-                        full_thought = "".join(accumulated_reasoning)
-                        if full_thought and not frame.get("reasoning"):
-                            frame["reasoning"] = full_thought
+                        try:
+                            full_thought = "".join(accumulated_reasoning)
+                            if full_thought and not frame.get("reasoning"):
+                                frame["reasoning"] = full_thought
+                        except MemoryError:
+                            frame["reasoning"] = "[reasoning truncated]"
                         accumulated_reasoning.clear()
-                    out.write(json.dumps(frame, ensure_ascii=False) + "\n")
+                    try:
+                        out.write(json.dumps(frame, ensure_ascii=False) + "\n")
+                    except MemoryError:
+                        if "reasoning" in frame and isinstance(frame["reasoning"], str) and len(frame["reasoning"]) > 10000:
+                            frame["reasoning"] = frame["reasoning"][:5000] + "\n...[truncated reasoning]...\n" + frame["reasoning"][-5000:]
+                        out.write(json.dumps(frame, ensure_ascii=False) + "\n")
                     out.flush()
                 try:
                     event_time = float(frame.get("timestamp"))

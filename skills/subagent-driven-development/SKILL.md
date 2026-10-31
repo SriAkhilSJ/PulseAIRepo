@@ -11,7 +11,7 @@ metadata:
     related_skills: [requesting-code-review, test-driven-development]
 ---
 
-**Triggers:** subagent, sub-agent, delegate, parallel agents, spawn agents, batch agents, delegate_to_subagent, fan out
+**Triggers:** subagent, sub-agent, delegate, parallel agents, spawn agents, batch agents, delegate_to_subagent, fan out, startup, platform, ecommerce, e-commerce, amazon, fullstack, multi-tier, complex project
 
 # Subagent-Driven Development
 
