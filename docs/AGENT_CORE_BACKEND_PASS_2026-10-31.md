@@ -9,15 +9,22 @@ contract), plus the `src/tests/` suite that pins them.
 surfaces, live provider turns (no keys in this sandbox), and any benchmark
 re-run that would need network/provider spend.
 
-> **Tooling note — TestSprite MCP.** The requested TestSprite MCP connector is
-> not available to this session (the connector lookup returns *unsupported*), so
-> no TestSprite cloud runs are included and nothing here should be read as a
-> TestSprite result. Equivalently rigorous, provider-free verification was done
-> instead with the repository's own engine: the full pytest suite, direct
-> execution of the graph's finalize/verdict paths against constructed states,
-> import-level probes of the compiled graph, and a differential read of
-> `bench-results/`/renderer sources for the remaining pins. Anything below is
-> reproducible with the commands in §6.
+> **Tooling note — TestSprite MCP.** The TestSprite *connector* is not offered to
+> this session, but TestSprite ships its MCP server as an open npm package, so the
+> server was installed and driven directly through **Agent Core's own MCP
+> client**: `initialize` → `tools/list` (8 tools) → `tools/call`
+> (`testsprite_check_account_info`, which answered `Invalid TestSprite API Key`
+> for the placeholder key — a real round-trip). See
+> [`TESTSPRITE_MCP.md`](TESTSPRITE_MCP.md) and `scripts/testsprite_mcp_smoke.py`.
+> **No TestSprite test was executed**: that needs a real API key, which this
+> environment does not have. Nothing here is a TestSprite result.
+>
+> The verification below was done with the repository's own engine: the full
+> pytest suite, direct execution of the graph's finalize/verdict paths against
+> constructed states, import-level probes of the compiled graph, MCP smoke runs
+> against both TestSprite and `scripts/mcptest_server.py`, and a differential read
+> of `bench-results/`/renderer sources for the remaining pins. Reproducible with
+> the commands in §6.
 
 ---
 
@@ -206,6 +213,11 @@ python -m venv .venv
 # full suite (provider-free, ~6 min)
 .venv/bin/python -m pytest src/tests -q --no-header --basetemp=/tmp/pt
 
+# MCP surfaces (real stdio servers, through src/tools/mcp_client.py)
+.venv/bin/python scripts/testsprite_mcp_smoke.py --workspace .   # exit 2 = no key
+.venv/bin/python -m pytest src/tests/test_mcp_client.py src/tests/test_mcp_session_pool.py \
+    src/tests/test_mcp_meta_tools.py src/tests/test_mcptest_server.py -q --no-header
+
 # the three defect pins
 .venv/bin/python -m pytest src/tests/test_verdict_honesty.py \
     src/tests/test_hermes_prompt_parity.py \
@@ -222,7 +234,9 @@ Say it plainly, in this repository's tradition:
   16/16 / 9-of-9 browser claims, and the 2026-10-27 full-stack benchmark status
   remains **FAIL / not revalidated**. This pass changes verdict derivation and
   prompt text; both deserve one live headless run before any PASS claim.
-- **No TestSprite run** (see the tooling note at the top).
+- **No TestSprite test run** — the MCP server is installed, wired and
+  protocol-verified (8 tools, live `tools/call`), but executing a TestSprite
+  suite needs their API key (see the tooling note and `TESTSPRITE_MCP.md`).
 - **Desktop TS surfaces** were touched only through stale pins; the desktop fork
   was not recompiled (`gulp compile` / `tsc -b` need a node toolchain this
   sandbox does not have).
