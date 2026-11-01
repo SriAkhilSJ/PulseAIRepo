@@ -108,6 +108,33 @@ jobs:
           echo "CRUSORAI_HOME=$RUNNER_TEMP/crusorai" >> "$GITHUB_ENV"
           echo "workspace ready"
 
+      - name: SDK connectivity probe (isolates transport from agent logic)
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os, traceback
+          print("base_url=", os.environ.get("CUSTOM_BASE_URL"))
+          print("model   =", os.environ.get("LLM_MODEL"))
+          k = os.environ.get("CUSTOM_API_KEY") or ""
+          print("key     = len=%d ...%s" % (len(k), k[-4:]))
+          try:
+              from langchain_openai import ChatOpenAI
+              llm = ChatOpenAI(
+                  api_key=k,
+                  base_url=os.environ["CUSTOM_BASE_URL"],
+                  model=os.environ["LLM_MODEL"],
+                  max_retries=0,
+                  request_timeout=45,
+                  default_headers={"User-Agent": os.environ["CRUSORAI_HTTP_USER_AGENT"]},
+              )
+              r = llm.invoke("reply with the single word: ok")
+              print("SDK PROBE OK:", str(r.content)[:80])
+          except Exception as exc:
+              print("SDK PROBE FAILED:", type(exc).__name__, str(exc)[:400])
+              traceback.print_exc()
+          PY
+
       - name: Run one real GLM 5.3 turn through the bridge
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
@@ -153,8 +180,9 @@ jobs:
           python scripts/e2e_core_report.py \
             --run-dir "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}" \
             --model-label "z-ai/glm-5.3-flash" \
+            --require-completed \
             --out "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md"
-          echo "REPORT_EXIT=$?"
+          echo "REPORT_EXIT=$?" >> "$GITHUB_ENV"
           exit 0
 
       - name: Post the report to the tracking issue
@@ -165,6 +193,9 @@ jobs:
         run: |
           set -euo pipefail
           REPORT=$(cat "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md" 2>/dev/null | head -70 || echo "no report")
+          # Bridge stderr is where a transport failure actually explains itself.
+          STDERR=$(tail -c 2500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
+          REPORT=$(printf '%s\n\n### bridge stderr (tail)\n```\n%s\n```' "$REPORT" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
