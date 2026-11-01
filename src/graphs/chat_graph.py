@@ -3204,7 +3204,22 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         exec_status = state.get("task_status")
         run_outcome = "failed"
         failure_reason = state.get("task_status")
-    elif (trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or state.get("task_completed") is False or state.get("task_status") == "failed":
+    # Field 2026-11-01 (run 41280335964): `state.get("task_completed") is False`
+    # used to sit in this chain. It is NOT a declaration of failure — it is the
+    # turn-start default. The graph seeds every turn with
+    #   {"task_status": "in_progress", "task_completed": False}
+    # and nothing sets it True mid-turn (it is DERIVED at finalize by
+    # synthesize_status_contract). So the condition was true on every single
+    # turn, and the branch order meant it won whenever verification passed:
+    #     decided_by=task_completed_false
+    #     exec_status=failed run_outcome=failed failure_reason='task_failed'
+    #     signals: verified_ok=True task_completed=False task_status='in_progress'
+    # on a run whose 4 tests passed, whose live /api/health returned 200, and
+    # whose artifact was independently re-tested. Every deliberate failure path
+    # (cancelled, timed_out, failed, recovery/tool-cycle limits) already names
+    # itself in task_status above, so the redundant default check only ever
+    # produced false failures.
+    elif (trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or state.get("task_status") == "failed":
         exec_status = "failed"
         run_outcome = "failed"
         failure_reason = "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else "no_work_done" if no_work_done else "ended_mid_task" if ended_mid_task else "task_failed"
@@ -3231,7 +3246,6 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else
         "no_work_done" if no_work_done else
         "ended_mid_task" if ended_mid_task else
-        "task_completed_false" if state.get("task_completed") is False else
         "task_status_failed" if state.get("task_status") == "failed" else
         "unverified" if unverified else
         "none->completed"
@@ -3303,7 +3317,7 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # UI rendered and nobody could tell which was true.
     verdict = (
         "budget_exhausted" if (budget_cut and not verified_ok)
-        else "failed" if (state.get("task_status") == "failed" or state.get("task_completed") is False)
+        else "failed" if state.get("task_status") == "failed"
         else "unverified" if unverified
         else "stale" if verif_status == "stale"
         else "failed" if ((trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or spec_status == "partial")
