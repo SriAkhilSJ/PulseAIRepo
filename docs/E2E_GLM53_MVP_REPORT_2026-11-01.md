@@ -9,12 +9,12 @@
 
 | | Result |
 | :--- | :--- |
-| Final run | [`41281237641`](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/41281237641) @ `c2a206bd` |
+| Final run | [`41282122129`](https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/41282122129) @ `04fb9c29` |
 | Invariants | **5 / 5 PASS** |
 | Turn outcome | `completed` — `decided_by=none->completed`, `unverified=False` |
 | Deliverable | **PASS (independent)** — 4 tests OK, live `HTTP 200 {"status":"ok"}` |
-| Spend, this turn | **$0.013820** — 3/3 rows priced, 86,061 in / 1,821 out |
-| Spend, whole campaign | **≈ $0.2694** — 13 real turns, 1,696,091 tokens |
+| Spend, this turn | **$0.013856** — 3/3 rows priced, 86,153 in / 1,866 out, cache reported 3/3 |
+| Spend, whole campaign | **≈ $0.2832** — 14 real turns, 1,784,110 tokens |
 | Cost source | `https://velona.in/gateway/v1/models` — 386 priced entries; GLM 5.3 = $0.15/1M in, $0.50/1M out |
 
 The MVP is no longer a claim in a log. It is a stdlib HTTP server that a fresh
@@ -22,10 +22,10 @@ runner starts and probes:
 
 ```
 agent test file: python mvp/test_server.py -> exit 0    Ran 4 tests … OK
-mvp/server.py      present (54 lines)   server.py parses
-mvp/index.html     present (29 lines)   references /api/health: 1 · id=health: 1
-mvp/styles.css     present (50 lines)
-mvp/test_server.py present (56 lines)
+mvp/server.py      present (70 lines)   server.py parses
+mvp/index.html     present (28 lines)   references /api/health: 1 · id=health: 1
+mvp/styles.css     present (58 lines)
+mvp/test_server.py present (54 lines)
 live HTTP /api/health -> 200   body: {"status": "ok"}   LIVE CONTRACT: PASS
 DELIVERABLE VERDICT: PASS (independent)
 ```
@@ -92,14 +92,14 @@ And the outcome is explainable by one line, which is the whole point:
 | `41279904524` | 259,959 | 4,559 | 0.0413 | failed (integrity) |
 | `41280080898` | 86,321 | 2,259 | 0.0141 | failed (task_completed) |
 | `41280335964` | 86,050 | 1,957 | 0.0139 | failed (task_completed) |
-| `41280526792` … `41281237641` | 516,489 | 11,726 | **0.0836** | **completed ×6** |
-| **Total** | **1,653,338** | **42,753** | **≈ 0.2694** | 13 turns |
+| `41280526792` … `41282122129` | 602,642 | 13,592 | **0.0981** | **completed ×7** |
+| **Total** | **1,739,491** | **44,619** | **≈ 0.2832** | 14 turns |
 
 Two token caps were also wrong on the way: `AGENT_TOKEN_BUDGET` was dead
 (a 600k env var beside a 150k CLI wall, which wins), and the E2E workflow did
 not trigger on `src/**` at all — a test whose trigger excludes its subject.
 
-A completed MVP turn now costs **≈ $0.014** and ~86k tokens. The earlier
+A completed MVP turn now costs **≈ $0.014** and ~86k tokens, and the last run reports cache splits on 3/3 calls. The earlier
 150k wall was cutting healthy builds at iteration 6 of 20.
 
 ---
@@ -142,7 +142,7 @@ Offline suite after this work: **3107 passed / 50 failed**, against a baseline o
   reality (does the thing serve?), not a benchmark.
 - The six consecutive completions use the same prompt. Repetition is not
   robustness.
-- `cache-reporting calls` is 2/3 on the final run: one call did not report a
-  cache split, so cache economics are not fully measured yet.
+- Cache reporting is 3/3 only on the very last run; the two before it were
+  2/3, so cache economics are measured but not yet consistently.
 - The `$0.2694` campaign figure uses the rate card's list price. It is an
   estimate of spend, not a vendor invoice.
