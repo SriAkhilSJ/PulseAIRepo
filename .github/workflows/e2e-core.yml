@@ -43,7 +43,6 @@ jobs:
       CRUSORAI_SUBAGENT_DEPTH: '0'
       # Bounded spend: this job must never be able to surprise the wallet.
       AGENT_ITERATION_BUDGET: '20'
-      AGENT_TOKEN_BUDGET: '600000'
       AGENT_COST_BUDGET: '0.25'
       AGENT_COST_TARGET_USD: '0.25'
       # The gateway rejects the OpenAI SDK default UA (Cloudflare).
@@ -191,9 +190,16 @@ jobs:
             --run-id "e2e-glm53-${{ github.run_id }}" \
             --timeout-s 900 \
             --max-llm-calls 20 \
-            --max-input-tokens 150000 \
+            --max-input-tokens 600000 \
             --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee runner.log
           echo "RUNNER_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          # The CLI flag above WINS over AGENT_TOKEN_BUDGET (run_bridge_turn
+          # writes env["AGENT_TOKEN_BUDGET"] = effective_max_input_tokens), so
+          # the previous 600k env var was decorative beside a 150k wall — and a
+          # healthy MVP build was cut at iteration 6 of 20 for it.
+          # Copy the log next to the frames so the report can name the budget
+          # that actually tripped instead of printing a bare "budget_exhausted".
+          cp runner.log "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/runner.log" 2>/dev/null || true
 
       - name: Show what the agent actually built
         if: always()

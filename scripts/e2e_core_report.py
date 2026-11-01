@@ -50,6 +50,52 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+_TERMINAL_TOOL_NAMES = {"terminal", "run_terminal", "start_terminal", "execute_code"}
+
+
+def _tool_calls(frames: list[dict]) -> list[dict]:
+    """Pair tool_call_start with tool_call_end by tool_id.
+
+    The report used to be blind to what the agent actually DID — the verdict
+    showed tokens and node counts, so a run that never executed the command
+    the prompt asked for looked identical to one that ran it and was ignored.
+    Field 2026-11-01: that is exactly the question two runs could not answer.
+    """
+    starts: dict[str, dict] = {}
+    order: list[str] = []
+    for frame in frames:
+        kind = frame.get("type")
+        if kind == "tool_call_start":
+            tid = str(frame.get("tool_id") or "")
+            if tid and tid not in starts:
+                starts[tid] = {
+                    "name": frame.get("name") or "?",
+                    "args": frame.get("arguments") or {},
+                    "status": None,
+                    "result": "",
+                }
+                order.append(tid)
+        elif kind == "tool_call_end":
+            tid = str(frame.get("tool_id") or "")
+            row = starts.get(tid)
+            if row is None:
+                continue
+            row["status"] = frame.get("status")
+            row["result"] = str(frame.get("result") or "")
+    return [starts[t] for t in order]
+
+
+def _verification_command_of(row: dict) -> str | None:
+    """The command string a tool call executed, if it ran a check."""
+    name = row.get("name")
+    args = row.get("args") if isinstance(row.get("args"), dict) else {}
+    if name in {"terminal", "run_terminal"}:
+        return str(args.get("command") or "") or None
+    if name == "execute_code":
+        return str(args.get("code") or "") or None
+    return None
+
+
 def _trace_for(session_id: str) -> Path | None:
     home = os.environ.get("CRUSORAI_HOME")
     roots = []
@@ -109,6 +155,34 @@ def main() -> int:
     tokens_in = sum(int(r.get("input_tokens") or 0) for r in ai_rows)
     tokens_out = sum(int(r.get("output_tokens") or 0) for r in ai_rows)
     cache_reported = sum(1 for r in ai_rows if r.get("cache_reported"))
+
+    # What did the agent run? Joined start/end pairs, terminal-shaped only.
+    calls = _tool_calls(frames)
+    ran: list[dict] = []
+    for row in calls:
+        command = _verification_command_of(row)
+        if command is None:
+            continue
+        from src.graphs.gates import _is_verification_command
+
+        ran.append({
+            "command": " ".join(command.split())[:160],
+            "status": row.get("status") or "?",
+            "is_check": _is_verification_command(command),
+        })
+    checks_run = [r for r in ran if r["is_check"]]
+    checks_green = [r for r in checks_run if str(r["status"]).lower() in {"ok", "success", "succeeded", "completed"}]
+
+    # The cap the runner actually used (the CLI flag wins over env, which is
+    # how a 600k env var sat next to a 150k wall for a whole run).
+    cap = None
+    log = run_dir / "runner.log"
+    if log.is_file():
+        import re as _re
+        text = log.read_text(encoding="utf-8", errors="ignore")
+        hit = _re.search(r"tokens [\d,]+/([\d,]+) >= cap", text)
+        if hit:
+            cap = hit.group(1)
 
     # ---- invariants -------------------------------------------------------
     checks: list[tuple[str, bool, str]] = []
@@ -203,6 +277,8 @@ def main() -> int:
     else:
         lines.append("| Cost | N/A — nothing billed |")
     lines.append(f"| Cache-reporting calls | {cache_reported}/{len(ai_rows)} |")
+    if cap:
+        lines.append(f"| Token cap hit | {cap} |")
     lines.append(f"| Trace | `{trace_path or 'MISSING'}` |")
     lines.append("")
     lines.append("## Invariants")
@@ -215,6 +291,35 @@ def main() -> int:
     lines.append("## Frame sequence")
     lines.append("")
     lines.append("`" + " → ".join(f"{k}×{v}" if v > 1 else k for k, v in frame_types.items()) + "`")
+    lines.append("")
+    lines.append("## Commands the agent ran")
+    lines.append("")
+    if ran:
+        lines.append("| # | Command | Result | Counts as verification |")
+        lines.append("| :--- | :--- | :--- | :--- |")
+        for i, row in enumerate(ran, 1):
+            lines.append(
+                f"| {i} | `{row['command']}` | {row['status']} | "
+                f"{'yes' if row['is_check'] else 'no'} |"
+            )
+    else:
+        lines.append("_The agent executed no terminal commands._")
+    lines.append("")
+    lines.append("### Verification channel")
+    lines.append("")
+    if checks_run:
+        good = len(checks_green)
+        verdict = "a check ran and passed" if good else "checks ran but none passed"
+        lines.append(
+            f"{len(checks_run)} verification command(s) run, {good} green — {verdict}. "
+            "This is the gate's own view of the run."
+        )
+    else:
+        lines.append(
+            "**No verification command was run.** Code was written without an "
+            "executable check, so the finish gate is right to call the turn "
+            "unverified — an artifact is not evidence that the artifact works."
+        )
     lines.append("")
     lines.append("## Node coverage in the step trace")
     lines.append("")

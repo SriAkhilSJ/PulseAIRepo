@@ -173,3 +173,54 @@ def test_unnamed_ui_task_still_owes_browser_proof(tmp_path):
     assert receipt["ui_task"] is True
     assert "navigate" in receipt["required"], receipt
     assert receipt["passed"] is False, receipt
+
+
+# ------------------------------------------------- report-level visibility
+
+
+def test_report_lists_the_commands_the_agent_ran(tmp_path, monkeypatch):
+    """The verdict must show what the agent DID, not only what it spent.
+
+    Two 2026-11-01 runs cost a full diagnosis each because the report showed
+    tokens and node counts and nothing about which commands were executed —
+    "never ran the test the prompt named" and "ran it and was ignored" looked
+    identical.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    frames = [
+        {"type": "turn_started", "session_id": f"s-cmd"},
+        {"type": "tool_call_start", "tool_id": "t1", "name": "terminal",
+         "arguments": {"command": "cd mvp && python mvp/test_server.py"}},
+        {"type": "tool_call_end", "tool_id": "t1", "status": "ok",
+         "result": "Ran 3 tests\n\nOK\nExit code: 0"},
+        {"type": "tool_call_start", "tool_id": "t2", "name": "terminal",
+         "arguments": {"command": "ls mvp"}},
+        {"type": "tool_call_end", "tool_id": "t2", "status": "ok", "result": "server.py"},
+        {"type": "turn_done", "session_id": "s-cmd", "completed": True,
+         "run_outcome": "completed"},
+    ]
+    (run_dir / "frames.jsonl").write_text("\n".join(json.dumps(f) for f in frames) + "\n")
+    (run_dir / "outcome.json").write_text(json.dumps({"session_id": "s-cmd"}))
+
+    repo_root = Path(__file__).resolve().parents[2]
+    out = run_dir / "report.md"
+    subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "e2e_core_report.py"),
+         "--run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True, text=True, env=dict(os.environ), cwd=str(repo_root),
+    )
+    report = out.read_text()
+
+    assert "## Commands the agent ran" in report
+    assert "python mvp/test_server.py" in report
+    assert "ls mvp" in report
+    # `ls` is not a check; the test file is.
+    assert "| ok | yes |" in report
+    assert "| ok | no |" in report
+    assert "1 verification command(s) run, 1 green" in report
