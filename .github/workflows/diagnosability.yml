@@ -1,0 +1,101 @@
+name: Diagnosability + live token calibration
+
+# Why: the 2026-10-31 checkup found 63/77 recorded runs ended with no terminal
+# node, so a failed run could not say why it stopped. These contracts pin the
+# fixes. The `live` job is the only one that can prove the token-calibration
+# path against a real provider, because only a runner holding the secret can
+# make a billed call — and GitHub secrets are write-only, so the value is never
+# printed here (the script reports length + last four only).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'src/runtime/status_contract.py'
+      - 'src/runtime/step_tracker.py'
+      - 'src/context/token_calibration.py'
+      - 'src/context/token_budget.py'
+      - 'src/context/layer_policy.py'
+      - 'src/tools/terminal_tools.py'
+      - 'src/tools/process_boundary.py'
+      - 'src/bridge/__main__.py'
+      - 'src/tests/test_termination_diagnosability.py'
+      - 'scripts/smoke_token_calibration_live.py'
+      - '.github/workflows/diagnosability.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  contracts:
+    name: Offline diagnosability contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the subset these contracts import
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest langchain-core langgraph langgraph-checkpoint-sqlite \
+                      langchain-openai langchain-google-genai langchain-groq \
+                      tiktoken pydantic python-dotenv
+
+      - name: New contracts (17)
+        run: python -m pytest src/tests/test_termination_diagnosability.py -q
+
+      - name: Existing suites touched by these edits
+        run: |
+          python -m pytest \
+            src/tests/test_step_tracker.py \
+            src/tests/test_layer_policy.py \
+            src/tests/test_context_budget.py \
+            src/tests/test_embedding_cache.py -q
+
+      - name: Trace classifier still runs
+        run: python scripts/diagnose_run_termination.py --top 3 || true
+
+  live:
+    name: Live token calibration (uses CUSTOM_API_KEY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install langchain-core tiktoken pydantic python-dotenv
+
+      - name: Live estimate-vs-bill calibration against the custom endpoint
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CUSTOM_BASE_URL: https://velona.in/v1
+          LLM_MODEL: z-ai/glm-5.3-flash
+          CRUSORAI_HTTP_USER_AGENT: >-
+            Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+            (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+        run: python scripts/smoke_token_calibration_live.py
+
+      - name: Post the verdict to the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: '28'
+        run: |
+          set -euo pipefail
+          BODY=$(printf '**Live token-calibration smoke** — `%s` @ `%s`\n\nResult: `%s`\n' \
+            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${{ job.status }}")
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
+            -f body="$BODY" > /dev/null && echo "posted" || echo "post skipped"

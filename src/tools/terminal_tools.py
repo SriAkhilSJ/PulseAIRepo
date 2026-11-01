@@ -1028,6 +1028,24 @@ def terminal(
     _floor = _hardline_refusal(command)
     if _floor:
         return _floor
+
+    # Pillar 4 wiring (2026-10-31): process_boundary.detect_conversational_leak
+    # existed for months and was imported NOWHERE. It rejects the case where the
+    # model passes prose ("Sure, let me now create the file...") as a shell
+    # command — which otherwise goes to spawn and fails with an opaque
+    # exit-code rather than a typed pivot. Additive: it can only refuse a
+    # command that was already unrunnable.
+    from src.tools.process_boundary import detect_conversational_leak
+
+    _leak = detect_conversational_leak(command)
+    if _leak:
+        return (
+            "⛔ run_terminal: this command looks like natural-language "
+            f"commentary, not a shell command — refusing to spawn it. {_leak} "
+            "Call run_terminal with a single executable command (or use a file "
+            "tool for file work), and keep explanation text in your reply."
+        )
+
     violations = [] if select_shell(command)[2] == "bash" else _posix_violations(command)
     if violations:
         return (

@@ -1958,6 +1958,14 @@ def _turn_scoped_resets() -> dict[str, Any]:
         "verify_nudges": 0,
         "stall_continuations": 0,
         "nudged_at_msg_count": -1,
+        # T1 (2026-10-31): seed the verdict, do not leave it absent. finalize
+        # overwrites this on every path that reaches it; if the turn is
+        # cancelled, crashes, or the process dies first, the trace now says
+        # "in_progress" (a fact: no verdict was reached) instead of omitting
+        # the field (which reads as "no problem"). 63/77 recorded runs ended
+        # with no terminal node and therefore no reason at all.
+        "run_outcome": "in_progress",
+        "failure_reason": None,
         "turn_token_usage": _zero_token_usage(),
         # Do not derive this from execution_trace: informational/unavailable
         # receipts are intentionally absent from that progress ledger but are
@@ -2839,6 +2847,37 @@ def ai_node(
     # Best-effort telemetry: never break the turn.
     try:
         get_context_engine(config).update_from_response(call_usage.to_dict())
+    except Exception:
+        pass
+
+    # D6 (2026-10-31): calibrate the token estimator against what the provider
+    # actually billed. The estimate below covers the MESSAGES we sent; the bill
+    # also covers the bound tool schemas, so the schema term must be added in
+    # or the ratio is inflated by however large the toolset is (~14k/call in
+    # measured runs) and we would "correct" the estimator in the wrong
+    # direction. If the schema term cannot be measured, skip the sample rather
+    # than learn from a mismatched pair. Best-effort: never breaks the turn.
+    try:
+        from src.context.token_budget import count_tokens as _count_tokens
+        from src.context.token_calibration import record_sample
+
+        _est_messages = _count_tokens(messages, call_model)
+        _est_tools = 0
+        if tools_bound:
+            _bound = _resolve_bound_tools(state, config)
+            _schema_json = _json.dumps(
+                [getattr(t, "args_schema", None) or getattr(t, "description", "")
+                 for t in (_bound or [])],
+                ensure_ascii=False, default=str,
+            )
+            _est_tools = _count_tokens(
+                [SystemMessage(content=_schema_json)], call_model
+            )
+        record_sample(
+            call_model,
+            _est_messages + _est_tools,
+            int(call_usage.prompt_tokens or 0),
+        )
     except Exception:
         pass
 

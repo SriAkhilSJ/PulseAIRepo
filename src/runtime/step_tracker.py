@@ -25,6 +25,21 @@ from typing import Any, Optional
 
 from src.runtime.quality_evaluator import UserAskQualityEvaluator, QualityReport
 
+# T4 (2026-10-31): the run-level dollar target the scorecard grades against.
+# Matches the target already stated in the exported report ("$ < $0.05 / task").
+# Env-overridable so a premium-tier run can declare its own ceiling honestly
+# instead of silently failing a free-tier budget.
+_COST_TARGET_USD_DEFAULT = 0.05
+
+
+def _cost_target_usd() -> float:
+    try:
+        value = float(os.environ.get("AGENT_COST_TARGET_USD", _COST_TARGET_USD_DEFAULT))
+    except (TypeError, ValueError):
+        value = _COST_TARGET_USD_DEFAULT
+    return value if value > 0 else 0.0
+
+
 _TRACE_LOCK = threading.Lock()
 _ARTIFACT_MUTATION_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file", "generate_image", "media_download",
@@ -766,12 +781,28 @@ class StepTracker:
         # answer-only AI calls have nothing to batch and are not failures)
         batch_score = 15.0 + (batch_rate * 10.0) if proposal_steps else None
 
+        # 5. Cost Score (Max 25 pts) — T4 (2026-10-31).
+        # The scorecard graded latency, cache, correctness and batching but
+        # NEVER dollars, so a run that spent 13x the stated $0.05 target still
+        # rendered "A+ (Elite Champion)". Economics was 40% of the reported
+        # weight and the economics section ignored the economic outcome.
+        # Only meaningful when the cost is genuinely metered (>0); an unpriced
+        # session stays N/A rather than being awarded a silent perfect score.
+        cost_target = _cost_target_usd()
+        known_cost = self._known_total_cost_usd()
+        if known_cost is not None and known_cost > 0 and cost_target > 0:
+            cost_overrun_ratio = known_cost / cost_target
+            cost_score = 25.0 * min(1.0, cost_target / known_cost)
+        else:
+            cost_overrun_ratio = None
+            cost_score = None
+
         # Normalize only across dimensions backed by evidence.  This preserves
         # a 0-100 runtime scale without treating N/A latency/cache/tool data as
         # perfect (the source of the old "Optimal" + zero-duration reports).
         scored_components = [
             score
-            for score in (latency_score, cache_score, error_score, batch_score)
+            for score in (latency_score, cache_score, error_score, batch_score, cost_score)
             if score is not None
         ]
         total_score = round(
@@ -809,6 +840,18 @@ class StepTracker:
             ideas.append("⏱️ **Reduce Turn Latency:** Consider using a direct-API caching provider (e.g. DeepSeek V3 or Claude Sonnet) or narrowing the active toolset.")
         if len(failed_tool_calls) > 0:
             ideas.append(f"🔧 **Tool Error Remediation:** {len(failed_tool_calls)} tool calls failed. Check environment setup, missing dependencies, or file paths.")
+        if (
+            known_cost is not None
+            and known_cost > 0
+            and cost_target > 0
+            and known_cost > cost_target
+        ):
+            ideas.append(
+                f"💸 **Cost Overrun:** ${known_cost:.4f} against a "
+                f"${cost_target:.2f} target ({known_cost / cost_target:.1f}x). "
+                "Context/retrieval tuning and cheaper-tier routing pay back faster "
+                "than any other change here."
+            )
         if batch_rate < 0.30 and len(proposal_steps) > 4:
             ideas.append("📦 **Encourage Parallel Tool Calling & PTC:** The model is emitting tools serially. Add prompt examples demonstrating multi-file writes in a single assistant turn.")
 
@@ -826,6 +869,7 @@ class StepTracker:
                 "cache_score": round(cache_score, 1) if cache_score is not None else None,
                 "correctness_score": round(error_score, 1) if error_score is not None else None,
                 "batching_score": round(batch_score, 1) if batch_score is not None else None,
+                "cost_score": round(cost_score, 1) if cost_score is not None else None,
             },
             "metrics": {
                 "avg_step_duration_s": round(avg_step_duration, 2),
@@ -839,9 +883,13 @@ class StepTracker:
                 "cache_metered_input_tokens": cache_metered_input_tokens,
                 "telemetry_available": telemetry_available,
                 "scored_runtime_dimensions": len(scored_components),
-                "total_runtime_dimensions": 4,
+                "total_runtime_dimensions": 5,
+                "cost_target_usd": cost_target if cost_target > 0 else None,
+                "cost_overrun_ratio": (
+                    round(cost_overrun_ratio, 2) if cost_overrun_ratio is not None else None
+                ),
                 "provisional": (
-                    len(scored_components) < 4
+                    len(scored_components) < 5
                     or not duration_telemetry_complete
                 ),
                 "tool_failure_rate_pct": round(tool_failure_rate * 100, 1),
@@ -987,7 +1035,9 @@ class StepTracker:
                 f"duration {perf['metrics']['measured_duration_steps']}/"
                 f"{perf['metrics']['expected_duration_steps']} operation rows"
                 if perf["metrics"]["provisional"]
-                else "all 4 dimensions measured"
+                else (
+                    f"all {perf['metrics']['total_runtime_dimensions']} dimensions measured"
+                )
             )
             md.append(f"| **Runtime Health Score** | **{perf['score']} / 100** (`{perf['grade']}`; {runtime_validity}) | $\\ge 85$ (Grade A) |")
             duration_label = (
@@ -1001,7 +1051,16 @@ class StepTracker:
             md.append(f"| **Total Steps & Duration** | {len(self.steps)} steps; {duration_label} | $<5.0$s / measured step |")
             md.append(f"| **Total Token Usage** | {total_tokens_in:,} input / {total_tokens_out:,} output | Dynamic Bounded |")
             md.append(f"| **Prompt Cache Hit Rate** | {cache_val_str} | $\\ge 70\\%$ |")
-            md.append(f"| **Estimated Cost** | {total_cost_label} | $< $0.05 / task |")
+            _overrun = perf["metrics"].get("cost_overrun_ratio")
+            _target = perf["metrics"].get("cost_target_usd")
+            cost_target_label = (
+                (f"$< ${_target:.4f} / task" if _target else "no target set")
+            )
+            cost_verdict = (
+                f" — **{_overrun:.1f}x over target**" if (_overrun and _overrun > 1.0)
+                else (" — within target" if _overrun else "")
+            )
+            md.append(f"| **Estimated Cost** | {total_cost_label}{cost_verdict} | {cost_target_label} |")
             md.append("")
             md.append("### Runtime Sub-Scores")
             latency_label = (
@@ -1026,8 +1085,14 @@ class StepTracker:
                 if perf["breakdown"]["batching_score"] is not None
                 else "N/A (no AI tool-proposal rows)"
             )
+            cost_label_score = (
+                f"{perf['breakdown']['cost_score']} / 25"
+                if perf["breakdown"].get("cost_score") is not None
+                else "N/A (cost not metered)"
+            )
             md.append(f"- **Tool Correctness & Safety:** `{correctness_label}`")
             md.append(f"- **Batching & Concurrency:** `{batching_label}`")
+            md.append(f"- **Cost Efficiency:** `{cost_label_score}`")
             md.append("")
             md.append("---")
             md.append("## 💡 Actionable Improvement Ideas (How to Compete with Sharks)")
