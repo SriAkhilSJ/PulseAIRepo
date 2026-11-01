@@ -82,12 +82,20 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
     completed = [t for t in turns if t["result"] == "turn_done" and t.get("completed")]
     cut = [t for t in turns if t["result"] == "turn_done" and not t.get("completed")]
     halted = next((t for t in turns if t["result"] == "session-halted-provider-balance"), None)
+    aborted = next((t for t in turns if t["result"] == "harness-aborted-llm-call-cap"), None)
     stopped_at = next(
         (t["turn"] for t in turns
          if t["result"] not in ("turn_done", "session-halted-provider-balance")),
         None,
     )
-    if halted is not None:
+    if aborted is not None:
+        # The harness stopped it, so it says so. A harness-imposed ceiling must
+        # never be reported as a property of the agent.
+        verdict = (
+            f"HARNESS ABORT at turn {aborted['turn']} — the run exceeded the "
+            f"harness call cap; this measures the harness, not the agent"
+        )
+    elif halted is not None:
         verdict = (
             f"HALTED — provider balance exhausted after turn {halted['turn'] - 1}; "
             f"{halted.get('turns_skipped', 0)} turn(s) not attempted"
@@ -108,8 +116,9 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
         "turns_cut_at": [t["turn"] for t in cut],
         "stopped_at_turn": stopped_at,
         "halted_by_billing": halted is not None,
+        "aborted_by_harness": aborted is not None,
         "verdict": verdict,
-        "ok": stopped_at is None and not cut and halted is None,
+        "ok": stopped_at is None and not cut and halted is None and aborted is None,
         "turns_requested": turns_requested,
     }
 
@@ -123,7 +132,16 @@ def build_env(args) -> dict:
         env = dict(os.environ)
     except Exception:
         pass
-    env["AGENT_ITERATION_BUDGET"] = str(args.max_llm_calls)
+    # Field 2026-11-01 (funded run 41290247998). This line used to set the
+    # AGENT's iteration budget from --max-llm-calls, whose default is 20 — less
+    # than half the agent's own 45. Every "budget-cut" verdict this harness has
+    # ever produced was therefore measured against a budget IT imposed, and the
+    # 1.2M-token A/B was confounded: raising the token cap while the iteration
+    # cap stayed at 20 just moved which leg tripped first
+    # (`[budget] exhausted: iterations 20/20 >= budget`). The two knobs are now
+    # separate: the agent's budget is a measured property, and --max-llm-calls
+    # is a harness safety stop that aborts a runaway turn instead of shaping it.
+    env["AGENT_ITERATION_BUDGET"] = str(args.agent_iteration_budget)
     env["PYTHONUNBUFFERED"] = "1"
     for thread_var in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         env[thread_var] = "1"
@@ -151,7 +169,12 @@ def compaction_lines(stderr_path: Path, offset: int) -> tuple[list[str], int]:
     return hits, new_offset
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
+    """The CLI, as a function so tests can assert the DEFAULTS.
+
+    The defaults are the measurement: a harness that quietly gives the agent a
+    smaller budget than production is measuring its own configuration.
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--prompts-file", required=True)
@@ -159,10 +182,25 @@ def main() -> int:
     ap.add_argument("--turns", type=int, default=0, help="0 = every prompt in the file")
     ap.add_argument("--timeout-s-per-turn", type=int, default=600)
     ap.add_argument("--max-session-minutes", type=int, default=45)
-    ap.add_argument("--max-llm-calls", type=int, default=20)
+    ap.add_argument(
+        "--agent-iteration-budget",
+        type=int,
+        default=45,
+        help="the AGENT's own per-turn iteration budget (production default is 45)",
+    )
+    ap.add_argument(
+        "--max-llm-calls",
+        type=int,
+        default=60,
+        help="harness safety stop: abandon a turn that exceeds this many calls",
+    )
     ap.add_argument("--max-input-tokens", type=int, default=None)
     ap.add_argument("--results-root", default=str(REPO_ROOT / "bench-results"))
-    args = ap.parse_args()
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
 
     prompts = load_prompts(Path(args.prompts_file))
     if not prompts:
@@ -290,6 +328,14 @@ def main() -> int:
                     llm_calls += 1
                     if llm_calls == 1:
                         message_count = int(frame.get("message_count") or 0)
+                    # The harness safety stop, now actually enforced: previously
+                    # --max-llm-calls only set the AGENT's iteration budget, so a
+                    # runaway turn was shaped by the harness rather than caught
+                    # by it. Exceeding this is a harness abort and is reported as
+                    # such — never as the agent's own budget telling us anything.
+                    if llm_calls > args.max_llm_calls:
+                        result = "harness-aborted-llm-call-cap"
+                        break
                 elif ftype in ("tool_call_start",):
                     tool_calls += 1
                 elif ftype == "telemetry":

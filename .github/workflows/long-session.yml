@@ -146,7 +146,8 @@ jobs:
             --turns 7 \
             --timeout-s-per-turn 480 \
             --max-session-minutes 45 \
-            --max-llm-calls 20 \
+            --agent-iteration-budget 45 \
+            --max-llm-calls 60 \
             --max-input-tokens "$TOKEN_CAP" \
             --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee session.log
           echo "SESSION_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"

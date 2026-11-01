@@ -142,3 +142,38 @@ def test_failure_text_is_recorded_not_just_the_frame_type():
     source = (REPO_ROOT / "scripts" / "run_long_session.py").read_text(encoding="utf-8")
     assert 'frame.get("error")' in source
     assert "| Error |" in source
+
+
+def test_harness_ceiling_is_never_reported_as_an_agent_property():
+    """Field 2026-11-01 (run 41290247998).
+
+    `--max-llm-calls 20` used to be written into AGENT_ITERATION_BUDGET, so the
+    agent ran with a 20-iteration budget instead of its own 45. Every
+    "budget-cut" verdict this harness produced was measured against a limit the
+    harness imposed, and the 1.2M-token A/B was confounded: raising the token cap
+    left the iteration cap at 20, so the session tripped
+    `[budget] exhausted: iterations 20/20 >= budget` instead.
+
+    Two rules now hold, and both are asserted here:
+      1. the two budgets are separate knobs, and the driver gives the agent its
+         own default (45) unless told otherwise;
+      2. when the harness's own call cap stops a turn, the verdict says so and
+         does not attribute the stop to the agent.
+    """
+    from scripts.run_long_session import _build_parser, summarize
+
+    args = _build_parser().parse_args(["--workspace", "w", "--prompts-file", "p"])
+    assert args.agent_iteration_budget == 45, "the agent's own default, not a harness number"
+    assert args.max_llm_calls > args.agent_iteration_budget, (
+        "the safety stop must sit ABOVE the agent's budget, or it silently becomes the budget"
+    )
+
+    turns = [
+        {"turn": 1, "result": "turn_done", "completed": True},
+        {"turn": 2, "result": "harness-aborted-llm-call-cap", "completed": False},
+    ]
+    out = summarize(turns, 2)
+    assert out["aborted_by_harness"] is True
+    assert out["ok"] is False
+    assert "HARNESS ABORT" in out["verdict"]
+    assert "turn 2" in out["verdict"]
