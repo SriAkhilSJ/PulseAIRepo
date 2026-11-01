@@ -167,86 +167,77 @@ jobs:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
           python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/e2e/pricing.txt"
-          import json
-          from src.telemetry.call_ledger import load_rate_card, estimate_cost_usd
-          from src.telemetry import pricing
           import os, time
-          # Why the async path left the card empty: _ATTEMPT_FILE is an
-          # hour-long throttle and _refresh_in_flight is a single global. If
-          # any earlier step (install, SDK probe) already burnt the attempt,
-          # ensure_pricing_async() returns instantly and silently — a fresh
-          # runner then reports "no rate" for a model the gateway DOES price.
-          from src.telemetry import call_ledger as _cl
+          from src.telemetry.call_ledger import load_rate_card, estimate_cost_usd
+          from src.telemetry import pricing, call_ledger
+
+          MODEL = "z-ai/glm-5.3-flash"
+
+          # Why the async path can leave the card empty: _ATTEMPT_FILE is an
+          # hour-long throttle and _refresh_in_flight is one global. Any earlier
+          # attempt in the same run makes every later call a silent no-op.
           try:
-              attempt = os.path.join(_cl.telemetry_dir(), "pricing-attempt")
+              attempt = os.path.join(call_ledger.telemetry_dir(), "pricing-attempt")
               age = time.time() - os.path.getmtime(attempt) if os.path.exists(attempt) else None
-              print(f"async attempt marker: {'absent' if age is None else f'{age:.0f}s old'} "
-                    f"(throttle {pricing._ATTEMPT_THROTTLE_S}s), in_flight={pricing._refresh_in_flight}")
+              print(f"[async] attempt marker: {'absent' if age is None else f'{age:.0f}s old'} "
+                    f"(throttle {pricing._ATTEMPT_THROTTLE_S}s) in_flight={pricing._refresh_in_flight}")
           except Exception as exc:
-              print("attempt-marker probe failed:", type(exc).__name__, exc)
+              print("[async] marker probe failed:", type(exc).__name__, exc)
           try:
               pricing.ensure_pricing_async()
-              time.sleep(8)   # opportunistic refresh is non-blocking
-              print(f"after async: {len(load_rate_card() or {})} entries")
+              time.sleep(6)
+              print(f"[async] after 6s: {len(load_rate_card() or {})} entries")
           except Exception as exc:
-              print("async pricing refresh failed:", type(exc).__name__, exc)
-          # Then do it SYNCHRONOUSLY, which raises honestly instead of
-          # swallowing the reason in a daemon thread. This also seeds the cache
-          # the turn will read, so a priced catalog becomes a measured cost.
+              print("[async] failed:", type(exc).__name__, exc)
+
+          # Synchronous refresh: raises honestly instead of swallowing the
+          # reason in a daemon thread, and seeds the cache the turn reads.
           try:
               rates, source = pricing.refresh()
-              print(f"sync refresh: {len(rates)} rates from {source}")
+              print(f"[sync] {len(rates)} rates from {source}")
           except Exception as exc:
-              print("sync pricing refresh failed:", type(exc).__name__, str(exc)[:200])
+              print("[sync] failed:", type(exc).__name__, str(exc)[:220])
+
           card = load_rate_card() or {}
-          print(f"rate card entries: {len(card)}")
-          for m in ("z-ai/glm-5.3-flash", "deepseek/deepseek-v4.1-flash"):
-              print(f"  {m}: {estimate_cost_usd(m, 1_000_000, 0)}")
+          print(f"[card] entries={len(card)}")
+
+          # Catalog shape, only if the card is still empty: one line per
+          # candidate plus the parser-visible keys. Never prints the key.
           if not card:
-              print("RATE CARD EMPTY -> cost cannot be measured for ANY model; "
-                    "set CRUSORAI_RATE_CARD (JSON) to enable the USD budget leg")
-              # Make the gap actionable instead of a shrug: fetch the catalog
-              # through pricing.py's OWN transport (it sends the browser UA that
-              # Cloudflare demands on velona.in), then print the shape and the
-              # pricing keys the parser is looking for. Never printed: the key.
+              base, key = pricing.provider_config()
               try:
-                  from src.telemetry import pricing as _p
-                  import os
-                  base = (os.environ.get("CUSTOM_BASE_URL")
-                          or os.environ.get("CRUSORAI_PRICING_BASE_URL") or "").rstrip("/")
-                  key = (os.environ.get("CUSTOM_API_KEY") or "").strip()
-                  urls = _p.candidate_urls(base) if base else []
-                  print("catalog candidates:", urls)
-                  for url in urls[:4]:
+                  for url in (pricing.candidate_urls(base) if base else [])[:4]:
                       try:
-                          payload = _p._http_get_json(url, key, 20.0)
+                          payload = pricing._http_get_json(url, key, 20.0)
                       except Exception as exc:
-                          print(f"  {url} -> {type(exc).__name__}: {str(exc)[:160]}")
+                          print(f"[catalog] {url} -> {type(exc).__name__}: {str(exc)[:90]}")
                           continue
-                      kind = type(payload).__name__
-                      top = sorted(payload)[:10] if isinstance(payload, dict) else f"list[{len(payload)}]"
-                      print(f"  {url} -> {kind} {top}")
-                      rates = _p.parse_catalog(payload, "")
-                      print(f"     parse_catalog -> {len(rates)} priced entries")
-                      # Show the first entry's own pricing keys so a schema
-                      # mismatch is visible without another run.
-                      from src.telemetry.pricing import _INPUT_KEYS, _OUTPUT_KEYS
                       entries = payload.get("data") if isinstance(payload, dict) else payload
                       if isinstance(entries, dict):
                           entries = entries.get("models") or entries.get("data") or []
-                      if isinstance(entries, list) and entries:
-                          first = entries[0]
-                          print("     first entry keys:", sorted(first)[:16] if isinstance(first, dict) else type(first).__name__)
-                          pr = first.get("pricing") if isinstance(first, dict) else None
-                          if isinstance(pr, dict):
-                              print("     first.pricing keys:", sorted(pr)[:16])
-                          else:
-                              print("     first.pricing:", repr(pr)[:80])
-                          print("     parser wants any of:", _INPUT_KEYS[:4], "...", _OUTPUT_KEYS[:4])
-                      if rates:
+                      first = entries[0] if isinstance(entries, list) and entries else {}
+                      own = sorted(first)[:8] if isinstance(first, dict) else []
+                      pr = first.get("pricing") if isinstance(first, dict) else None
+                      print(f"[catalog] {url} -> {len(pricing.parse_catalog(payload, ''))} priced / "
+                            f"{len(entries) if isinstance(entries, list) else '?'} entries; "
+                            f"keys={own} pricing={sorted(pr)[:6] if isinstance(pr, dict) else pr}")
+                      if pricing.parse_catalog(payload, ""):
                           break
               except Exception as exc:
-                  print("catalog dump failed:", type(exc).__name__, str(exc)[:200])
+                  print("[catalog] failed:", type(exc).__name__, str(exc)[:120])
+
+          # SUMMARY LAST: the verdict only keeps the tail of this file.
+          card = load_rate_card() or {}
+          per_m = estimate_cost_usd(MODEL, 1_000_000, 0)
+          per_out = estimate_cost_usd(MODEL, 0, 1_000_000)
+          print("=" * 60)
+          print(f"SUMMARY rate_card_entries={len(card)} {MODEL}: "
+                f"input/1M={per_m} output/1M={per_out}")
+          if per_m is None:
+              print("SUMMARY VERDICT=UNPRICED -> cost is UNKNOWN, USD budget leg abstains. "
+                    "Fix: publish prices in the catalog, or set CRUSORAI_RATE_CARD (JSON).")
+          else:
+              print("SUMMARY VERDICT=PRICED -> the turn's spend is measurable in USD.")
           PY
 
       - name: Run one real GLM 5.3 turn through the bridge
@@ -392,7 +383,7 @@ jobs:
           # Both of these are where a transport failure explains itself, and
           # Actions logs are not reachable from every environment.
           KEYNOTE=$(cat "$RUNNER_TEMP/e2e/key-normalise.txt" 2>/dev/null || echo "no key note")
-          PRICING=$(tail -c 900 "$RUNNER_TEMP/e2e/pricing.txt" 2>/dev/null || echo "no pricing output")
+          PRICING=$(tail -c 1800 "$RUNNER_TEMP/e2e/pricing.txt" 2>/dev/null || echo "no pricing output")
           BUILT=$(cat "$RUNNER_TEMP/e2e/workspace.txt" 2>/dev/null | head -25 || echo "no workspace listing")
           VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | head -40 || echo "no independent verification output")
           # The stderr tail is truncated to ~900 bytes, so the one line that
