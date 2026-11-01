@@ -1,0 +1,155 @@
+{
+  "prompt_rows": [
+    {
+      "name": "Aider",
+      "what": "system message (main_system + system_reminder + few-shot examples)",
+      "m1_chars": 4612,
+      "m1_tokens": 1153,
+      "m2_tokens": 1265,
+      "m3_tokens": 0,
+      "sources": [
+        "aider/coders/editblock_prompts.py:8",
+        "aider/coders/base_coder.py:1228-1262"
+      ],
+      "note": "main_system 256 \u00b7 reminder 542 \u00b7 examples 350",
+      "verdict": "repo map then adds 1,024 tok with files in chat, 8,192 tok with none"
+    },
+    {
+      "name": "OpenCode",
+      "what": "system message (base template + injected tool guidance)",
+      "m1_chars": 1471,
+      "m1_tokens": 368,
+      "m2_tokens": 333,
+      "m3_tokens": 0,
+      "sources": [
+        "packages/core/src/session/runner/prompt/system.txt",
+        "packages/core/src/session/system-prompt.ts:5-25"
+      ],
+      "note": "base 189 tok; per-model plugins are separate: anthropic.txt 75, gpt-astra.txt 955, gpt.txt 643, kimi.txt 2172, meta.txt 1963, trinity.txt 1921",
+      "verdict": "the 75-token anthropic file is a comment-style plugin, not the prompt"
+    },
+    {
+      "name": "Void",
+      "what": "system message (static + file tree + 15 XML tool definitions)",
+      "m1_chars": 5484,
+      "m1_tokens": 1371,
+      "m2_tokens": 1400,
+      "m3_tokens": 0,
+      "sources": [
+        "src/vs/workbench/contrib/void/common/prompt/prompts.ts:425",
+        "src/vs/workbench/contrib/void/common/directoryStrService.ts:19-23"
+      ],
+      "note": "static 824 + tree 389 chars + tools 367; 15 XML tools at 24 tok each",
+      "verdict": "ships a repository file TREE every request; the tree alone can reach 5,000 tok (cap 20,000 chars)"
+    },
+    {
+      "name": "CrusorAI",
+      "what": "system persona (desktop default)",
+      "m1_chars": 24640,
+      "m1_tokens": 6160,
+      "m2_tokens": 6199,
+      "m3_tokens": 0,
+      "sources": [
+        "src/prompts/claude_persona.py:529 system_persona()"
+      ],
+      "note": "11 sections; D35 additions 6,224 chars",
+      "verdict": "desktop default; the autonomous variant is 430 tok"
+    }
+  ],
+  "rows": [
+    {
+      "name": "Aider",
+      "system_tok": 1265,
+      "system_m1": 1153,
+      "system_delta_pct": 8.9,
+      "system_chars": 4612,
+      "agrees": true,
+      "tools": 0,
+      "schema_tok": 0,
+      "tok_per_tool": 0,
+      "tools_note": "no tool calling at all: SEARCH/REPLACE text blocks in the reply",
+      "compact_levels": 1,
+      "compact_note": "max_reflections = 3 \u2014 the loop stops on its own",
+      "compact_detail": "ChatSummary recursive summarisation",
+      "repomap_tok": 1024,
+      "repomap_note": "1,024 tok normally, 8,192 when the chat is empty",
+      "sources": [
+        "aider/coders/editblock_prompts.py:8",
+        "aider/coders/base_coder.py:1228-1262"
+      ],
+      "max_reflections": 3
+    },
+    {
+      "name": "OpenCode",
+      "system_tok": 333,
+      "system_m1": 368,
+      "system_delta_pct": -10.5,
+      "system_chars": 1471,
+      "agrees": true,
+      "tools": 19,
+      "schema_tok": 2483,
+      "tok_per_tool": 130,
+      "tools_note": "19 tool plugins in packages/core/src/tool/plugin/",
+      "compact_levels": 5,
+      "compact_note": "clip 2,000 chars per end \u00b7 precompute at 85% after 64,000 tok \u00b7 summary floor 32,000 tok",
+      "compact_detail": "TRANSCRIPT_LEVELS = [0, OUTPUTS_CLIPPED, OUTPUTS_REMOVED, USER_ONLY, OMITTED]",
+      "repomap_tok": 0,
+      "repomap_note": "LSP + file reads; no symbol map",
+      "sources": [
+        "packages/core/src/session/runner/prompt/system.txt",
+        "packages/core/src/session/system-prompt.ts:5-25"
+      ],
+      "plugin_prompts": {
+        "anthropic.txt": 300,
+        "gpt-astra.txt": 3823,
+        "gpt.txt": 2572,
+        "kimi.txt": 8689,
+        "meta.txt": 7853,
+        "trinity.txt": 7684
+      }
+    },
+    {
+      "name": "Void",
+      "system_tok": 1400,
+      "system_m1": 1371,
+      "system_delta_pct": 2.1,
+      "system_chars": 5484,
+      "agrees": true,
+      "tools": 15,
+      "schema_tok": 497,
+      "tok_per_tool": 33,
+      "tools_note": "XML prose tool definitions, not JSON Schema",
+      "compact_levels": 1,
+      "compact_note": "edits are applied in-editor; file bodies are not round-tripped",
+      "compact_detail": "thread-level history, no graded condenser",
+      "repomap_tok": 0,
+      "repomap_note": "file TREE in the system msg, capped 20,000 chars",
+      "sources": [
+        "src/vs/workbench/contrib/void/common/prompt/prompts.ts:425",
+        "src/vs/workbench/contrib/void/common/directoryStrService.ts:19-23"
+      ],
+      "tree_chars": 389
+    },
+    {
+      "name": "CrusorAI",
+      "system_tok": 6199,
+      "system_m1": 6160,
+      "system_delta_pct": 0.6,
+      "system_chars": 24640,
+      "agrees": true,
+      "tools": 36,
+      "schema_tok": 7509,
+      "tok_per_tool": 208,
+      "tools_note": "36 sent of 68 defined; JSON Schema, 209 tok/tool",
+      "compact_levels": 1,
+      "compact_note": "1 strategy, and it rewrites the cached prefix",
+      "compact_detail": "rewrite-in-place",
+      "repomap_tok": 0,
+      "repomap_note": "chunk retrieval, unranked",
+      "sources": [
+        "src/prompts/claude_persona.py:529 system_persona()"
+      ],
+      "desktop_default": true
+    }
+  ]
+}

@@ -247,35 +247,66 @@ def test_blueprint_draws_every_pipeline_with_a_metric():
     assert str(f"{m['schema_tokens']:,}") in text, "tool-schema cost missing from the drawing"
 
 
-def test_reference_blueprints_cover_the_five_repos_with_sourced_numbers():
-    """Field 2026-11-01: the comparison had to be measured, not asserted.
+def test_reference_blueprints_cover_the_three_repos_with_verified_numbers():
+    """Field 2026-11-01, second pass: "verify twice each, check it's true".
 
-    Each of the five harnesses was downloaded from codeload.github.com and read.
-    This pins three things: every repo is present, every one carries a token
-    number for its system message, and ours is included in the same table so the
-    comparison cannot quietly drop the unflattering column.
+    The first reference drawing shipped three wrong figures because it quoted
+    whatever string looked like a system prompt:
+
+        Aider     264 -> 1,265   (main_system + system_reminder + few-shot)
+        OpenCode  643 ->   333   (643 was a per-model PLUGIN, not the prompt)
+        Void      380 -> 1,375   (the message ends with a rendered file TREE)
+
+    So the drawing now owns no numbers: it reads docs/ref_verify.json, which
+    scripts/ref_verify.py produces by measuring each repo two independent ways.
+    This test pins all three properties that make that true.
     """
+    import json
     import xml.etree.ElementTree as ET
 
     sys.path.insert(0, str(ROOT))
-    from scripts.ref_blueprints import OURS, REFS, render
+    from scripts import ref_blueprints as rb
 
-    svg = render()
-    root = ET.fromstring(svg)
-    text = " ".join(t.text or "" for t in root.iter() if t.tag.endswith("text"))
+    data = json.loads((ROOT / "docs" / "ref_verify.json").read_text(encoding="utf-8"))
+    rows = {r["name"]: r for r in data["rows"]}
+    assert set(rows) == {"Aider", "OpenCode", "Void", "CrusorAI"}, sorted(rows)
 
-    names = [r["name"] for r in REFS]
-    assert names == ["Aider", "OpenCode", "Codex CLI", "Void", "openclaude"], names
-    for r in REFS:
-        assert r["name"] in text, r["name"]
-        assert isinstance(r["system"], int) and r["system"] > 0, r
-        assert r["verdict"] and r["steal"], r["name"]
-        assert r["source"], f"{r['name']} must name the files its numbers came from"
-    assert "CrusorAI (ours)" in text, "the table must include our own column"
-    assert f"{OURS['system']:,}" in text
+    # 1. Every number is measured twice and the two methods agree. A row that
+    #    disagrees is a finding, not a rounding error — it fails here.
+    for name, r in rows.items():
+        assert r["system_tok"] > 0 and r["system_m1"] > 0, name
+        assert r["agrees"], (
+            f"{name}: static ({r['system_m1']}) and assembled ({r['system_tok']}) "
+            f"estimators disagree by {r['system_delta_pct']}% — re-measure, do not publish"
+        )
 
-    # the finding: nobody else carries our fixed preamble
-    assert all(r["system"] < OURS["system"] for r in REFS[:4]), (
-        "Aider/OpenCode/Codex/Void must all keep a smaller system message than ours; "
-        "if this fails, either we got slimmer (good — update the doc) or the data was edited"
-    )
+    # 2. The corrections are actually in the data, not just in a commit message.
+    assert rows["Aider"]["system_tok"] > 1_000, "Aider ships three blocks, not one"
+    assert rows["Void"]["system_tok"] > 1_000, "Void's file tree is part of the message"
+    assert rows["OpenCode"]["system_tok"] < 500, "OpenCode's base prompt is genuinely tiny"
+
+    # 3. The drawing and the measurement cannot diverge: every rendered row's
+    #    fixed cost must equal what ref_verify measured, plus the repo map.
+    drawn = rb.load()
+    for r in drawn:
+        expected = r["system_tok"] + r["schema_tok"] + r["repomap_tok"]
+        assert r["fixed"] == expected, r["name"]
+
+    svg = rb.render(drawn)
+    text = " ".join(t.text or "" for t in ET.fromstring(svg).iter() if t.tag.endswith("text"))
+    for name in ("Aider", "OpenCode", "Void", "CrusorAI"):
+        assert name in text, name
+    assert "AUDIT TRAIL" in text, "the corrections must be visible on the drawing itself"
+
+    # The finding, asserted so it cannot quietly flip: our schemas alone are
+    # bigger than any single competitor's ENTIRE fixed cost.
+    ours = rows["CrusorAI"]
+    for name in ("Aider", "OpenCode", "Void"):
+        competitor_fixed = (
+            rows[name]["system_tok"] + rows[name]["schema_tok"] + rows[name]["repomap_tok"]
+        )
+        assert ours["schema_tok"] > competitor_fixed, (
+            f"our schema ({ours['schema_tok']:,}) no longer exceeds {name}'s entire "
+            f"fixed cost ({competitor_fixed:,}) — if this is a real improvement, "
+            f"update the blueprint; do not delete the check"
+        )

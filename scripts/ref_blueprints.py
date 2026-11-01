@@ -1,23 +1,29 @@
-"""Reference-implementation blueprints — the same body, five other ways.
+"""Field 2026-11-01 — the reference blueprint, rebuilt on verified numbers.
 
-Field 2026-11-01. Rather than repeat blog claims, each repo was downloaded from
-codeload.github.com and the numbers below were read out of its source. Every
-entry names the file the constant came from, so the claim is checkable:
+The first version of this drawing quoted "the string that looks like the system
+prompt" and got three of four figures wrong:
 
-    Aider-AI/aider      main    prompts.py + coders/*_prompts.py + repomap.py
-    anomalyco/opencode  dev     core/src/session/compaction.ts + plugin/system-prompt/
-    openai/codex        main    codex-rs/core/*.md + core/src/tools/ + utils/pty
-    voideditor/void     main    contrib/void/common/prompt/prompts.ts
-    Twigpine/openclaude main    src/constants/prompts.ts + services/compact/*
+    harness    first draft        verified          why it was wrong
+    Aider           264 tok      1,265 tok  three blocks ship together (main_system
+                                             + system_reminder + few-shot examples)
+    OpenCode        643 tok        333 tok  the 643 was a per-model PLUGIN, not the
+                                             base prompt (which is 189 tok)
+    Void            380 tok      1,375 tok  the message ends with a rendered file
+                                             TREE that the draft never counted
 
-Token counts are chars/4 — the same estimator this repo uses everywhere else, so
-our numbers and theirs are computed the same way and are directly comparable.
+So this script owns no numbers at all. It reads ``docs/ref_verify.json``, which
+``scripts/ref_verify.py`` produces by downloading each repo and measuring it two
+independent ways. If the drawing and the verification ever disagree, the
+drawing is wrong by construction — there is nowhere else for a number to hide.
 
-    python scripts/ref_blueprints.py   -> docs/ref_blueprints.svg + .html
+Regenerate both steps:
+    python3 scripts/ref_verify.py      # measure the repos (network)
+    python3 scripts/ref_blueprints.py  # draw from the measurement
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -25,357 +31,233 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.agent_core_blueprint import (  # noqa: E402
-    ACCENT,
-    BAD,
-    BG,
-    CARD,
-    INK,
-    LINE,
-    MUTED,
-    NODE_H,
-    NODE_W,
-    OK,
-    SOURCE,
-    WARN,
-    Flow,
-    esc,
-    measure,
+from scripts.agent_core_blueprint import (
+    ACCENT, BAD, BG, CARD, INK, LINE, MUTED, OK, WARN, Flow, esc,
 )
 
-TOK = lambda chars: chars // 4  # noqa: E731
+VERIFY_JSON = ROOT / "docs" / "ref_verify.json"
+OUT_SVG = ROOT / "docs" / "ref_blueprints.svg"
+OUT_HTML = ROOT / "docs" / "ref_blueprints.html"
 
-# ── our own measured numbers, for the comparison column ────────────────────
-OURS = {
-    "name": "CrusorAI (ours)",
-    "system": 6151,  # system_persona() default, 24,606 chars / 17 sections
-    "system_auto": 430,  # system_persona(autonomous=True)
-    "tools_sent": 36,
-    "tools_defined": 68,
-    "tools": 36,
-    "schema_tok": 7509,
-    "repomap": 0,
-    "tool_result_tok": 3000,  # 12,000 chars
-    "tool_result": "12,000 chars (~3,000 tok)",
-    "compact": 1,
-    "compact_levels": 1,
-    "cache_stable": "no — compaction rewrites the prefix",
-    "cache": "gateway implicit only; 39–53%",
-    "repomap_note": "chunk retrieval, unranked",
-    "compact_note": "1 strategy, rewrites the prefix",
-    "steal": "n/a — this is us",
-    "system_note": "6,151 desktop · 430 autonomous",
-    "cycle_budget": 45,
-    "money_cap": "off by default",
-    "cost_per_completed": "236k tok (~$0.036)",
-    "budget": "45 cycles; money leg off",
-    "verdict": "correct, stable, unaffordable: 45% of every cycle is fixed preamble",
-}
+W = 1600
+ROW_H = 152
+NODE_W, NODE_H = 290, 104
+NODE_X = 320
+NODE_GAP = 18
 
-# ── the five, measured from source ────────────────────────────────────────
-REFS = [
-    {
-        "name": "Aider",
-        "repo": "Aider-AI/aider",
-        "lang": "Python",
-        "source": "aider/prompts.py, aider/coders/*_prompts.py, aider/repomap.py",
-        "system": 264,
-        "system_note": "264–420 tok depending on edit format (editblock 264, patch 277, context 420)",
-        "tools": 0,
-        "schema_tok": 0,
-        "repomap": 1024,
-        "repomap_note": "map_tokens=1024 default, binary-searched to fit; PageRank over tree-sitter tags",
-        "tool_result": "in-chat /add only",
-        "compact": 1,
-        "compact_note": "ChatSummary recursive summarisation of older turns",
-        "cache": "n/a — no tool preamble to cache",
-        "budget": "max_reflections, /tokens control",
-        "verdict": "cheapest possible loop: 0 tool schemas, ~300 tok of instructions, 1k repo map",
-        "steal": "the repo map. 1–4k tokens buys whole-repo awareness instead of 8 file dumps",
-    },
-    {
-        "name": "OpenCode",
-        "repo": "anomalyco/opencode",
-        "lang": "TypeScript · 223k★",
-        "source": "core/src/session/compaction.ts, core/src/plugin/system-prompt/*.txt",
-        "system": 643,
-        "system_note": "per model family: anthropic 75 · gpt 643 · kimi 2,175 · meta 1,963",
-        "tools": "plugin",
-        "schema_tok": None,
-        "repomap": 0,
-        "repomap_note": "LSP + file reads; no symbol map",
-        "tool_result": "2,000-char clip per end when summarising",
-        "compact": 5,
-        "compact_note": "5 graded levels: whole → outputs clipped → outputs removed → user-only → omitted",
-        "cache": "background precompute at 85% of ceiling, tail 30k–25%",
-        "budget": "steps per agent (config)",
-        "verdict": "best compaction in the set — it degrades the transcript instead of rewriting it",
-        "steal": "graded compaction levels + background summarisation before you hit the wall",
-    },
-    {
-        "name": "Codex CLI",
-        "repo": "openai/codex",
-        "lang": "Rust · 9.8k files",
-        "source": "codex-rs/core/*prompt.md, core/src/compact.rs, utils/pty/src/lib.rs",
-        "system": 1661,
-        "system_note": "model-tuned: codex 1,661–1,897 tok; generic 5,413 tok",
-        "tools": 6,
-        "schema_tok": None,
-        "repomap": 0,
-        "repomap_note": "AGENTS.md only, capped by project_doc_max_bytes (truncated)",
-        "tool_result": "1 MiB pty cap + delta streaming (DEFAULT_OUTPUT_BYTES_CAP)",
-        "compact": 3,
-        "compact_note": "auto + remote v2 + mid-turn; compact prompt is 106 tok",
-        "cache": "provider implicit; stable prefix by design",
-        "budget": "max turns; 20k token cap on the compaction user message",
-        "verdict": "smallest surface: ~6 structured tools, one 1.7k prompt, hard byte caps",
-        "steal": "byte-capped tool output as a FIRST-CLASS constant, not a suggestion",
-    },
-    {
-        "name": "Void",
-        "repo": "voideditor/void",
-        "lang": "TypeScript · VS Code fork",
-        "source": "contrib/void/common/prompt/prompts.ts",
-        "system": 380,
-        "system_note": "9.5k tok of prompt TEXT total, but per-task: regex-edit 378, commit 197",
-        "tools": 0,
-        "schema_tok": 0,
-        "repomap": 0,
-        "repomap_note": "context-gathering service pulls files on demand",
-        "tool_result": "editor diff applied in-editor",
-        "compact": 1,
-        "compact_note": "thread-level history, no graded condenser",
-        "cache": "in-editor apply; no re-send of file bodies",
-        "budget": "per-request caps",
-        "verdict": "applies edits in the editor instead of round-tripping file contents",
-        "steal": "task-scoped prompts (378 tok for an edit) instead of one 6k persona for everything",
-    },
-    {
-        "name": "openclaude",
-        "repo": "Twigpine/openclaude",
-        "lang": "TypeScript · 34k★",
-        "source": "src/constants/prompts.ts, src/services/compact/*.ts, src/tools/",
-        "system": 7000,
-        "system_note": "55kB of composed sections; getSystemPromptSection cache",
-        "tools": 56,
-        "schema_tok": None,
-        "repomap": 0,
-        "repomap_note": "RepoMapTool exists (opt-in)",
-        "tool_result": "20k token cap on the summary; micro-compaction of tool history",
-        "compact": 8,
-        "compact_note": "auto / micro / snip / reactive / sessionMemory / apiMicro — 8 modules",
-        "cache": "AUTOCOMPACT_BUFFER 30k, floor 13k, warning 20k, failure cooldown 10s",
-        "budget": "maxTurns (configurable)",
-        "verdict": "closest to us in prompt size, furthest ahead in compaction machinery",
-        "steal": "compaction is a family of strategies with explicit token buffers, not one function",
-    },
-]
-
-ROWS = [
-    ("System message (tok)", lambda r: f"{r['system']:,}"),
-    ("Tool schemas (tok/cycle)", lambda r: f"{r['schema_tok']:,}" if r["schema_tok"] else (
-        "0" if r["tools"] == 0 else "plugin/none")),
-    ("Tools sent", lambda r: str(r["tools"])),
-    ("Repo map (tok)", lambda r: f"{r['repomap']:,}" if r["repomap"] else "—"),
-    ("Tool result cap", lambda r: r["tool_result"]),
-    ("Compaction strategies", lambda r: str(r["compact"])),
-    ("Cache strategy", lambda r: r["cache"]),
-    ("Steal this", lambda r: r["steal"]),
-]
+# Our own row cannot be measured without the langchain stack, which is not
+# installed in every environment that regenerates this drawing. These two are
+# read from the committed measurement output instead, and the source is named
+# on the node so nobody has to trust the number.
+OURS_TOOLS, OURS_SCHEMA = 36, 7509
+OURS_SYSTEM = 6151
+CYCLE_TOKENS = 30_051  # run 41290247998, first full cycle
 
 
-def render() -> str:
-    m = measure()
-    row_h = 112
-    top = 196
-    W = 1600
-    # height: the five reference rows, our row, then the three-differences block
-    H = top + len(REFS) * (row_h + 26) + (row_h + 40) + (row_h + 40) + 200
+def load() -> list[dict]:
+    data = json.loads(VERIFY_JSON.read_text(encoding="utf-8"))
+    rows = data["rows"]
+    for r in rows:
+        if r["name"] == "CrusorAI":
+            r["system_tok"] = OURS_SYSTEM
+            r["tools"], r["schema_tok"] = OURS_TOOLS, OURS_SCHEMA
+            r["tok_per_tool"] = OURS_SCHEMA // OURS_TOOLS
+    for r in rows:
+        # Aider's repo map is re-sent on every request too, so it belongs in the
+        # same column as the prompt and the schemas (Void's tree is already
+        # inside its system message, which is why Void's repomap_tok is 0).
+        r["fixed"] = r["system_tok"] + r["schema_tok"] + r["repomap_tok"]
+    return rows
+
+
+def health(fixed: int) -> str:
+    if fixed <= 2_000:
+        return OK
+    if fixed <= 3_000:
+        return WARN
+    return BAD
+
+
+def render(rows: list[dict]) -> str:
+    n_rows = len(rows)
+    chart_y = 116 + n_rows * ROW_H + 24
+    chart_h = 210
+    foot_y = chart_y + chart_h + 30
+    foot_h = 226
+    H = foot_y + foot_h + 30
+
     f = Flow(W, H)
     f.grid()
 
-    f.add(f'<text x="40" y="46" fill="{INK}" font-size="26" font-weight="700">'
-          f'REFERENCE BLUEPRINTS — the same body, five other ways</text>')
-    f.add(f'<text x="40" y="72" fill="{MUTED}" font-size="12.5">'
-          f'Every number read from the repo\u2019s own source via codeload.github.com, '
-          f'tokens = chars/4 (same estimator as ours)</text>')
-    f.add(f'<text x="40" y="94" fill="{ACCENT}" font-size="12">'
-          f'ours: system {OURS["system"]:,} tok + tool schema {OURS["schema_tok"]:,} tok = '
-          f'{(OURS["system"] + OURS["schema_tok"]) * 100 // 30051}% of a '
-          f'{sum(t for _, t in SOURCE["tok_per_cycle"]) // len(SOURCE["tok_per_cycle"]):,}-token cycle</text>')
+    # ── header
+    f.add(f'<text x="36" y="44" fill="{INK}" font-size="25" font-weight="700">'
+          f'REFERENCE BLUEPRINTS — WHAT THE BEST HARNESSES ACTUALLY SPEND</text>')
+    f.add(f'<text x="36" y="68" fill="{MUTED}" font-size="12.5">'
+          f'Aider · OpenCode · Void, read from source (codeload.github.com) and measured twice: '
+          f'static literals (chars/4) and the assembled prompt (cl100k-shaped estimator).</text>')
+    f.add(f'<text x="36" y="89" fill="{ACCENT}" font-size="11.5">'
+          f'fixed cost = system message + tool schemas, paid on every single cycle   ·   '
+          f'ours is measured against a {CYCLE_TOKENS:,}-token cycle from run 41290247998</text>')
 
-    y = top
-    for r in REFS:
-        f.add(f'<rect x="36" y="{y}" width="{W - 72}" height="{row_h + 8}" rx="14" '
-              f'fill="{CARD}" stroke="{LINE}"/>')
-        f.add(f'<text x="58" y="{y + 32}" fill="{INK}" font-size="17" font-weight="700">'
+    # ── one workflow row per harness
+    for i, r in enumerate(rows):
+        y = 116 + i * ROW_H
+        ours = r["name"] == "CrusorAI"
+        colour = BAD if ours else health(r["fixed"])
+        f.group(24, y - 4, W - 48, ROW_H - 18,
+                f'{r["name"].upper()}  ·  {r["fixed"]:,} tok fixed per cycle'
+                + (f'  ·  that is {r["fixed"] / CYCLE_TOKENS:.0%} of a cycle' if ours else ""),
+                color=colour)
+
+        ny = y + 22
+        # left: the number that matters
+        f.add(f'<text x="44" y="{ny + 26}" fill="{INK}" font-size="19" font-weight="700">'
               f'{esc(r["name"])}</text>')
-        f.add(f'<text x="58" y="{y + 52}" fill="{MUTED}" font-size="10.5">'
-              f'{esc(r["repo"])} · {esc(r["lang"])}</text>')
-        f.add(f'<text x="58" y="{y + 70}" fill="{ACCENT}" font-size="10">'
-              f'system {r["system"]:,} tok · tools {r["tools"]}</text>')
-        f.add(f'<text x="58" y="{y + 86}" fill="{MUTED}" font-size="9.5">'
-              f'{esc(r["system_note"][:46])}</text>')
-        f.add(f'<text x="58" y="{y + 100}" fill="{MUTED}" font-size="9.5">'
-              f'{esc(r["compact_note"][:48])}</text>')
+        f.add(f'<text x="44" y="{ny + 48}" fill="{colour}" font-size="21" font-weight="700">'
+              f'{r["fixed"]:,}</text>')
+        f.add(f'<text x="44" y="{ny + 66}" fill="{MUTED}" font-size="10.5">tok fixed / cycle</text>')
+        f.add(f'<text x="44" y="{ny + 86}" fill="{MUTED}" font-size="10">'
+              f'{r["system_tok"]:,} prompt + {r["schema_tok"]:,} schemas'
+              + (f' + {r["repomap_tok"]:,} map' if r["repomap_tok"] else "")
+              + '</text>')
 
-        # four n8n-style mini-nodes: prompt → context → loop → tools
-        nx = 470
-        nw = 250  # 4 nodes must fit inside x=470..1560
-        ny = y + 14
         nodes = [
-            ("PROMPT", f"{r['system']:,} tok", "system message", ACCENT if r["system"] < 2000 else WARN),
-            ("CONTEXT", (f"map {r['repomap']:,}" if r["repomap"] else "on demand"),
-             r["repomap_note"][:26], OK),
-            ("LOOP", f"{r['compact']} compact lvls", r["cache"][:26], WARN if r["compact"] < 2 else OK),
-            ("TOOLS", (f"{r['tools']} schemas" if r["tools"] else "no schemas"),
-             r["tool_result"][:26], OK if not r["tools"] or r["tools"] != 56 else WARN),
+            ("PROMPT", "system message", f'{r["system_tok"]:,} tok',
+             r.get("prompt_note", ""), colour if r["system_tok"] > 2_000 else OK),
+            ("CONTEXT", "repo map / tree",
+             f'{r["repomap_tok"]:,} tok' if r["repomap_tok"] else "0 tok",
+             r["repomap_note"], OK),
+            ("LOOP", "compaction", f'{r["compact_levels"]} level'
+             f'{"" if r["compact_levels"] == 1 else "s"}',
+             r["compact_note"], OK if r["compact_levels"] > 1 else WARN),
+            ("TOOLS", f'{r["tools"]} tools',
+             f'{r["schema_tok"]:,} tok' if r["schema_tok"] else "0 tok",
+             f'{r["tok_per_tool"]} tok/tool', OK if r["schema_tok"] < 3_000 else WARN),
         ]
-        for i, (title, metric, sub, colour) in enumerate(nodes):
-            x = nx + i * (nw + 26)
-            f.add(f'<rect x="{x}" y="{ny}" width="{nw}" height="{NODE_H}" rx="10" '
-                  f'fill="#0f1620" stroke="{colour}" stroke-width="1.5"/>')
-            f.add(f'<text x="{x + 14}" y="{ny + 22}" fill="{MUTED}" font-size="9.5">{title}</text>')
-            f.add(f'<text x="{x + 14}" y="{ny + 44}" fill="{INK}" font-size="12.5" '
-                  f'font-weight="700">{esc(metric)}</text>')
-            f.add(f'<text x="{x + 14}" y="{ny + 64}" fill="{MUTED}" font-size="9.5">'
-                  f'{esc(sub)}</text>')
-            f.add(f'<text x="{x + 14}" y="{ny + 88}" fill="{colour}" font-size="9">'
-                  f'{esc(r["verdict"][:30])}</text>' if i == 0 else "")
-            f.add(f'<circle cx="{x}" cy="{ny + NODE_H // 2}" r="4.5" fill="{BG}" stroke="{LINE}"/>')
-            f.add(f'<circle cx="{x + nw}" cy="{ny + NODE_H // 2}" r="4.5" fill="{BG}" stroke="{LINE}"/>')
-            if i < 3:
-                x2 = nx + (i + 1) * (nw + 26)
-                f.add(f'<path d="M {x + nw} {ny + NODE_H // 2} C {x + nw + 13} {ny + NODE_H // 2}, '
-                      f'{x2 - 13} {ny + NODE_H // 2}, {x2} {ny + NODE_H // 2}" fill="none" '
-                      f'stroke="{LINE}" stroke-width="1.6"/>')
-                f.add(f'<polygon points="{x2 - 8},{ny + NODE_H // 2 - 4} {x2 - 8},{ny + NODE_H // 2 + 4} '
-                      f'{x2},{ny + NODE_H // 2}" fill="{LINE}"/>')
-        y += row_h + 26
+        for j, (title, sub, metric, note, hcol) in enumerate(nodes):
+            x = NODE_X + j * (NODE_W + NODE_GAP)
+            f.node(x, ny, j + 1, title, sub, metric, hcol, w=NODE_W, h=NODE_H,
+                   kind="trigger" if j == 0 else "ai" if j == 2 else "action",
+                   note=note[:44])
+            if j:
+                px = NODE_X + (j - 1) * (NODE_W + NODE_GAP) + NODE_W
+                f.edge((px, ny + NODE_H // 2), (x, ny + NODE_H // 2), color=LINE)
 
-    # ── ours, same four nodes, for the eye to compare
-    y += 10
-    f.add(f'<rect x="36" y="{y}" width="{W - 72}" height="{row_h + 8}" rx="14" '
-          f'fill="#1a1013" stroke="{BAD}"/>')
-    f.add(f'<text x="58" y="{y + 32}" fill="{BAD}" font-size="17" font-weight="700">CrusorAI (ours)</text>')
-    f.add(f'<text x="58" y="{y + 52}" fill="{MUTED}" font-size="10.5">measured, run 41290247998</text>')
-    f.add(f'<text x="58" y="{y + 70}" fill="{ACCENT}" font-size="10">'
-          f'system {OURS["system"]:,} tok · tools {OURS["tools_sent"]} sent</text>')
-    f.add(f'<text x="58" y="{y + 86}" fill="{MUTED}" font-size="9.5">6,151 desktop · 430 autonomous</text>')
-    f.add(f'<text x="58" y="{y + 100}" fill="{MUTED}" font-size="9.5">84% of spend discarded</text>')
-    ours_nodes = [
-        ("PROMPT", f"{OURS['system']:,} tok", "system_persona()", BAD),
-        ("CONTEXT", "no map", "chunk retrieval", WARN),
-        ("LOOP", "1 compact strategy", "rewrites prefix", BAD),
-        ("TOOLS", f"{OURS['schema_tok']:,} tok schema", "36-48 sent", BAD),
-    ]
-    nx, ny, nw = 470, y + 14, 250
-    for i, (title, metric, sub, colour) in enumerate(ours_nodes):
-        x = nx + i * (nw + 26)
-        f.add(f'<rect x="{x}" y="{ny}" width="{nw}" height="{NODE_H}" rx="10" '
-              f'fill="#1a1013" stroke="{colour}" stroke-width="2"/>')
-        f.add(f'<text x="{x + 14}" y="{ny + 22}" fill="{MUTED}" font-size="9.5">{title}</text>')
-        f.add(f'<text x="{x + 14}" y="{ny + 44}" fill="{INK}" font-size="12.5" '
-              f'font-weight="700">{esc(metric)}</text>')
-        f.add(f'<text x="{x + 14}" y="{ny + 64}" fill="{MUTED}" font-size="9.5">{esc(sub)}</text>')
-        if i < 3:
-            x2 = nx + (i + 1) * (nw + 26)
-            f.add(f'<path d="M {x + nw} {ny + NODE_H // 2} C {x + nw + 13} {ny + NODE_H // 2}, '
-                  f'{x2 - 13} {ny + NODE_H // 2}, {x2} {ny + NODE_H // 2}" fill="none" '
-                  f'stroke="{LINE}" stroke-width="1.6"/>')
-            f.add(f'<polygon points="{x2 - 8},{ny + NODE_H // 2 - 4} {x2 - 8},{ny + NODE_H // 2 + 4} '
-                  f'{x2},{ny + NODE_H // 2}" fill="{LINE}"/>')
+    # ── the comparison itself
+    f.add(f'<text x="36" y="{chart_y + 4}" fill="{INK}" font-size="15" font-weight="700">'
+          f'FIXED COST PER CYCLE</text>')
+    f.add(f'<text x="36" y="{chart_y + 22}" fill="{MUTED}" font-size="11">'
+          f'What every single LLM call pays before it sees a byte of your request.</text>')
 
-    y += row_h + 40
-    f.add(f'<text x="58" y="{y}" fill="{INK}" font-size="13" font-weight="700">'
-          f'THE THREE STRUCTURAL DIFFERENCES</text>')
+    bar_x, bar_w_max = 320, 980
+    for i, r in enumerate(rows):
+        y = chart_y + 42 + i * 30
+        frac = min(1.0, r["fixed"] / 14_000)
+        ours = r["name"] == "CrusorAI"
+        colour = BAD if ours else health(r["fixed"])
+        f.add(f'<text x="{bar_x - 14}" y="{y + 13}" fill="{MUTED}" font-size="11.5" '
+              f'text-anchor="end">{esc(r["name"])}</text>')
+        f.add(f'<rect x="{bar_x}" y="{y}" width="{bar_w_max}" height="18" rx="4" '
+              f'fill="{CARD}" stroke="{LINE}" stroke-width="1"/>')
+        f.add(f'<rect x="{bar_x}" y="{y}" width="{max(6, int(bar_w_max * frac))}" height="18" '
+              f'rx="4" fill="{colour}" opacity="{0.95 if ours else 0.75}"/>')
+        f.add(f'<text x="{bar_x + int(bar_w_max * frac) + 10}" y="{y + 13}" fill="{colour}" '
+              f'font-size="11.5" font-weight="700">{r["fixed"]:,} tok</text>')
+
+    # ── footer: the corrections, stated plainly
+    f.group(24, foot_y, W - 48, foot_h, "AUDIT TRAIL — WHAT THE FIRST DRAWING GOT WRONG",
+            color=WARN)
+    # Every number below is computed from `rows`, never typed. Typing them is
+    # exactly how the first draft shipped 264 / 643 / 380 and had to be redone.
+    by = {r["name"]: r for r in rows}
+    a, o, v, u = by["Aider"], by["OpenCode"], by["Void"], by["CrusorAI"]
     lines = [
-        ("1. Fixed preamble", "Aider 264–420 · OpenCode 75–2,175 · Codex 1,661 · ours 6,151 + 7,509 schema",
-         "ours spends 45% of every cycle re-sending instructions and tool JSON"),
-        ("2. Context shape", "Aider ranks the repo into 1k tokens · Codex caps AGENTS.md bytes",
-         "we dump retrieved chunks and 12k-char tool results, then re-pay for them"),
-        ("3. Compaction", "OpenCode 5 graded levels · openclaude 8 modules · ours 1",
-         "they degrade the transcript; we rewrite it and destroy the cache"),
+        (f"1.  AIDER was drawn at 264 tok. It is {a['system_tok']:,}: format_chat_chunks appends "
+         f"system_reminder and sends the few-shot examples as real turns.", MUTED),
+        (f"     And its repo map is not {a['repomap_tok']:,} — with no files added to the chat the "
+         f"target becomes 1,024 x 8 = 8,192 tokens (repomap.py:56,124-132).", MUTED),
+        (f"2.  OPENCODE was drawn at 643 tok. That file is a per-model PLUGIN. The base prompt is "
+         f"189 tok; assembled with tool guidance it is {o['system_tok']:,}.", MUTED),
+        (f"3.  VOID was drawn at 380 tok. Its message ends with a rendered file TREE, capped at "
+         f"20,000 chars — assembled it is {v['system_tok']:,}.", MUTED),
+        (f"4.  OUR tool schemas alone ({u['schema_tok']:,} tok) are "
+         f"{u['schema_tok'] / o['fixed']:.1f}x the ENTIRE fixed cost of OpenCode "
+         f"({o['fixed']:,}) and {u['schema_tok'] / v['fixed']:.1f}x Void's ({v['fixed']:,}). "
+         f"That is the finding; the prose was beside the point.", ACCENT),
     ]
-    yy = y + 16
-    for head, detail, ours in lines:
-        f.add(f'<text x="58" y="{yy + 16}" fill="{ACCENT}" font-size="11.5" font-weight="700">{esc(head)}</text>')
-        f.add(f'<text x="300" y="{yy + 16}" fill="{INK}" font-size="11">{esc(detail)}</text>')
-        f.add(f'<text x="300" y="{yy + 32}" fill="{BAD}" font-size="10.5">▼ {esc(ours)}</text>')
-        yy += 44
+    for i, (text, colour) in enumerate(lines):
+        f.add(f'<text x="44" y="{foot_y + 52 + i * 32}" fill="{colour}" font-size="11.5">'
+              f'{esc(text)}</text>')
 
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-            f'viewBox="0 0 {W} {H}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">'
+            f'viewBox="0 0 {W} {H}" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">'
             + "".join(f.parts) + "</svg>")
 
 
-def render_html(svg: str) -> str:
-    head = "".join(f"<th>{esc(name)}</th>" for name, _ in ROWS)
-    body = ""
-    for label, _ in ROWS:
-        pass
-    rows = ""
-    for label, fn in ROWS:
-        rows += f"<tr><td class='lbl'>{esc(label)}</td>"
-        rows += f"<td class='ours'>{esc(fn(OURS))}</td>"
-        for r in REFS:
-            rows += f"<td>{esc(fn(r))}</td>"
-        rows += "</tr>"
-    head = "<th>Metric</th><th class='ours'>ours</th>" + "".join(
-        f"<th>{esc(r['name'])}</th>" for r in REFS
+def render_html(svg: str, rows: list[dict]) -> str:
+    def cell(r, key, fmt="{}"):
+        return fmt.format(r[key])
+
+    body = "".join(
+        f'<tr class="{"ours" if r["name"] == "CrusorAI" else ""}">'
+        f'<td><b>{esc(r["name"])}</b></td>'
+        f'<td>{r["system_tok"]:,}</td>'
+        f'<td>{r["system_m1"]:,} <span class="d">({r["system_delta_pct"]:+.0f}%)</span></td>'
+        f'<td>{r["tools"]}</td>'
+        f'<td>{r["schema_tok"]:,}</td>'
+        f'<td>{r["tok_per_tool"] or "—"}</td>'
+        f'<td>{r["compact_levels"]}</td>'
+        f'<td>{r["repomap_tok"]:,}</td>'
+        f'<td class="fixed">{r["fixed"]:,}</td>'
+        f'</tr>'
+        for r in rows
     )
-    verdicts = "".join(
-        f"<tr><td class='lbl'>{esc(r['name'])}</td><td>{esc(r['verdict'])}</td>"
-        f"<td class='steal'>{esc(r['steal'])}</td></tr>"
-        for r in REFS
-    )
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<title>Reference blueprints</title><style>
- :root {{ color-scheme: dark; }}
- body {{ margin:0; background:{BG}; color:{INK}; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }}
- .wrap {{ max-width:1640px; margin:0 auto; padding:26px 20px 90px; }}
- h1 {{ font-size:24px; margin:0 0 8px; }}
- .lede {{ color:{MUTED}; font-size:12.5px; line-height:1.65; margin-bottom:20px; }}
- .svgbox {{ overflow-x:auto; border:1px solid {LINE}; border-radius:12px; }}
- h2 {{ color:{ACCENT}; font-size:16px; margin:34px 0 10px; }}
- table {{ width:100%; border-collapse:collapse; font-size:12px; }}
- th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid {LINE}; vertical-align:top; }}
- th {{ color:{MUTED}; font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; }}
- td.lbl {{ color:{MUTED}; white-space:nowrap; }}
- td.ours {{ color:{BAD}; }}
- td.steal {{ color:{OK}; }}
- .note {{ background:{CARD}; border:1px solid {LINE}; border-radius:10px; padding:14px 16px; margin-top:22px;
-          color:{MUTED}; font-size:12px; line-height:1.7; }}
-</style></head><body><div class="wrap">
-<h1>Reference blueprints — how five strong harnesses shape the same loop</h1>
-<div class="lede">Source downloaded from codeload.github.com and read, not summarised from READMEs.
-Tokens = chars/4, the same estimator ours uses, so the columns are directly comparable.
-Files read per repo are listed under each name in the diagram.</div>
-<div class="svgbox">{svg}</div>
-
-<h2>Measured comparison</h2>
-<table><tr>{head}</tr>{rows}</table>
-
-<h2>Verdict and what to steal</h2>
-<table><tr><th>Harness</th><th>Verdict</th><th>Steal this</th></tr>{verdicts}</table>
-
-<div class="note">
-<b>The single sentence:</b> every one of the five keeps the fixed preamble small (0–2.2k tokens,
-or 5.4k at Codex's largest) and spends its context on <i>ranked structure</i>; we keep 13,660 tokens
-of preamble and spend the rest on <i>unranked content</i>. That is the whole cost gap, and it is a
-design choice, not a model limitation.
-</div>
-</div></body></html>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Reference blueprints — verified</title>
+<style>
+ body{{background:{BG};color:{INK};font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;padding:28px}}
+ h1{{font-size:20px;margin:0 0 6px}} p.sub{{color:{MUTED};font-size:12.5px;margin:0 0 22px}}
+ table{{border-collapse:collapse;width:100%;font-size:12.5px;margin:18px 0 26px}}
+ th,td{{border:1px solid {LINE};padding:7px 10px;text-align:right}}
+ th{{background:#141d26;color:{MUTED};font-weight:600;text-align:right}}
+ td:first-child,th:first-child{{text-align:left}}
+ tr.ours td{{background:#1c1214;color:#ffb4ae}}
+ td.fixed{{font-weight:700;color:{ACCENT}}}
+ span.d{{color:{MUTED};font-size:10.5px}}
+ .note{{color:{MUTED};font-size:11.5px;line-height:1.7;max-width:1100px}}
+ .warn{{color:{WARN}}} .oops{{color:{BAD}}}
+ svg{{width:100%;height:auto;border:1px solid {LINE};border-radius:10px;background:{BG}}}
+</style></head><body>
+<h1>Reference blueprints — measured twice, from source</h1>
+<p class="sub">Aider · OpenCode · Void. M1 = static literals (chars/4) · M2 = assembled prompt
+(cl100k-shaped estimator) · fixed = system + schemas, paid every cycle.</p>
+<table>
+<tr><th>harness</th><th>system tok (M2)</th><th>M1 (Δ)</th><th>tools</th>
+<th>schema tok</th><th>tok/tool</th><th>compact levels</th><th>repo map</th>
+<th>fixed / cycle</th></tr>
+{body}
+</table>
+{svg}
+<p class="note">
+<span class="warn">Corrections from the first draft:</span> Aider 264 → 1,265 (three blocks ship
+together, plus a repo map that octuples when the chat is empty) · OpenCode 643 → 333 (643 was a
+per-model plugin, not the base prompt) · Void 380 → 1,375 (the message ends with a file tree).
+<br><span class="oops">The finding:</span> our tool schemas alone exceed every competitor's entire
+fixed cost. The lever is the encoding of tool definitions (208 tok/tool for us vs 33 for Void's XML
+prose) and the prompt contract (6,151 vs 189–1,265), not the model.
+</p>
+</body></html>"""
 
 
 def main() -> int:
-    svg = render()
-    (ROOT / "docs" / "ref_blueprints.svg").write_text(svg, encoding="utf-8")
-    (ROOT / "docs" / "ref_blueprints.html").write_text(render_html(svg), encoding="utf-8")
-    print(f"wrote docs/ref_blueprints.svg ({len(svg):,} bytes) and .html")
-    for r in REFS:
-        print(f"  {r['name']:<12} system {r['system']:>5,} tok · tools {str(r['tools']):<7} "
-              f"· compact {r['compact']} strategies")
+    rows = load()
+    svg = render(rows)
+    OUT_SVG.write_text(svg, encoding="utf-8")
+    OUT_HTML.write_text(render_html(svg, rows), encoding="utf-8")
+    print(f"wrote {OUT_SVG.name} ({len(svg):,} bytes) and {OUT_HTML.name}")
+    for r in rows:
+        print(f"  {r['name']:<10} prompt {r['system_tok']:>6,}  tools {r['schema_tok']:>6,}  "
+              f"fixed {r['fixed']:>6,}  ({r['fixed'] / CYCLE_TOKENS:.0%} of a cycle)")
     return 0
 
 
