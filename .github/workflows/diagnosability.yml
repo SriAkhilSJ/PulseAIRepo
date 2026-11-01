@@ -88,6 +88,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install langchain-core tiktoken pydantic python-dotenv
 
+      # "Is CUSTOM_API_KEY the Velona key?" is settled by check_shape(): it
+      # FAILS unless the key starts with key_live_ (Velona's live-key prefix),
+      # then the gateway catalog and a per-model live call confirm the key is
+      # not merely well-formed but accepted. Stdlib-only, never prints the key.
+      - name: Velona key identity + catalog + live models
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CUSTOM_BASE_URL: https://velona.in/v1
+          VELONA_CHECK_TIMEOUT: '30'
+        run: |
+          set -o pipefail
+          python scripts/check_velona_keys.py --json > velona-key-report.json
+          python scripts/check_velona_keys.py 2>&1 | tee velona-key.txt
+
       - name: Live estimate-vs-bill calibration against the custom endpoint
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
@@ -110,7 +124,9 @@ jobs:
           # The numbers belong on api.github.com: Actions logs are not
           # reachable from every environment, and the whole point of this job
           # is a measurable claim (estimate vs bill), not a green tick.
-          OUT=$(sed -e 's/^\[/  [/' smoke-output.txt 2>/dev/null | tail -30 || echo "no output captured")
+          KEY_OUT=$(cat velona-key.txt 2>/dev/null | tail -20 || echo "key check produced no output")
+          OUT=$(sed -e 's/^\[/  [/' smoke-output.txt 2>/dev/null | tail -20 || echo "no output captured")
+          OUT=$(printf '%s\n\n--- token calibration ---\n%s' "$KEY_OUT" "$OUT")
           BODY=$(printf '**Live token-calibration smoke** — `%s` @ `%s`\n\nResult: `%s`\n\n```\n%s\n```\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${{ job.status }}" "$OUT")
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
