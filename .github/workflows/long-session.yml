@@ -7,6 +7,15 @@ name: Long session stamina (GLM 5.3)
 
 on:
   workflow_dispatch:
+    inputs:
+      token_cap:
+        description: "Per-turn token cap (sum of every request's prompt tokens)"
+        required: false
+        default: "600000"
+      label:
+        description: "Short label for this run, shown in the verdict"
+        required: false
+        default: "default"
   push:
     branches: [main, 'arena/**']
     paths:
@@ -32,6 +41,12 @@ jobs:
       CRUSORAI_SUBAGENT_DEPTH: '0'
       CRUSORAI_TELEMETRY_DIR: ${{ github.workspace }}/.e2e-telemetry
       PYTHONUNBUFFERED: '1'
+      # Field 2026-11-01: the cap is the variable under test, not a constant.
+      # Run A (600k) budget-cut turns 5-7 at ~630k tokens with 20-28 calls each.
+      # This input lets the same 7 turns run against a different cap, so "is the
+      # cap or the model the binding constraint?" is answered by measurement.
+      TOKEN_CAP: ${{ github.event.inputs.token_cap || '1200000' }}
+      RUN_LABEL: ${{ github.event.inputs.label || 'cap-1.2M' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +147,7 @@ jobs:
             --timeout-s-per-turn 480 \
             --max-session-minutes 45 \
             --max-llm-calls 20 \
-            --max-input-tokens 600000 \
+            --max-input-tokens "$TOKEN_CAP" \
             --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee session.log
           echo "SESSION_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
           RUNLOG="$RUNNER_TEMP/e2e/results/long-${{ github.run_id }}"
@@ -252,8 +267,8 @@ jobs:
           ERRORS=$(cat "$RUNNER_TEMP/e2e/errors.txt" 2>/dev/null | tail -15)
           VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | tail -25)
           HITS=$(cat "$RUNNER_TEMP/e2e/context_hits.txt" 2>/dev/null | tail -1)
-          BODY=$(printf '**Long-session stamina — GLM 5.3** @ `%s`\nsession_exit=%s final_test_exit=%s context_engine_lines=%s\n\n%s\n\n### finalize / budget decisions (tail)\n```\n%s\n```\n\n### error-shaped lines from the bridge\n```\n%s\n```\n\n### independent re-test after the whole session\n```\n%s\n```\n' \
-            "${GITHUB_SHA:0:8}" "${SESSION_EXIT:-unknown}" "${FINAL_TEST_EXIT:-unknown}" "${HITS:-?}" \
+          BODY=$(printf '**Long-session stamina — GLM 5.3** [%s, cap %s] @ `%s`\nsession_exit=%s final_test_exit=%s context_engine_lines=%s\n\n%s\n\n### finalize / budget decisions (tail)\n```\n%s\n```\n\n### error-shaped lines from the bridge\n```\n%s\n```\n\n### independent re-test after the whole session\n```\n%s\n```\n' \
+            "${RUN_LABEL}" "${TOKEN_CAP}" "${GITHUB_SHA:0:8}" "${SESSION_EXIT:-unknown}" "${FINAL_TEST_EXIT:-unknown}" "${HITS:-?}" \
             "$REPORT" "$DECISIONS" "$ERRORS" "$VERIFY")
           printf '%s' "$BODY" > body.md
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" -F body=@body.md >/dev/null \

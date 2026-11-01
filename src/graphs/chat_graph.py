@@ -3316,7 +3316,16 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # said "done: completed", so the field log contradicted the verdict the
     # UI rendered and nobody could tell which was true.
     verdict = (
-        "budget_exhausted" if (budget_cut and not verified_ok)
+        # Field 2026-11-01 (live 7-turn session, funded wallet): turns 6 and 7
+        # were budget-cut, the bridge correctly reported completed=False, and
+        # this line still printed "finalize done: completed" — because a cut
+        # turn that happened to pass verification fell through to the
+        # `verified_ok` exemption below. The 2026-10-12 audit fixed exactly
+        # this class for the "failed" branch; a cut turn was the remaining hole.
+        # The invariant is the one the comment above states: verdict ==
+        # "completed" must IMPLY task_succeeded, because the UI, the ledger
+        # (call_ledger.record_run) and the field log all read this value.
+        "budget_exhausted" if (budget_cut and not status_contract_dict["task_completed"])
         else "failed" if state.get("task_status") == "failed"
         else "unverified" if unverified
         else "stale" if verif_status == "stale"
