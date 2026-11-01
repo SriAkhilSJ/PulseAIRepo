@@ -204,6 +204,13 @@ jobs:
           echo "=== line counts ==="
           find "$RUNNER_TEMP/e2e/ws" -name '*.py' -o -name '*.html' -o -name '*.css' \
             | xargs -r wc -l 2>/dev/null | tail -12
+          {
+            echo "files:"
+            find "$RUNNER_TEMP/e2e/ws" -type f -not -path '*/.git/*' -printf '  %P\n' | sort | head -20
+            echo
+            find "$RUNNER_TEMP/e2e/ws" \( -name '*.py' -o -name '*.html' -o -name '*.css' \) \
+              -exec wc -l {} + 2>/dev/null | tail -8
+          } > "$RUNNER_TEMP/e2e/workspace.txt" 2>&1 || true
 
       - name: Verify the deliverable independently of the agent
         if: always()
@@ -242,10 +249,11 @@ jobs:
           # Actions logs are not reachable from every environment.
           KEYNOTE=$(cat "$RUNNER_TEMP/e2e/key-normalise.txt" 2>/dev/null || echo "no key note")
           PRICING=$(tail -c 900 "$RUNNER_TEMP/e2e/pricing.txt" 2>/dev/null || echo "no pricing output")
+          BUILT=$(cat "$RUNNER_TEMP/e2e/workspace.txt" 2>/dev/null | head -25 || echo "no workspace listing")
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
-          REPORT=$(printf '%s\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
-            "$REPORT" "$KEYNOTE" "$PRICING" "$PROBE" "$STDERR")
+          REPORT=$(printf '%s\n\n### what the agent actually wrote\n```\n%s\n```\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
+            "$REPORT" "$BUILT" "$KEYNOTE" "$PRICING" "$PROBE" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
