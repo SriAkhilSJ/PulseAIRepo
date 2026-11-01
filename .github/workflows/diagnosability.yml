@@ -96,7 +96,9 @@ jobs:
           CRUSORAI_HTTP_USER_AGENT: >-
             Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
             (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
-        run: python scripts/smoke_token_calibration_live.py
+        run: |
+          set -o pipefail
+          python scripts/smoke_token_calibration_live.py 2>&1 | tee smoke-output.txt
 
       - name: Post the verdict to the tracking issue
         if: always()
@@ -105,7 +107,11 @@ jobs:
           ISSUE: '28'
         run: |
           set -euo pipefail
-          BODY=$(printf '**Live token-calibration smoke** — `%s` @ `%s`\n\nResult: `%s`\n' \
-            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${{ job.status }}")
+          # The numbers belong on api.github.com: Actions logs are not
+          # reachable from every environment, and the whole point of this job
+          # is a measurable claim (estimate vs bill), not a green tick.
+          OUT=$(sed -e 's/^\[/  [/' smoke-output.txt 2>/dev/null | tail -30 || echo "no output captured")
+          BODY=$(printf '**Live token-calibration smoke** — `%s` @ `%s`\n\nResult: `%s`\n\n```\n%s\n```\n' \
+            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${{ job.status }}" "$OUT")
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
             -f body="$BODY" > /dev/null && echo "posted" || echo "post skipped"
