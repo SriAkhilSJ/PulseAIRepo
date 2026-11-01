@@ -112,7 +112,8 @@ jobs:
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
-          python - <<'PY'
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/e2e/probe.txt"
           import os, traceback
           print("base_url=", os.environ.get("CUSTOM_BASE_URL"))
           print("model   =", os.environ.get("LLM_MODEL"))
@@ -192,10 +193,13 @@ jobs:
           ISSUE: '28'
         run: |
           set -euo pipefail
-          REPORT=$(cat "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md" 2>/dev/null | head -70 || echo "no report")
-          # Bridge stderr is where a transport failure actually explains itself.
-          STDERR=$(tail -c 2500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
-          REPORT=$(printf '%s\n\n### bridge stderr (tail)\n```\n%s\n```' "$REPORT" "$STDERR")
+          REPORT=$(cat "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md" 2>/dev/null | head -60 || echo "no report")
+          # Both of these are where a transport failure explains itself, and
+          # Actions logs are not reachable from every environment.
+          PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
+          STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
+          REPORT=$(printf '%s\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
+            "$REPORT" "$PROBE" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
