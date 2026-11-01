@@ -470,6 +470,44 @@ _WORK_TOOLS = frozenset({
 })
 
 
+# Field 2026-11-01 (run 41279653910): the agent ran `python mvp/test_server.py
+# -v` TWICE, both green, and the turn still finalized as failed/unverified.
+# The cause was a third command — an exploratory
+#   python -c " ... from server import create_server ... /api/health ..."
+# probe that errored because the agent was still inventing the API. It counted
+# as a "check" (it contains "health"), so it created a debt, and a debt is only
+# erased by re-running the SAME command identity. Nobody re-runs a throwaway
+# one-liner, so the turn could never be verified no matter how green the real
+# test went.
+#
+# The principle: GREEN EVIDENCE IS GENEROUS, RED DEBT IS NARROW. Anything that
+# looks like a check may count in your favour. But a check may only count
+# AGAINST the turn — blocking completion until it is re-run — when it names a
+# stable, re-runnable target: a test file, a test runner, a build/lint/type
+# pass. A network probe (`curl`, "health") or an ad-hoc `python -c` snippet has
+# a transient identity; calling it a permanent obligation turns normal
+# exploration into an unclosable debt.
+_DEBT_ELIGIBLE_TOKENS = (
+    "pytest", "unittest", "npm test", "typecheck", "tsc ",
+    " lint", " build", "cargo check", "go test", " analyze",
+)
+_DEBT_ELIGIBLE_TEST_RE = re.compile(
+    r"(?:^|[\s/\"'=;&|(])(?:test_[\w.-]+\.py|[\w.-]+_tests?\.py"
+    r"|tests?/[\w./-]+\.py|run_tests?(?:\.sh|\.py)?)",
+    re.IGNORECASE,
+)
+
+
+def _is_debt_eligible_command(command: str) -> bool:
+    """True when a failing command names a stable check worth re-running."""
+    if not command:
+        return False
+    low = command.lower()
+    if any(token in low for token in _DEBT_ELIGIBLE_TOKENS):
+        return True
+    return bool(_DEBT_ELIGIBLE_TEST_RE.search(low))
+
+
 def _verification_trace_key(item: dict) -> tuple[str, str] | None:
     """Stable identity for a concrete executable verification obligation."""
     tool_name = str(item.get("tool") or "")
@@ -479,7 +517,7 @@ def _verification_trace_key(item: dict) -> tuple[str, str] | None:
     canonical_tool = "terminal" if tool_name in {"terminal", "run_terminal"} else tool_name
     if canonical_tool == "terminal":
         command = command_fingerprint(tool_name, args) or ""
-        if not _is_verification_command(command):
+        if not _is_debt_eligible_command(command):
             return None
         identity = command
     else:

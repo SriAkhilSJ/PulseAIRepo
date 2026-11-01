@@ -3333,10 +3333,32 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         task_display = cut[:cut.rfind(" ")] if " " in cut[20:] else cut
         task_display = task_display.rstrip(" \t-,.;:!?") + "\u2026"
     did_work = bool(steps_completed or failed_steps or unverified)
+    # Field 2026-11-01: "finalize entered: ... unverified=True" was the whole
+    # explanation three separate runs got. The gate knows exactly which receipt
+    # domains are missing and which failed checks still owe a rerun — printing
+    # the booleans instead forced a re-run to rediscover it. Name the gap.
+    _vf = gate_verification_status(state)
+    _missing: list[str] = []
+    _debts: list[str] = []
+    try:
+        from src.graphs.gates import _verification_receipt_status
+
+        _r = _verification_receipt_status(state)
+        _missing = list(_r.get("missing") or [])
+    except Exception as exc:  # diagnostics must never break finalize
+        _missing = [f"receipt-unavailable({type(exc).__name__})"]
+    try:
+        from src.graphs.gates import _unresolved_failed_verification_checks
+
+        _debts = [str(d.get("fingerprint")) for d in _unresolved_failed_verification_checks(state)]
+    except Exception:
+        _debts = []
     print(
         "[turn] finalize entered: "
         f"steps={len(steps_completed)} failed={len(failed_steps)} "
-        f"unverified={unverified} ended_mid_task={ended_mid_task}",
+        f"unverified={unverified} ended_mid_task={ended_mid_task} "
+        f"verification={_vf} missing={_missing or 'none'} "
+        f"unresolved_check_debts={len(_debts)}",
         flush=True,
     )
     if budget_cut:

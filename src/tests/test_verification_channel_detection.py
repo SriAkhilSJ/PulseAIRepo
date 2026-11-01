@@ -224,3 +224,50 @@ def test_report_lists_the_commands_the_agent_ran(tmp_path, monkeypatch):
     assert "| ok | yes |" in report
     assert "| ok | no |" in report
     assert "1 verification command(s) run, 1 green" in report
+
+
+# --------------------------------------------------- unclosable-debt guard
+
+
+def test_transient_probe_failure_does_not_create_permanent_debt():
+    """Field 2026-11-01 run 41279653910, the exact sequence.
+
+    The agent ran its real test file green, probed the not-yet-finished API with
+    an inline `python -c` (which errored), then ran the test file green again.
+    The probe counted as a "check" because the string "health" appeared in it,
+    so it minted a debt whose only cure is re-running THAT command identity —
+    nobody re-runs a throwaway one-liner, so the turn was unclosable.
+    """
+    from src.graphs.gates import _unresolved_failed_verification_checks
+
+    probe = (
+        'cd ws && python -c " import threading, urllib.request, json, sys\n'
+        "sys.path.insert(0, 'mvp')\nfrom server import create_server\n"
+        "srv = create_server()\nurllib.request.urlopen('http://127.0.0.1:8137/api/health') \""
+    )
+    state = {
+        "execution_trace": [
+            {"tool": "terminal", "args": {"command": "python mvp/test_server.py -v"},
+             "status": "success", "result": "Ran 3 tests\n\nOK\nExit code: 0"},
+            {"tool": "terminal", "args": {"command": probe},
+             "status": "failed", "result": "ImportError: cannot import name 'create_server'\nExit code: 1"},
+            {"tool": "terminal", "args": {"command": "python mvp/test_server.py -v"},
+             "status": "success", "result": "Ran 3 tests\n\nOK\nExit code: 0"},
+        ],
+    }
+    assert _unresolved_failed_verification_checks(state) == []
+
+
+def test_real_failing_test_file_still_owes_a_rerun():
+    """The narrowing must not disarm the nudge for a genuine failing suite."""
+    from src.graphs.gates import _unresolved_failed_verification_checks
+
+    state = {
+        "execution_trace": [
+            {"tool": "terminal", "args": {"command": "python mvp/test_server.py -v"},
+             "status": "failed", "result": "FAILED (failures=1)\nExit code: 1"},
+        ],
+    }
+    debts = _unresolved_failed_verification_checks(state)
+    assert len(debts) == 1
+    assert debts[0]["repair_landed"] is False
