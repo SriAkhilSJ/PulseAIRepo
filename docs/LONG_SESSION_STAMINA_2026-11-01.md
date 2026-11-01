@@ -68,7 +68,7 @@ the factory directly. *A green suite hid a broken entry point.*
 | 4 | turn_failed | **NO** | 9 msgs | 46.9s | 0 |
 | 5–7 | turn_failed | **NO** | 14 msgs | ~0.6s | 0 |
 
-### Run C — `41285084516`: the wallet, in plain text
+### Run D — `41285437596`: the halt path, verified live (still no credit)
 
 | Turn | Frame | Completed | LLM calls | New tokens | Error |
 | ---: | :--- | :--- | ---: | ---: | :--- |
@@ -77,15 +77,36 @@ the factory directly. *A green suite hid a broken entry point.*
 **→ The gateway balance is exhausted.** The run stops being a test of the agent and
 becomes a test of the account. Topping up (₹10 minimum) is the only fix.
 
+Re-run after the fixes, to check that a dead wallet now *stops the session* instead of
+burning the remaining turns:
+
+| Turn | Frame | Completed | LLM calls | Wall | New tokens | Error |
+| ---: | :--- | :--- | ---: | ---: | ---: | :--- |
+| 1 | turn_failed | **NO** | 1 | 6.2s | 0 | `402 — Balance ₹0.00. Top up from ₹10…` |
+| 2 | `session-halted-provider-balance` | **NO** | 0 | 0s | 0 | — (6 turns not attempted) |
+
+Total session wall clock **7.5s**, versus seven identical 0.6s failures before. Verdict:
+**"0/7 turns genuinely completed — HALTED — provider balance exhausted after turn 1; 6
+turn(s) not attempted"**, `session_exit=1`. The halt works; the wallet is still empty.
+
 ---
 
-## 3. The three bugs this exposed (all fixed)
+## 3. The four bugs this exposed (all fixed)
 
 | # | Bug | Receipt | Fix |
 | :-- | :--- | :--- | :--- |
 | 1 | **The harness overstated survival.** A budget-cut turn still emits `turn_done`, so the driver counted 3 truncated turns as full survivals and printed "7/7 SURVIVED". | Run A's own report, contradicted by its `[budget] exhausted` lines | `summarize()` derives the verdict only from `completed` / `run_outcome`; "SURVIVED" now requires every turn to have said so; exit code is non-zero when any turn is cut |
 | 2 | **A dead wallet was classified as retryable.** `classify_api_error` returned `unknown, retryable=True` for Velona's 402, so the agent retried a terminal failure across every remaining turn. | Run C: 7 turns, each failing in 0.6s | Added "top up from", zero-balance patterns and a currency-aware `_ZERO_BALANCE_RE`; **seven** copy-pasted call sites now route through one `_is_billing_message`; the 402 now classifies `billing`, `retryable=False`. The harness halts the session instead of spending turns |
+| 4 | **The CI job was green regardless of the result.** `set +e` around the session is right (the re-test and the verdict must still run), but nothing read `SESSION_EXIT`, so run `41285437596` showed a ✅ while its own report said "0/7 turns genuinely completed". | Same run: job `success`, `session_exit=1` | A gate *after* the evidence upload: the job now fails if the session did not survive or the re-test failed, so the check mark means what a human thinks it means |
 | 3 | **The harness could read another turn's frames.** The bridge forwards `event_bus` traffic, and `event_bus` *replays* retained history to a new subscriber, so a turn could conclude on a stale terminal frame. | Code path, `subscribe(thread_id=None)` | Driver drains the queue to silence before each prompt and ignores terminal frames whose `turn_id` it has already concluded |
+
+**A fourth false green, found while verifying the fix:** the CI job for run
+`41285437596` finished **green** — all 11 steps "success" — while the session it ran had
+exited 1 and printed "0/7 turns". `set +e` around the session step is deliberate (the
+re-test, the verdict comment and the artifact upload must still run when the session
+fails), but nothing downstream ever read `SESSION_EXIT`. The check mark a human trusts
+was decoupled from the result. A gate step now runs *after* the evidence upload and fails
+the job when the session did not survive or the re-test failed.
 
 **Correction to my own earlier claim:** I first attributed run B's 0.6s failures to
 replayed frames. The error capture proved they were `402`s. The drain/`turn_id` guards are

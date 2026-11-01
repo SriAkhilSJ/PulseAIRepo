@@ -271,3 +271,29 @@ jobs:
             ${{ runner.temp }}/e2e/ws/mvp/**
             !${{ runner.temp }}/e2e/ws/mvp/**/__pycache__/**
           if-no-files-found: warn
+
+      # Field 2026-11-01 (run 41285437596): the whole job went GREEN while the
+      # session exited 1 and reported "0/7 turns genuinely completed — HALTED
+      # — provider balance exhausted". `set +e` around the session is correct
+      # (the re-test, the verdict and the artifact upload must still run when
+      # the session fails), but nothing downstream ever read SESSION_EXIT, so
+      # the one signal a human trusts — the check mark — was unrelated to the
+      # result. A gate at the END, after the evidence is safe, is the fix:
+      # evidence is uploaded first, then the job states the truth.
+      - name: Gate — a session that did not finish must not be green
+        if: always()
+        run: |
+          set +e
+          bad=0
+          if [ "${SESSION_EXIT:-1}" != "0" ]; then
+            echo "::error::session exit ${SESSION_EXIT:-missing} — the N-turn session did not survive"
+            bad=1
+          fi
+          if [ "${FINAL_TEST_EXIT:-1}" != "0" ]; then
+            echo "::error::independent re-test exit ${FINAL_TEST_EXIT:-missing} — the delivered artifact does not work"
+            bad=1
+          fi
+          if [ "$bad" -eq 0 ]; then
+            echo "session survived and the artifact was independently verified"
+          fi
+          exit "$bad"
