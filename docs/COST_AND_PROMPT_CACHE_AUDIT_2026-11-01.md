@@ -4,6 +4,22 @@
 
 ---
 
+## 0. First, the unit error: **1 LLM call ≠ 1 turn**
+
+A *turn* is one message from you. A *call* is one trip to the model inside it — the model
+reasons, calls a tool, sees the result, and comes back. That is a second call. One turn is
+**many** calls:
+
+| | turn 1 | turn 2 | turn 3 | turn 4 | turn 5 | total |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LLM calls | 4 | 14 | 33 | 26 | 27 | **104** |
+
+The "20" was never calls-per-session — it was `AGENT_ITERATION_BUDGET=20`, i.e. **20 calls
+per turn**, which my harness wrongly imposed on the agent (production is 45). So the session
+was ~104 calls, not 20.
+
+---
+
 ## 1. It was not 20 calls. It was 104 calls and **2.97M tokens**.
 
 The first turn makes 4 calls. A *mature* turn makes 26–33, and **every call re-sends the
@@ -135,6 +151,32 @@ Only things now enforced by code and a test. Everything else is listed as *not* 
 4. **That compaction preserves the cache.** It provably does not — that is the §3.1 decay, and
    no fix has been written.
 5. **That the 67 full-suite failures are harmless.** They are untriaged.
+
+---
+
+## 5b. What my "healthy" verdict actually covered — and the hole in it
+
+The body checkup had **13 pipelines and zero economics probes**. It passed 54 checks and I
+reported "the agent core does not break". Every word of that was true and it was the wrong
+question: I audited *correctness and stability* and never once measured *cost*. A checkup
+that can call a body healthy while it empties the account is not a checkup.
+
+A **14th pipeline — `14 economics` — now exists** (7 probes, run it keyless with
+`python scripts/agent_core_checkup.py`). It immediately reported three WARNs, i.e. the three
+real cost problems, in a 5-second offline run:
+
+| Economics probe | Finding |
+| :--- | :--- |
+| One tool result is token-bounded | **~3,000 tokens per result** (12,000 chars); 30 calls/turn ≈ **90,000 tokens before any reasoning** |
+| Money is a budget leg | `AGENT_COST_BUDGET` parses but is **off by default** — a session runs until the provider refuses |
+| Cached tokens are visible in the receipt | PASS — so "exhausted" can no longer read as "wasteful" |
+| Spend per **completed** turn is reported | PASS — 2.5M discarded tokens are now named |
+| Explicit prompt-cache breakpoints ON | **OFF** for `custom` routes; the 39–53% hit rate was gateway-implicit only |
+| Compaction consults the cache plan | **Never** — it rewrites the prefix, so the next call re-prefills at full price |
+| Agent's per-turn budget ≥ production | PASS — 45, with a 60-call safety stop |
+
+`test_body_checkup_covers_every_pipeline` now fails if `economics` is removed, so this
+blind spot cannot come back.
 
 ---
 

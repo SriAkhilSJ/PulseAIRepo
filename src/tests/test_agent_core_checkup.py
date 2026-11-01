@@ -168,7 +168,14 @@ def test_body_checkup_covers_every_pipeline():
 
     cu = run_all()
     pipelines = {c.pipeline for c in cu.checks}
-    assert len(pipelines) >= 12, sorted(pipelines)
-    for expect in ("context", "compaction", "model call", "failure recovery", "tools", "loop control", "finalize"):
+    assert len(pipelines) >= 14, sorted(pipelines)
+    for expect in (
+        "context", "compaction", "model call", "failure recovery", "tools",
+        "loop control", "finalize",
+        # Field 2026-11-01: "healthy" was scoped to correctness and never to
+        # cost. The economics pipeline is the correction — a checkup that can
+        # call a body healthy while it burns the account is not a checkup.
+        "economics",
+    ):
         assert any(expect in p for p in pipelines), f"no coverage for {expect}"
-    assert len(cu.checks) >= 45, len(cu.checks)
+    assert len(cu.checks) >= 55, len(cu.checks)

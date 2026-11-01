@@ -928,6 +928,133 @@ def check_hygiene(cu: Checkup) -> None:
         return "ran keyless"
 
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# 14. Economics — what a turn COSTS (added after the wallet ran dry)
+# ══════════════════════════════════════════════════════════════════════════
+def check_economics(cu: Checkup) -> None:
+    """Field 2026-11-01: the first version of this checkup had 13 pipelines and
+    ZERO probes about money. It declared the body healthy while a 7-turn session
+    was burning the account, because "healthy" had silently been scoped to
+    "correct and stable" — not "affordable". Every probe here is offline."""
+    P = "14 economics"
+
+    @cu.probe(
+        P,
+        "one tool result is token-bounded (a turn cannot pay for a file dump)",
+        fix="cap tool result size in tokens, not characters",
+    )
+    def _(_):
+        from src.tools import terminal_tools
+
+        cap = int(os.environ.get("CRUSORAI_TERMINAL_MAX_OUTPUT_CHARS", "12000"))
+        tokens = cap / 4  # ~4 chars/token
+        if cap <= 0:
+            return (FAIL, "no terminal output cap — one command can inject unbounded context")
+        if tokens > 2000:
+            return (
+                WARN,
+                f"{cap:,} chars (~{tokens:,.0f} tokens) per tool result; 30 calls/turn "
+                f"= ~{tokens * 30:,.0f} tokens before any reasoning",
+            )
+        return f"{cap:,} chars (~{tokens:,.0f} tokens) per result"
+
+    @cu.probe(
+        P,
+        "money is a budget leg, not a hope",
+        fix="set AGENT_COST_BUDGET; a token cap cannot bound spend",
+    )
+    def _(_):
+        from src.graphs import budget
+
+        os.environ["AGENT_COST_BUDGET"] = "0.25"
+        try:
+            leg = budget._cost_budget()
+        finally:
+            os.environ.pop("AGENT_COST_BUDGET", None)
+        if leg != 0.25:
+            return (FAIL, f"AGENT_COST_BUDGET=0.25 parsed as {leg!r}")
+        os.environ.pop("AGENT_COST_BUDGET", None)
+        if budget._cost_budget() is not None:
+            return (WARN, "the cost leg is off by default — a session runs until the provider refuses")
+        return "0.25 parses; off by default (explicit opt-in)"
+
+    @cu.probe(P, "cached tokens are visible in the budget receipt")
+    def _(_):
+        from src.graphs import budget
+
+        os.environ["AGENT_TOKEN_BUDGET"] = "20000"
+        try:
+            reason = budget._budget_trip_reason(
+                {"iteration_used": 1, "turn_token_usage": {"total_tokens": 40000, "cached_tokens": 21000}}
+            )
+        finally:
+            os.environ.pop("AGENT_TOKEN_BUDGET", None)
+        if "21,000 cached" not in reason:
+            return (FAIL, f"a receipt hid how much of the spend was cache: {reason}")
+        return "cached share is printed, so 'exhausted' cannot read as 'wasteful'"
+
+    @cu.probe(
+        P,
+        "the harness reports spend per COMPLETED turn",
+        fix="cost per completed turn; total spend rewards cutting work",
+    )
+    def _(_):
+        from scripts.run_long_session import summarize
+
+        out = summarize(
+            [
+                {"turn": 1, "result": "turn_done", "completed": True, "tokens_in_telemetry": 100},
+                {"turn": 2, "result": "turn_done", "completed": False, "tokens_in_telemetry": 900},
+            ],
+            2,
+        )
+        if out.get("tokens_spent_on_cut_turns") != 900:
+            return (FAIL, f"waste not separated: {out.get('tokens_spent_on_cut_turns')}")
+        if out.get("tokens_per_completed_turn") != 1000.0:
+            return (FAIL, f"per-completed-turn not reported: {out.get('tokens_per_completed_turn')}")
+        return "total 1,000 on 900 discarded by 1 completed turn"
+
+    @cu.probe(
+        P,
+        "explicit prompt-cache breakpoints are ON for the configured route",
+        fix="set CRUSORAI_PROMPT_CACHE=1 and CRUSORAI_PROMPT_CACHE_CUSTOM=1 for a custom route, "
+        "or accept that only implicit gateway caching applies",
+    )
+    def _(_):
+        from src.context import prompt_cache_plan as pcp
+
+        enabled = pcp._cache_enabled("custom", "z-ai/glm-5.3-flash")
+        if not enabled:
+            return (
+                WARN,
+                "explicit cache breakpoints OFF for provider 'custom' — the 39-53% hit rate "
+                "measured live came only from the gateway's implicit cache",
+            )
+        return "explicit breakpoints enabled for custom routes"
+
+    @cu.probe(P, "a compaction invalidates the prompt cache (measurable, and unmitigated)")
+    def _(_):
+        src = (ROOT / "src/context/compaction.py").read_text()
+        marks = sum(src.count(k) for k in ("cache_control", "stable_prefix", "prompt_cache_plan"))
+        if marks == 0:
+            return (
+                WARN,
+                "compaction does not consult the cache plan at all: summarising history rewrites "
+                "the prefix, so the next call re-prefills the whole prompt at full price",
+            )
+        return f"{marks} cache-aware reference(s) inside compaction"
+
+    @cu.probe(P, "the agent's per-turn call budget is not below production")
+    def _(_):
+        from scripts.run_long_session import _build_parser
+
+        args = _build_parser().parse_args(["--workspace", "w", "--prompts-file", "p"])
+        if args.agent_iteration_budget < 45:
+            return (FAIL, f"harness gives the agent {args.agent_iteration_budget} calls, production is 45")
+        return f"harness {args.agent_iteration_budget}, safety stop {args.max_llm_calls}"
+
+
 # ══════════════════════════════════════════════════════════════════════════
 def run_all() -> Checkup:
     cu = Checkup()
@@ -945,6 +1072,7 @@ def run_all() -> Checkup:
         check_persistence,
         check_finalize,
         check_hygiene,
+        check_economics,
     ):
         try:
             section(cu)
