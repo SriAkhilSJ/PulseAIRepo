@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ShopFlow — Everything, delivered</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#" onclick="App.goHome();return false;">
+    <span class="brand-mark">S</span> ShopFlow
+  </a>
+  <form class="searchbar" onsubmit="App.search(event)">
+    <select id="catSelect" aria-label="Category"></select>
+    <input id="searchInput" type="search" placeholder="Search products, brands and categories" aria-label="Search" />
+    <button type="submit" aria-label="Search">🔍</button>
+  </form>
+  <div class="topbar-actions">
+    <button class="ghost-btn" onclick="App.openOrders()" id="ordersBtn">Orders</button>
+    <button class="ghost-btn" onclick="App.openAdmin()">Admin</button>
+    <button class="cart-btn" onclick="App.openCart()">
+      🛒 <span id="cartCount" class="cart-badge">0</span>
+    </button>
+  </div>
+</header>
+
+<nav class="catnav" id="catNav"></nav>
+
+<main id="view" class="view"></main>
+
+<!-- Cart drawer -->
+<div id="cartDrawer" class="drawer" aria-hidden="true">
+  <div class="drawer-panel">
+    <div class="drawer-head"><h2>Your Cart</h2><button onclick="App.closeCart()" aria-label="Close">✕</button></div>
+    <div id="cartBody" class="drawer-body"></div>
+    <div id="cartFoot" class="drawer-foot"></div>
+  </div>
+</div>
+
+<!-- Product / checkout / admin modal host -->
+<div id="modal" class="modal" aria-hidden="true">
+  <div class="modal-panel" id="modalPanel"></div>
+</div>
+
+<div id="toast" class="toast" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

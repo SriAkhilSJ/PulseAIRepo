@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShopWave — Shop Anything, Shipped Anywhere</title>
+<style>
+  :root{
+    --nav:#131921; --nav2:#232f3e; --accent:#febd69; --accent2:#f3a847;
+    --orange:#e47911; --green:#007600; --red:#b12704; --link:#007185;
+    --bg:#eaeded; --card:#fff; --line:#ddd; --muted:#565959;
+    --radius:8px; --shadow:0 2px 6px rgba(0,0,0,.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:#0f1111;font-size:14px;line-height:1.45}
+  a{color:var(--link);text-decoration:none}
+  a:hover{color:var(--orange);text-decoration:underline}
+  button{cursor:pointer;font-family:inherit}
+  input,select{font-family:inherit;font-size:14px;padding:7px 9px;border:1px solid #888;border-radius:4px;background:#fff;width:100%}
+  input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent2)}
+
+  /* ---------- top nav ---------- */
+  .navbar{background:var(--nav);color:#fff;display:flex;align-items:center;gap:8px;padding:8px 14px;position:sticky;top:0;z-index:50}
+  .navbar .logo{font-size:22px;font-weight:700;letter-spacing:-1px;color:#fff;padding:6px 8px;border:1px solid transparent;border-radius:2px;cursor:pointer;white-space:nowrap}
+  .navbar .logo span{color:var(--accent)}
+  .navbar .logo:hover,.navbar>button:hover{border-color:#fff}
+  .searchbar{flex:1;display:flex;min-width:120px}
+  .searchbar select{width:110px;border-radius:4px 0 0 4px;border-right:0;background:#f3f3f3;border-color:#cdcdcd}
+  .searchbar input{border-radius:0}
+  .searchbar button{background:var(--accent);border:none;border-radius:0 4px 4px 0;padding:0 14px;font-size:17px}
+  .navbar>button{background:none;border:1px solid transparent;color:#fff;padding:8px 9px;border-radius:2px;text-align:left;white-space:nowrap}
+  .navbar .hello{line-height:1.2}
+  .navbar .hello small{display:block;color:#ddd;font-size:11px}
+  .navbar .hello b{font-size:13px}
+  .cartbtn{font-weight:700;display:flex;align-items:center;gap:5px}
+  .cartbtn .badge{background:var(--accent);color:#131921;border-radius:50%;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;padding:0 3px}
+  .subnav{background:var(--nav2);color:#fff;display:flex;gap:0;padding:0 10px;overflow-x:auto}
+  .subnav button{background:none;border:none;color:#fff;padding:8px 10px;font-size:13.5px;white-space:nowrap}
+  .subnav button:hover{outline:1px solid #fff}
+  .subnav .promo{color:var(--accent);font-weight:700}
+
+  /* ---------- layout ---------- */
+  .wrap{max-width:1500px;margin:0 auto;padding:0 14px}
+  .page{display:none;padding-bottom:40px}
+  .page.active{display:block}
+  .banner{background:linear-gradient(90deg,#232f3e,#37475a);color:#fff;padding:26px 22px;margin:12px 0;border-radius:var(--radius)}
+  .banner h1{font-size:26px;margin-bottom:4px}
+  .banner p{color:#cfd8e3;max-width:640px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin:14px 0}
+  .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px}
+  .cols{display:grid;grid-template-columns:250px 1fr;gap:14px;align-items:start;margin-top:12px}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+
+  /* ---------- filters ---------- */
+  .filters h3{margin:10px 0 6px;font-size:15px}
+  .filters label{display:flex;gap:6px;align-items:center;margin:4px 0;font-size:13.5px}
+  .filters .minmax{display:flex;gap:8px;align-items:center}
+  .filters .minmax input{width:80px}
+  .clearbtn{margin-top:10px;width:100%;background:#fff;border:1px solid #ccc;border-radius:8px;padding:7px;box-shadow:var(--shadow)}
+  .clearbtn:hover{background:#f7fafa}
+
+  /* ---------- product grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:14px;margin-top:12px}
+  .prod{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:6px}
+  .prod .img{background:#f7f7f7;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:56px;height:150px;cursor:pointer}
+  .prod .img:hover{transform:scale(1.02)}
+  .prod h4{font-size:14.5px;font-weight:400;line-height:1.3;cursor:pointer;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .prod h4:hover{color:var(--orange)}
+  .prod .cat{color:var(--muted);font-size:12px}
+  .prod .price{font-size:20px;font-weight:500}
+  .prod .price small{font-size:12px;color:var(--muted);vertical-align:top}
+  .prod .rating{color:var(--orange);font-size:13px}
+  .prod .rating span{color:var(--link);margin-left:4px}
+  .prod .stock{font-size:12px;color:var(--green)}
+  .prod .stock.low{color:var(--red);font-weight:700}
+  .prod .stock.out{color:var(--red)}
+  .prod .addbtn{margin-top:auto;background:var(--accent);border:1px solid var(--accent2);border-radius:20px;padding:7px;font-weight:700;font-size:13px}
+  .prod .addbtn:hover{background:var(--accent2)}
+  .prod .addbtn:disabled{background:#e7e9ec;color:#a1a1a1;cursor:not-allowed}
+
+  /* ---------- product detail ---------- */
+  .detail{display:grid;grid-template-columns:minmax(260px,420px) 1fr 280px;gap:20px;background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin-top:12px}
+  @media(max-width:1000px){.detail{grid-template-columns:1fr}}
+  .detail .big{background:#f7f7f7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:150px;min-height:320px}
+  .detail h2{font-size:24px;font-weight:400;line-height:1.3}
+  .detail .by{color:var(--link);font-size:13px;margin:2px 0 8px}
+  .detail .divider{border-top:1px solid #e7e7e7;margin:12px 0}
+  .detail .price{font-size:28px}
+  .detail .price small{font-size:13px;color:var(--muted)}
+  .buybox{border:1px solid #ddd;border-radius:8px;padding:14px;box-shadow:var(--shadow)}
+  .buybox .price{font-size:26px;margin-bottom:8px}
+  .buybox .in{color:var(--green);font-size:15px;font-weight:700}
+  .buybox select{margin:8px 0}
+  .buybox button{width:100%;border-radius:20px;padding:8px;margin-top:6px;font-weight:700}
+  .buybox .add{background:var(--accent);border:1px solid var(--accent2)}
+  .buybox .buy{background:var(--accent2);border:1px solid #c47a1d}
+  .buybox small{color:var(--muted);display:block;margin-top:6px;text-align:center}
+
+  /* ---------- cart / orders / tables ---------- */
+  .cartgrid{display:grid;grid-template-columns:1fr 300px;gap:14px;margin-top:12px;align-items:start}
+  @media(max-width:900px){.cartgrid{grid-template-columns:1fr}}
+  .cartline{display:grid;grid-template-columns:72px 1fr auto;gap:12px;padding:14px 0;border-bottom:1px solid #e7e7e7;align-items:center}
+  .cartline .thumb{width:72px;height:72px;background:#f7f7f7;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:34px}
+  .cartline .qty{display:flex;align-items:center;gap:6px;margin-top:6px}
+  .cartline .qty button{width:26px;height:26px;border-radius:50%;border:1px solid #ccc;background:#fff;box-shadow:var(--shadow)}
+  .cartline .qty button:hover{background:#f0f2f2}
+  .cartline .remove{color:var(--link);background:none;border:none;padding:0;font-size:13px}
+  .cartline .remove:hover{color:var(--orange);text-decoration:underline}
+  .cartline .lineprice{font-weight:700;font-size:17px}
+  .subtotal{font-size:18px}
+  .subtotal b{color:#b12704}
+  .checkoutbtn,.placebtn{width:100%;background:var(--accent);border:1px solid var(--accent2);border-radius:20px;padding:8px;font-weight:700;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{background:#f0f2f2;text-align:left;padding:8px 10px;border-bottom:2px solid #ddd;font-size:12.5px;text-transform:uppercase;color:#565959}
+  td{padding:9px 10px;border-bottom:1px solid #eee;vertical-align:top}
+  tr:hover td{background:#f8fafb}
+  .pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700}
+  .pill.paid{background:#def0e2;color:#067d62}
+  .pill.pending{background:#fdf3d8;color:#9a6b00}
+  .pill.cancelled{background:#fde3e3;color:#c40000}
+  .pill.delivered{background:#def0e2;color:#067d62}
+  .pill.shipped{background:#e0ecfa;color:#0a5aa5}
+
+  /* ---------- forms / auth ---------- */
+  .auth{max-width:360px;margin:24px auto;background:#fff;border:1px solid #ddd;border-radius:8px;padding:20px}
+  .auth h2{font-size:22px;font-weight:400;margin-bottom:12px}
+  .auth label{display:block;font-weight:700;font-size:13px;margin:10px 0 3px}
+  .auth button{width:100%;background:var(--accent);border:1px solid var(--accent2);border-radius:20px;padding:8px;font-weight:700;margin-top:14px}
+  .auth p{font-size:13px;margin-top:12px}
+  .field{margin-bottom:2px}
+  .field label{display:block;font-weight:700;font-size:13px;margin:10px 0 3px}
+  .err{color:var(--red);font-weight:700;font-size:13px;margin-top:8px;min-height:18px}
+  .ok{color:var(--green);font-weight:700;font-size:13px;margin-top:8px;min-height:18px}
+
+  /* ---------- admin ---------- */
+  .admin{display:grid;grid-template-columns:200px 1fr;gap:14px;margin-top:12px;align-items:start}
+  @media(max-width:800px){.admin{grid-template-columns:1fr}}
+  .admin nav{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:8px}
+  .admin nav button{display:block;width:100%;text-align:left;background:none;border:none;padding:9px 12px;border-radius:6px;font-size:14px}
+  .admin nav button:hover{background:#f0f2f2}
+  .admin nav button.active{background:#e7e9ec;font-weight:700}
+  .statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+  .stat{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:14px}
+  .stat .k{color:var(--muted);font-size:12.5px}
+  .stat .v{font-size:22px;font-weight:700;margin-top:2px}
+  .inline-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;align-items:end}
+  .inline-form label{font-size:12px;font-weight:700;display:block;margin-bottom:3px}
+  .inline-form button{background:var(--accent);border:1px solid var(--accent2);border-radius:8px;padding:8px;font-weight:700}
+  .mini{background:#fff;border:1px solid #ccc;border-radius:6px;padding:4px 10px;font-size:12.5px;box-shadow:var(--shadow)}
+  .mini:hover{background:#f0f2f2}
+  .mini.danger{color:var(--red);border-color:#d5a7a7}
+  .mini.danger:hover{background:#fde3e3}
+
+  /* ---------- modal & toasts ---------- */
+  .modal-back{position:fixed;inset:0;background:rgba(15,17,17,.55);display:none;align-items:flex-start;justify-content:center;z-index:100;padding:40px 16px;overflow:auto}
+  .modal-back.open{display:flex}
+  .modal{background:#fff;border-radius:10px;max-width:560px;width:100%;padding:22px;position:relative}
+  .modal h2{font-size:22px;font-weight:400;margin-bottom:12px}
+  .modal .close{position:absolute;top:10px;right:12px;background:none;border:none;font-size:22px;color:#565959}
+  .modal .close:hover{color:#0f1111}
+  .toast-zone{position:fixed;bottom:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:8px}
+  .toast{background:#232f3e;color:#fff;border-radius:8px;padding:10px 16px;box-shadow:0 4px 14px rgba(0,0,0,.3);font-size:13.5px;animation:pop .18s ease-out}
+  .toast.err{background:#7d1a13}
+  @keyframes pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
+  .muted{color:var(--muted)} .mb{margin-bottom:12px} .mt{margin-top:12px}
+  .right{text-align:right}
+  .wide{width:100%}
+</style>
+</head>
+<body>
+  <!-- ================= TOP NAV ================= -->
+  <div class="navbar">
+    <div class="logo" onclick="go('home')">shop<span>wave</span></div>
+    <div class="searchbar">
+      <select id="search-cat"><option value="">All</option></select>
+      <input id="search-box" placeholder="Search ShopWave" onkeydown="if(event.key==='Enter')doSearch()">
+      <button onclick="doSearch()">🔍</button>
+    </div>
+    <button class="hello" onclick="go('home')">✓<small></small><b></b></button>
+    <button onclick="go('orders')"><small>Returns</small><b>& Orders</b></button>
+    <button class="cartbtn" onclick="go('cart')">🛒 Cart <span class="badge" id="cart-badge">0</span></button>
+  </div>
+  <div class="subnav">
+    <button class="promo" onclick="go('home')">All</button>
+    <button onclick="go('home')">Today's Deals</button>
+    <button onclick="go('home')">Customer Service</button>
+    <button onclick="go('home')">Registry</button
+    <button onclick="go('home')">Gift Cards</button>
+    <button onclick="go('home')">Sell</button>
+    <button onclick="adminGuard()" id="admin-link" hidden>Admin Hub</button>
+  </div>
+
+  <div class="wrap">
+    <!-- ================= HOME / CATALOG ================= -->
+    <div class="page active" id="page-home">
+      <div class="banner">
+        <h1>Shop anything. Shipped anywhere.</h1>
+        <p>Millions of products, one storefront. Free shipping on orders over $35.</p>
+      </div>
+      <div class="cols">
+        <aside class="card filters">
+          <h3>Category</h3><div id="f-cats"></div>
+          <h3>Price</h3>
+          <div class="minmax"><input id="f-min" placeholder="Min $" type="number" min="0"><span>–</span><input id="f-max" placeholder="Max $" type="number" min="0"></div>
+          <h3>Min rating</h3><div id="f-ratings"></div>
+          <h3>In stock</h3><label><input type="checkbox" id="f-stock" style="width:auto"> Only in-stock items</label>
+          <button class="clearbtn" onclick="clearFilters()">Clear all filters</button>
+        </aside>
+        <section>
+          <div id="result-head" class="muted mb"></div>
+          <div class="grid" id="grid"></div>
+          <div id="empty" class="card mt" hidden><b>No results.</b> Try adjusting filters or search terms.</div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ================= CART PAGE ================= -->
+    <div class="page" id="page-cart">
+      <div class="cols">
+        <div class="col-main">
+          <div class="card">
+            <h1>Shopping Cart</h1>
+            <div id="cart-items"></div>
+            <div id="cart-empty" class="muted" hidden>Your cart is empty. <a href="#" onclick="go('home');return false">Continue shopping</a></div>
+          </div>
+        </div>
+        <div class="col-side">
+          <div class="card summary">
+            <div id="cart-subtotal" class="subtotal">Subtotal (0 items): $0.00</div>
+            <button class="btn-yellow" onclick="go('checkout')">Proceed to checkout</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="authcard card">
+        <h2 id="auth-title">Sign in</h2>
+        <div class="cfield"><label>Email</label><input id="auth-email" type="email" placeholder="you@example.com"></div>
+        <div class="cfield"><label>Password</label><input id="auth-pass" type="password" placeholder="••••••••"></div>
+        <div id="auth-err" class="err" hidden></div>
+        <button id="auth-btn" class="btn-yellow" onclick="submitAuth()">Sign in</button>
+        <hr>
+        <p class="muted" id="auth-switch-line">New to ShopWave? <a href="#" onclick="toggleAuthMode();return false">Create an account</a></p>
+        <div class="demo-creds">
+          <b>Demo accounts</b><br>
+          Customer: demo@shopwave.dev / demo1234<br>
+          Admin: admin@shopwave.dev / Admin123!
+        </div>
+      </div>
+    </div>
+</body>
+</html>

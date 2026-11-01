@@ -1,0 +1,474 @@
+{
+  "model": "deepseek/deepseek-v4.1-flash",
+  "run_id": "bench_deepseek_ecommerce_unlimited",
+  "task": "benchmark_ecommerce_prompt.txt",
+  "workspace": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek",
+  "exit_code": 1,
+  "duration_s": 251.53,
+  "outcome": {
+    "run_id": "bench_deepseek_ecommerce_unlimited",
+    "session_id": "t5-24b5327f0b",
+    "workspace": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek",
+    "agent_iteration_budget": 100,
+    "result": "turn_done",
+    "completed": false,
+    "status_contract": {
+      "run_outcome": "budget_exhausted",
+      "failure_reason": "budget_exhausted",
+      "verification_status": "failed",
+      "specification_status": "unknown",
+      "diagnostics": []
+    },
+    "run_outcome": "budget_exhausted",
+    "failure_reason": null,
+    "verification_status": "failed",
+    "error": null,
+    "reasoning_effort_requested": null,
+    "frame_counts": {
+      "hello": 1,
+      "session_info": 1,
+      "workspace.bound": 2,
+      "turn_started": 1,
+      "llm.request": 47,
+      "reasoning": 1073,
+      "tool_call_args": 98,
+      "llm.response": 47,
+      "token": 196,
+      "tool_call_start": 49,
+      "verification_updated": 7,
+      "tool_call_end": 51,
+      "tool_output": 336,
+      "telemetry": 1,
+      "turn_done": 1
+    },
+    "llm_request_frames": 47,
+    "tokens_in_last_telemetry": 2026180,
+    "token_budget": 2500000,
+    "token_budget_source": "--max-input-tokens",
+    "budget_stop": false,
+    "no_delivery_stop": false,
+    "operator_cancelled": false,
+    "safety_requests": 0,
+    "safety_approved": 0,
+    "safety_denied": 0,
+    "outcome_schema_version": 2,
+    "request_receipts": [
+      {
+        "sequence": 1,
+        "status": "succeeded",
+        "duration_ms": 17513
+      },
+      {
+        "sequence": 2,
+        "status": "succeeded",
+        "duration_ms": 7459
+      },
+      {
+        "sequence": 3,
+        "status": "succeeded",
+        "duration_ms": 1623
+      },
+      {
+        "sequence": 4,
+        "status": "succeeded",
+        "duration_ms": 1986
+      },
+      {
+        "sequence": 5,
+        "status": "succeeded",
+        "duration_ms": 1569
+      },
+      {
+        "sequence": 6,
+        "status": "succeeded",
+        "duration_ms": 1528
+      },
+      {
+        "sequence": 7,
+        "status": "succeeded",
+        "duration_ms": 1284
+      },
+      {
+        "sequence": 8,
+        "status": "succeeded",
+        "duration_ms": 3459
+      },
+      {
+        "sequence": 9,
+        "status": "succeeded",
+        "duration_ms": 6631
+      },
+      {
+        "sequence": 10,
+        "status": "succeeded",
+        "duration_ms": 1978
+      },
+      {
+        "sequence": 11,
+        "status": "succeeded",
+        "duration_ms": 1546
+      },
+      {
+        "sequence": 12,
+        "status": "succeeded",
+        "duration_ms": 18667
+      },
+      {
+        "sequence": 13,
+        "status": "succeeded",
+        "duration_ms": 1754
+      },
+      {
+        "sequence": 14,
+        "status": "succeeded",
+        "duration_ms": 1315
+      },
+      {
+        "sequence": 15,
+        "status": "succeeded",
+        "duration_ms": 1271
+      },
+      {
+        "sequence": 16,
+        "status": "succeeded",
+        "duration_ms": 1624
+      },
+      {
+        "sequence": 32,
+        "status": "succeeded",
+        "duration_ms": 2174
+      },
+      {
+        "sequence": 33,
+        "status": "succeeded",
+        "duration_ms": 2101
+      },
+      {
+        "sequence": 34,
+        "status": "succeeded",
+        "duration_ms": 1586
+      },
+      {
+        "sequence": 35,
+        "status": "succeeded",
+        "duration_ms": 1296
+      },
+      {
+        "sequence": 36,
+        "status": "succeeded",
+        "duration_ms": 1815
+      },
+      {
+        "sequence": 37,
+        "status": "succeeded",
+        "duration_ms": 1792
+      },
+      {
+        "sequence": 38,
+        "status": "succeeded",
+        "duration_ms": 1856
+      },
+      {
+        "sequence": 39,
+        "status": "succeeded",
+        "duration_ms": 2269
+      },
+      {
+        "sequence": 40,
+        "status": "succeeded",
+        "duration_ms": 1681
+      },
+      {
+        "sequence": 41,
+        "status": "succeeded",
+        "duration_ms": 1973
+      },
+      {
+        "sequence": 42,
+        "status": "succeeded",
+        "duration_ms": 16622
+      },
+      {
+        "sequence": 43,
+        "status": "succeeded",
+        "duration_ms": 1581
+      },
+      {
+        "sequence": 44,
+        "status": "succeeded",
+        "duration_ms": 2677
+      },
+      {
+        "sequence": 45,
+        "status": "succeeded",
+        "duration_ms": 2555
+      },
+      {
+        "sequence": 46,
+        "status": "succeeded",
+        "duration_ms": 2244
+      },
+      {
+        "sequence": 47,
+        "status": "succeeded",
+        "duration_ms": 4539
+      }
+    ],
+    "request_receipts_omitted": 15,
+    "request_outcome_counts": {
+      "succeeded": 47
+    },
+    "tool_outcomes": [
+      {
+        "sequence": 1,
+        "tool": "write_file",
+        "status": "succeeded",
+        "duration_ms": 745,
+        "result_summary": "File written: C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\requirements.txt (lines added: 1, removed: 0) Diff preview: +Flask==3.0.3"
+      },
+      {
+        "sequence": 2,
+        "tool": "write_file",
+        "status": "succeeded",
+        "duration_ms": 1895,
+        "result_summary": "File written: C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\db.py (lines added: 135, removed: 0) Diff preview: +\"\"\"Database layer: schema creation, connection helper, and seed catalogue.\"\"\" +import "
+      },
+      {
+        "sequence": 3,
+        "tool": "write_file",
+        "status": "succeeded",
+        "duration_ms": 1482,
+        "result_summary": "File written: C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\server.py (lines added: 395, removed: 0) Diff preview: +\"\"\"ShopFlow \u2014 a full-stack ecommerce server (Amazon-style). + +Exposes a JSON REST"
+      },
+      {
+        "sequence": 4,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 23,
+        "result_summary": "result received (7861 chars; content omitted)"
+      },
+      {
+        "sequence": 5,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 17,
+        "result_summary": "result received (147 chars; content omitted)"
+      },
+      {
+        "sequence": 6,
+        "tool": "search_files",
+        "status": "succeeded",
+        "duration_ms": 15,
+        "result_summary": "result received (827 chars; content omitted)"
+      },
+      {
+        "sequence": 7,
+        "tool": "search_files",
+        "status": "succeeded",
+        "duration_ms": 18,
+        "result_summary": "result received (138 chars; content omitted)"
+      },
+      {
+        "sequence": 8,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 13,
+        "result_summary": "result received (147 chars; content omitted)"
+      },
+      {
+        "sequence": 9,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 14,
+        "result_summary": "result received (505 chars; content omitted)"
+      },
+      {
+        "sequence": 10,
+        "tool": "write_file",
+        "status": "succeeded",
+        "duration_ms": 615,
+        "result_summary": "File written: C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\frontend\\index.html (lines added: 50, removed: 0) Diff preview: +<!DOCTYPE html> +<html lang=\"en\"> +<head> +<meta charset=\"UTF-8\" /> +<met"
+      },
+      {
+        "sequence": 11,
+        "tool": "write_file",
+        "status": "succeeded",
+        "duration_ms": 636,
+        "result_summary": "File written: C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\frontend\\styles.css (lines added: 117, removed: 0) Diff preview: +:root{ + --bg:#eaeded; --panel:#fff; --ink:#111; --muted:#565959; --line"
+      },
+      {
+        "sequence": 12,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 16,
+        "result_summary": "result received (1702 chars; content omitted)"
+      },
+      {
+        "sequence": 13,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 31,
+        "result_summary": "result received (13546 chars; content omitted)"
+      },
+      {
+        "sequence": 14,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 13,
+        "result_summary": "result received (151 chars; content omitted)"
+      },
+      {
+        "sequence": 15,
+        "tool": "read_file",
+        "status": "failed",
+        "duration_ms": 10,
+        "result_summary": "le` was not executed. \ud83c\udf00 **Doom loop:** the same call has repeated 3 times with identical input. Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue \u2014 do not wait for approval."
+      },
+      {
+        "sequence": 16,
+        "tool": "read_file",
+        "status": "failed",
+        "duration_ms": 0,
+        "result_summary": "le` was not executed. \ud83c\udf00 **Doom loop:** the same call has repeated 3 times with identical input. Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue \u2014 do not wait for approval."
+      },
+      {
+        "sequence": 36,
+        "tool": "browser_console",
+        "status": "succeeded",
+        "duration_ms": 117,
+        "result_summary": "result received (89 chars; content omitted)"
+      },
+      {
+        "sequence": 37,
+        "tool": "browser_console",
+        "status": "succeeded",
+        "duration_ms": 168,
+        "result_summary": "result received (85 chars; content omitted)"
+      },
+      {
+        "sequence": 38,
+        "tool": "browser_console",
+        "status": "succeeded",
+        "duration_ms": 126,
+        "result_summary": "result received (60 chars; content omitted)"
+      },
+      {
+        "sequence": 39,
+        "tool": "browser_console",
+        "status": "succeeded",
+        "duration_ms": 92,
+        "result_summary": "result received (215 chars; content omitted)"
+      },
+      {
+        "sequence": 40,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 20,
+        "result_summary": "result received (151 chars; content omitted)"
+      },
+      {
+        "sequence": 41,
+        "tool": "search_files",
+        "status": "succeeded",
+        "duration_ms": 20,
+        "result_summary": "result received (317 chars; content omitted)"
+      },
+      {
+        "sequence": 42,
+        "tool": "search_files",
+        "status": "succeeded",
+        "duration_ms": 23,
+        "result_summary": "result received (54 chars; content omitted)"
+      },
+      {
+        "sequence": 43,
+        "tool": "terminal",
+        "status": "succeeded",
+        "duration_ms": 843,
+        "result_summary": "return jsonify({\"error\": \"name, email and address are required\"}), 400 return jsonify({\"error\": \"cart is empty\"}), 400 return jsonify({\"error\": f\"insufficient stock for {item['title']}\"}), 409 Exit code: 0"
+      },
+      {
+        "sequence": 44,
+        "tool": "terminal",
+        "status": "succeeded",
+        "duration_ms": 848,
+        "result_summary": "return jsonify({\"error\": \"name, email and address are required\"}), 400 return jsonify({\"error\": \"cart is empty\"}), 400 Exit code: 0"
+      },
+      {
+        "sequence": 45,
+        "tool": "edit_file",
+        "status": "succeeded",
+        "duration_ms": 1297,
+        "result_summary": "\u2705 Edited C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\showcase\\agent_ecommerce_deepseek\\frontend\\app.js (lines added: 1, removed: 1) Diff preview: <p style=\"color:#565959\">${this.state.cart.count} item(s) \u00b7 Total <b>${money(this.st"
+      },
+      {
+        "sequence": 46,
+        "tool": "search_files",
+        "status": "succeeded",
+        "duration_ms": 16,
+        "result_summary": "result received (574 chars; content omitted)"
+      },
+      {
+        "sequence": 47,
+        "tool": "read_file",
+        "status": "succeeded",
+        "duration_ms": 117,
+        "result_summary": "result received (21135 chars; content omitted)"
+      },
+      {
+        "sequence": 48,
+        "tool": "terminal",
+        "status": "succeeded",
+        "duration_ms": 682,
+        "result_summary": "<div style=\"font-size:52px\">\u2705</div> Exit code: 0"
+      },
+      {
+        "sequence": 49,
+        "tool": "browser_navigate",
+        "status": "succeeded",
+        "duration_ms": 1381,
+        "result_summary": "result received (7819 chars; content omitted)"
+      },
+      {
+        "sequence": 50,
+        "tool": "browser_console",
+        "status": "succeeded",
+        "duration_ms": 155,
+        "result_summary": "result received (60 chars; content omitted)"
+      },
+      {
+        "sequence": 51,
+        "tool": "build_target",
+        "status": "succeeded",
+        "duration_ms": 16880,
+        "result_summary": "\u2705 TARGET VERIFICATION PASSED (web)"
+      }
+    ],
+    "tool_outcomes_omitted": 19,
+    "tool_outcome_counts": {
+      "succeeded": 46,
+      "failed": 5
+    },
+    "timing_ms": {
+      "run_elapsed_ms": 251135,
+      "requests": {
+        "count": 47,
+        "total_ms": 164044,
+        "min_ms": 1271,
+        "p50_ms": 1927,
+        "p95_ms": 16622,
+        "max_ms": 18667
+      },
+      "tools": {
+        "count": 51,
+        "total_ms": 41150,
+        "min_ms": 0,
+        "p50_ms": 117,
+        "p95_ms": 3167,
+        "max_ms": 16880
+      }
+    },
+    "receipt_privacy": "tool arguments, prompts, commands, file bodies, and full results omitted"
+  },
+  "showcase_backup": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\bench_deepseek_ecommerce_unlimited_showcase"
+}
