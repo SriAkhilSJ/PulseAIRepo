@@ -175,7 +175,9 @@ def _token_budget() -> int | None:
 # and the governor could not see it — `estimated_cost_usd` was already carried
 # on every TokenUsage, so the cap was one comparison away the whole time.
 # AGENT_COST_BUDGET=0 disables the leg (opt-out, matching AGENT_TOKEN_BUDGET).
-_COST_BUDGET_DEFAULT_USD = 0.0
+# Default $1.00 so COST is the binding leg, not iteration count. Measured
+# runs burned $0.45 on 5 prompts with 84% discarded — cost budget stops that.
+_COST_BUDGET_DEFAULT_USD = 1.00
 
 
 def _cost_budget() -> float | None:

@@ -798,6 +798,68 @@ class HistoryCompactor:
         else:
             self.stats["ineffective_streak"] = 0
 
+    # -------------------------------------------------------------- graded levels
+    def _clip_tool_outputs(
+        self, messages: list[BaseMessage], head_chars: int = 1_500, tail_chars: int = 1_500
+    ) -> list[BaseMessage]:
+        """Clip each ToolMessage output to head + tail in place.
+
+        Masks instead of rewriting: the message stays at the same index,
+        so the prompt prefix is byte-stable across compactions.  Cache hit
+        rate stays high because the head of every output is preserved."""
+        result: list[BaseMessage] = []
+        clipped = 0
+        for msg in messages:
+            if not isinstance(msg, ToolMessage):
+                result.append(msg)
+                continue
+            text = _text_of(msg)
+            if not isinstance(text, str) or len(text) <= head_chars + tail_chars + 200:
+                result.append(msg)
+                continue
+            head = text[:head_chars]
+            tail = text[-tail_chars:]
+            clipped_text = (
+                head
+                + f"\n...[{len(text) - head_chars - tail_chars:,} chars masked]...\n"
+                + tail
+            )
+            copier = getattr(msg, "model_copy", None)
+            if callable(copier):
+                result.append(copier(update={"content": clipped_text}))
+            else:
+                result.append(msg.copy(update={"content": clipped_text}))
+            clipped += 1
+        if clipped:
+            self.stats["clipped_outputs"] = self.stats.get("clipped_outputs", 0) + clipped
+        return result
+
+    def _drop_old_tool_outputs(
+        self, messages: list[BaseMessage], keep_recent: int = 6
+    ) -> list[BaseMessage]:
+        """Drop old ToolMessage outputs in the unprotected middle.
+
+        Keeps only the most recent ``keep_recent`` tool rounds verbatim;
+        older ones are replaced with a short placeholder in place.  The
+        message stays at the same index — no prefix rewrite."""
+        tool_indices = [i for i, m in enumerate(messages) if isinstance(m, ToolMessage)]
+        keep = set(tool_indices[-keep_recent:])
+        result: list[BaseMessage] = []
+        dropped = 0
+        for i, msg in enumerate(messages):
+            if isinstance(msg, ToolMessage) and i not in keep:
+                copier = getattr(msg, "model_copy", None)
+                if callable(copier):
+                    result.append(copier(update={"content": _PRUNED_TOOL_PLACEHOLDER}))
+                else:
+                    result.append(msg.copy(update={"content": _PRUNED_TOOL_PLACEHOLDER}))
+                dropped += 1
+            else:
+                result.append(msg)
+        if dropped:
+            self.stats["dropped_old_tools"] = self.stats.get("dropped_old_tools", 0) + dropped
+        return result
+
     # -------------------------------------------------------------- driver
     def compact(
         self,
@@ -807,9 +869,13 @@ class HistoryCompactor:
         structural_compress: Callable[[list[BaseMessage], int], list[BaseMessage]],
         fallback_trim: Callable[[list[BaseMessage], int], list[BaseMessage]],
     ) -> list[BaseMessage]:
-        """The full pipeline: prune -> per-tool summaries -> structural
-        (only if still over) -> summary injection for whatever dropped.
+        """The full pipeline: prune -> per-tool summaries -> GRADED LEVELS
+        (clip -> drop old tools) -> structural (only if still over) ->
+        summary injection for whatever dropped.
 
+        Graded levels mask instead of rewriting: individual tool outputs
+        are clipped or dropped in place at the same index, so the prompt
+        prefix stays byte-stable and cache hit rate improves.
         Head and tail are never handed to the structural stage at all —
         protection is absolute (their pattern #2), not scoring luck."""
         if not history:
@@ -833,17 +899,30 @@ class HistoryCompactor:
         summarized = pruned
         if count_tokens(summarized, self._model) <= budget:
             return self._with_summary(summarized)
-        head_n = self._head_len(summarized)
-        tail_i = self._tail_start(summarized, head_n)
+
+        # GRADED LEVEL 1: clip tool outputs to head + tail (mask, no rewrite)
+        clipped = self._clip_tool_outputs(summarized)
+        if count_tokens(clipped, self._model) <= budget:
+            return self._with_summary(clipped)
+
+        # GRADED LEVEL 2: drop old tool outputs, keep recent 6 verbatim
+        dropped = self._drop_old_tool_outputs(clipped, keep_recent=6)
+        if count_tokens(dropped, self._model) <= budget:
+            return self._with_summary(dropped)
+
+        # GRADED LEVEL 3: structural compaction — drop middle turns + summary.
+        # LAST RESORT: this rewrites the prefix, cache hit decays.
+        head_n = self._head_len(dropped)
+        tail_i = self._tail_start(dropped, head_n)
         if os.environ.get("CRUSORAI_LEAN_TAIL", "").strip().lower() != "off":
-            demoted_full = self._demote_stale_tail_tools(summarized, tail_i)
+            demoted_full = self._demote_stale_tail_tools(dropped, tail_i)
             head_msgs = demoted_full[:head_n]
             middle = demoted_full[head_n:tail_i]
             tail_msgs = demoted_full[tail_i:]
         else:
-            head_msgs = summarized[:head_n]
-            middle = summarized[head_n:tail_i]
-            tail_msgs = summarized[tail_i:]
+            head_msgs = dropped[:head_n]
+            middle = dropped[head_n:tail_i]
+            tail_msgs = dropped[tail_i:]
         reserved = count_tokens(head_msgs, self._model) + count_tokens(tail_msgs, self._model)
         middle_budget = max(0, budget - reserved)
         if middle_budget > 0 and middle:
@@ -852,8 +931,8 @@ class HistoryCompactor:
                 compressed_middle = fallback_trim(compressed_middle, middle_budget)
         else:
             compressed_middle = []
-        dropped = self._diff(middle, compressed_middle)
-        self._update_summary(dropped)
+        dropped_msgs = self._diff(middle, compressed_middle)
+        self._update_summary(dropped_msgs)
         self.stats["structural_compactions"] += 1
         final = head_msgs + compressed_middle + tail_msgs
         self._note_effectiveness(before_tokens, count_tokens(final, self._model))

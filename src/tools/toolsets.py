@@ -28,13 +28,15 @@ from src.agents.runtime_profile import (
 # todo_list + clarify are hermes' always-available pair (todo_tool.py
 # check_todo_requirements -> True; clarify_tool.py check_clarify_requirements
 # -> True): the task list and the ask-the-user tool are never posture-gated.
+# session_search moved to workspace-read — not every turn needs it.
 _CORE_TOOLS: tuple[str, ...] = (
-    "think", "verify", "session_search", "todo_list", "clarify",
+    "think", "verify", "todo_list", "clarify",
 )
 
 _WORKSPACE_READ_TOOLS: tuple[str, ...] = (
     "read_file", "list_files", "search_files", "search_code",
-    "discover_host_capabilities", "invoke_host_capability", "open_preview",
+    "session_search", "discover_host_capabilities", "invoke_host_capability",
+    "open_preview",
 )
 _WORKSPACE_WRITE_TOOLS: tuple[str, ...] = (
     "write_file", "edit_file", "copy_file",
@@ -64,16 +66,17 @@ _MOBILE_DEVICE_TOOLS: tuple[str, ...] = (
 )
 _RESEARCH_TOOLS: tuple[str, ...] = ("web_search", "web_fetch", "web_extract")
 _MEDIA_TOOLS: tuple[str, ...] = ("media_search", "media_download", "generate_image")
-# Skills are always in context (index + eager injection), so the pull tools
-# that load a skill body on demand are always bound — Agent Skills parity.
-# The hub tools are the INSTALL side of the same story and ride the same
-# always-on waist (discovery -> install -> skill_view pull).
+# Skills are pulled on demand via skill_view; the index rides the stable
+# prompt. Not every turn needs skill install/remove/hub tools — gate them.
 _SKILL_TOOLS: tuple[str, ...] = (
-    "skills_list", "skill_view", "skill_manage",
-    "hub_search", "hub_install", "hub_update", "hub_list", "hub_remove",
+    "skills_list", "skill_view",
 )
-# MCP meta-tools ride the always-on waist, exactly like the skill pull tools:
-# three schemas total, whatever the workspace's server count.
+_SKILL_MANAGE_TOOLS: tuple[str, ...] = (
+    "skill_manage", "hub_search", "hub_install", "hub_update", "hub_list",
+    "hub_remove",
+)
+# MCP meta-tools: discovery is cheap, but mcp_call can be expensive. Gate
+# both behind the research capability instead of always-on.
 _MCP_TOOLS: tuple[str, ...] = ("mcp_servers", "mcp_tools", "mcp_call")
 _DELEGATION_TOOLS: tuple[str, ...] = (
     "delegate_to_subagent", "delegate_to_subagent_batch",
@@ -100,8 +103,14 @@ def resolve_runtime_tool_names(profile: RuntimeProfile, config: Any = None) -> l
     """Map one immutable profile to ordered, de-duplicated real tool names."""
     names: list[str] = list(_CORE_TOOLS)
     names.extend(_SKILL_TOOLS)
-    names.extend(_MCP_TOOLS)
     caps = set(profile.capabilities)
+
+    # Skill install/remove/hub tools are write operations — gate behind write.
+    if CAP_WORKSPACE_WRITE in caps:
+        names.extend(_SKILL_MANAGE_TOOLS)
+    # MCP tools are external data/research — gate behind research capability.
+    if CAP_RESEARCH in caps:
+        names.extend(_MCP_TOOLS)
 
     if CAP_WORKSPACE_READ in caps:
         names.extend(_WORKSPACE_READ_TOOLS)
@@ -148,6 +157,7 @@ def all_known_tool_names() -> list[str]:
     names = [
         *_CORE_TOOLS,
         *_SKILL_TOOLS,
+        *_SKILL_MANAGE_TOOLS,
         *_MCP_TOOLS,
         *_WORKSPACE_READ_TOOLS,
         *_WORKSPACE_WRITE_TOOLS,
