@@ -238,7 +238,14 @@ def build_error_surface_from_exception(
         if not api_like or not isinstance(exc, Exception):
             return _surface(LAYER_GATEWAY, type(exc).__name__, True, provider, model)
 
-        from agent.error_classifier import classify_api_error
+        # Field 2026-11-01 (agent-core body checkup): this imported
+        # `agent.error_classifier`, a package that does not exist in this repo.
+        # The bare `except Exception: return None` at the bottom of this
+        # function turned the resulting ModuleNotFoundError into silence: EVERY
+        # API-shaped exception (402, 429, context overflow) produced no error
+        # surface at all, and the only trace was a debug log. A dead wallet was
+        # reported to the user as nothing.
+        from src.llm.error_classifier import classify_api_error
 
         classified = classify_api_error(exc, provider=provider, model=model)
         reason = classified.reason.value

@@ -627,6 +627,23 @@ _CONTENT_POLICY_BLOCKED_PATTERNS = [
 _AUTH_PATTERNS = [
     "invalid api key",
     "invalid_api_key",
+    # Field 2026-11-01 (agent-core body checkup). The message fallback is what
+    # catches a wrapped exception whose `status_code` did not survive the shim.
+    # Probed against the canonical body each vendor actually returns with a bad
+    # key, and only two of six matched:
+    #   OpenAI    "Incorrect API key provided: sk-..."        -> unknown (retried 5x)
+    #   Anthropic "invalid x-api-key"                        -> unknown (retried 5x)
+    #   Gemini    "API key not valid. Please pass a valid..." -> unknown (retried 5x)
+    #   OpenRouter "No auth credentials found"               -> unknown (retried 5x)
+    # A dead key cannot heal itself, so `unknown/retryable` is the worst possible
+    # answer: it burns the retry ladder and never rotates to a working credential.
+    "incorrect api key",
+    "incorrect_api_key",
+    "invalid x-api-key",
+    "invalid api-key",
+    "api key not valid",
+    "no auth credentials",
+    "authentication failed",
     "gateway_auth_failed",
     "authentication",
     "unauthorized",
@@ -1185,8 +1202,21 @@ def classify_api_error(
         # transport-layer failure here is recoverable via the retry
         # path — not via context compression.  Reclassify as timeout.
         # (Part 1 of Fixes #52310.)
-        from agent.reasoning_timeouts import get_reasoning_stale_timeout_floor
-        if get_reasoning_stale_timeout_floor(model) is not None:
+        # Field 2026-11-01 (agent-core body checkup): this import was
+        # UNCONDITIONAL, and `agent.reasoning_timeouts` does not exist in this
+        # repository — it was carried over from hermes. So classifying the most
+        # common transient failure there is, a bare connection reset with no
+        # status code, raised ModuleNotFoundError *from inside the classifier*.
+        # The retry loop calls this function for every API failure, so a
+        # recoverable network blip became an unclassified crash instead of a
+        # retry. Import defensively and fall through to the plain timeout path.
+        try:
+            from agent.reasoning_timeouts import get_reasoning_stale_timeout_floor
+        except ImportError:
+            get_reasoning_stale_timeout_floor = None
+        if get_reasoning_stale_timeout_floor is not None and (
+            get_reasoning_stale_timeout_floor(model) is not None
+        ):
             return _result(FailoverReason.timeout, retryable=True)
         # Absolute token/message-count thresholds are only a proxy for smaller
         # context windows.  Large-context sessions can have hundreds of
