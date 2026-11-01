@@ -177,3 +177,47 @@ def test_harness_ceiling_is_never_reported_as_an_agent_property():
     assert out["ok"] is False
     assert "HARNESS ABORT" in out["verdict"]
     assert "turn 2" in out["verdict"]
+
+
+def test_the_driver_sets_a_money_cap_not_only_a_token_cap():
+    """Field 2026-11-01: run 41290247998 drained the account in five turns.
+
+    The driver only ever set AGENT_TOKEN_BUDGET. A token cap cannot bound money:
+    it counts cached prompt tokens at full weight (53%, 46%, 39% of turns 5-7
+    were cache hits) and it never sees the per-token rate. The money leg is
+    AGENT_COST_BUDGET and nothing set it, so every session ran until the
+    provider refused payment mid-turn.
+    """
+    from scripts.run_long_session import _build_parser, build_env
+
+    args = _build_parser().parse_args(
+        [
+            "--workspace", "w", "--prompts-file", "p",
+            "--max-cost-usd", "0.25", "--max-input-tokens", "1200000",
+        ]
+    )
+    env = build_env(args)
+    assert env.get("AGENT_COST_BUDGET") == "0.2500", env.get("AGENT_COST_BUDGET")
+    assert "AGENT_TOKEN_BUDGET" in env
+
+    # Default 0 means "no separate money stop" — an explicit choice, not a hope.
+    args0 = _build_parser().parse_args(["--workspace", "w", "--prompts-file", "p"])
+    assert "AGENT_COST_BUDGET" not in build_env(args0)
+
+
+def test_report_separates_tokens_that_did_work_from_tokens_that_were_discarded():
+    """The expensive number was never printed.
+
+    Three cut turns billed ~2.5M tokens (~$0.38) and produced nothing. Spend per
+    COMPLETED turn is the cost metric that cannot be gamed by cutting work.
+    """
+    from scripts.run_long_session import summarize
+
+    turns = [
+        {"turn": 1, "result": "turn_done", "completed": True, "tokens_in_telemetry": 200_000},
+        {"turn": 2, "result": "turn_done", "completed": False, "tokens_in_telemetry": 500_000},
+        {"turn": 3, "result": "turn_done", "completed": True, "tokens_in_telemetry": 800_000},
+    ]
+    out = summarize(turns, 3)
+    assert out["turns_completed"] == 2
+    assert out["turns_budget_cut"] == 1

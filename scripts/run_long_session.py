@@ -110,7 +110,14 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
         )
     else:
         verdict = "SURVIVED every turn"
+    spent_total = sum(int(t.get("tokens_in_telemetry") or 0) for t in turns)
+    spent_on_cut = sum(int(t.get("tokens_in_telemetry") or 0) for t in cut)
     return {
+        "tokens_spent_total": spent_total,
+        "tokens_spent_on_cut_turns": spent_on_cut,
+        "tokens_per_completed_turn": (
+            round(spent_total / len(completed), 1) if completed else None
+        ),
         "turns_completed": len(completed),
         "turns_budget_cut": len(cut),
         "turns_cut_at": [t["turn"] for t in cut],
@@ -150,6 +157,13 @@ def build_env(args) -> dict:
     env.setdefault("CRUSORAI_PREVIEW_AUTOSTART", "0")
     if args.max_input_tokens is not None:
         env["AGENT_TOKEN_BUDGET"] = str(args.max_input_tokens)
+    # Field 2026-11-01 (funded run 41290247998 drained the wallet in 5 turns):
+    # the token cap is not a money cap. It counts cached prompt tokens at full
+    # weight (53%/46%/39% of turn 5/6/7 was cached), and it says nothing about
+    # the rate. AGENT_COST_BUDGET is the leg that actually bounds spend, and the
+    # driver never set it — so every session ran until the provider refused.
+    if args.max_cost_usd > 0:
+        env["AGENT_COST_BUDGET"] = f"{args.max_cost_usd:.4f}"
     return env
 
 
@@ -187,6 +201,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=45,
         help="the AGENT's own per-turn iteration budget (production default is 45)",
+    )
+    ap.add_argument(
+        "--max-cost-usd",
+        type=float,
+        default=0.0,
+        help="hard USD stop for the whole session (0 = rely on the token cap). "
+        "A token cap cannot bound money: cached tokens are charged at full weight, "
+        "so a 600k-token cap can cost far more than the tokens that did work.",
     )
     ap.add_argument(
         "--max-llm-calls",
@@ -418,6 +440,11 @@ def main(argv: list[str] | None = None) -> int:
     summary = summarize(turns, len(prompts))
     completed = [t for t in turns if t["result"] == "turn_done" and t.get("completed")]
     cut = [t for t in turns if t["result"] == "turn_done" and not t.get("completed")]
+    # Field 2026-11-01: the expensive number was never printed. Three cut turns
+    # billed 2.5M tokens (~$0.38) and produced nothing, which is the actual
+    # "bankrupt agent core" — not the per-token rate. Spend per COMPLETED turn
+    # is the only cost metric that cannot be gamed by cutting work.
+    _spent_on_cut = sum(int(t.get("tokens_in_telemetry") or 0) for t in cut)
     stopped_at = summary["stopped_at_turn"]
     total_wall = round(time.time() - session_started, 1)
     token_deltas: list[int] = []

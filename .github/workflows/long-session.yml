@@ -16,6 +16,10 @@ on:
         description: "Short label for this run, shown in the verdict"
         required: false
         default: "default"
+      max_cost_usd:
+        description: "Hard USD stop for the whole session (bounds money, not just tokens)"
+        required: false
+        default: "0.60"
   push:
     branches: [main, 'arena/**']
     paths:
@@ -47,6 +51,9 @@ jobs:
       # cap or the model the binding constraint?" is answered by measurement.
       TOKEN_CAP: ${{ github.event.inputs.token_cap || '1200000' }}
       RUN_LABEL: ${{ github.event.inputs.label || 'cap-1.2M' }}
+      # Money leg. The token cap cannot bound spend: cached tokens are charged
+      # at full weight and the cap never sees the rate. This one does.
+      MAX_COST_USD: ${{ github.event.inputs.max_cost_usd || '0.60' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -148,6 +155,7 @@ jobs:
             --max-session-minutes 45 \
             --agent-iteration-budget 45 \
             --max-llm-calls 60 \
+            --max-cost-usd "$MAX_COST_USD" \
             --max-input-tokens "$TOKEN_CAP" \
             --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee session.log
           echo "SESSION_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
