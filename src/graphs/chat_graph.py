@@ -3217,6 +3217,39 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         run_outcome = "completed"
         failure_reason = None
 
+    # Field 2026-11-01 (run 41280080898): verification=passed, missing=none,
+    # zero debts, steps=5 failed=0, no budget cut — and the turn still stamped
+    # `failed` with NO recorded reason. The branch above is a chained elif over
+    # six different signals, so "which one fired?" was unanswerable from the
+    # logs and cost another full run. Print the decision and its inputs.
+    _decider = (
+        "safety_denial" if trailing_safety_denial else
+        "budget_cut" if budget_cut else
+        "timed_out" if state.get("task_status") == "timed_out" else
+        "cancelled" if state.get("task_status") == "cancelled" else
+        str(state.get("task_status")) if state.get("task_status") in ("recovery_limit", "tool_cycle_limit") else
+        "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else
+        "no_work_done" if no_work_done else
+        "ended_mid_task" if ended_mid_task else
+        "task_completed_false" if state.get("task_completed") is False else
+        "task_status_failed" if state.get("task_status") == "failed" else
+        "unverified" if unverified else
+        "none->completed"
+    )
+    print(
+        "[turn] finalize decision: "
+        f"exec_status={exec_status} run_outcome={run_outcome} "
+        f"failure_reason={failure_reason!r} decided_by={_decider} | "
+        f"signals: trailing_failed={trailing_failed} "
+        f"trailing_optional_diagnostic={trailing_optional_diagnostic} "
+        f"trailing_safety_denial={trailing_safety_denial} "
+        f"no_work_done={no_work_done} ended_mid_task={ended_mid_task} "
+        f"budget_cut={budget_cut} unverified={unverified} "
+        f"verified_ok={verified_ok} task_completed={state.get('task_completed')!r} "
+        f"task_status={state.get('task_status')!r} failed_steps={len(failed_steps)}",
+        flush=True,
+    )
+
     if verified_ok:
         curr_rev = int(state.get("workspace_revision") or 0)
         last_rev = state.get("last_verified_revision")
