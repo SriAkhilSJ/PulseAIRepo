@@ -1,0 +1,205 @@
+name: Long session stamina (GLM 5.3)
+
+# Every other harness here runs ONE turn in a FRESH session, so "can the agent
+# keep going?" has never been measured — each green result is a first turn with
+# an empty history. This drives one session through many consecutive turns to
+# find where it stops: context growth, compaction, a gate, or a crash.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'tests/e2e/prompts_session.txt'
+      - 'scripts/run_long_session.py'
+      - 'src/**'
+      - '.github/workflows/long-session.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  long-session:
+    name: N consecutive turns in ONE session
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    env:
+      LLM_PROVIDER: custom
+      LLM_MODEL: z-ai/glm-5.3-flash
+      CUSTOM_BASE_URL: https://velona.in/v1
+      CRUSORAI_SUBAGENT_DEPTH: '0'
+      CRUSORAI_TELEMETRY_DIR: ${{ github.workspace }}/.e2e-telemetry
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          pip install -r requirements.txt >/dev/null 2>&1 || pip install -r requirements-core.txt
+
+      - name: Prepare an isolated workspace
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e/ws" "$RUNNER_TEMP/e2e/results"
+          cp tests/e2e/prompts_session.txt "$RUNNER_TEMP/e2e/prompts.txt"
+
+      - name: Normalise the credential (report whitespace, never print it)
+        env:
+          RAW_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY' > "$RUNNER_TEMP/e2e/key.txt" 2>&1
+          import os
+          raw = os.environ.get("RAW_KEY") or ""
+          clean = raw.strip()
+          print(f"raw_len={len(raw)} clean_len={len(clean)} "
+                f"whitespace={'yes' if raw != clean else 'no'} tail=…{clean[-4:]}")
+          # Deliberately NOT copied into $GITHUB_ENV: settings._cred() strips at
+          # the use boundary, so duplicating the value only widens exposure.
+          PY
+          cat "$RUNNER_TEMP/e2e/key.txt"
+
+      - name: Pricing probe (cost must be measurable before we spend)
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY' 2>&1 | tail -4
+          from src.telemetry import pricing
+          from src.telemetry.call_ledger import load_rate_card
+          try:
+              rates, source = pricing.refresh()
+              print(f"rates={len(rates)} source={source}")
+          except Exception as exc:
+              print("refresh failed:", type(exc).__name__, str(exc)[:160])
+          print("card entries:", len(load_rate_card() or {}))
+          PY
+
+      - name: Run N consecutive turns in one session
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          set +e
+          python scripts/run_long_session.py \
+            --workspace "$RUNNER_TEMP/e2e/ws" \
+            --prompts-file "$RUNNER_TEMP/e2e/prompts.txt" \
+            --run-id "long-${{ github.run_id }}" \
+            --turns 7 \
+            --timeout-s-per-turn 480 \
+            --max-session-minutes 45 \
+            --max-llm-calls 20 \
+            --max-input-tokens 600000 \
+            --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee session.log
+          echo "SESSION_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+          RUNLOG="$RUNNER_TEMP/e2e/results/long-${{ github.run_id }}"
+          grep -hE -e 'finalize ' -e '\[budget\]' -e '\[grace\]' -e 'turn end:' \
+            "$RUNLOG/bridge_stderr.log" 2>/dev/null | cut -c1-260 | tail -40 \
+            > "$RUNNER_TEMP/e2e/decisions.txt" || true
+          grep -hcE 'compact|ContextEngine' "$RUNLOG/bridge_stderr.log" 2>/dev/null \
+            > "$RUNNER_TEMP/e2e/context_hits.txt" || echo 0 > "$RUNNER_TEMP/e2e/context_hits.txt"
+
+      - name: Verify the final artifact independently (after SEVEN turns)
+        if: always()
+        run: |
+          set +e
+          WS="$RUNNER_TEMP/e2e/ws"
+          V="$RUNNER_TEMP/e2e/verify.txt"
+          : > "$V"
+          say() { echo "$@" | tee -a "$V"; }
+          say "=== independent re-test AFTER the whole session ==="
+          if [ -f "$WS/mvp/test_server.py" ]; then
+            OUT=$( cd "$WS" && timeout 180 python mvp/test_server.py 2>&1 ); RC=$?
+            say "agent test file -> exit $RC"
+            echo "$OUT" | tail -10 | sed 's/^/    /' | tee -a "$V"
+          else
+            say "mvp/test_server.py MISSING"; RC=127
+          fi
+          ( cd "$WS" && timeout 60 python mvp/server.py >/tmp/srv.log 2>&1 ) &
+          SRV=$!
+          for _ in $(seq 1 40); do
+            sleep 0.5
+            C=$(curl -s -o /tmp/h.json -w '%{http_code}' --max-time 2 http://127.0.0.1:8137/api/health 2>/dev/null)
+            [ "$C" = "200" ] && break
+          done
+          say "live /api/health -> ${C:-none}  body=$(head -c 120 /tmp/h.json 2>/dev/null)"
+          for ep in version status; do
+            code=$(curl -s -o /tmp/e.json -w '%{http_code}' --max-time 3 "http://127.0.0.1:8137/api/$ep" 2>/dev/null)
+            say "live /api/$ep -> ${code:-none}  body=$(head -c 120 /tmp/e.json 2>/dev/null)"
+          done
+          say "files: $(find "$WS/mvp" -type f -name '*.py' -o -name '*.html' -o -name '*.css' -o -name '*.md' | wc -l) in mvp/"
+          find "$WS/mvp" -maxdepth 1 -type f -printf '  %f (%s bytes)\n' | sort | tee -a "$V"
+          kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+          echo "FINAL_TEST_EXIT=$RC" >> "$GITHUB_ENV"
+
+      - name: Redact credential material from prior verdicts
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"]; issue = "28"
+          token = os.environ["GH_TOKEN"]; api = f"https://api.github.com/repos/{repo}"
+          pattern = re.compile(r"key_live_[A-Za-z0-9_]+")
+          def call(method, url, payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json", "User-Agent": "crusorai-redactor"})
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return json.loads(resp.read().decode("utf-8", "replace"))
+          def scrub(m):
+              v = m.group(0); return f"<REDACTED len={len(v)} \u2026{v[-4:]}"
+          try:
+              comments = call("GET", f"{api}/issues/{issue}/comments?per_page=100")
+          except Exception as exc:
+              print("list failed:", type(exc).__name__); raise SystemExit(0)
+          fixed = 0
+          for c in comments:
+              body = c.get("body") or ""
+              if not pattern.search(body): continue
+              try:
+                  call("PATCH", f"{api}/issues/comments/{c['id']}", {"body": pattern.sub(scrub, body)})
+                  fixed += 1
+              except Exception as exc:
+                  print("patch failed:", type(exc).__name__)
+          print("redacted", fixed)
+          PY
+
+      - name: Post the verdict
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: '28'
+        run: |
+          set +e
+          R="$RUNNER_TEMP/e2e/results/long-${{ github.run_id }}"
+          REPORT=$(cat "$R/LONG_SESSION_REPORT.md" 2>/dev/null || echo "no session report")
+          DECISIONS=$(cat "$RUNNER_TEMP/e2e/decisions.txt" 2>/dev/null | tail -25)
+          VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | tail -25)
+          HITS=$(cat "$RUNNER_TEMP/e2e/context_hits.txt" 2>/dev/null | tail -1)
+          BODY=$(printf '**Long-session stamina — GLM 5.3** @ `%s`\nsession_exit=%s final_test_exit=%s context_engine_lines=%s\n\n%s\n\n### finalize / budget decisions (tail)\n```\n%s\n```\n\n### independent re-test after the whole session\n```\n%s\n```\n' \
+            "${GITHUB_SHA:0:8}" "${SESSION_EXIT:-unknown}" "${FINAL_TEST_EXIT:-unknown}" "${HITS:-?}" \
+            "$REPORT" "$DECISIONS" "$VERIFY")
+          printf '%s' "$BODY" > body.md
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" -F body=@body.md >/dev/null \
+            && echo posted || echo "post skipped"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: long-session-evidence
+          path: |
+            ${{ runner.temp }}/e2e/results/long-*/long_session.json
+            ${{ runner.temp }}/e2e/results/long-*/LONG_SESSION_REPORT.md
+            ${{ runner.temp }}/e2e/results/long-*/bridge_stderr.log
+            ${{ runner.temp }}/e2e/ws/mvp/**
+            !${{ runner.temp }}/e2e/ws/mvp/**/__pycache__/**
+          if-no-files-found: warn
