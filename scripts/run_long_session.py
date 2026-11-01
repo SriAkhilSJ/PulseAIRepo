@@ -53,6 +53,22 @@ def load_prompts(path: Path) -> list[str]:
     return [c for c in chunks if c]
 
 
+def _is_billing_failure(error: str) -> bool:
+    """True when a turn failed because the account cannot pay.
+
+    Delegates to the engine's own classifier so the harness and the agent agree
+    on what "out of money" looks like; if the two disagree, one of them retries
+    a dead wallet.
+    """
+    try:
+        from src.llm.error_classifier import _is_billing_message
+
+        return _is_billing_message(str(error).lower())
+    except Exception:
+        lowered = str(error).lower()
+        return "402" in lowered or "balance" in lowered and "0.00" in lowered
+
+
 def summarize(turns: list[dict], turns_requested: int) -> dict:
     """The session verdict, derived ONLY from what the turns actually said.
 
@@ -65,8 +81,18 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
     """
     completed = [t for t in turns if t["result"] == "turn_done" and t.get("completed")]
     cut = [t for t in turns if t["result"] == "turn_done" and not t.get("completed")]
-    stopped_at = next((t["turn"] for t in turns if t["result"] not in ("turn_done",)), None)
-    if stopped_at is not None:
+    halted = next((t for t in turns if t["result"] == "session-halted-provider-balance"), None)
+    stopped_at = next(
+        (t["turn"] for t in turns
+         if t["result"] not in ("turn_done", "session-halted-provider-balance")),
+        None,
+    )
+    if halted is not None:
+        verdict = (
+            f"HALTED — provider balance exhausted after turn {halted['turn'] - 1}; "
+            f"{halted.get('turns_skipped', 0)} turn(s) not attempted"
+        )
+    elif stopped_at is not None:
         verdict = f"STOPPED at turn {stopped_at}"
     elif cut:
         verdict = (
@@ -81,8 +107,9 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
         "turns_budget_cut": len(cut),
         "turns_cut_at": [t["turn"] for t in cut],
         "stopped_at_turn": stopped_at,
+        "halted_by_billing": halted is not None,
         "verdict": verdict,
-        "ok": stopped_at is None and not cut,
+        "ok": stopped_at is None and not cut and halted is None,
         "turns_requested": turns_requested,
     }
 
@@ -287,11 +314,18 @@ def main() -> int:
                     break
             hits, stderr_offset = compaction_lines(stderr_path, stderr_offset)
             budget_cut = any("budget] exhausted" in h for h in hits)
+            # A dead wallet is terminal, not transient. Field 2026-11-01: the
+            # gateway answered 402 "Balance ₹0.00. Top up from ₹10 at
+            # https://velona.in/wallet", the classifier called it `unknown` and
+            # retryable, and the harness dutifully spent the remaining turns
+            # failing again in 0.6s each. Stop the session and say why.
+            billing_stop = bool(error) and _is_billing_failure(error)
             record(
                 result,
                 completed=completed,
                 run_outcome=run_outcome,
                 error=error,
+                billing_stop=billing_stop,
                 drained_before_turn=drained,
                 budget_cut=budget_cut,
                 llm_calls=llm_calls,
@@ -307,6 +341,19 @@ def main() -> int:
                 flush=True,
             )
             if result in ("bridge-exited", "turn-timeout"):
+                break
+            if billing_stop:
+                turns.append({
+                    "turn": len(turns) + 1,
+                    "result": "session-halted-provider-balance",
+                    "wall_s": 0,
+                    "turns_skipped": len(prompts) - index - 1,
+                })
+                print(
+                    "[session] HALTED: the provider refused payment. Remaining "
+                    "turns were not attempted — topping up is the only fix.",
+                    flush=True,
+                )
                 break
     finally:
         try:
