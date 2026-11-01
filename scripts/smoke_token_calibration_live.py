@@ -33,6 +33,13 @@ import time
 import urllib.error
 import urllib.request
 
+# Executed as `python scripts/...` the interpreter puts scripts/ on sys.path,
+# not the repo root, so `import src...` fails — which is exactly how the first
+# CI run failed. Make the repo importable regardless of the caller's cwd.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 UA = os.environ.get(
     "CRUSORAI_HTTP_USER_AGENT",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -87,13 +94,17 @@ def main() -> int:
 
     print(f"[smoke] key {_fingerprint(key)} base={base} model={args.model}")
 
-    from src.context.token_budget import count_tokens
-    from src.context.token_calibration import (
-        calibration_factor,
-        record_sample,
-        reset_for_tests,
-    )
-    from langchain_core.messages import HumanMessage, SystemMessage
+    try:
+        from src.context.token_budget import count_tokens
+        from src.context.token_calibration import (
+            calibration_factor,
+            record_sample,
+            reset_for_tests,
+        )
+        from langchain_core.messages import HumanMessage, SystemMessage
+    except Exception as exc:  # noqa: BLE001
+        print(f"[smoke] FAIL: could not import the engine path: {exc!r}")
+        return 1
 
     reset_for_tests()
     messages = [
