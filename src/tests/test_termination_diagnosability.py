@@ -335,3 +335,42 @@ def test_trip_reason_names_the_cost_leg(monkeypatch):
     reason = b._budget_trip_reason(_state_with_cost(0.75))
     assert "tripped: cost" in reason
     assert "$0.7500" in reason
+
+
+# ------------------------------------------------- D4 (credential boundary)
+
+
+def test_credential_env_is_stripped_at_the_settings_boundary(monkeypatch):
+    """A secret with a trailing newline must not reach an HTTP header.
+
+    Field 2026-11-01: a len=51 CUSTOM_API_KEY (real key len=50) made httpx
+    raise LocalProtocolError 'illegal header value' on every request, which
+    the SDK surfaced as `OpenAIConnectionError: Connection error.` after five
+    retries — a one-character copy-paste bug wearing a network failure's
+    clothes. settings._cred is the boundary that stops it.
+    """
+    import importlib
+    import src.config.settings as settings
+
+    monkeypatch.setenv("CUSTOM_API_KEY", "key_live_abc123\n")
+    monkeypatch.setenv("CUSTOM_BASE_URL", "  https://velona.in/v1  ")
+    reloaded = importlib.reload(settings)
+    try:
+        assert reloaded.CUSTOM_API_KEY == "key_live_abc123"
+        assert reloaded.CUSTOM_BASE_URL == "https://velona.in/v1"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(settings)
+
+
+def test_whitespace_only_credential_is_treated_as_absent(monkeypatch):
+    import importlib
+    import src.config.settings as settings
+
+    monkeypatch.setenv("CUSTOM_API_KEY", "   \n\t ")
+    reloaded = importlib.reload(settings)
+    try:
+        assert reloaded.CUSTOM_API_KEY is None
+    finally:
+        monkeypatch.undo()
+        importlib.reload(settings)

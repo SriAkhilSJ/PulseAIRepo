@@ -33,12 +33,29 @@ except Exception:
 # =========================================================
 
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
-GROQ_API_KEY: str | None = os.getenv("GROQ_API_KEY")
-GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY")
-NVIDIA_API_KEY: str | None = os.getenv("NVIDIA_API_KEY")
+def _cred(name: str) -> str | None:
+    """Read a credential env var with surrounding whitespace removed.
 
-CUSTOM_API_KEY: str | None = os.getenv("CUSTOM_API_KEY")
-CUSTOM_BASE_URL: str | None = os.getenv("CUSTOM_BASE_URL")
+    Field 2026-11-01: a CUSTOM_API_KEY secret carrying a trailing newline
+    (len=51 where the real key is 50) reached the Authorization header and
+    made EVERY provider call die as `OpenAIConnectionError: Connection error.`
+    after 5 retries — an opaque transport symptom for a one-character bug.
+    httpx raised LocalProtocolError ("illegal header value"); the SDK reported
+    only "Connection error.". Strip at the boundary: a copied newline is a
+    copy-paste artefact, never intent, and no key legitimately has whitespace.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    return raw.strip() or None
+
+
+GROQ_API_KEY: str | None = _cred("GROQ_API_KEY")
+GEMINI_API_KEY: str | None = _cred("GEMINI_API_KEY")
+NVIDIA_API_KEY: str | None = _cred("NVIDIA_API_KEY")
+
+CUSTOM_API_KEY: str | None = _cred("CUSTOM_API_KEY")
+CUSTOM_BASE_URL: str | None = _cred("CUSTOM_BASE_URL")
 
 
 # =========================================================

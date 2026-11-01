@@ -108,6 +108,28 @@ jobs:
           echo "CRUSORAI_HOME=$RUNNER_TEMP/crusorai" >> "$GITHUB_ENV"
           echo "workspace ready"
 
+      # A secret stored with a trailing newline is a copy-paste artefact, and it
+      # poisons the Authorization header: httpx raises LocalProtocolError
+      # ("illegal header value") and the SDK reports only "Connection error."
+      # after 5 retries. Normalise once here, and report the delta so the
+      # stored secret can be fixed at source rather than silently patched.
+      - name: Normalise the credential (report whitespace, never print it)
+        env:
+          RAW_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY' | tee "$RUNNER_TEMP/e2e/key-normalise.txt"
+          import os
+          raw = os.environ.get("RAW_KEY") or ""
+          clean = raw.strip()
+          print(f"raw_len={len(raw)} clean_len={len(clean)} "
+                f"whitespace_stripped={raw != clean}")
+          if raw != clean:
+              print("WARNING: the stored secret carries surrounding whitespace; "
+                    "re-set it with: printf '%s' "$KEY" | gh secret set CUSTOM_API_KEY")
+          with open(os.environ["GITHUB_ENV"], "a") as fh:
+              fh.write(f"CUSTOM_API_KEY={clean}\n")
+          PY
+
       - name: SDK connectivity probe (isolates transport from agent logic)
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
@@ -117,8 +139,8 @@ jobs:
           import os, traceback
           print("base_url=", os.environ.get("CUSTOM_BASE_URL"))
           print("model   =", os.environ.get("LLM_MODEL"))
-          k = os.environ.get("CUSTOM_API_KEY") or ""
-          print("key     = len=%d ...%s" % (len(k), k[-4:]))
+          k = (os.environ.get("CUSTOM_API_KEY") or "").strip()
+          print("key     = len=%d ...%s (stripped)" % (len(k), k[-4:]))
           try:
               from langchain_openai import ChatOpenAI
               llm = ChatOpenAI(
@@ -196,10 +218,11 @@ jobs:
           REPORT=$(cat "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md" 2>/dev/null | head -60 || echo "no report")
           # Both of these are where a transport failure explains itself, and
           # Actions logs are not reachable from every environment.
+          KEYNOTE=$(cat "$RUNNER_TEMP/e2e/key-normalise.txt" 2>/dev/null || echo "no key note")
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
-          REPORT=$(printf '%s\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
-            "$REPORT" "$PROBE" "$STDERR")
+          REPORT=$(printf '%s\n\n### credential\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
+            "$REPORT" "$KEYNOTE" "$PROBE" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
