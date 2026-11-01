@@ -271,8 +271,21 @@ def _budget_trip_reason(state: AgentState) -> str:
     cap = _token_budget()
     usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
     total = int(usage.get("total_tokens", 0) or 0)
+    cached = int(usage.get("cached_tokens", 0) or 0)
     parts = [f"iterations {used}/{budget}"]
-    parts.append(f"tokens {total:,}/{cap:,}" if cap is not None else "tokens uncapped")
+    if cap is not None:
+        # Field 2026-11-01: the receipt read "tokens 172,020/150,000, tripped:
+        # tokens" and implied a runaway turn. Two facts were missing. `total`
+        # is the SUM of every request's prompt, so the same conversation is
+        # billed against the cap once per call — a 20-call turn re-pays its
+        # 24k prefix twenty times. And 55-73% of those prompt tokens came back
+        # as cache hits (provider-reported), which the cap charges at full
+        # weight. The run that "exhausted" 172k tokens spent about $0.03.
+        # Print both, so "exhausted" can never again read as "wasteful".
+        cached_note = f", {cached:,} cached" if cached else ""
+        parts.append(f"tokens {total:,}/{cap:,}{cached_note}")
+    else:
+        parts.append("tokens uncapped")
     cost_cap = _cost_budget()
     spend = _run_cost_usd(state)
     if cost_cap is not None:
@@ -281,7 +294,9 @@ def _budget_trip_reason(state: AgentState) -> str:
             else f"cost unknown/{cost_cap:.4f}"
         )
     else:
-        parts.append("cost uncapped")
+        parts.append(
+            f"spend ${spend:.4f}" if spend is not None else "spend unknown"
+        )
     if used >= budget:
         parts.append("tripped: iterations")
     elif cap is not None and total >= cap:
@@ -303,7 +318,15 @@ def _budget_exhausted(state: AgentState) -> bool:
     usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
     total = int(usage.get("total_tokens", 0) or 0)
     if token_cap is not None and total >= token_cap:
-        print(f"[budget] exhausted: tokens {total:,}/{token_cap:,} >= cap", flush=True)
+        cached = int(usage.get("cached_tokens", 0) or 0)
+        spend = _run_cost_usd(state)
+        spend_note = f", spend ${spend:.4f}" if spend is not None else ", spend unknown"
+        cached_note = f" ({cached:,} cached)" if cached else ""
+        print(
+            f"[budget] exhausted: tokens {total:,}/{token_cap:,}{cached_note} >= cap"
+            f"{spend_note}",
+            flush=True,
+        )
         return True
     # D4: the money leg. Checked last so the cheaper-to-report legs speak first.
     cost_cap = _cost_budget()
