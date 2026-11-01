@@ -182,35 +182,48 @@ jobs:
           if not card:
               print("RATE CARD EMPTY -> cost cannot be measured for ANY model; "
                     "set CRUSORAI_RATE_CARD (JSON) to enable the USD budget leg")
-              # Make the gap actionable instead of a shrug: dump one catalog
-              # entry verbatim so the next person can see whether the gateway
-              # publishes prices at all, or publishes them under keys that
-              # pricing.py does not parse. Never printed: the key.
+              # Make the gap actionable instead of a shrug: fetch the catalog
+              # through pricing.py's OWN transport (it sends the browser UA that
+              # Cloudflare demands on velona.in), then print the shape and the
+              # pricing keys the parser is looking for. Never printed: the key.
               try:
-                  from src.telemetry.pricing import candidate_urls
-                  import os, urllib.request
+                  from src.telemetry import pricing as _p
+                  import os
                   base = (os.environ.get("CUSTOM_BASE_URL")
                           or os.environ.get("CRUSORAI_PRICING_BASE_URL") or "").rstrip("/")
-                  urls = candidate_urls(base) if base else []
-                  if not urls:
-                      print("no CUSTOM_BASE_URL / CRUSORAI_PRICING_BASE_URL set")
                   key = (os.environ.get("CUSTOM_API_KEY") or "").strip()
-                  print("catalog candidates:", len(urls))
-                  for url in urls[:3]:
+                  urls = _p.candidate_urls(base) if base else []
+                  print("catalog candidates:", urls)
+                  for url in urls[:4]:
                       try:
-                          req = urllib.request.Request(url, headers={"Authorization": f"Bearer {key}"})
-                          with urllib.request.urlopen(req, timeout=15) as resp:
-                              payload = json.loads(resp.read().decode("utf-8", "replace"))
-                          data = payload.get("data") if isinstance(payload, dict) else None
-                          first = (data or [{}])[0] if isinstance(data, list) else {}
-                          print(f"  {url} -> HTTP {resp.status}, {len(data or [])} entries")
-                          print("  first entry keys:", sorted(first)[:14])
-                          print("  first entry:", json.dumps(first)[:500])
-                          break
+                          payload = _p._http_get_json(url, key, 20.0)
                       except Exception as exc:
                           print(f"  {url} -> {type(exc).__name__}: {str(exc)[:160]}")
+                          continue
+                      kind = type(payload).__name__
+                      top = sorted(payload)[:10] if isinstance(payload, dict) else f"list[{len(payload)}]"
+                      print(f"  {url} -> {kind} {top}")
+                      rates = _p.parse_catalog(payload, "")
+                      print(f"     parse_catalog -> {len(rates)} priced entries")
+                      # Show the first entry's own pricing keys so a schema
+                      # mismatch is visible without another run.
+                      from src.telemetry.pricing import _INPUT_KEYS, _OUTPUT_KEYS
+                      entries = payload.get("data") if isinstance(payload, dict) else payload
+                      if isinstance(entries, dict):
+                          entries = entries.get("models") or entries.get("data") or []
+                      if isinstance(entries, list) and entries:
+                          first = entries[0]
+                          print("     first entry keys:", sorted(first)[:16] if isinstance(first, dict) else type(first).__name__)
+                          pr = first.get("pricing") if isinstance(first, dict) else None
+                          if isinstance(pr, dict):
+                              print("     first.pricing keys:", sorted(pr)[:16])
+                          else:
+                              print("     first.pricing:", repr(pr)[:80])
+                          print("     parser wants any of:", _INPUT_KEYS[:4], "...", _OUTPUT_KEYS[:4])
+                      if rates:
+                          break
               except Exception as exc:
-                  print("catalog dump failed:", type(exc).__name__, str(exc)[:160])
+                  print("catalog dump failed:", type(exc).__name__, str(exc)[:200])
           PY
 
       - name: Run one real GLM 5.3 turn through the bridge
@@ -361,9 +374,24 @@ jobs:
           VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | head -40 || echo "no independent verification output")
           # The stderr tail is truncated to ~900 bytes, so the one line that
           # explains the outcome could scroll out. Grep it deliberately.
-          DECISION=$(cut -c1-400 "$RUNNER_TEMP/e2e/decision.txt" 2>/dev/null | head -12)
+          # Belt and braces: the turn step writes decision.txt, but a missing
+          # capture must never print a bare dash again. Fall back to grepping
+          # every runner.log we might have (run dir copy, then repo root), and
+          # if THAT fails, show the tail so the next reader can see why.
+          # The bridge writes its own stderr to bridge_stderr.log in the run
+          # directory; runner.log only carries the driver's own output. That is
+          # why grepping runner.log found nothing while the verdict's stderr
+          # tail was full of finalize lines.
+          RUNLOG="$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}"
+          DECISION=$(grep -hE -e 'finalize ' -e '\[budget\]' -e '\[grace\]' -e 'turn end:' \
+            "$RUNLOG/bridge_stderr.log" "$RUNLOG/runner.log" 2>/dev/null | cut -c1-400 | head -14)
           if [ -z "$DECISION" ]; then
-            DECISION="no finalize lines captured; runner.log=$(ls -l runner.log 2>&1 | head -1) pwd=$(pwd)"
+            DECISION=$(cut -c1-400 "$RUNNER_TEMP/e2e/decision.txt" 2>/dev/null | head -14)
+          fi
+          if [ -z "$DECISION" ]; then
+            DECISION="NO FINALIZE LINES FOUND. runner.log bytes: $(wc -c < runner.log 2>/dev/null || echo missing)
+          --- tail of runner.log ---
+          $(tail -6 runner.log 2>/dev/null | cut -c1-300)"
           fi
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
