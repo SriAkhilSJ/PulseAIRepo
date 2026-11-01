@@ -82,11 +82,17 @@ def collect_keys() -> list[tuple[str, str]]:
         raw = os.environ.get(src, "")
         if raw.strip():
             found.append((src, raw))
+    # Dedupe on the RAW value, not the stripped one (field 2026-11-01).
+    # Keys on `key.strip()` collapsed a clean copy and a whitespace-dirty copy
+    # of the same secret into whichever was listed first — so a newline-bearing
+    # CUSTOM_API_KEY vanished behind a clean CUSTOM_API_KEYS[0] entry and the
+    # verifier went green on a runtime that could not make a single call.
+    # Whitespace IS the defect being hunted; two spellings of a key are two
+    # facts worth printing.
     seen, unique = set(), []
     for src, key in found:
-        marker = key.strip()
-        if marker not in seen:
-            seen.add(marker)
+        if key not in seen:
+            seen.add(key)
             unique.append((src, key))
     return unique
 

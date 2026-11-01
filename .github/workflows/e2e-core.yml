@@ -217,13 +217,75 @@ jobs:
         run: |
           set +e
           WS="$RUNNER_TEMP/e2e/ws"
-          echo "=== independent test run (NOT the agent's claim) ==="
+          V="$RUNNER_TEMP/e2e/verify.txt"
+          : > "$V"
+          say() { echo "$@" | tee -a "$V"; }
+
+          say "=== independent re-test (NOT the agent's own claim) ==="
+
+          # 1. Does the agent's own test file pass when WE run it?
           if [ -f "$WS/mvp/test_server.py" ]; then
-            ( cd "$WS" && timeout 120 python mvp/test_server.py ); echo "TEST_EXIT=$?"
+            OUT=$( cd "$WS" && timeout 120 python mvp/test_server.py 2>&1 ); RC=$?
+            say "agent test file: python mvp/test_server.py -> exit $RC"
+            echo "$OUT" | tail -8 | sed 's/^/    /' | tee -a "$V"
+            AGENT_TEST_EXIT=$RC
           else
-            echo "mvp/test_server.py missing"; echo "TEST_EXIT=127"
+            say "agent test file: MISSING (mvp/test_server.py not written)"
+            AGENT_TEST_EXIT=127
           fi
-          ( cd "$WS" && python -c "import ast,sys; ast.parse(open('mvp/server.py').read()); print('server.py parses')" ) 2>/dev/null || echo "server.py missing/unparseable"
+
+          # 2. Static sanity of every promised file.
+          for f in mvp/server.py mvp/index.html mvp/styles.css mvp/test_server.py; do
+            if [ -f "$WS/$f" ]; then
+              say "file $f: present ($(wc -l < "$WS/$f") lines)"
+            else
+              say "file $f: MISSING"
+            fi
+          done
+          ( cd "$WS" && python -c "import ast; ast.parse(open('mvp/server.py').read()); print('server.py parses')" ) 2>&1 | sed 's/^/    /' | tee -a "$V"
+
+          # 3. The real contract: start THEIR server and hit /api/health.
+          #    A file that parses is not a server that serves; only an HTTP 200
+          #    with {"status":"ok"} proves the MVP the prompt asked for.
+          if [ -f "$WS/mvp/server.py" ]; then
+            ( cd "$WS" && timeout 60 python mvp/server.py >/tmp/srv.log 2>&1 ) &
+            SRV=$!
+            OK=0
+            for _ in $(seq 1 40); do
+              sleep 0.5
+              CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 2 http://127.0.0.1:8137/api/health 2>/dev/null)
+              if [ "$CODE" = "200" ]; then OK=1; break; fi
+            done
+            say "live HTTP /api/health -> ${CODE:-no-response}"
+            say "health body: $(head -c 200 /tmp/health.json 2>/dev/null)"
+            if [ "$OK" = "1" ] && python -c "import json,sys; sys.exit(0 if json.load(open('/tmp/health.json')).get('status')=='ok' else 1)" 2>/dev/null; then
+              say "LIVE CONTRACT: PASS (HTTP 200 + status=ok)"
+              LIVE_EXIT=0
+            else
+              say "LIVE CONTRACT: FAIL"
+              tail -5 /tmp/srv.log 2>/dev/null | sed 's/^/    /' | tee -a "$V"
+              LIVE_EXIT=1
+            fi
+            kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+          else
+            say "LIVE CONTRACT: FAIL (no server.py)"
+            LIVE_EXIT=1
+          fi
+
+          # 4. Does index.html actually reference the health element the
+          #    prompt demanded (id="health") and fetch the API?
+          if [ -f "$WS/mvp/index.html" ]; then
+            say "index.html references /api/health: $(grep -c 'api/health' "$WS/mvp/index.html")"
+            say "index.html has element id=health: $(grep -c 'id="health"\|id=health' "$WS/mvp/index.html")"
+          fi
+
+          echo "AGENT_TEST_EXIT=$AGENT_TEST_EXIT" >> "$GITHUB_ENV"
+          echo "LIVE_EXIT=$LIVE_EXIT" >> "$GITHUB_ENV"
+          if [ "$AGENT_TEST_EXIT" = "0" ] && [ "$LIVE_EXIT" = "0" ]; then
+            say "DELIVERABLE VERDICT: PASS (independent)"
+          else
+            say "DELIVERABLE VERDICT: FAIL (independent)"
+          fi
 
       - name: E2E core report (invariants I1-I4)
         if: always()
@@ -250,10 +312,11 @@ jobs:
           KEYNOTE=$(cat "$RUNNER_TEMP/e2e/key-normalise.txt" 2>/dev/null || echo "no key note")
           PRICING=$(tail -c 900 "$RUNNER_TEMP/e2e/pricing.txt" 2>/dev/null || echo "no pricing output")
           BUILT=$(cat "$RUNNER_TEMP/e2e/workspace.txt" 2>/dev/null | head -25 || echo "no workspace listing")
+          VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | head -40 || echo "no independent verification output")
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
-          REPORT=$(printf '%s\n\n### what the agent actually wrote\n```\n%s\n```\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
-            "$REPORT" "$BUILT" "$KEYNOTE" "$PRICING" "$PROBE" "$STDERR")
+          REPORT=$(printf '%s\n\n### independent re-test of the deliverable\n```\n%s\n```\n\n### what the agent actually wrote\n```\n%s\n```\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
+            "$REPORT" "$VERIFY" "$BUILT" "$KEYNOTE" "$PRICING" "$PROBE" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
