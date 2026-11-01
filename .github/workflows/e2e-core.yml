@@ -205,6 +205,12 @@ jobs:
           # Copy the log next to the frames so the report can name the budget
           # that actually tripped instead of printing a bare "budget_exhausted".
           cp runner.log "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/runner.log" 2>/dev/null || true
+          # Capture the outcome explanation HERE, where runner.log provably is,
+          # and echo it so the step log carries it too.
+          grep -E 'finalize (entered|decision)|budget\] exhausted|\[grace\]|turn end:' runner.log \
+            > "$RUNNER_TEMP/e2e/decision.txt" 2>/dev/null || true
+          echo "=== outcome explanation ==="
+          cut -c1-400 "$RUNNER_TEMP/e2e/decision.txt" 2>/dev/null | head -12
 
       - name: Show what the agent actually built
         if: always()
@@ -326,7 +332,10 @@ jobs:
           VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | head -40 || echo "no independent verification output")
           # The stderr tail is truncated to ~900 bytes, so the one line that
           # explains the outcome could scroll out. Grep it deliberately.
-          DECISION=$(grep -E "finalize (entered|decision)|budget\] exhausted|\[grace\]|turn end:" runner.log 2>/dev/null | cut -c1-400 | head -10 || echo "no finalize lines found")
+          DECISION=$(cut -c1-400 "$RUNNER_TEMP/e2e/decision.txt" 2>/dev/null | head -12)
+          if [ -z "$DECISION" ]; then
+            DECISION="no finalize lines captured; runner.log=$(ls -l runner.log 2>&1 | head -1) pwd=$(pwd)"
+          fi
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
           REPORT=$(printf '%s\n\n### why the turn ended\n```\n%s\n```\n\n### independent re-test of the deliverable\n```\n%s\n```\n\n### what the agent actually wrote\n```\n%s\n```\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
