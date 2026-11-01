@@ -203,6 +203,14 @@ def build_system_prompt_parts(view: CrusorPromptView, system_message: Optional[s
                    guidance.EXECUTION_GUIDANCE_MODELS):
         stable_parts.append(guidance.execution_guidance_text(view.valid_tool_names))
 
+    # Per-model plugin (thin base + composable delta): Claude/GPT/Kimi each
+    # get their own block here, unknown models get nothing. Placed after the
+    # universal blocks so the stable prefix is shared across models up to this
+    # point; model-specific text only invalidates cache for that model family.
+    plugin_block = guidance.model_plugin_guidance(view.model)
+    if plugin_block:
+        stable_parts.append(plugin_block)
+
     # 7. Environment hints + execution-mode posture + platform hint overrides.
     env_hints = build_environment_hints(view.cwd)
     if env_hints:

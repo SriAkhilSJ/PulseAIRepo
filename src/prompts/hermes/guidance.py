@@ -251,6 +251,68 @@ def is_google_model(model: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Per-model plugins — OpenCode pattern: thin base + composable deltas by model
+# ---------------------------------------------------------------------------
+# One model, one plugin. Claude gets minimal enforcement (well-behaved).
+# GPT gets tool-use enforcement + no-prose-math. Kimi gets context-efficiency
+# + batching. Each plugin is appended to the stable tier after universal
+# guidance, keyed by model-name substring match.
+# ---------------------------------------------------------------------------
+
+CLAUDE_MODEL_GUIDANCE = """\
+## Claude operational guidance
+- You are well-behaved: no enforcement block needed. Prefer direct action over
+  meta-commentary. Batch independent tool calls in ONE response.
+- File edits: use SEARCH/REPLACE diff (text blocks), not JSON tool-call
+  wrappers. Diffs survive model quirks; JSON does not.
+- One concise final report when done — no preamble, no restating the ask.
+"""
+
+GPT_MODEL_GUIDANCE = """\
+## GPT operational guidance
+- Tool-use enforcement: every response = tool calls that progress, or a final
+  result. Never end a turn with a promise of future action.
+- No prose math: use terminal/execute_code for arithmetic, hashes, checksums.
+- After external writes (write_file/edit_file), read back to verify before
+  claiming success. One concise final report when done.
+"""
+
+KIMI_MODEL_GUIDANCE = """\
+## Kimi operational guidance
+- Large context window: batch independent reads into ONE execute_code script
+  instead of N separate tool calls. Fewer round-trips = less resent context.
+- File edits: SEARCH/REPLACE diff in-editor; never round-trip whole files.
+- One concise final report when done.
+"""
+
+# Model plugin registry: substring → guidance text. First match wins.
+# Order matters: more specific substrings before generic ones (e.g. "claude"
+# before "anthropic", "gpt-5" before "gpt").
+MODEL_PLUGINS: tuple[tuple[str, str], ...] = (
+    ("claude", CLAUDE_MODEL_GUIDANCE),
+    ("gpt-5", GPT_MODEL_GUIDANCE),
+    ("gpt", GPT_MODEL_GUIDANCE),
+    ("codex", GPT_MODEL_GUIDANCE),
+    ("kimi", KIMI_MODEL_GUIDANCE),
+    ("moonshot", KIMI_MODEL_GUIDANCE),
+)
+
+
+def model_plugin_guidance(model: str) -> str:
+    """Return the per-model plugin block for ``model``, or ``""``.
+
+    Matches by substring against MODEL_PLUGINS in order. Unknown models get
+    nothing — the base identity + universal guidance is enough.
+    """
+    model_lower = (model or "").lower()
+    for substr, block in MODEL_PLUGINS:
+        if substr in model_lower:
+            return block
+    return ""
+
+
+
+# ---------------------------------------------------------------------------
 # Mid-turn steering (/steer) — Crusor's bridge has a real ``steer`` client
 # method (protocol v2), so this rides the same channel it was designed for.
 # ---------------------------------------------------------------------------
@@ -356,7 +418,11 @@ LEARN_SOURCE_HYGIENE = _text("learn_prompt", "_SOURCE_HYGIENE")
 
 __all__ = [
     "BRAND_MAP",
+    "CLAUDE_MODEL_GUIDANCE",
     "CONTEXT_FILE_MAX_CHARS",
+    "GPT_MODEL_GUIDANCE",
+    "KIMI_MODEL_GUIDANCE",
+    "MODEL_PLUGINS",
     "CONTEXT_TRUNCATE_HEAD_RATIO",
     "CONTEXT_TRUNCATE_TAIL_RATIO",
     "DEFAULT_AGENT_IDENTITY",
@@ -390,6 +456,7 @@ __all__ = [
     "get_context_file_max_chars",
     "is_google_model",
     "localize",
+    "model_plugin_guidance",
     "needs_execution_guidance",
     "needs_tool_use_enforcement",
     "record_truncation_warning",
