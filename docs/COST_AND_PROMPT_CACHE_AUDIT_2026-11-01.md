@@ -4,23 +4,44 @@
 
 ---
 
-## 0. First, the unit error: **1 LLM call ≠ 1 turn**
+## 0. The unit, settled: 1 cycle = 1 LLM call = 1 turn
 
-A *turn* is one message from you. A *call* is one trip to the model inside it — the model
-reasons, calls a tool, sees the result, and comes back. That is a second call. One turn is
-**many** calls:
+Your definition, and it is now the one the code uses:
 
-| | turn 1 | turn 2 | turn 3 | turn 4 | turn 5 | total |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| LLM calls | 4 | 14 | 33 | 26 | 27 | **104** |
+| Term | Meaning | Used by |
+| :--- | :--- | :--- |
+| **cycle** | one LLM call = one graph iteration = one turn of the loop | `AGENT_ITERATION_BUDGET` counts **these** |
+| **prompt** | one user message, containing N cycles | the harness drives **these** |
 
-The "20" was never calls-per-session — it was `AGENT_ITERATION_BUDGET=20`, i.e. **20 calls
-per turn**, which my harness wrongly imposed on the agent (production is 45). So the session
-was ~104 calls, not 20.
+So both of us were right about different units:
+
+- **"1 call = 1 turn"** → correct: 1 cycle is 1 turn of the loop.
+- **"20 calls"** → 20 **cycles per prompt**, because `AGENT_ITERATION_BUDGET=20` was my
+  harness's value (production: 45). It was never a session total.
+- **"104 calls"** → 104 **cycles** in the session, across 5 prompts.
+
+Measured, in cycle units (run `41290247998`, $0.153/M):
+
+| prompt | cycles | tokens/cycle | $ / cycle | $ / prompt |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 4 | 30,051 | $0.0046 | $0.018 |
+| 2 | 14 | 25,180 | $0.0039 | $0.054 |
+| 3 | 33 | 21,698 | $0.0033 | $0.110 |
+| 4 | 26 | 32,806 | $0.0050 | $0.131 |
+| 5 | 27 | 34,294 | $0.0052 | $0.142 |
+| **total** | **104** | — | — | **$0.45** |
+
+**This is the finding, stated properly: a cycle is cheap (~$0.005). The cycle COUNT explodes**
+(4 → 33 → 27) and each cycle re-sends the whole transcript, so cost goes as ~cycles².
+
+And the budget was absurd in these units: a single edit-and-verify is read + edit + run test +
+read result — **4 to 6 cycles**. A 20-cycle budget buys about **four such edits**, which is
+not a refactor. That is why those turns hit `iterations 20/20` having already passed
+verification: the cap was smaller than the job.
 
 ---
 
-## 1. It was not 20 calls. It was 104 calls and **2.97M tokens**.
+## 1. 104 cycles, 2.97M tokens — every cycle re-sends the transcript
 
 The first turn makes 4 calls. A *mature* turn makes 26–33, and **every call re-sends the
 whole transcript**. From the run's own telemetry:

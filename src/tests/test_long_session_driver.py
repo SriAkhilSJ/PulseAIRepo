@@ -221,3 +221,21 @@ def test_report_separates_tokens_that_did_work_from_tokens_that_were_discarded()
     out = summarize(turns, 3)
     assert out["turns_completed"] == 2
     assert out["turns_budget_cut"] == 1
+
+
+def test_the_report_names_prompts_and_cycles_separately():
+    """Field 2026-11-01: "turn" meant one user message to me and one loop CYCLE
+    to the reader. The confusion mattered: "20" was a per-prompt CYCLE budget
+    while a session holds ~100 cycles, so "only 20 calls" and "104 calls" were
+    both correct about different units. The report now defines both terms and
+    labels the columns accordingly, and the summary names cycles per prompt.
+    """
+    import subprocess, sys as _sys
+    from pathlib import Path
+
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "run_long_session.py").read_text()
+    assert "One cycle = one LLM call = one graph iteration" in script
+    assert "| Cycles |" in script
+    assert "cycles per prompt" in script
+    # the old ambiguous header must be gone
+    assert "| Turn | Frame | Completed | Outcome | LLM calls |" not in script

@@ -104,12 +104,12 @@ def summarize(turns: list[dict], turns_requested: int) -> dict:
         verdict = f"STOPPED at turn {stopped_at}"
     elif cut:
         verdict = (
-            f"RAN ALL {len(turns)} TURNS, but {len(cut)} were BUDGET-CUT "
+            f"RAN ALL {len(turns)} PROMPTS, but {len(cut)} were CYCLE-BUDGET-CUT "
             f"(turns {', '.join(str(t['turn']) for t in cut)}) — the session keeps "
             "answering while it stops being able to finish work"
         )
     else:
-        verdict = "SURVIVED every turn"
+        verdict = "SURVIVED every prompt"
     spent_total = sum(int(t.get("tokens_in_telemetry") or 0) for t in turns)
     spent_on_cut = sum(int(t.get("tokens_in_telemetry") or 0) for t in cut)
     return {
@@ -477,11 +477,20 @@ def main(argv: list[str] | None = None) -> int:
     out.append("# Long-session stamina test")
     out.append("")
     out.append(
-        f"**{summary['turns_completed']}/{len(prompts)} turns genuinely completed — "
+        f"**{summary['turns_completed']}/{len(prompts)} prompts genuinely completed — "
         f"{summary['verdict']}**"
     )
     out.append("")
-    out.append("| Turn | Frame | Completed | Outcome | LLM calls | History in | Tools | Wall | New tokens | Error |")
+    # Field 2026-11-01: "turn" was ambiguous — one reader meant one user
+    # message, another meant one loop CYCLE (one LLM call). The unit matters,
+    # because "20" was a CYCLE budget per prompt while a session contains ~100
+    # cycles. Both are now named, so a report can never be read two ways.
+    out.append(
+        "One **prompt** = one user message = N **cycles**. "
+        "One cycle = one LLM call = one graph iteration."
+    )
+    out.append("")
+    out.append("| Prompt | Frame | Completed | Outcome | Cycles | History in | Tools | Wall | New tokens | Error |")
     out.append("| ---: | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |")
     for turn, delta in zip(turns, token_deltas):
         done = "yes" if turn.get("completed") else "**NO**"
@@ -495,9 +504,11 @@ def main(argv: list[str] | None = None) -> int:
     out.append("")
     growth = [t.get("messages_at_first_call", 0) for t in turns]
     if len(growth) >= 2:
-        out.append(f"History entering each turn: {growth[0]} → {growth[-1]} messages "
-                   f"over {len(growth)} turns.")
-    out.append(f"Session wall clock: {total_wall}s.")
+        out.append(f"History entering each prompt: {growth[0]} → {growth[-1]} messages "
+                   f"over {len(growth)} prompts.")
+    total_cycles = sum(int(t.get("llm_calls") or 0) for t in turns)
+    out.append(f"Session wall clock: {total_wall}s, {total_cycles} cycles "
+               f"({total_cycles / max(1, len(turns)):.1f} cycles per prompt).")
     report = "\n".join(out) + "\n"
     (run_dir / "LONG_SESSION_REPORT.md").write_text(report, encoding="utf-8")
     print("\n" + report)
