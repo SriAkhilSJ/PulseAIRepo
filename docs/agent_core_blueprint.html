@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>CrusorAI agent-core blueprint</title>
+<style>
+ :root { color-scheme: dark; }
+ body { margin:0; background:#0b0f14; color:#e6edf3;
+        font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+ .wrap { max-width:1560px; margin:0 auto; padding:28px 20px 80px; }
+ h1 { font-size:26px; margin:0 0 6px; }
+ .lede { color:#8b98a5; font-size:13px; margin-bottom:22px; line-height:1.6; }
+ .unit { color:#58a6ff; }
+ .svgbox { overflow-x:auto; border:1px solid #30363d; border-radius:12px; }
+ h2 { font-size:17px; margin:38px 0 12px; color:#58a6ff; }
+ table { width:100%; border-collapse:collapse; font-size:12.5px; }
+ th, td { text-align:left; padding:9px 10px; border-bottom:1px solid #30363d; vertical-align:top; }
+ th { color:#8b98a5; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+ td.n { color:#8b98a5; }
+ .sub { color:#8b98a5; font-size:11px; }
+ td.m { color:#58a6ff; white-space:pre-wrap; }
+ td.d { color:#e6edf3; }
+ td.b { color:#2ea043; font-size:11.5px; }
+ .g { color:#d29922; margin-top:5px; }
+ .dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
+ .ok { background:#2ea043; } .warn { background:#d29922; } .bad { background:#da3633; }
+ .money { background:#1a1013; border:1px solid #da3633; border-radius:10px; padding:16px 18px; margin-top:26px; }
+ .money b { color:#da3633; }
+ .kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin:18px 0 6px; }
+ .card { background:#121a23; border:1px solid #30363d; border-radius:10px; padding:14px; }
+ .card .v { font-size:22px; font-weight:700; }
+ .card .k { color:#8b98a5; font-size:11px; margin-top:4px; line-height:1.45; }
+</style></head><body><div class="wrap">
+<h1>CrusorAI agent core — body blueprint</h1>
+<div class="lede">
+  14 pipelines, every number measured from live runs
+  (<code>41290247998 (+ 41288766831, 41291666232)</code>) or re-computed from the repo at render time.
+  <span class="unit">1 cycle = 1 LLM call = 1 loop turn · 1 prompt = 1 user message = N cycles</span>
+</div>
+
+<div class="kpi">
+  <div class="card"><div class="v">104</div><div class="k">cycles in 5 prompts</div></div>
+  <div class="card"><div class="v">28,805</div><div class="k">tokens per cycle (mean)<br>$0.0044 per cycle</div></div>
+  <div class="card"><div class="v" style="color:#da3633">84%</div><div class="k">of tokens spent on turns<br>that were then cut</div></div>
+  <div class="card"><div class="v">7,939</div><div class="k">fixed overhead per cycle<br>(tool schema 7,509 + persona 430) = 27%</div></div>
+  <div class="card"><div class="v">36/68</div><div class="k">tools sent / defined<br>re-sent every cycle</div></div>
+  <div class="card"><div class="v">98.9%</div><div class="k">of session wall clock<br>spent inside the model</div></div>
+</div>
+
+<div class="svgbox"><svg xmlns="http://www.w3.org/2000/svg" width="1500" height="2440" viewBox="0 0 1500 2440" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<rect width="1500" height="2440" fill="#0b0f14"/>
+<text x="40" y="52" fill="#e6edf3" font-size="30" font-weight="700">CRUSORAI AGENT CORE — BODY BLUEPRINT</text>
+<text x="40" y="82" fill="#8b98a5" font-size="15">14 pipelines · every number measured, not estimated · source: run 41290247998 (+ 41288766831, 41291666232)</text>
+<text x="40" y="106" fill="#58a6ff" font-size="14">1 cycle = 1 LLM call = 1 loop turn   ·   1 prompt = 1 user message = N cycles</text>
+<rect x="40" y="122" width="12" height="12" rx="2" fill="#2ea043"/>
+<text x="58" y="133" fill="#8b98a5" font-size="12">healthy</text>
+<rect x="190" y="122" width="12" height="12" rx="2" fill="#d29922"/>
+<text x="208" y="133" fill="#8b98a5" font-size="12">works, cost/quality hole</text>
+<rect x="340" y="122" width="12" height="12" rx="2" fill="#da3633"/>
+<text x="358" y="133" fill="#8b98a5" font-size="12">broken / was broken</text>
+<text x="96" y="166" fill="#8b98a5" font-size="11">PIPELINE</text>
+<text x="470" y="166" fill="#8b98a5" font-size="11">MEASURED</text>
+<text x="790" y="166" fill="#8b98a5" font-size="11">DIAGNOSIS</text>
+<text x="1140" y="166" fill="#8b98a5" font-size="11">BEST-IN-CLASS / GAP</text>
+<rect x="40" y="190" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="190" width="6" height="132" rx="3" fill="#2ea043"/>
+<text x="64" y="224" fill="#8b98a5" font-size="13">01</text>
+<text x="96" y="224" fill="#e6edf3" font-size="17" font-weight="700">INGRESS</text>
+<text x="96" y="246" fill="#8b98a5" font-size="11">bridge protocol · frames on the wire</text>
+<text x="470" y="216" fill="#58a6ff" font-size="12">2,579 lines · protocol v2 · 3/3 probes</text>
+<text x="790" y="216" fill="#e6edf3" font-size="12">Frames round-trip losslessly; malformed input</text>
+<text x="790" y="234" fill="#e6edf3" font-size="12">raises ProtocolError. No defect found.</text>
+<text x="1140" y="216" fill="#2ea043" font-size="11">▲ OpenCode publishes an OpenAPI 3.1 spec and</text>
+<text x="1140" y="233" fill="#2ea043" font-size="11">generates the client SDK.</text>
+<text x="1140" y="270" fill="#d29922" font-size="11">▼ Our protocol has no schema artifact a</text>
+<text x="1140" y="287" fill="#d29922" font-size="11">client can validate against.</text>
+<line x1="750" y1="322" x2="750" y2="340" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,335 755,335 750,340" fill="#30363d"/>
+<rect x="40" y="340" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="340" width="6" height="132" rx="3" fill="#2ea043"/>
+<text x="64" y="374" fill="#8b98a5" font-size="13">02</text>
+<text x="96" y="374" fill="#e6edf3" font-size="17" font-weight="700">SESSION</text>
+<text x="96" y="396" fill="#8b98a5" font-size="11">id, workspace binding, durability</text>
+<text x="470" y="366" fill="#58a6ff" font-size="12">1 session_create · thread_id == session_id</text>
+<text x="790" y="366" fill="#e6edf3" font-size="12">A second prompt continues the same graph,</text>
+<text x="790" y="384" fill="#e6edf3" font-size="12">which is what makes a long session possible at</text>
+<text x="790" y="402" fill="#e6edf3" font-size="12">all.</text>
+<text x="1140" y="366" fill="#2ea043" font-size="11">▲ OpenHands: event-sourced session,</text>
+<text x="1140" y="383" fill="#2ea043" font-size="11">replayable event store.</text>
+<text x="1140" y="420" fill="#d29922" font-size="11">▼ Ours is checkpoint state, not an event</text>
+<text x="1140" y="437" fill="#d29922" font-size="11">log.</text>
+<line x1="750" y1="472" x2="750" y2="490" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,485 755,485 750,490" fill="#30363d"/>
+<rect x="40" y="490" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="490" width="6" height="132" rx="3" fill="#2ea043"/>
+<text x="64" y="524" fill="#8b98a5" font-size="13">03</text>
+<text x="96" y="524" fill="#e6edf3" font-size="17" font-weight="700">PROMPT ASSEMBLY</text>
+<text x="96" y="546" fill="#8b98a5" font-size="11">persona + AGENTS.md + git context</text>
+<text x="470" y="516" fill="#58a6ff" font-size="12">persona 430 tok · sent every cycle</text>
+<text x="790" y="516" fill="#e6edf3" font-size="12">Workspace instructions reach the prompt; the</text>
+<text x="790" y="534" fill="#e6edf3" font-size="12">assembly path is tested.</text>
+<text x="1140" y="516" fill="#2ea043" font-size="11">▲ Aider: 1–4k token tree-sitter + PageRank</text>
+<text x="1140" y="533" fill="#2ea043" font-size="11">repo map instead of prose.</text>
+<text x="1140" y="570" fill="#d29922" font-size="11">▼ We describe the project in words; they</text>
+<text x="1140" y="587" fill="#d29922" font-size="11">rank its symbols.</text>
+<line x1="750" y1="622" x2="750" y2="640" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,635 755,635 750,640" fill="#30363d"/>
+<rect x="40" y="640" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="640" width="6" height="132" rx="3" fill="#d29922"/>
+<text x="64" y="674" fill="#8b98a5" font-size="13">04</text>
+<text x="96" y="674" fill="#e6edf3" font-size="17" font-weight="700">CONTEXT ENGINE</text>
+<text x="96" y="696" fill="#8b98a5" font-size="11">window budget · compaction · cache</text>
+<text x="96" y="711" fill="#8b98a5" font-size="11">prefix</text>
+<text x="470" y="666" fill="#58a6ff" font-size="12">2,704 lines · 4 compactions · 2→129</text>
+<text x="470" y="685" fill="#8b98a5" font-size="12">messages</text>
+<text x="790" y="666" fill="#e6edf3" font-size="12">Compaction fires and shrinks history, but it</text>
+<text x="790" y="684" fill="#e6edf3" font-size="12">REWRITES the prefix, so the next cycle</text>
+<text x="790" y="702" fill="#e6edf3" font-size="12">re-prefills the whole prompt at full price.</text>
+<text x="1140" y="666" fill="#2ea043" font-size="11">▲ OpenHands masks old observations in place</text>
+<text x="1140" y="683" fill="#2ea043" font-size="11">and records condensation as a tombstone</text>
+<text x="1140" y="700" fill="#2ea043" font-size="11">event.</text>
+<text x="1140" y="720" fill="#d29922" font-size="11">▼ Cache hit rate decays 53% → 46% → 39% as</text>
+<text x="1140" y="737" fill="#d29922" font-size="11">history is rewritten.</text>
+<line x1="750" y1="772" x2="750" y2="790" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,785 755,785 750,790" fill="#30363d"/>
+<rect x="40" y="790" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="790" width="6" height="132" rx="3" fill="#d29922"/>
+<text x="64" y="824" fill="#8b98a5" font-size="13">05</text>
+<text x="96" y="824" fill="#e6edf3" font-size="17" font-weight="700">MODEL CALL</text>
+<text x="96" y="846" fill="#8b98a5" font-size="11">factory · tool schemas · output cap</text>
+<text x="470" y="816" fill="#58a6ff" font-size="12">68 tools defined · 36 sent · 7,509 tok of</text>
+<text x="470" y="835" fill="#8b98a5" font-size="12">schema per cycle</text>
+<text x="790" y="816" fill="#e6edf3" font-size="12">Fixed overhead is 7,939 tokens — 27% of a</text>
+<text x="790" y="834" fill="#e6edf3" font-size="12">28,805-token cycle — re-sent on every one of</text>
+<text x="790" y="852" fill="#e6edf3" font-size="12">the 104 cycles.</text>
+<text x="1140" y="816" fill="#2ea043" font-size="11">▲ SWE-agent ships a small ACI toolset; Aider</text>
+<text x="1140" y="833" fill="#2ea043" font-size="11">sends ZERO tools (text edit formats).</text>
+<text x="1140" y="870" fill="#d29922" font-size="11">▼ Tool schemas are the largest single line</text>
+<text x="1140" y="887" fill="#d29922" font-size="11">item we never measured.</text>
+<line x1="750" y1="922" x2="750" y2="940" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,935 755,935 750,940" fill="#30363d"/>
+<rect x="40" y="940" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="940" width="6" height="132" rx="3" fill="#da3633"/>
+<text x="64" y="974" fill="#8b98a5" font-size="13">06</text>
+<text x="96" y="974" fill="#e6edf3" font-size="17" font-weight="700">LLM LOOP</text>
+<text x="96" y="996" fill="#8b98a5" font-size="11">one cycle = one LLM call</text>
+<text x="470" y="966" fill="#58a6ff" font-size="12">104 cycles · 28,805 tok/cycle ·</text>
+<text x="470" y="985" fill="#8b98a5" font-size="12">$0.0044/cycle</text>
+<text x="790" y="966" fill="#e6edf3" font-size="12">A cycle is cheap. The COUNT explodes (4 → 33 →</text>
+<text x="790" y="984" fill="#e6edf3" font-size="12">27) and every cycle re-sends the transcript,</text>
+<text x="790" y="1002" fill="#e6edf3" font-size="12">so cost grows ~cycles².</text>
+<text x="1140" y="966" fill="#2ea043" font-size="11">▲ Same physics for everyone — mature</text>
+<text x="1140" y="983" fill="#2ea043" font-size="11">harnesses bound the transcript, not the</text>
+<text x="1140" y="1000" fill="#2ea043" font-size="11">model.</text>
+<text x="1140" y="1020" fill="#d29922" font-size="11">▼ We bounded iterations at 20 (harness)</text>
+<text x="1140" y="1037" fill="#d29922" font-size="11">instead of the work.</text>
+<line x1="750" y1="1072" x2="750" y2="1090" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1085 755,1085 750,1090" fill="#30363d"/>
+<rect x="40" y="1090" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1090" width="6" height="132" rx="3" fill="#da3633"/>
+<text x="64" y="1124" fill="#8b98a5" font-size="13">07</text>
+<text x="96" y="1124" fill="#e6edf3" font-size="17" font-weight="700">TOOLS</text>
+<text x="96" y="1146" fill="#8b98a5" font-size="11">resolution · execution · failure</text>
+<text x="96" y="1161" fill="#8b98a5" font-size="11">reporting</text>
+<text x="470" y="1116" fill="#58a6ff" font-size="12">68 defined · 36 sent · 12,000 chars ≈</text>
+<text x="470" y="1135" fill="#8b98a5" font-size="12">3,000 tok per result</text>
+<text x="790" y="1116" fill="#e6edf3" font-size="12">read_terminal_output failed on ALL 7 prompts</text>
+<text x="790" y="1134" fill="#e6edf3" font-size="12">and the model was told 'Tool failed:</text>
+<text x="790" y="1152" fill="#e6edf3" font-size="12">read_terminal_output' — no cause, so it</text>
+<text x="790" y="1170" fill="#e6edf3" font-size="12">retried.</text>
+<text x="1140" y="1116" fill="#2ea043" font-size="11">▲ SWE-agent ACI: terse, uniform,</text>
+<text x="1140" y="1133" fill="#2ea043" font-size="11">always-explained output. Cline: errors</text>
+<text x="1140" y="1150" fill="#2ea043" font-size="11">returned as data, never thrown.</text>
+<text x="1140" y="1170" fill="#d29922" font-size="11">▼ 30 results/prompt × 3,000 tok ≈ 90,000</text>
+<text x="1140" y="1187" fill="#d29922" font-size="11">tokens per prompt.</text>
+<line x1="750" y1="1222" x2="750" y2="1240" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1235 755,1235 750,1240" fill="#30363d"/>
+<rect x="40" y="1240" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1240" width="6" height="132" rx="3" fill="#da3633"/>
+<text x="64" y="1274" fill="#8b98a5" font-size="13">08</text>
+<text x="96" y="1274" fill="#e6edf3" font-size="17" font-weight="700">LOOP CONTROL</text>
+<text x="96" y="1296" fill="#8b98a5" font-size="11">budget legs · gates · stuck detection</text>
+<text x="470" y="1266" fill="#58a6ff" font-size="12">iterations 20/45 (imposed 20, production</text>
+<text x="470" y="1285" fill="#8b98a5" font-size="12">45) · cost leg OFF by default</text>
+<text x="790" y="1266" fill="#e6edf3" font-size="12">Three cut turns passed verification and were</text>
+<text x="790" y="1284" fill="#e6edf3" font-size="12">still cut at iterations 20/20 — my cap was</text>
+<text x="790" y="1302" fill="#e6edf3" font-size="12">smaller than the job.</text>
+<text x="1140" y="1266" fill="#2ea043" font-size="11">▲ OpenHands ships a 487-line StuckDetector;</text>
+<text x="1140" y="1283" fill="#2ea043" font-size="11">harness guides fingerprint (tool, result)</text>
+<text x="1140" y="1300" fill="#2ea043" font-size="11">triples.</text>
+<text x="1140" y="1320" fill="#d29922" font-size="11">▼ We have three overlapping guards</text>
+<text x="1140" y="1337" fill="#d29922" font-size="11">(loop/progress/repetition) and no single</text>
+<text x="1140" y="1354" fill="#d29922" font-size="11">detector.</text>
+<line x1="750" y1="1372" x2="750" y2="1390" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1385 755,1385 750,1390" fill="#30363d"/>
+<rect x="40" y="1390" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1390" width="6" height="132" rx="3" fill="#2ea043"/>
+<text x="64" y="1424" fill="#8b98a5" font-size="13">09</text>
+<text x="96" y="1424" fill="#e6edf3" font-size="17" font-weight="700">VERIFICATION</text>
+<text x="96" y="1446" fill="#8b98a5" font-size="11">receipts · derived status</text>
+<text x="470" y="1416" fill="#58a6ff" font-size="12">verification=passed on 3 cut turns</text>
+<text x="790" y="1416" fill="#e6edf3" font-size="12">Verification is genuinely receipt-based — it</text>
+<text x="790" y="1434" fill="#e6edf3" font-size="12">PASSED on work the budget then discarded,</text>
+<text x="790" y="1452" fill="#e6edf3" font-size="12">which is the crux of the waste.</text>
+<text x="1140" y="1416" fill="#2ea043" font-size="11">▲ Comparable; ours is stronger than most</text>
+<text x="1140" y="1433" fill="#2ea043" font-size="11">(evidence manifests + sha256).</text>
+<text x="1140" y="1470" fill="#d29922" font-size="11">▼ None found in this pipeline.</text>
+<line x1="750" y1="1522" x2="750" y2="1540" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1535 755,1535 750,1540" fill="#30363d"/>
+<rect x="40" y="1540" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1540" width="6" height="132" rx="3" fill="#2ea043"/>
+<text x="64" y="1574" fill="#8b98a5" font-size="13">10</text>
+<text x="96" y="1574" fill="#e6edf3" font-size="17" font-weight="700">PERSISTENCE</text>
+<text x="96" y="1596" fill="#8b98a5" font-size="11">checkpoints · journal · evidence</text>
+<text x="470" y="1566" fill="#58a6ff" font-size="12">checkpoint opens in 0.6 ms · unpaired tool</text>
+<text x="470" y="1585" fill="#8b98a5" font-size="12">call detected · 3/3 probes</text>
+<text x="790" y="1566" fill="#e6edf3" font-size="12">Checkpoints reopen; evidence refuses a missing</text>
+<text x="790" y="1584" fill="#e6edf3" font-size="12">manifest.</text>
+<text x="1140" y="1566" fill="#2ea043" font-size="11">▲ OpenHands event store (immutable,</text>
+<text x="1140" y="1583" fill="#2ea043" font-size="11">replayable).</text>
+<text x="1140" y="1620" fill="#d29922" font-size="11">▼ Ours stores state; theirs stores history.</text>
+<line x1="750" y1="1672" x2="750" y2="1690" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1685 755,1685 750,1690" fill="#30363d"/>
+<rect x="40" y="1690" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1690" width="6" height="132" rx="3" fill="#d29922"/>
+<text x="64" y="1724" fill="#8b98a5" font-size="13">11</text>
+<text x="96" y="1724" fill="#e6edf3" font-size="17" font-weight="700">FINALIZE</text>
+<text x="96" y="1746" fill="#8b98a5" font-size="11">one verdict, one voice</text>
+<text x="470" y="1716" fill="#58a6ff" font-size="12">12 defects found · 4 in the verdict/error</text>
+<text x="470" y="1735" fill="#8b98a5" font-size="12">path</text>
+<text x="790" y="1716" fill="#e6edf3" font-size="12">A budget-cut turn printed 'finalize done:</text>
+<text x="790" y="1734" fill="#e6edf3" font-size="12">completed' while the bridge said</text>
+<text x="790" y="1752" fill="#e6edf3" font-size="12">completed=False. Fixed; now one verdict.</text>
+<text x="1140" y="1716" fill="#2ea043" font-size="11">▲ Cline reports finishReason + status</text>
+<text x="1140" y="1733" fill="#2ea043" font-size="11">separately and consistently.</text>
+<text x="1140" y="1770" fill="#d29922" font-size="11">▼ Our error surface returned None for EVERY</text>
+<text x="1140" y="1787" fill="#d29922" font-size="11">API failure until today.</text>
+<line x1="750" y1="1822" x2="750" y2="1840" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1835 755,1835 750,1840" fill="#30363d"/>
+<rect x="40" y="1840" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1840" width="6" height="132" rx="3" fill="#da3633"/>
+<text x="64" y="1874" fill="#8b98a5" font-size="13">12</text>
+<text x="96" y="1874" fill="#e6edf3" font-size="17" font-weight="700">ECONOMICS</text>
+<text x="96" y="1896" fill="#8b98a5" font-size="11">the pipeline nobody had drawn</text>
+<text x="470" y="1866" fill="#58a6ff" font-size="12">2,967,652 tokens · $0.45 · 84% discarded</text>
+<text x="790" y="1866" fill="#e6edf3" font-size="12">2.49M of 2.97M tokens were spent on turns that</text>
+<text x="790" y="1884" fill="#e6edf3" font-size="12">were then cut. Spend per COMPLETED turn: ~236k</text>
+<text x="790" y="1902" fill="#e6edf3" font-size="12">tokens.</text>
+<text x="1140" y="1866" fill="#2ea043" font-size="11">▲ Everyone prints tokens; the good ones</text>
+<text x="1140" y="1883" fill="#2ea043" font-size="11">print cost per completed task.</text>
+<text x="1140" y="1920" fill="#d29922" font-size="11">▼ This stage did not exist in our audit</text>
+<text x="1140" y="1937" fill="#d29922" font-size="11">until the wallet emptied.</text>
+<line x1="750" y1="1972" x2="750" y2="1990" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,1985 755,1985 750,1990" fill="#30363d"/>
+<rect x="40" y="1990" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="1990" width="6" height="132" rx="3" fill="#d29922"/>
+<text x="64" y="2024" fill="#8b98a5" font-size="13">13</text>
+<text x="96" y="2024" fill="#e6edf3" font-size="17" font-weight="700">RECOVERY</text>
+<text x="96" y="2046" fill="#8b98a5" font-size="11">classify · retry · rotate · halt</text>
+<text x="470" y="2016" fill="#58a6ff" font-size="12">5/7 vendor auth bodies were retried · 1</text>
+<text x="470" y="2035" fill="#8b98a5" font-size="12">crash on connect reset</text>
+<text x="790" y="2016" fill="#e6edf3" font-size="12">A dead key was retried instead of rotated; a</text>
+<text x="790" y="2034" fill="#e6edf3" font-size="12">connection reset CRASHED the classifier; a ₹0</text>
+<text x="790" y="2052" fill="#e6edf3" font-size="12">wallet now halts in 5.3s.</text>
+<text x="1140" y="2016" fill="#2ea043" font-size="11">▲ LiteLLM/OpenHands classify by typed status</text>
+<text x="1140" y="2033" fill="#2ea043" font-size="11">+ body, then rotate.</text>
+<text x="1140" y="2070" fill="#d29922" font-size="11">▼ We had 7 copy-pasted pattern lists; now</text>
+<text x="1140" y="2087" fill="#d29922" font-size="11">one predicate.</text>
+<line x1="750" y1="2122" x2="750" y2="2140" stroke="#30363d" stroke-width="2"/>
+<polygon points="745,2135 755,2135 750,2140" fill="#30363d"/>
+<rect x="40" y="2140" width="1420" height="132" rx="10" fill="#121a23" stroke="#30363d"/>
+<rect x="40" y="2140" width="6" height="132" rx="3" fill="#d29922"/>
+<text x="64" y="2174" fill="#8b98a5" font-size="13">14</text>
+<text x="96" y="2174" fill="#e6edf3" font-size="17" font-weight="700">HYGIENE</text>
+<text x="96" y="2196" fill="#8b98a5" font-size="11">imports · orphans · dead paths</text>
+<text x="470" y="2166" fill="#58a6ff" font-size="12">3 unimportable-module defects · 5 orphans</text>
+<text x="470" y="2185" fill="#8b98a5" font-size="12">· 5 dead imports</text>
+<text x="790" y="2166" fill="#e6edf3" font-size="12">The core could not import without a WEB-SEARCH</text>
+<text x="790" y="2184" fill="#e6edf3" font-size="12">package and two provider SDKs; test collection</text>
+<text x="790" y="2202" fill="#e6edf3" font-size="12">was impossible until fixed.</text>
+<text x="1140" y="2166" fill="#2ea043" font-size="11">▲ Provider SDKs imported on demand inside</text>
+<text x="1140" y="2183" fill="#2ea043" font-size="11">the branch that uses them.</text>
+<text x="1140" y="2220" fill="#d29922" font-size="11">▼ 5 modules import agent/hermes packages</text>
+<text x="1140" y="2237" fill="#d29922" font-size="11">that do not exist here.</text>
+<rect x="40" y="2316" width="1420" height="92" rx="10" fill="#1a1013" stroke="#da3633"/>
+<text x="64" y="2346" fill="#da3633" font-size="15" font-weight="700">WHERE THE MONEY WENT — 5 prompts · 104 cycles · 2,967,652 tokens · $0.45</text>
+<text x="64" y="2370" fill="#e6edf3" font-size="12">completed: 472,716 tok (16%)   ·   discarded by cycle-cuts: 2,494,936 tok (84%)   ·   model wall 98.9% of session</text>
+<text x="64" y="2392" fill="#8b98a5" font-size="12">fixed per-cycle overhead: 7,939 tok (tool schema 7,509)  ·  cache hit decaying 53% → 39% as compaction rewrites the prefix</text>
+</svg></div>
+
+<h2>Every pipeline, measured</h2>
+<table>
+ <tr><th>#</th><th>Pipeline</th><th>Measured</th><th>Diagnosis</th><th>Best-in-class / our gap</th><th></th></tr>
+ <tr><td class="n">01</td><td><b>INGRESS</b><br><span class="sub">bridge protocol · frames on the wire</span></td><td class="m">2,579 lines · protocol v2 · 3/3 probes</td><td class="d">Frames round-trip losslessly; malformed input raises ProtocolError. No defect found.</td><td class="b">OpenCode publishes an OpenAPI 3.1 spec and generates the client SDK.<div class="g">▼ Our protocol has no schema artifact a client can validate against.</div></td><td><span class="dot ok"></span></td></tr><tr><td class="n">02</td><td><b>SESSION</b><br><span class="sub">id, workspace binding, durability</span></td><td class="m">1 session_create · thread_id == session_id</td><td class="d">A second prompt continues the same graph, which is what makes a long session possible at all.</td><td class="b">OpenHands: event-sourced session, replayable event store.<div class="g">▼ Ours is checkpoint state, not an event log.</div></td><td><span class="dot ok"></span></td></tr><tr><td class="n">03</td><td><b>PROMPT ASSEMBLY</b><br><span class="sub">persona + AGENTS.md + git context</span></td><td class="m">persona 430 tok · sent every cycle</td><td class="d">Workspace instructions reach the prompt; the assembly path is tested.</td><td class="b">Aider: 1–4k token tree-sitter + PageRank repo map instead of prose.<div class="g">▼ We describe the project in words; they rank its symbols.</div></td><td><span class="dot ok"></span></td></tr><tr><td class="n">04</td><td><b>CONTEXT ENGINE</b><br><span class="sub">window budget · compaction · cache prefix</span></td><td class="m">2,704 lines · 4 compactions · 2→129 messages</td><td class="d">Compaction fires and shrinks history, but it REWRITES the prefix, so the next cycle re-prefills the whole prompt at full price.</td><td class="b">OpenHands masks old observations in place and records condensation as a tombstone event.<div class="g">▼ Cache hit rate decays 53% → 46% → 39% as history is rewritten.</div></td><td><span class="dot warn"></span></td></tr><tr><td class="n">05</td><td><b>MODEL CALL</b><br><span class="sub">factory · tool schemas · output cap</span></td><td class="m">68 tools defined · 36 sent · 7,509 tok of schema per cycle</td><td class="d">Fixed overhead is 7,939 tokens — 27% of a 28,805-token cycle — re-sent on every one of the 104 cycles.</td><td class="b">SWE-agent ships a small ACI toolset; Aider sends ZERO tools (text edit formats).<div class="g">▼ Tool schemas are the largest single line item we never measured.</div></td><td><span class="dot warn"></span></td></tr><tr><td class="n">06</td><td><b>LLM LOOP</b><br><span class="sub">one cycle = one LLM call</span></td><td class="m">104 cycles · 28,805 tok/cycle · $0.0044/cycle</td><td class="d">A cycle is cheap. The COUNT explodes (4 → 33 → 27) and every cycle re-sends the transcript, so cost grows ~cycles².</td><td class="b">Same physics for everyone — mature harnesses bound the transcript, not the model.<div class="g">▼ We bounded iterations at 20 (harness) instead of the work.</div></td><td><span class="dot bad"></span></td></tr><tr><td class="n">07</td><td><b>TOOLS</b><br><span class="sub">resolution · execution · failure reporting</span></td><td class="m">68 defined · 36 sent · 12,000 chars ≈ 3,000 tok per result</td><td class="d">read_terminal_output failed on ALL 7 prompts and the model was told 'Tool failed: read_terminal_output' — no cause, so it retried.</td><td class="b">SWE-agent ACI: terse, uniform, always-explained output. Cline: errors returned as data, never thrown.<div class="g">▼ 30 results/prompt × 3,000 tok ≈ 90,000 tokens per prompt.</div></td><td><span class="dot bad"></span></td></tr><tr><td class="n">08</td><td><b>LOOP CONTROL</b><br><span class="sub">budget legs · gates · stuck detection</span></td><td class="m">iterations 20/45 (imposed 20, production 45) · cost leg OFF by default</td><td class="d">Three cut turns passed verification and were still cut at iterations 20/20 — my cap was smaller than the job.</td><td class="b">OpenHands ships a 487-line StuckDetector; harness guides fingerprint (tool, result) triples.<div class="g">▼ We have three overlapping guards (loop/progress/repetition) and no single detector.</div></td><td><span class="dot bad"></span></td></tr><tr><td class="n">09</td><td><b>VERIFICATION</b><br><span class="sub">receipts · derived status</span></td><td class="m">verification=passed on 3 cut turns</td><td class="d">Verification is genuinely receipt-based — it PASSED on work the budget then discarded, which is the crux of the waste.</td><td class="b">Comparable; ours is stronger than most (evidence manifests + sha256).<div class="g">▼ None found in this pipeline.</div></td><td><span class="dot ok"></span></td></tr><tr><td class="n">10</td><td><b>PERSISTENCE</b><br><span class="sub">checkpoints · journal · evidence</span></td><td class="m">checkpoint opens in 0.6 ms · unpaired tool call detected · 3/3 probes</td><td class="d">Checkpoints reopen; evidence refuses a missing manifest.</td><td class="b">OpenHands event store (immutable, replayable).<div class="g">▼ Ours stores state; theirs stores history.</div></td><td><span class="dot ok"></span></td></tr><tr><td class="n">11</td><td><b>FINALIZE</b><br><span class="sub">one verdict, one voice</span></td><td class="m">12 defects found · 4 in the verdict/error path</td><td class="d">A budget-cut turn printed 'finalize done: completed' while the bridge said completed=False. Fixed; now one verdict.</td><td class="b">Cline reports finishReason + status separately and consistently.<div class="g">▼ Our error surface returned None for EVERY API failure until today.</div></td><td><span class="dot warn"></span></td></tr><tr><td class="n">12</td><td><b>ECONOMICS</b><br><span class="sub">the pipeline nobody had drawn</span></td><td class="m">2,967,652 tokens · $0.45 · 84% discarded</td><td class="d">2.49M of 2.97M tokens were spent on turns that were then cut. Spend per COMPLETED turn: ~236k tokens.</td><td class="b">Everyone prints tokens; the good ones print cost per completed task.<div class="g">▼ This stage did not exist in our audit until the wallet emptied.</div></td><td><span class="dot bad"></span></td></tr><tr><td class="n">13</td><td><b>RECOVERY</b><br><span class="sub">classify · retry · rotate · halt</span></td><td class="m">5/7 vendor auth bodies were retried · 1 crash on connect reset</td><td class="d">A dead key was retried instead of rotated; a connection reset CRASHED the classifier; a ₹0 wallet now halts in 5.3s.</td><td class="b">LiteLLM/OpenHands classify by typed status + body, then rotate.<div class="g">▼ We had 7 copy-pasted pattern lists; now one predicate.</div></td><td><span class="dot warn"></span></td></tr><tr><td class="n">14</td><td><b>HYGIENE</b><br><span class="sub">imports · orphans · dead paths</span></td><td class="m">3 unimportable-module defects · 5 orphans · 5 dead imports</td><td class="d">The core could not import without a WEB-SEARCH package and two provider SDKs; test collection was impossible until fixed.</td><td class="b">Provider SDKs imported on demand inside the branch that uses them.<div class="g">▼ 5 modules import agent/hermes packages that do not exist here.</div></td><td><span class="dot warn"></span></td></tr>
+</table>
+
+<h2>Cost per cycle, in cycle units</h2>
+<table>
+ <tr><th>Prompt</th><th>Cycles</th><th>Tokens</th><th>$ per cycle</th></tr>
+ <tr><td>1</td><td>4</td><td>30,051</td><td>$0.0046</td></tr><tr><td>2</td><td>14</td><td>25,180</td><td>$0.0039</td></tr><tr><td>3</td><td>33</td><td>21,698</td><td>$0.0033</td></tr><tr><td>4</td><td>26</td><td>32,806</td><td>$0.0050</td></tr><tr><td>5</td><td>27</td><td>34,294</td><td>$0.0052</td></tr>
+</table>
+
+<div class="money">
+ <b>Where the money went.</b> 5 prompts · 104 cycles ·
+ 2,967,652 tokens · $0.45.<br>
+ completed work: 472,716 tokens (16%) &nbsp;·&nbsp;
+ discarded by cycle-cuts: 2,494,936 tokens (84%)<br>
+ A cycle is cheap (~$0.005). The cycle COUNT explodes (4 → 33 → 27) and every cycle re-sends
+ the transcript, so cost grows ~cycles². One edit-and-verify is 4–6 cycles, so the 20-cycle cap
+ my harness imposed was smaller than the job — those prompts died at <code>iterations 20/20</code>
+ having already passed verification.
+</div>
+
+<h2>Fix order, by money recovered</h2>
+<table>
+ <tr><th>#</th><th>Fix</th><th>Recovers</th><th>Pipeline</th></tr>
+ <tr><td>1</td><td>Give the agent its own budget (45) and make <code>AGENT_COST_BUDGET</code> the binding leg</td><td>the 84% currently thrown away</td><td>8 loop control</td></tr>
+ <tr><td>2</td><td>Mask instead of rewrite on compaction (OpenHands condenser)</td><td>cache hit 39% → 80%+; ~17% of every prompt</td><td>4 context</td></tr>
+ <tr><td>3</td><td>Trim the tool preamble: 36–48 schemas = 7,509 tok/cycle</td><td>~26% of every cycle, ×104</td><td>5 model call</td></tr>
+ <tr><td>4</td><td>Cap tool results in tokens, not 12,000 chars</td><td>up to ~90k tokens per prompt</td><td>7 tools</td></tr>
+ <tr><td>5</td><td>One stuck detector instead of three guards</td><td>runaway cycles</td><td>8 loop control</td></tr>
+</table>
+</div></body></html>

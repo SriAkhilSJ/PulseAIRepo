@@ -179,3 +179,35 @@ def test_body_checkup_covers_every_pipeline():
     ):
         assert any(expect in p for p in pipelines), f"no coverage for {expect}"
     assert len(cu.checks) >= 55, len(cu.checks)
+
+
+def test_blueprint_draws_every_pipeline_with_a_metric():
+    """Field 2026-11-01: the blueprint is a generated artifact, not a picture.
+
+    It must (a) be valid SVG, (b) carry all 14 pipelines, (c) put a number in
+    every stage — a stage with no metric is a stage nobody measured — and
+    (d) re-derive the tool-schema cost from the repo at render time, so the
+    diagram cannot drift away from the code it describes.
+    """
+    import xml.etree.ElementTree as ET
+
+    sys.path.insert(0, str(ROOT))
+    from scripts.agent_core_blueprint import measure, render, stages
+
+    m = measure()
+    svg = render(m)
+    root = ET.fromstring(svg)
+    assert root.tag.endswith("svg")
+
+    text = " ".join(t.text or "" for t in root.iter() if t.tag.endswith("text"))
+    st = stages(m)
+    assert len(st) == 14, len(st)
+    for s in st:
+        assert s["name"] in text, s["name"]
+        assert any(ch.isdigit() for ch in s["metric"]), f"{s['name']} has no measured number"
+        assert s["best"], f"{s['name']} has no best-in-class reference"
+        assert s["gap"], f"{s['name']} has no stated gap"
+
+    # the schema cost must be measured, not typed in
+    assert m["schema_tokens"] > 1000, m
+    assert str(f"{m['schema_tokens']:,}") in text, "tool-schema cost missing from the drawing"
