@@ -186,3 +186,74 @@ Docstring says "60% prior + 30% semantic + 10% recency". `allow_embedding_comput
 - **I initially mis-grepped for HTTP 402/429 and got false positives** (they matched `input_tokens: 402`, `output_tokens: 429`). Corrected and discarded — that is *not* the terminator. I'd rather flag the mistake than quietly drop it.
 - **`progress`, `task_manager`, `recovery_limit`, `pivot` appear 0 times in traces** while `ai`/`tools` appear 643/523 times. Two readings: either those nodes are never reached, or the tracer only instruments a subset. I have not proven which — but *either way* the trace is not a complete record of the graph, which is the same trust problem as the missing terminal rows.
 - **`hermes-agent` remains unassessed.** Every "hermes parity" claim in the source comments is yours, read but not verified against upstream.
+
+---
+
+# PART V — Verified live (2026-10-31, real provider, real key)
+
+Run `41273828674` on `a085b532` — job **Live token calibration**, using the
+`CUSTOM_API_KEY` secret inside the runner (GitHub secrets are write-only, so the
+value never left GitHub; the smoke script reports length + last four only).
+Verdict posted to issue #28.
+
+```
+[smoke] key len=50 …6af4 base=https://velona.in/v1 model=z-ai/glm-5.3-flash
+[sample 1] est=3,263 billed=3,279 ratio=1.005
+[sample 2] est=3,263 billed=3,279 ratio=1.005
+[sample 3] est=3,263 billed=3,279 ratio=1.005
+mean ratio est→billed: 1.005
+applied calibration factor: 1.0049
+PASS: live provider usage drives token calibration
+```
+
+## This corrects my own D6 claim — read it
+
+I asserted the cl100k fallback was **"10–25% off"** for Velona/GLM. **On this
+probe it is 0.5% off.** The tokenizer warning did reproduce exactly as
+described — *"no built-in mapping for `z-ai/glm-5.3-flash` … using cl100k_base"* —
+but the resulting count was nearly exact for this content.
+
+So: the **mechanism** was real (the estimator was never calibrated, and cl100k
+genuinely is not GLM's vocabulary), but the **magnitude I claimed was a
+hypothesis and the measurement does not support it for English/code text**.
+
+That is the point of shipping the instrumentation rather than the assumption:
+the defect is now *measured every call* instead of *argued about*. If a future
+model or content type diverges, the factor moves and `count_tokens` corrects
+itself. Before this change, nobody would ever have known either way.
+
+**Do not cite "10–25%" as established.** Cite "0.5% on the 2026-10-31 probe,
+now continuously measured."
+
+---
+
+# PART VI — What actually got fixed
+
+| Fix | File | Status |
+|---|---|---|
+| **T1** verdict seeded `in_progress` | `runtime/status_contract.py`, `graphs/chat_graph.py` | done, tested |
+| **T3** `turn_terminal` row from `_emit_terminal` | `bridge/__main__.py` | done, tested |
+| **T4** cost as 5th graded dimension | `runtime/step_tracker.py` | done, tested |
+| **D6** measured token calibration | `context/token_calibration.py` (new), `context/token_budget.py`, `graphs/chat_graph.py` | done, tested, **verified live** |
+| **D7** `position_bias` naming + switch | `context/layer_policy.py` | done, tested |
+| **D3** conversational-leak gate wired | `tools/terminal_tools.py` | done, tested |
+
+**Test evidence:** 17 new contracts in `src/tests/test_termination_diagnosability.py`;
+105 passed / 1 skipped across the touched suites. The two `run_command`
+prompt-parity failures were confirmed **pre-existing** by stashing the changes
+and reproducing them on the unmodified baseline.
+
+**Still open (deliberately, they change behaviour and need benchmarks):**
+D1 repo map for `.tsx` · D2 milestone governor · D4 USD leg + plan-based
+routing + escalation ladder · D5 provider failover cascade.
+
+## Corrections I owe the earlier reports
+
+1. **`process_boundary` was not wholly dead.** `_posix_violations` was already
+   wired in `terminal_tools.py:1031`. The dead code was
+   `detect_conversational_leak` only — and that is what is now wired.
+2. **The `88.6 / 25` render was not a live bug.** Current source renders
+   `/100`; the artifact I quoted was stale. No fix was needed or made.
+3. **The "25-call cap" does not exist in `src/`.** Traces show 76-call
+   sessions. The real signature was 82% of runs ending with no terminal node.
+4. **The cl100k error magnitude** — see Part V. 0.5%, not 10–25%.
