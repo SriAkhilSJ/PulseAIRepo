@@ -717,6 +717,28 @@ def resolve_default_max_input_tokens(env: dict) -> int:
     return 250_000
 
 
+def budget_shape_warning(cap: int, avg_prompt: float, max_calls: int) -> str | None:
+    """Warn when the token cap cannot possibly cover the call budget.
+
+    Field 2026-11-01: every run of the E2E was configured with a 150,000-token
+    cap beside `--max-llm-calls 20`, while one request already carries ~24,000
+    prompt tokens. That cap buys ~6 calls, so the token leg was GUARANTEED to
+    bind first and the turn was GUARANTEED to end "budget_exhausted" mid-work.
+    The configuration was self-defeating and nothing said so — it surfaced six
+    iterations in, as a failure that looked like the model running away.
+    """
+    if cap <= 0 or avg_prompt <= 0 or max_calls <= 0:
+        return None
+    calls_to_cap = cap / avg_prompt
+    if calls_to_cap >= max_calls:
+        return None
+    return (
+        f"[budget] WARNING: cap {cap:,} at ~{avg_prompt:,.0f} tokens/request buys "
+        f"~{calls_to_cap:.1f} calls, but --max-llm-calls is {max_calls}. The token "
+        "leg will bind first and the turn will end 'budget_exhausted' mid-work."
+    )
+
+
 def should_stop_for_call_budget(llm_calls: int, limit: int) -> bool:
     """Emergency backstop after Agent Core's inclusive final slot.
 
@@ -980,16 +1002,13 @@ def main() -> int:
                     tokens_in_seen = max(tokens_in_seen, int(frame.get("tokensIn") or 0))
                     if token_budget_enabled and not budget_shape_warned and tokens_in_seen > 0:
                         budget_shape_warned = True
-                        avg_prompt = tokens_in_seen / max(1, llm_calls)
-                        calls_to_cap = effective_max_input_tokens / max(1.0, avg_prompt)
-                        if calls_to_cap < args.max_llm_calls:
-                            print(
-                                f"[budget] WARNING: cap {effective_max_input_tokens:,} at "
-                                f"~{avg_prompt:,.0f} tokens/request buys ~{calls_to_cap:.1f} calls, "
-                                f"but --max-llm-calls is {args.max_llm_calls}. The token leg will "
-                                "bind first and the turn will end 'budget_exhausted' mid-work.",
-                                flush=True,
-                            )
+                        warning = budget_shape_warning(
+                            effective_max_input_tokens,
+                            tokens_in_seen / max(1, llm_calls),
+                            args.max_llm_calls,
+                        )
+                        if warning:
+                            print(warning, flush=True)
                 if ftype == "safety_request":
                     safety_requests += 1
                     approved = should_auto_approve_safety_request(frame, workspace)

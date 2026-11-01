@@ -104,6 +104,24 @@ A completed MVP turn now costs **≈ $0.014** and ~86k tokens, and the last run 
 
 ---
 
+## 4b. Follow-up: the "token exhausted" bug
+
+Two runs were cut mid-build with `tokens 172,020/150,000 >= cap` while the
+model still had 14 of its 20 iterations and the finished MVP cost **$0.03**.
+Three separate defects behind one line.
+
+| # | Defect | Evidence | Fix |
+| :-- | :--- | :--- | :--- |
+| 1 | **Nobody chose 150,000.** `budget.py` already defaulted to 600,000 *specifically so the iteration budget binds first*, but `run_bridge_turn.main()` did `env["AGENT_TOKEN_BUDGET"] = str(max_input_tokens)` unconditionally — replacing the graph's tuned default with the runner's credit breaker, and discarding an explicit `AGENT_TOKEN_BUDGET` the same way. The workflow set 600000 and still ran at 150000. | `[budget] exhausted: tokens 172,020/150,000` beside `_TOKEN_BUDGET_DEFAULT = 600_000` | `resolve_token_budget()` with real precedence — `--max-input-tokens` > `CRUSORAI_MAX_INPUT_TOKENS` > `AGENT_TOKEN_BUDGET` > adaptive — and it prints the winner: `[budget] input-token cap=600,000 source=--max-input-tokens` |
+| 2 | **The cap charged for tokens nobody paid for.** `total_tokens` is the *sum* of every request's prompt, so a 20-call turn re-pays its ~24k prefix twenty times; and 55–73% of those prompt tokens came back as provider cache hits, weighted at 100%. | `prompt cache: 17,408 of 23,821 (69%)`, repeated per call; 172k "tokens" ≈ $0.03 | Receipt now carries both: `tokens 172,020/150,000 (104,448 cached) >= cap, spend $0.0299`. Semantics unchanged on purpose — the cap is a credit guard, so the number is made honest rather than the guard weakened |
+| 3 | **`AGENT_TOKEN_BUDGET=0` — the documented way to disable the cap — would cancel the first turn instantly**, because the breaker tested `tokens_in_seen >= 0`. | code path only | breaker honours "disabled" |
+| 4 | **A self-defeating config was silent.** 150,000 ÷ 24,000 ≈ 6 calls beside `--max-llm-calls 20` guarantees a mid-work cut. | arithmetic | one-shot warning after the first telemetry frame: `[budget] WARNING: cap 150,000 at ~24,000 tokens/request buys ~6.2 calls, but --max-llm-calls is 20…` |
+
+Verified live afterwards (`41283339817`): `cap=600,000 source=--max-input-tokens
+iterations=20 enabled=True`, 5/5 PASS, `$0.013608`.
+
+---
+
 ## 5. What is still open
 
 | # | Item | Why it matters | Suggested action |

@@ -175,8 +175,18 @@ def test_disabled_cap_never_reports_exhaustion(monkeypatch):
 
 def test_runner_warns_when_the_cap_cannot_cover_the_iteration_budget():
     """A cap worth ~6 calls beside a 20-call budget is a trap, not a guard."""
-    source = (REPO_ROOT / "scripts" / "run_bridge_turn.py").read_text()
-    # Assert the mechanism, not a wrapped string literal.
-    assert "calls_to_cap < args.max_llm_calls" in source
-    assert "[budget] WARNING: cap" in source
-    assert "budget_exhausted' mid-work" in source
+    from scripts.run_bridge_turn import budget_shape_warning
+
+    # The exact shipped shape that cut two runs at iteration 6 of 20.
+    warning = budget_shape_warning(150_000, 24_000, 20)
+    assert warning is not None
+    assert "buys ~6.2 calls" in warning or "buys ~6.3 calls" in warning
+    assert "budget_exhausted" in warning
+
+
+def test_no_warning_when_the_cap_covers_the_call_budget():
+    from scripts.run_bridge_turn import budget_shape_warning
+
+    assert budget_shape_warning(600_000, 24_000, 20) is None   # 25 calls' worth
+    assert budget_shape_warning(0, 24_000, 20) is None          # disabled
+    assert budget_shape_warning(150_000, 0, 20) is None         # nothing measured yet
