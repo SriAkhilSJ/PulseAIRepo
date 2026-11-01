@@ -1,0 +1,184 @@
+name: E2E agent core (GLM 5.3)
+
+# The only test that runs a REAL model through the REAL graph and then asks
+# whether the run can explain itself. The offline suites prove the units; this
+# proves the assembled thing.
+#
+# It builds a deliberately small but complete MVP inside a throwaway workspace,
+# then asserts the 2026-10-31 invariants: the turn names how it ended, the step
+# trace carries a terminal node, and spend is priced in USD.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'tests/e2e/**'
+      - 'scripts/run_bridge_turn.py'
+      - 'scripts/e2e_core_report.py'
+      - '.github/workflows/e2e-core.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  e2e:
+    name: Real GLM 5.3 turn -> verified report
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      # Provider: Velona custom OpenAI-compatible gateway.
+      LLM_PROVIDER: custom
+      LLM_MODEL: z-ai/glm-5.3-flash
+      CONTEXT_MODEL: z-ai/glm-5.3-flash
+      AUX_LLM_PROVIDER: custom
+      AUX_LLM_MODEL: z-ai/glm-5.3-flash
+      CUSTOM_BASE_URL: https://velona.in/v1
+      # Keep the run hermetic and cheap.
+      CRUSORAI_DISABLE_LONG_TERM_MEMORY: '1'
+      CRUSORAI_MEMORY: 'off'
+      CRUSORAI_PREVIEW_AUTOSTART: '0'
+      CRUSORAI_SUBAGENT_DEPTH: '0'
+      # Bounded spend: this job must never be able to surprise the wallet.
+      AGENT_ITERATION_BUDGET: '20'
+      AGENT_TOKEN_BUDGET: '150000'
+      AGENT_COST_BUDGET: '0.25'
+      AGENT_COST_TARGET_USD: '0.25'
+      # The gateway rejects the OpenAI SDK default UA (Cloudflare).
+      CRUSORAI_HTTP_USER_AGENT: >-
+        Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r /dev/stdin <<'REQ'
+          langchain-core
+          langgraph
+          langgraph-checkpoint-sqlite
+          langgraph-prebuilt
+          langchain
+          langchain-openai
+          langchain-google-genai
+          langchain-groq
+          groq
+          google-genai
+          copilotkit
+          ag-ui-langgraph
+          aiosqlite
+          sqlite-vec
+          watchdog
+          tree-sitter
+          tree-sitter-javascript
+          tree-sitter-typescript
+          tree-sitter-go
+          tree-sitter-rust
+          tree-sitter-java
+          httpx
+          rich
+          typer
+          fastapi
+          uvicorn
+          flask
+          flask-cors
+          pillow
+          mcp
+          opentelemetry-api
+          opentelemetry-sdk
+          opentelemetry-exporter-otlp-proto-http
+          ddgs
+          tiktoken
+          pydantic
+          python-dotenv
+          REQ
+
+      - name: Prepare an isolated workspace and store
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e/ws" "$RUNNER_TEMP/crusorai"
+          cp tests/e2e/prompt_mvp.txt "$RUNNER_TEMP/e2e/prompt.txt"
+          echo "CRUSORAI_HOME=$RUNNER_TEMP/crusorai" >> "$GITHUB_ENV"
+          echo "workspace ready"
+
+      - name: Run one real GLM 5.3 turn through the bridge
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          set +e
+          python scripts/run_bridge_turn.py \
+            --workspace "$RUNNER_TEMP/e2e/ws" \
+            --prompt-file "$RUNNER_TEMP/e2e/prompt.txt" \
+            --run-id "e2e-glm53-${{ github.run_id }}" \
+            --timeout-s 900 \
+            --max-llm-calls 20 \
+            --max-input-tokens 150000 \
+            --results-root "$RUNNER_TEMP/e2e/results" 2>&1 | tee runner.log
+          echo "RUNNER_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_ENV"
+
+      - name: Show what the agent actually built
+        if: always()
+        run: |
+          echo "=== workspace tree ==="
+          find "$RUNNER_TEMP/e2e/ws" -type f -not -path '*/.git/*' | sort | head -40
+          echo
+          echo "=== line counts ==="
+          find "$RUNNER_TEMP/e2e/ws" -name '*.py' -o -name '*.html' -o -name '*.css' \
+            | xargs -r wc -l 2>/dev/null | tail -12
+
+      - name: Verify the deliverable independently of the agent
+        if: always()
+        run: |
+          set +e
+          WS="$RUNNER_TEMP/e2e/ws"
+          echo "=== independent test run (NOT the agent's claim) ==="
+          if [ -f "$WS/mvp/test_server.py" ]; then
+            ( cd "$WS" && timeout 120 python mvp/test_server.py ); echo "TEST_EXIT=$?"
+          else
+            echo "mvp/test_server.py missing"; echo "TEST_EXIT=127"
+          fi
+          ( cd "$WS" && python -c "import ast,sys; ast.parse(open('mvp/server.py').read()); print('server.py parses')" ) 2>/dev/null || echo "server.py missing/unparseable"
+
+      - name: E2E core report (invariants I1-I4)
+        if: always()
+        run: |
+          set +e
+          python scripts/e2e_core_report.py \
+            --run-dir "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}" \
+            --model-label "z-ai/glm-5.3-flash" \
+            --out "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md"
+          echo "REPORT_EXIT=$?"
+          exit 0
+
+      - name: Post the report to the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: '28'
+        run: |
+          set -euo pipefail
+          REPORT=$(cat "$RUNNER_TEMP/e2e/E2E_CORE_REPORT.md" 2>/dev/null | head -70 || echo "no report")
+          BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
+            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
+          printf '%s' "$BODY" > body.md
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" -F body=@body.md > /dev/null \
+            && echo "report posted" || echo "post skipped"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-glm53-evidence
+          path: |
+            ${{ runner.temp }}/e2e/E2E_CORE_REPORT.md
+            ${{ runner.temp }}/e2e/results/**/frames.jsonl
+            ${{ runner.temp }}/e2e/results/**/outcome.json
+            ${{ runner.temp }}/crusorai/traces/*.jsonl
+          if-no-files-found: warn

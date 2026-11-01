@@ -276,3 +276,62 @@ def test_conversational_leak_detects_prose_but_allows_real_commands():
     ) is not None
     assert detect_conversational_leak("npm install") is None
     assert detect_conversational_leak("python -m pytest tests/ -q") is None
+
+
+# ---------------------------------------------------------------- D4 (USD leg)
+
+
+def _state_with_cost(cost: float, known: bool = True, tokens: int = 1000):
+    return {
+        "iteration_used": 1,
+        "turn_token_usage": {
+            "total_tokens": tokens,
+            "estimated_cost_usd": cost,
+            "cost_known": known,
+        },
+    }
+
+
+def test_cost_leg_trips_the_governor(monkeypatch):
+    """A run past its dollar ceiling must stop, even with iterations left."""
+    from src.graphs import budget as b
+
+    monkeypatch.setenv("AGENT_COST_BUDGET", "0.50")
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "45")
+    monkeypatch.setenv("AGENT_TOKEN_BUDGET", "600000")
+
+    assert b._budget_exhausted(_state_with_cost(0.10)) is False
+    assert b._budget_exhausted(_state_with_cost(0.51)) is True
+
+
+def test_cost_leg_disabled_by_zero(monkeypatch):
+    from src.graphs import budget as b
+
+    monkeypatch.setenv("AGENT_COST_BUDGET", "0")
+    assert b._cost_budget() is None
+    assert b._budget_exhausted(_state_with_cost(99.0)) is False
+
+
+def test_unknown_cost_never_trips_the_cap(monkeypatch):
+    """An unpriced provider must not be treated as free OR as over-budget.
+
+    Guessing $0 would let it run forever; guessing "over" would kill a run for
+    missing telemetry. Neither is acceptable, so the leg abstains — and says so.
+    """
+    from src.graphs import budget as b
+
+    monkeypatch.setenv("AGENT_COST_BUDGET", "0.05")
+    state = _state_with_cost(99.0, known=False)
+    assert b._run_cost_usd(state) is None
+    assert b._budget_exhausted(state) is False
+    assert "cost unknown" in b._budget_trip_reason(state)
+
+
+def test_trip_reason_names_the_cost_leg(monkeypatch):
+    from src.graphs import budget as b
+
+    monkeypatch.setenv("AGENT_COST_BUDGET", "0.50")
+    monkeypatch.setenv("AGENT_ITERATION_BUDGET", "45")
+    reason = b._budget_trip_reason(_state_with_cost(0.75))
+    assert "tripped: cost" in reason
+    assert "$0.7500" in reason

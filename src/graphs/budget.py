@@ -170,6 +170,46 @@ def _token_budget() -> int | None:
     return min(max(10_000, value), _TOKEN_BUDGET_CLAMP)
 
 
+# D4 (2026-10-31): the third leg. Iterations and tokens bound WORK; neither
+# bounds MONEY. Measured runs billed up to $1.71 against a stated $0.05 target,
+# and the governor could not see it — `estimated_cost_usd` was already carried
+# on every TokenUsage, so the cap was one comparison away the whole time.
+# AGENT_COST_BUDGET=0 disables the leg (opt-out, matching AGENT_TOKEN_BUDGET).
+_COST_BUDGET_DEFAULT_USD = 0.0
+
+
+def _cost_budget() -> float | None:
+    """USD ceiling for one run; None when disabled or unparseable."""
+    raw = os.environ.get("AGENT_COST_BUDGET", str(_COST_BUDGET_DEFAULT_USD))
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = _COST_BUDGET_DEFAULT_USD
+    if value <= 0:
+        return None
+    return min(value, 1000.0)
+
+
+def _run_cost_usd(state: AgentState) -> float | None:
+    """Best-effort spend for this run.
+
+    Returns None when the provider gave no rate for every call — an unknown
+    bill must never be silently treated as $0 (that would let an unpriced
+    provider run forever past a dollar cap).
+    """
+    usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
+    try:
+        known = bool(usage.get("cost_known", True))
+    except Exception:
+        known = True
+    if not known:
+        return None
+    try:
+        return float(usage.get("estimated_cost_usd") or 0.0)
+    except (TypeError, ValueError):
+        return None
+
+
 def _verification_token_reserve() -> int:
     try:
         value = int(os.environ.get(
@@ -233,10 +273,21 @@ def _budget_trip_reason(state: AgentState) -> str:
     total = int(usage.get("total_tokens", 0) or 0)
     parts = [f"iterations {used}/{budget}"]
     parts.append(f"tokens {total:,}/{cap:,}" if cap is not None else "tokens uncapped")
+    cost_cap = _cost_budget()
+    spend = _run_cost_usd(state)
+    if cost_cap is not None:
+        parts.append(
+            f"cost ${spend:.4f}/${cost_cap:.4f}" if spend is not None
+            else f"cost unknown/{cost_cap:.4f}"
+        )
+    else:
+        parts.append("cost uncapped")
     if used >= budget:
         parts.append("tripped: iterations")
     elif cap is not None and total >= cap:
         parts.append("tripped: tokens")
+    elif cost_cap is not None and spend is not None and spend >= cost_cap:
+        parts.append("tripped: cost")
     else:
         parts.append("tripped: unknown leg")
     return ", ".join(parts)
@@ -249,11 +300,19 @@ def _budget_exhausted(state: AgentState) -> bool:
         print(f"[budget] exhausted: iterations {used}/{budget} >= budget", flush=True)
         return True
     token_cap = _token_budget()
-    if token_cap is None:
-        return False
     usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
     total = int(usage.get("total_tokens", 0) or 0)
-    if total >= token_cap:
+    if token_cap is not None and total >= token_cap:
         print(f"[budget] exhausted: tokens {total:,}/{token_cap:,} >= cap", flush=True)
         return True
+    # D4: the money leg. Checked last so the cheaper-to-report legs speak first.
+    cost_cap = _cost_budget()
+    if cost_cap is not None:
+        spend = _run_cost_usd(state)
+        if spend is not None and spend >= cost_cap:
+            print(
+                f"[budget] exhausted: cost ${spend:.4f}/${cost_cap:.4f} >= cap",
+                flush=True,
+            )
+            return True
     return False

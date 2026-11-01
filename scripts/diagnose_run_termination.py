@@ -22,10 +22,18 @@ import sys
 from collections import Counter
 from dataclasses import dataclass, field
 
-TRACE_GLOBS = (
-    os.path.expanduser("~/.crusorai/traces/*.jsonl"),
-    "diagnostics/**/traces/*.jsonl",
-    "diagnostics/traces/*.jsonl",
+TRACE_GLOBS = tuple(
+    g for g in (
+        # CRUSORAI_HOME wins: CI and lab runs relocate the store, and a
+        # classifier that silently reads the wrong directory reports "no
+        # traces" instead of "no terminal nodes".
+        (os.path.join(os.environ["CRUSORAI_HOME"], "traces", "*.jsonl")
+         if os.environ.get("CRUSORAI_HOME") else None),
+        os.path.expanduser("~/.crusorai/traces/*.jsonl"),
+        "diagnostics/**/traces/*.jsonl",
+        "diagnostics/traces/*.jsonl",
+    )
+    if g
 )
 
 # Nodes that are legitimate terminal states of one turn.
