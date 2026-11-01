@@ -51,12 +51,20 @@ def provider_config() -> tuple[str, str]:
         or os.environ.get("OPENAI_BASE_URL")
         or ""
     ).rstrip("/")
+    # .strip() is NOT cosmetic — it is the fix for the 2026-11-01 incident.
+    # A CUSTOM_API_KEY secret carrying a trailing newline produced
+    # `Invalid header value b'Bearer key_live_...\n'` from urllib, which is
+    # how the pricing refresh failed silently for a whole session (the app
+    # path was fixed earlier in settings._cred, but pricing reads the raw
+    # environment and never saw that fix). An HTTP header value may not
+    # contain a newline, so the boundary has to sanitise here too: this
+    # module builds the header itself.
     key = (
         os.environ.get("CRUSORAI_PRICING_API_KEY")
         or os.environ.get("CUSTOM_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
         or ""
-    )
+    ).strip()
     return base, key
 
 

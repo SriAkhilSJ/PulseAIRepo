@@ -312,3 +312,34 @@ def test_genuinely_missing_root_absolute_reference_is_still_reported(tmp_path):
     workspace = _mvp_workspace(tmp_path, "/does-not-exist.css")
     findings = {(i.kind, i.path, i.reference) for i in audit_workspace(workspace)}
     assert findings == {("missing-html-reference", "mvp/index.html", "/does-not-exist.css")}
+
+
+# ---------------------------------------------------------- secret hygiene
+
+
+def test_pricing_strips_a_newline_from_the_credential(monkeypatch):
+    """2026-11-01: the pricing path re-introduced the newline bug.
+
+    The app boundary (settings._cred) was fixed days earlier, but
+    telemetry/pricing builds its own Authorization header straight from the
+    environment, so a CUSTOM_API_KEY ending in "\\n" made urllib raise
+    `Invalid header value b'Bearer key_live_...\\n'` — and the refresh swallowed
+    the exception in a daemon thread, leaving the rate card empty and the run's
+    cost UNKNOWN. Separately, printing that exception echoed the credential
+    into a PUBLIC issue comment, which is why the workflow now also scrubs.
+    """
+    from src.telemetry import pricing
+
+    monkeypatch.setenv("CUSTOM_API_KEY", "key_live_abc123\n")
+    monkeypatch.setenv("CUSTOM_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.delenv("CRUSORAI_PRICING_API_KEY", raising=False)
+    _base, key = pricing.provider_config()
+    assert key == "key_live_abc123"
+    assert "\n" not in key
+
+
+def test_e2e_verdict_scrubs_credential_material():
+    """The public verdict must never carry a key, even from an exception."""
+    source = (Path(__file__).resolve().parents[2] / ".github/workflows/e2e-core.yml").read_text()
+    assert "Redact credential material" in source
+    assert "key_live_" in source  # the scrubber's own pattern
