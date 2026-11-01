@@ -158,14 +158,38 @@ jobs:
           else
             say "mvp/test_server.py MISSING"; RC=127
           fi
-          ( cd "$WS" && timeout 60 python mvp/server.py >/tmp/srv.log 2>&1 ) &
-          SRV=$!
-          for _ in $(seq 1 40); do
-            sleep 0.5
-            C=$(curl -s -o /tmp/h.json -w '%{http_code}' --max-time 2 http://127.0.0.1:8137/api/health 2>/dev/null)
-            [ "$C" = "200" ] && break
+          # Field 2026-11-01: after turn 6 refactored the server into a
+          # `create_server(port)` factory, `python mvp/server.py` stopped serving
+          # entirely (every endpoint answered 000) while all six unit tests kept
+          # passing — they call the factory directly. A green suite hid a broken
+          # entry point. So identify WHICH invocation actually boots a server
+          # instead of printing a bare 000.
+          BOOTED=""
+          for launch in "python mvp/server.py" "python -m mvp.server" "python -m mvp.server 8137"; do
+            ( cd "$WS" && timeout 60 sh -c "$launch" >/tmp/srv.log 2>&1 ) &
+            SRV=$!
+            C=""
+            for _ in $(seq 1 20); do
+              sleep 0.5
+              C=$(curl -s -o /tmp/h.json -w '%{http_code}' --max-time 2 http://127.0.0.1:8137/api/health 2>/dev/null)
+              [ "$C" = "200" ] && break
+            done
+            if [ "$C" = "200" ]; then
+              BOOTED="$launch"; say "boots with: $launch"
+              break
+            fi
+            kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
+            say "no server from: $launch  (last output: $(tail -1 /tmp/srv.log 2>/dev/null | cut -c1-100))"
           done
+          [ -z "$BOOTED" ] && say "NO INVOCATION STARTS THE SERVER — the documented entry point is broken"
           say "live /api/health -> ${C:-none}  body=$(head -c 120 /tmp/h.json 2>/dev/null)"
+          # Turn 7 promised mvp/README.md; a turn cut by the token cap never
+          # writes it. Check the deliverable instead of trusting the summary.
+          if [ -f "$WS/mvp/README.md" ]; then
+            say "mvp/README.md present ($(wc -l < "$WS/mvp/README.md") lines)"
+          else
+            say "mvp/README.md MISSING — a turn promised it and did not deliver"
+          fi
           for ep in version status; do
             code=$(curl -s -o /tmp/e.json -w '%{http_code}' --max-time 3 "http://127.0.0.1:8137/api/$ep" 2>/dev/null)
             say "live /api/$ep -> ${code:-none}  body=$(head -c 120 /tmp/e.json 2>/dev/null)"

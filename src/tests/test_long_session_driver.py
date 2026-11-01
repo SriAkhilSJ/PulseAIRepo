@@ -78,3 +78,45 @@ def test_driver_survives_a_multi_turn_round_trip(tmp_path):
     assert receipt["stopped_at_turn"] is None
     assert [t["turn"] for t in receipt["turns"]] == [1, 2, 3]
     assert receipt["session_id"].startswith("t5-")
+
+
+# ------------------------------------------------ the harness must not lie
+
+
+def test_budget_cut_turn_is_not_counted_as_completed():
+    """2026-11-01: the driver printed "7/7 SURVIVED" on a cut session.
+
+    A budget-cut turn ALSO ends in a `turn_done` frame, carrying
+    completed=false and run_outcome=budget_exhausted. Counting frame types alone
+    reported full survival for a session in which three turns were truncated
+    mid-work — the exact false green this repo has been chasing everywhere else,
+    committed by the harness that was meant to expose it.
+    """
+    from scripts.run_long_session import summarize
+
+    turns = [
+        {"turn": 1, "result": "turn_done", "completed": True, "run_outcome": "completed"},
+        {"turn": 2, "result": "turn_done", "completed": True, "run_outcome": "completed"},
+        {"turn": 3, "result": "turn_done", "completed": False, "run_outcome": "budget_exhausted"},
+    ]
+    summary = summarize(turns, 3)
+    assert summary["turns_completed"] == 2
+    assert summary["turns_budget_cut"] == 1
+    assert summary["turns_cut_at"] == [3]
+    assert summary["ok"] is False
+    assert "BUDGET-CUT" in summary["verdict"]
+    assert "SURVIVED" not in summary["verdict"]
+
+
+def test_clean_run_reports_survival_and_a_stop_is_named():
+    from scripts.run_long_session import summarize
+
+    clean = [{"turn": i, "result": "turn_done", "completed": True} for i in (1, 2, 3)]
+    assert summarize(clean, 3)["ok"] is True
+    assert "SURVIVED" in summarize(clean, 3)["verdict"]
+
+    stopped = clean[:2] + [{"turn": 3, "result": "bridge-exited"}]
+    summary = summarize(stopped, 3)
+    assert summary["ok"] is False
+    assert summary["stopped_at_turn"] == 3
+    assert "STOPPED at turn 3" in summary["verdict"]

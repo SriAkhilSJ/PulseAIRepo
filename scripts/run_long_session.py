@@ -53,6 +53,40 @@ def load_prompts(path: Path) -> list[str]:
     return [c for c in chunks if c]
 
 
+def summarize(turns: list[dict], turns_requested: int) -> dict:
+    """The session verdict, derived ONLY from what the turns actually said.
+
+    Kept as a pure function because the first version of this driver got the
+    answer wrong in the most expensive way: it counted `turn_done` frames as
+    successes, so a session where three turns reported
+    `completed=false / run_outcome=budget_exhausted` printed
+    "7/7 turns completed — SURVIVED". A harness that overstates survival is
+    worse than no harness.
+    """
+    completed = [t for t in turns if t["result"] == "turn_done" and t.get("completed")]
+    cut = [t for t in turns if t["result"] == "turn_done" and not t.get("completed")]
+    stopped_at = next((t["turn"] for t in turns if t["result"] not in ("turn_done",)), None)
+    if stopped_at is not None:
+        verdict = f"STOPPED at turn {stopped_at}"
+    elif cut:
+        verdict = (
+            f"RAN ALL {len(turns)} TURNS, but {len(cut)} were BUDGET-CUT "
+            f"(turns {', '.join(str(t['turn']) for t in cut)}) — the session keeps "
+            "answering while it stops being able to finish work"
+        )
+    else:
+        verdict = "SURVIVED every turn"
+    return {
+        "turns_completed": len(completed),
+        "turns_budget_cut": len(cut),
+        "turns_cut_at": [t["turn"] for t in cut],
+        "stopped_at_turn": stopped_at,
+        "verdict": verdict,
+        "ok": stopped_at is None and not cut,
+        "turns_requested": turns_requested,
+    }
+
+
 def build_env(args) -> dict:
     env = dict(os.environ)
     try:
@@ -185,6 +219,8 @@ def main() -> int:
             llm_calls = 0
             tool_calls = 0
             result = "timeout"
+            completed = False
+            run_outcome = None
             frame_tokens = 0
             for _ in range(200000):
                 if time.time() > deadline:
@@ -216,10 +252,23 @@ def main() -> int:
                     frame_tokens = max(frame_tokens, int(frame.get("tokensIn") or 0))
                 elif ftype in TERMINAL:
                     result = ftype
+                    # Field 2026-11-01: a turn_done frame is NOT success. A
+                    # budget-cut turn ALSO ends in turn_done, with
+                    # completed=false and run_outcome=budget_exhausted. Counting
+                    # the frame type alone reported "7/7 SURVIVED" on a session
+                    # where three turns were cut mid-work — the exact false
+                    # green this whole harness exists to catch, committed by
+                    # the harness itself.
+                    completed = bool(frame.get("completed"))
+                    run_outcome = frame.get("run_outcome")
                     break
             hits, stderr_offset = compaction_lines(stderr_path, stderr_offset)
+            budget_cut = any("budget] exhausted" in h for h in hits)
             record(
                 result,
+                completed=completed,
+                run_outcome=run_outcome,
+                budget_cut=budget_cut,
                 llm_calls=llm_calls,
                 tool_calls=tool_calls,
                 messages_at_first_call=message_count,
@@ -248,8 +297,10 @@ def main() -> int:
             except Exception:
                 pass
 
-    completed = [t for t in turns if t["result"] == "turn_done"]
-    stopped_at = next((t["turn"] for t in turns if t["result"] not in ("turn_done",)), None)
+    summary = summarize(turns, len(prompts))
+    completed = [t for t in turns if t["result"] == "turn_done" and t.get("completed")]
+    cut = [t for t in turns if t["result"] == "turn_done" and not t.get("completed")]
+    stopped_at = summary["stopped_at_turn"]
     total_wall = round(time.time() - session_started, 1)
     token_deltas: list[int] = []
     previous = 0
@@ -264,8 +315,11 @@ def main() -> int:
         "phase_reached": session_phase,
         "turns_requested": len(prompts),
         "turns_attempted": len(turns),
-        "turns_completed": len(completed),
+        "turns_completed": summary["turns_completed"],
+        "turns_budget_cut": summary["turns_budget_cut"],
+        "turns_cut_at": summary["turns_cut_at"],
         "stopped_at_turn": stopped_at,
+        "verdict": summary["verdict"],
         "session_wall_s": total_wall,
         "turns": turns,
         "tokens_per_turn": token_deltas,
@@ -277,16 +331,20 @@ def main() -> int:
     out: list[str] = []
     out.append("# Long-session stamina test")
     out.append("")
-    verdict = "SURVIVED" if stopped_at is None else f"STOPPED at turn {stopped_at}"
-    out.append(f"**{len(completed)}/{len(prompts)} turns completed — {verdict}**")
+    out.append(
+        f"**{summary['turns_completed']}/{len(prompts)} turns genuinely completed — "
+        f"{summary['verdict']}**"
+    )
     out.append("")
-    out.append("| Turn | Result | LLM calls | History going in | Tool calls | Wall | New tokens |")
-    out.append("| ---: | :--- | ---: | ---: | ---: | ---: | ---: |")
+    out.append("| Turn | Frame | Completed | Outcome | LLM calls | History in | Tools | Wall | New tokens |")
+    out.append("| ---: | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |")
     for turn, delta in zip(turns, token_deltas):
+        done = "yes" if turn.get("completed") else "**NO**"
+        outcome = turn.get("run_outcome") or ("budget-cut" if turn.get("budget_cut") else "—")
         out.append(
-            f"| {turn['turn']} | {turn['result']} | {turn.get('llm_calls', 0)} | "
-            f"{turn.get('messages_at_first_call', 0)} msgs | {turn.get('tool_calls', 0)} | "
-            f"{turn['wall_s']}s | {delta:,} |"
+            f"| {turn['turn']} | {turn['result']} | {done} | {outcome} | "
+            f"{turn.get('llm_calls', 0)} | {turn.get('messages_at_first_call', 0)} msgs | "
+            f"{turn.get('tool_calls', 0)} | {turn['wall_s']}s | {delta:,} |"
         )
     out.append("")
     growth = [t.get("messages_at_first_call", 0) for t in turns]
@@ -297,7 +355,7 @@ def main() -> int:
     report = "\n".join(out) + "\n"
     (run_dir / "LONG_SESSION_REPORT.md").write_text(report, encoding="utf-8")
     print("\n" + report)
-    return 0 if stopped_at is None else 1
+    return 0 if summary["ok"] else 1
 
 
 if __name__ == "__main__":
