@@ -271,3 +271,44 @@ def test_real_failing_test_file_still_owes_a_rerun():
     debts = _unresolved_failed_verification_checks(state)
     assert len(debts) == 1
     assert debts[0]["repair_landed"] is False
+
+
+# ------------------------------------------- integrity: document-root scope
+
+
+def _mvp_workspace(tmp_path: Path, stylesheet_href: str) -> Path:
+    mvp = tmp_path / "mvp"
+    mvp.mkdir()
+    (mvp / "server.py").write_text("from http.server import ThreadingHTTPServer\n")
+    (mvp / "styles.css").write_text("body{background:#111}")
+    (mvp / "test_server.py").write_text("import unittest\n")
+    (mvp / "index.html").write_text(
+        f'<html><head><link rel="stylesheet" href="{stylesheet_href}"></head>'
+        '<body><div id="health"></div></body></html>'
+    )
+    return tmp_path
+
+
+def test_root_absolute_reference_resolves_from_the_served_directory(tmp_path):
+    """`/styles.css` served out of `mvp/` is correct, not missing.
+
+    Field 2026-11-01: the prompt specified `mvp/styles.css` served at
+    `/styles.css`. The agent did exactly that, and the integrity audit called it
+    a missing dependency because it resolved root-absolute paths against the
+    workspace root only — the one domain still missing at finalize
+    (`missing=['integrity']`) on a turn whose test was green and whose live
+    endpoint returned 200 {"status":"ok"}.
+    """
+    from src.context.workspace_integrity import audit_workspace
+
+    workspace = _mvp_workspace(tmp_path, "/styles.css")
+    assert audit_workspace(workspace) == []
+
+
+def test_genuinely_missing_root_absolute_reference_is_still_reported(tmp_path):
+    """Widening the document root must not silence the audit."""
+    from src.context.workspace_integrity import audit_workspace
+
+    workspace = _mvp_workspace(tmp_path, "/does-not-exist.css")
+    findings = {(i.kind, i.path, i.reference) for i in audit_workspace(workspace)}
+    assert findings == {("missing-html-reference", "mvp/index.html", "/does-not-exist.css")}
