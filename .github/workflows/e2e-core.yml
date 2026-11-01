@@ -14,6 +14,11 @@ on:
     branches: [main, 'arena/**']
     paths:
       - 'tests/e2e/**'
+      # src/** IS the point: this test exists to catch a graph/gate change that
+      # the offline units still call green. Omitting it meant the run was
+      # skipped for the very commits it was written to judge — on 2026-11-01 two
+      # gate fixes were pushed and nothing triggered.
+      - 'src/**'
       - 'scripts/run_bridge_turn.py'
       - 'scripts/e2e_core_report.py'
       - '.github/workflows/e2e-core.yml'
