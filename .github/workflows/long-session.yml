@@ -43,8 +43,46 @@ jobs:
 
       - name: Install runtime dependencies
         run: |
-          python -m pip install --upgrade pip >/dev/null
-          pip install -r requirements.txt >/dev/null 2>&1 || pip install -r requirements-core.txt
+          python -m pip install --upgrade pip
+          pip install -r /dev/stdin <<'REQ'
+          langchain-core
+          langgraph
+          langgraph-checkpoint-sqlite
+          langgraph-prebuilt
+          langchain
+          langchain-openai
+          langchain-google-genai
+          langchain-groq
+          groq
+          google-genai
+          copilotkit
+          ag-ui-langgraph
+          aiosqlite
+          sqlite-vec
+          watchdog
+          tree-sitter
+          tree-sitter-javascript
+          tree-sitter-typescript
+          tree-sitter-go
+          tree-sitter-rust
+          tree-sitter-java
+          httpx
+          rich
+          typer
+          fastapi
+          uvicorn
+          flask
+          flask-cors
+          pillow
+          mcp
+          opentelemetry-api
+          opentelemetry-sdk
+          opentelemetry-exporter-otlp-proto-http
+          ddgs
+          tiktoken
+          pydantic
+          python-dotenv
+          REQ
 
       - name: Prepare an isolated workspace
         run: |
