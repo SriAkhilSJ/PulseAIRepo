@@ -495,4 +495,9 @@ jobs:
             ${{ runner.temp }}/e2e/results/**/frames.jsonl
             ${{ runner.temp }}/e2e/results/**/outcome.json
             ${{ runner.temp }}/crusorai/traces/*.jsonl
+            # The thing the agent actually built. Without this the MVP is
+            # deleted with the runner, so "it passed" is the only artifact and
+            # there is nothing to launch. Exclude bytecode caches.
+            ${{ runner.temp }}/e2e/ws/mvp/**
+            !${{ runner.temp }}/e2e/ws/mvp/**/__pycache__/**
           if-no-files-found: warn
