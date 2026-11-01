@@ -374,3 +374,45 @@ def test_whitespace_only_credential_is_treated_as_absent(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(settings)
+
+
+def test_report_treats_unpriced_rows_as_unknown_not_zero(tmp_path):
+    """A billed-but-unpriced run must read UNKNOWN, never $0.000000.
+
+    Field 2026-11-01 (live GLM 5.3 E2E): 168,417 billed tokens produced
+    "$0.000000" because the rate card was empty. Collapsing null to zero is the
+    "unknown treated as free" hazard the budget leg was written to avoid, and a
+    report that says $0 trains everyone to trust a number that means nothing.
+    """
+    import json
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "frames.jsonl").write_text(json.dumps({
+        "type": "turn_done", "session_id": "s-unpriced", "completed": True,
+        "run_outcome": "completed",
+    }) + "\n")
+    trace_dir = tmp_path / "traces"
+    trace_dir.mkdir()
+    (trace_dir / "s-unpriced.jsonl").write_text(json.dumps({
+        "node_name": "ai", "input_tokens": 1000, "output_tokens": 10,
+        "estimated_cost_usd": None,
+    }) + "\n" + json.dumps({"node_name": "turn_terminal", "diagnostics": ["RUN_OUTCOME: completed"]}) + "\n")
+
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ, CRUSORAI_HOME=str(tmp_path))
+    out = run_dir / "report.md"
+    proc = subprocess.run(
+        [sys.executable, str(repo_root / "scripts" / "e2e_core_report.py"),
+         "--run-dir", str(run_dir), "--out", str(out)],
+        capture_output=True, text=True, env=env, cwd=str(repo_root),
+    )
+    report = out.read_text() if out.is_file() else proc.stdout
+    assert "UNKNOWN" in report
+    assert "RATE CARD GAP" in report
+    assert "$0.000000" not in report

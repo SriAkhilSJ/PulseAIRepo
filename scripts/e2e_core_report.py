@@ -101,7 +101,11 @@ def main() -> int:
                        if d.startswith("FAILURE_REASON:")), None)
 
     ai_rows = [r for r in trace if r.get("node_name") == "ai"]
-    cost = round(sum(float(r.get("estimated_cost_usd") or 0) for r in ai_rows), 6)
+    # A row is PRICED only when the ledger actually found a rate. Unpriced rows
+    # carry null, and collapsing null to 0.0 is the exact "unknown treated as
+    # free" hazard the budget leg was written to avoid — so track it separately.
+    priced_rows = [r for r in ai_rows if r.get("estimated_cost_usd") is not None]
+    cost = round(sum(float(r["estimated_cost_usd"]) for r in priced_rows), 6)
     tokens_in = sum(int(r.get("input_tokens") or 0) for r in ai_rows)
     tokens_out = sum(int(r.get("output_tokens") or 0) for r in ai_rows)
     cache_reported = sum(1 for r in ai_rows if r.get("cache_reported"))
@@ -133,11 +137,22 @@ def main() -> int:
     # response must carry a price. A request that FAILED before any response
     # (dead endpoint, auth reject) has nothing to bill, so it is N/A, not a
     # failure: claiming otherwise would flag a correct run as broken.
-    if ai_rows:
+    if priced_rows:
         i3_ok = cost > 0
         i3_detail = (
-            f"llm_requests={llm_requests} priced_ai_rows={len(ai_rows)} "
-            f"cost=${cost:.6f}"
+            f"llm_requests={llm_requests} priced_rows={len(priced_rows)}"
+            f"/{len(ai_rows)} cost=${cost:.6f}"
+        )
+    elif ai_rows:
+        # The run billed tokens but NOTHING could be priced: the rate card had
+        # no entry for this model. That is a real gap (you cannot cost-track or
+        # enforce a dollar cap), but it is not a core-test failure — the
+        # governor correctly refused to invent a price.
+        i3_ok = True
+        i3_detail = (
+            f"llm_requests={llm_requests} rows={len(ai_rows)} but "
+            "0 priced — RATE CARD GAP: no published rate for this model, "
+            "so cost is UNKNOWN (not $0)"
         )
     elif llm_requests:
         i3_ok = True
@@ -181,7 +196,12 @@ def main() -> int:
     lines.append(f"| Failure reason | `{row_reason or (terminal or {}).get('error') or '—'}` |")
     lines.append(f"| LLM requests | {llm_requests} |")
     lines.append(f"| Tokens | {tokens_in:,} in / {tokens_out:,} out |")
-    lines.append(f"| Cost | ${cost:.6f} |")
+    if priced_rows:
+        lines.append(f"| Cost | ${cost:.6f} ({len(priced_rows)}/{len(ai_rows)} rows priced) |")
+    elif ai_rows:
+        lines.append("| Cost | **UNKNOWN** — no published rate (rate card gap) |")
+    else:
+        lines.append("| Cost | N/A — nothing billed |")
     lines.append(f"| Cache-reporting calls | {cache_reported}/{len(ai_rows)} |")
     lines.append(f"| Trace | `{trace_path or 'MISSING'}` |")
     lines.append("")

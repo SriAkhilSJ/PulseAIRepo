@@ -43,7 +43,7 @@ jobs:
       CRUSORAI_SUBAGENT_DEPTH: '0'
       # Bounded spend: this job must never be able to surprise the wallet.
       AGENT_ITERATION_BUDGET: '20'
-      AGENT_TOKEN_BUDGET: '150000'
+      AGENT_TOKEN_BUDGET: '600000'
       AGENT_COST_BUDGET: '0.25'
       AGENT_COST_TARGET_USD: '0.25'
       # The gateway rejects the OpenAI SDK default UA (Cloudflare).
@@ -158,6 +158,28 @@ jobs:
               traceback.print_exc()
           PY
 
+      - name: Pricing probe (can this model be cost-tracked at all?)
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/e2e/pricing.txt"
+          import json
+          from src.telemetry.call_ledger import load_rate_card, estimate_cost_usd
+          from src.telemetry import pricing
+          try:
+              pricing.ensure_pricing_async()
+              import time; time.sleep(8)   # opportunistic refresh is non-blocking
+          except Exception as exc:
+              print("pricing refresh failed:", type(exc).__name__, exc)
+          card = load_rate_card() or {}
+          print(f"rate card entries: {len(card)}")
+          for m in ("z-ai/glm-5.3-flash", "deepseek/deepseek-v4.1-flash"):
+              print(f"  {m}: {estimate_cost_usd(m, 1_000_000, 0)}")
+          if not card:
+              print("RATE CARD EMPTY -> cost cannot be measured for ANY model; "
+                    "set CRUSORAI_RATE_CARD (JSON) to enable the USD budget leg")
+          PY
+
       - name: Run one real GLM 5.3 turn through the bridge
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
@@ -219,10 +241,11 @@ jobs:
           # Both of these are where a transport failure explains itself, and
           # Actions logs are not reachable from every environment.
           KEYNOTE=$(cat "$RUNNER_TEMP/e2e/key-normalise.txt" 2>/dev/null || echo "no key note")
+          PRICING=$(tail -c 900 "$RUNNER_TEMP/e2e/pricing.txt" 2>/dev/null || echo "no pricing output")
           PROBE=$(tail -c 1200 "$RUNNER_TEMP/e2e/probe.txt" 2>/dev/null || echo "no probe output")
           STDERR=$(tail -c 1500 "$RUNNER_TEMP/e2e/results/e2e-glm53-${{ github.run_id }}/bridge_stderr.log" 2>/dev/null || echo "no bridge stderr")
-          REPORT=$(printf '%s\n\n### credential\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
-            "$REPORT" "$KEYNOTE" "$PROBE" "$STDERR")
+          REPORT=$(printf '%s\n\n### credential\n```\n%s\n```\n\n### pricing\n```\n%s\n```\n\n### SDK probe\n```\n%s\n```\n\n### bridge stderr (tail)\n```\n%s\n```' \
+            "$REPORT" "$KEYNOTE" "$PRICING" "$PROBE" "$STDERR")
           BODY=$(printf '**E2E agent core — GLM 5.3** `%s` @ `%s`\nrunner_exit=%s\n\n%s\n' \
             "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${RUNNER_EXIT:-unknown}" "$REPORT")
           printf '%s' "$BODY" > body.md
