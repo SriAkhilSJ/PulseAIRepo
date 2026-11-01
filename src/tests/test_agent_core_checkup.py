@@ -181,6 +181,40 @@ def test_body_checkup_covers_every_pipeline():
     assert len(cu.checks) >= 55, len(cu.checks)
 
 
+def test_blueprint_is_a_flow_with_the_system_message_as_its_own_node():
+    """Field 2026-11-01: the blueprint had to become an n8n-style workflow, and
+    the SYSTEM MESSAGE had to be a node in it — not an implicit 430-token
+    footnote. It is the largest constant in the loop: the autonomous variant is
+    430 tokens, but the desktop default composes 24,606 chars across 17
+    sections, re-sent on every cycle. If the drawing ever loses either number,
+    this fails.
+    """
+    import xml.etree.ElementTree as ET
+
+    sys.path.insert(0, str(ROOT))
+    from scripts.agent_core_blueprint import measure, render_flow
+
+    m = measure()
+    svg = render_flow(m)
+    root = ET.fromstring(svg)
+    text = " ".join(t.text or "" for t in root.iter() if t.tag.endswith("text"))
+
+    # the node exists, and both measured variants are on it
+    assert "SYSTEM MESSAGE" in text
+    assert "autonomous" in text and "desktop default" in text
+    assert f"{m['persona_default_tokens']:,}" in text, m["persona_default_tokens"]
+    assert f"{m['persona_default_chars']:,}" in text
+
+    # it is a workflow: a loop container, ports and a terminal node
+    assert "AGENT LOOP" in text
+    assert "Terminal frame" in text
+    assert svg.count("<circle") > 20, "nodes must expose ports like a flow editor"
+    assert svg.count("<path") >= 8, "a workflow needs edges"
+
+    # the two variants must actually differ by an order of magnitude
+    assert m["persona_default_tokens"] > m["persona_tokens"] * 10
+
+
 def test_blueprint_draws_every_pipeline_with_a_metric():
     """Field 2026-11-01: the blueprint is a generated artifact, not a picture.
 

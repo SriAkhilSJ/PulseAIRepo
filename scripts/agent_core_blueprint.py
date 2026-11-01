@@ -62,7 +62,7 @@ def measure() -> dict:
 
     import src.graphs.chat_graph as cg
     from src.agents.runtime_profile import resolve_runtime_profile
-    from src.prompts.claude_persona import AUTONOMOUS_SYSTEM_PERSONA as persona
+    from src.prompts.claude_persona import system_persona
     from src.tools import toolsets
 
     by_name = {t.name: t for t in cg.tools}
@@ -87,7 +87,14 @@ def measure() -> dict:
         "tools_defined": len(cg.tools),
         "tools_sent": len(sel),
         "schema_tokens": schema_chars // 4,
-        "persona_tokens": len(persona) // 4,
+        # Field 2026-11-01: the blueprint was quoting AUTONOMOUS_SYSTEM_PERSONA
+        # (430 tok) while the real system message is system_persona(), which
+        # composes 28 sections. On the desktop default that is 6,151 tokens —
+        # 14x the number the first drawing showed. Both are measured here.
+        "persona_tokens": len(system_persona(autonomous=True)) // 4,
+        "persona_default_tokens": len(system_persona()) // 4,
+        "persona_default_chars": len(system_persona()),
+        "persona_sections": system_persona().count("\n## "),
     }
 
 
@@ -347,6 +354,213 @@ def render(m: dict) -> str:
     return "\n".join(out)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# n8n-style flow renderer
+# ══════════════════════════════════════════════════════════════════════════
+NODE_W, NODE_H = 268, 104
+GRID = "#161d26"
+
+
+class Flow:
+    """Minimal n8n-look canvas: dot grid, rounded nodes with ports, bezier edges."""
+
+    def __init__(self, w: int, h: int) -> None:
+        self.w, self.h = w, h
+        self.parts: list[str] = []
+
+    # ── primitives ───────────────────────────────────────────────────
+    def add(self, svg: str) -> None:
+        self.parts.append(svg)
+
+    def grid(self) -> None:
+        self.add(f'<rect width="{self.w}" height="{self.h}" fill="{BG}"/>')
+        self.add('<defs><pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">'
+                 f'<circle cx="1.2" cy="1.2" r="1.2" fill="{GRID}"/></pattern></defs>')
+        self.add(f'<rect width="{self.w}" height="{self.h}" fill="url(#dots)"/>')
+
+    def group(self, x, y, w, h, label, color=LINE, note="") -> None:
+        self.add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="16" fill="none" '
+                 f'stroke="{color}" stroke-width="1.5" stroke-dasharray="7 6" opacity="0.9"/>')
+        self.add(f'<text x="{x + 16}" y="{y + 22}" fill="{color}" font-size="11" '
+                 f'letter-spacing="1.6">{esc(label)}</text>')
+        if note:
+            self.add(f'<text x="{x + 16}" y="{y + h - 12}" fill="{MUTED}" font-size="10.5">'
+                     f'{esc(note)}</text>')
+
+    def node(self, x, y, n, title, sub, metric, health=OK, w=NODE_W, h=NODE_H,
+             kind="action", note="") -> None:
+        """One n8n node: icon chip, title, subtitle, measured metric, health bar."""
+        icons = {
+            "trigger": ("▶", "#8250df"),
+            "action": ("⚙", "#2f81f7"),
+            "ai": ("◆", ACCENT),
+            "gate": ("⏸", WARN),
+            "end": ("■", MUTED),
+        }
+        glyph, chip = icons.get(kind, icons["action"])
+        self.add(f'<g>')
+        # body
+        self.add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{h // 2 if kind == "trigger" else 12}" '
+                 f'fill="{CARD}" stroke="{health}" stroke-width="1.6"/>')
+        self.add(f'<rect x="{x}" y="{y}" width="5" height="{h}" rx="2.5" fill="{health}"/>')
+        # icon chip
+        cx, cy = x + 26, y + 30
+        self.add(f'<rect x="{cx - 13}" y="{cy - 13}" width="26" height="26" rx="8" fill="{chip}" opacity="0.18"/>')
+        self.add(f'<text x="{cx}" y="{cy + 5}" fill="{chip}" font-size="14" text-anchor="middle">{glyph}</text>')
+        # number + title
+        tx = x + 48
+        self.add(f'<text x="{tx}" y="{y + 24}" fill="{MUTED}" font-size="10">{n:02d}</text>')
+        self.add(f'<text x="{tx + 20}" y="{y + 24}" fill="{INK}" font-size="13.5" '
+                 f'font-weight="700">{esc(title)}</text>')
+        self.add(f'<text x="{tx}" y="{y + 41}" fill="{MUTED}" font-size="10">{esc(sub[:38])}</text>')
+        # metric
+        for i, line in enumerate(wrap(metric, 34)[:3]):
+            self.add(f'<text x="{x + 14}" y="{y + 62 + i * 14}" fill="{ACCENT}" font-size="10.5">'
+                     f'{esc(line)}</text>')
+        if note:
+            self.add(f'<text x="{x + 14}" y="{y + h - 8}" fill="{health}" font-size="9.5">{esc(note[:46])}</text>')
+        # ports
+        self.add(f'<circle cx="{x}" cy="{y + h // 2}" r="5" fill="{BG}" stroke="{LINE}" stroke-width="1.5"/>')
+        self.add(f'<circle cx="{x + w}" cy="{y + h // 2}" r="5" fill="{BG}" stroke="{LINE}" stroke-width="1.5"/>')
+        self.add('</g>')
+
+    def edge(self, a, b, *, color=MUTED, dashed=False, label="", curve=0.5, both=False) -> None:
+        """Bezier from a node's right port to b's left port (or explicit points)."""
+        (x1, y1), (x2, y2) = a, b
+        dx = max(48, abs(x2 - x1) * curve)
+        d = f"M {x1} {y1} C {x1 + dx} {y1}, {x2 - dx} {y2}, {x2} {y2}"
+        dash = ' stroke-dasharray="6 5"' if dashed else ""
+        self.add(f'<path d="{d}" fill="none" stroke="{color}" stroke-width="1.8"{dash}/>')
+        # arrow head, aimed along the incoming tangent
+        self.add(f'<polygon points="{x2 - 9},{y2 - 4.5} {x2 - 9},{y2 + 4.5} {x2},{y2}" fill="{color}"/>')
+        if label:
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2 - 8
+            self.add(f'<text x="{mx}" y="{my}" fill="{color}" font-size="9.5" '
+                     f'text-anchor="middle">{esc(label)}</text>')
+
+
+def render_flow(m: dict) -> str:
+    """The body as an n8n workflow: trigger -> ingress -> session -> LOOP -> out."""
+    tok = sum(t for _, t in SOURCE["tok_per_cycle"]) // len(SOURCE["tok_per_cycle"])
+    W, H = 1560, 1016
+    f = Flow(W, H)
+    f.grid()
+
+    # header
+    f.add(f'<text x="36" y="42" fill="{INK}" font-size="24" font-weight="700">'
+          f'CRUSORAI AGENT CORE — WORKFLOW BLUEPRINT</text>')
+    f.add(f'<text x="36" y="64" fill="{MUTED}" font-size="12">'
+          f'14 pipelines · simulated run {esc(SOURCE["run"])} · every node carries its own measured number</text>')
+    f.add(f'<text x="36" y="84" fill="{ACCENT}" font-size="11.5">'
+          f'1 cycle = 1 LLM call = 1 loop turn   ·   1 prompt = 1 user message = N cycles   '
+          f'·   measured: {SOURCE["cycles_total"]} cycles over {SOURCE["prompts"]} prompts</text>')
+
+    R = lambda x, y, h: (x, y + h // 2)  # right port
+    L = lambda x, y, h: (x, y + h // 2)  # left port
+
+    # ── entry row
+    y0 = 116
+    f.node(36, y0, 1, "User prompt", "trigger · one message", "starts a SESSION\nand a PROMPT", MUTED,
+           kind="trigger", note="1 prompt = N cycles")
+    f.node(352, y0, 2, "Bridge ingress", "protocol v2 · 2,579 lines",
+           "3/3 probes pass\nmalformed -> ProtocolError", OK)
+    f.node(668, y0, 3, "Session store", "thread_id == session_id",
+           "1 session_create\nsqlite checkpoint 0.6 ms", OK)
+
+    # ── the system message gets its own node, because it is the biggest constant
+    f.node(984, y0, 4, "SYSTEM MESSAGE", "system_persona() · every cycle",
+           f"autonomous (our runs): {m['persona_tokens']} tok\n"
+           f"desktop default: {m['persona_default_tokens']:,} tok\n"
+           f"{m['persona_default_chars']:,} chars · {m['persona_sections']} sections",
+           WARN, w=340, h=136, kind="ai",
+           note=f"x{SOURCE['cycles_total']} cycles = {m['persona_default_tokens'] * SOURCE['cycles_total']:,} tok")
+    f.node(1352, y0, 5, "Tool schemas", "bound toolset",
+           f"{m['tools_sent']}/{m['tools_defined']} tools\n{m['schema_tokens']:,} tok",
+           WARN, w=176, h=136, kind="ai",
+           note=f"x{SOURCE['cycles_total']} = {m['schema_tokens'] * SOURCE['cycles_total']:,} tok")
+
+    # ── the loop container
+    ly = 296
+    f.group(36, ly, 1492, 372, "AGENT LOOP  ·  one iteration = ONE CYCLE = ONE LLM CALL",
+            ACCENT, f"prompt 3 took {dict(SOURCE['cycles'])[3]} cycles · prompt 1 took "
+                    f"{dict(SOURCE['cycles'])[1]} · the count explodes, not the price")
+
+    ny = ly + 52
+    f.node(72, ny, 6, "Prompt assembly", "persona + AGENTS.md + history", 
+           f"fixed overhead {m['persona_tokens'] + m['schema_tokens']:,} tok\n"
+           f"({(m['persona_tokens'] + m['schema_tokens']) * 100 // tok}% of a {tok:,} tok cycle)", WARN)
+    f.node(420, ny, 7, "Context engine", "2,704 lines · compaction",
+           f"4 compactions\n{SOURCE['history_msgs'][0]} -> {SOURCE['history_msgs'][1]} messages\n"
+           f"cache hit {SOURCE['cached_pct'][0]}% -> {SOURCE['cached_pct'][-1]}%", WARN)
+    f.node(768, ny, 8, "LLM call", "one cycle = one call",
+           f"{tok:,} tok/cycle\n${tok * SOURCE['rate_per_mtok'] / 1e6:.4f} per cycle\n"
+           f"model wall {SOURCE['model_wall_pct']}%", BAD, kind="ai")
+    f.node(1116, ny, 9, "Tool execution", "68 defined · 36-48 sent",
+           f"{SOURCE['tool_result_chars']:,} chars ~3,000 tok/result\n"
+           f"30 results = ~90,000 tok", BAD)
+
+    # tools -> back to LLM call (the cycle)
+    f.edge(R(1116, ny, NODE_H), (768, ny + NODE_H + 60), color=ACCENT, dashed=True,
+           label=f"+1 cycle (x{SOURCE['cycles_total']} in this session)", curve=0.35)
+
+    # gate row inside the loop
+    gy = ny + 150
+    f.node(420, gy, 10, "Loop control", "budget · gates · stuck",
+           f"iterations 20/20 imposed\n(production 45)\ncost leg OFF by default", BAD, kind="gate")
+    f.node(768, gy, 11, "Stuck detector", "3 overlapping guards",
+           "loop_guards + progress_guard\n+ repetition_guard", WARN, kind="gate")
+
+    f.edge(R(768, ny, NODE_H), L(420, ny, NODE_H), color=MUTED, label="route", curve=0.4)
+    f.edge((768 + NODE_W // 2, ny + NODE_H), (768 + NODE_W // 2, gy), color=MUTED, curve=0.2)
+    f.edge(R(420, gy, NODE_H), L(768, gy, NODE_H), color=MUTED, curve=0.4)
+
+    # ── exit row
+    ey = 700
+    f.node(72, ey, 12, "Verification", "receipts · derived status",
+           "passed on 3 CUT turns\nverification is not the problem", OK, w=300)
+    f.node(452, ey, 13, "Finalize", "one verdict, one voice",
+           "budget-cut printed 'completed'\n(fixed: 12 defects found)", WARN, w=300)
+    f.node(832, ey, 14, "Persistence", "checkpoint · journal · evidence",
+           "0.6 ms reopen\nunpaired tool call detected", OK, w=300)
+    f.node(1212, ey, 15, "Terminal frame", "run_outcome + failure_reason",
+           "completed / budget_exhausted\n/ halted-provider-balance", OK, w=300)
+
+    f.edge((984 + 340, y0 + 68), (72, ny + NODE_H // 2), color=ACCENT, dashed=True, curve=0.5)
+    f.edge(R(668, y0, NODE_H), L(72, ny, NODE_H), color=MUTED, curve=0.6)
+    f.edge((1352, y0 + 68), (1116 + NODE_W, ny + NODE_H // 2), color=ACCENT, dashed=True, curve=0.5)
+    f.edge(R(72, ny, NODE_H), L(420, ny, NODE_H), color=MUTED)
+    f.edge(R(420, ny, NODE_H), L(768, ny, NODE_H), color=MUTED)
+    f.edge(R(768, ny, NODE_H), L(1116, ny, NODE_H), color=MUTED)
+    # cut path out of the loop
+    f.edge((420, gy + NODE_H // 2), (452, ey + NODE_H // 2), color=BAD, dashed=True,
+           label="cycle budget cut", curve=0.4)
+    f.edge(R(72, ey, NODE_H), L(452, ey, NODE_H), color=OK, curve=0.4)
+    f.edge(R(452, ey, NODE_H), L(832, ey, NODE_H), color=MUTED, curve=0.4)
+    f.edge(R(832, ey, NODE_H), L(1212, ey, NODE_H), color=MUTED, curve=0.4)
+
+    # ── economics footer
+    fy = 852
+    f.add(f'<rect x="36" y="{fy}" width="1492" height="128" rx="14" fill="#1a1013" stroke="{BAD}"/>')
+    f.add(f'<text x="60" y="{fy + 30}" fill="{BAD}" font-size="14" font-weight="700">'
+          f'WHAT THE RUN COST — {SOURCE["prompts"]} prompts · {SOURCE["cycles_total"]} cycles · '
+          f'{SOURCE["tokens_total"]:,} tokens · ${SOURCE["usd_total"]}</text>')
+    f.add(f'<text x="60" y="{fy + 56}" fill="{INK}" font-size="11.5">'
+          f'completed work 472,716 tok (16%)   ·   discarded by cycle-cuts 2,494,936 tok '
+          f'({SOURCE["discarded_pct"]}%)   ·   fixed overhead per cycle '
+          f'{m["persona_tokens"] + m["schema_tokens"]:,} tok ({(m["persona_tokens"] + m["schema_tokens"]) * 100 // tok}%)</text>')
+    f.add(f'<text x="60" y="{fy + 78}" fill="{MUTED}" font-size="11">'
+          f'autonomous persona {m["persona_tokens"]} tok → desktop default {m["persona_default_tokens"]:,} tok '
+          f'is a 14x jump on the same code path; on desktop that node alone is '
+          f'${m["persona_default_tokens"] * SOURCE["cycles_total"] * SOURCE["rate_per_mtok"] / 1e6:.3f} per session.</text>')
+    f.add(f'<text x="60" y="{fy + 100}" fill="{MUTED}" font-size="11">'
+          f'read the shape, not the nodes: the loop is where every cycle is billed, and the '
+          f'only node that decides when it stops is Loop control.</text>')
+
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+            f'viewBox="0 0 {W} {H}" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">'
+            + "".join(f.parts) + "</svg>")
+
+
 def render_html(m: dict, svg: str) -> str:
     """A self-contained page: the blueprint, then the numbers as tables."""
     st = stages(m)
@@ -414,6 +628,31 @@ def render_html(m: dict, svg: str) -> str:
 
 <div class="svgbox">{svg}</div>
 
+<h2>The system message — the biggest constant in the loop</h2>
+<table>
+ <tr><th>Variant</th><th>Chars</th><th>Tokens</th><th>×{SOURCE["cycles_total"]} cycles</th><th>$ per session</th><th>Used by</th></tr>
+ <tr><td>autonomous (workspace_session)</td><td>1,722</td><td>{m["persona_tokens"]}</td>
+     <td>{m["persona_tokens"] * SOURCE["cycles_total"]:,}</td>
+     <td>${m["persona_tokens"] * SOURCE["cycles_total"] * SOURCE["rate_per_mtok"] / 1e6:.3f}</td>
+     <td>headless runs, benchmarks, <b>these measurements</b></td></tr>
+ <tr><td>default (desktop / IDE)</td><td>{m["persona_default_chars"]:,}</td><td>{m["persona_default_tokens"]:,}</td>
+     <td>{m["persona_default_tokens"] * SOURCE["cycles_total"]:,}</td>
+     <td>${m["persona_default_tokens"] * SOURCE["cycles_total"] * SOURCE["rate_per_mtok"] / 1e6:.3f}</td>
+     <td>interactive desktop sessions</td></tr>
+</table>
+<div class="money">
+ <b>The 14× number.</b> Both variants come from the SAME code path —
+ <code>system_persona(autonomous=True|False)</code> in <code>src/prompts/claude_persona.py</code>.
+ The autonomous one is {m["persona_tokens"]} tokens; the desktop default composes
+ {m["persona_default_chars"]:,} chars / {m["persona_default_tokens"]:,} tokens across
+ {m["persona_sections"]} sections, and is re-sent on <b>every one</b> of the
+ {SOURCE["cycles_total"]} cycles. On desktop that single node costs more per session than the
+ tool schema: {m["persona_default_tokens"] * SOURCE["cycles_total"]:,} tokens ≈
+ ${m["persona_default_tokens"] * SOURCE["cycles_total"] * SOURCE["rate_per_mtok"] / 1e6:.3f}.
+ Our own runs understate it by 14× because the harness sets
+ <code>approval_policy=workspace_session</code>.
+</div>
+
 <h2>Every pipeline, measured</h2>
 <table>
  <tr><th>#</th><th>Pipeline</th><th>Measured</th><th>Diagnosis</th><th>Best-in-class / our gap</th><th></th></tr>
@@ -451,7 +690,7 @@ def render_html(m: dict, svg: str) -> str:
 
 def main() -> int:
     m = measure()
-    svg = render(m)
+    svg = render_flow(m)
     target = ROOT / "docs" / "agent_core_blueprint.svg"
     target.write_text(svg, encoding="utf-8")
     page = ROOT / "docs" / "agent_core_blueprint.html"
