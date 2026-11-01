@@ -245,3 +245,37 @@ def test_blueprint_draws_every_pipeline_with_a_metric():
     # the schema cost must be measured, not typed in
     assert m["schema_tokens"] > 1000, m
     assert str(f"{m['schema_tokens']:,}") in text, "tool-schema cost missing from the drawing"
+
+
+def test_reference_blueprints_cover_the_five_repos_with_sourced_numbers():
+    """Field 2026-11-01: the comparison had to be measured, not asserted.
+
+    Each of the five harnesses was downloaded from codeload.github.com and read.
+    This pins three things: every repo is present, every one carries a token
+    number for its system message, and ours is included in the same table so the
+    comparison cannot quietly drop the unflattering column.
+    """
+    import xml.etree.ElementTree as ET
+
+    sys.path.insert(0, str(ROOT))
+    from scripts.ref_blueprints import OURS, REFS, render
+
+    svg = render()
+    root = ET.fromstring(svg)
+    text = " ".join(t.text or "" for t in root.iter() if t.tag.endswith("text"))
+
+    names = [r["name"] for r in REFS]
+    assert names == ["Aider", "OpenCode", "Codex CLI", "Void", "openclaude"], names
+    for r in REFS:
+        assert r["name"] in text, r["name"]
+        assert isinstance(r["system"], int) and r["system"] > 0, r
+        assert r["verdict"] and r["steal"], r["name"]
+        assert r["source"], f"{r['name']} must name the files its numbers came from"
+    assert "CrusorAI (ours)" in text, "the table must include our own column"
+    assert f"{OURS['system']:,}" in text
+
+    # the finding: nobody else carries our fixed preamble
+    assert all(r["system"] < OURS["system"] for r in REFS[:4]), (
+        "Aider/OpenCode/Codex/Void must all keep a smaller system message than ours; "
+        "if this fails, either we got slimmer (good — update the doc) or the data was edited"
+    )
