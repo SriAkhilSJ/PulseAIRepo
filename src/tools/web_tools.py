@@ -13,7 +13,11 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import httpx
-from ddgs import DDGS
+# Field 2026-11-01 (agent-core body checkup): this module-level import made a
+# web-search package a hard prerequisite for the WHOLE core -- chat_graph,
+# code_exec_tool and the graph all failed to import without `ddgs`, and the
+# repo's own test collection died with 40+ ModuleNotFoundErrors for the same
+# reason. Imported inside web_search, which is the only place that needs it.
 from langchain_core.tools import tool
 
 
@@ -197,6 +201,11 @@ def web_search(query: str, max_results: int = 5) -> str:
     web_fetch to read the full page.
     """
     max_results = max(1, min(max_results, 10))
+
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        return "web_search unavailable: the 'ddgs' package is not installed (pip install ddgs)"
 
     try:
         with DDGS() as ddgs:

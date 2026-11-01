@@ -5,9 +5,26 @@ import threading
 import time
 from typing import Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
+
+# Field 2026-11-01 (agent-core body checkup): the Google and Groq SDKs used to
+# be imported at module scope here, so the ENTIRE agent core -- chat_graph,
+# tools, planner, the graph itself -- failed to import unless every provider
+# SDK was installed, even when the configured provider was `custom`. One
+# optional dependency missing took down everything. They are imported inside
+# the branches that actually use them, with an error that names the fix.
+
+
+def _provider_sdk(provider: str, module: str, cls: str, package: str):
+    """Import a provider SDK on demand, with an error the operator can act on."""
+    try:
+        mod = __import__(module, fromlist=[cls])
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise ImportError(
+            f"provider {provider!r} is configured but {package} is not installed: "
+            f"pip install {package}"
+        ) from exc
+    return getattr(mod, cls)
 
 from src.config.reasoning_config import build_model_kwargs_for_reasoning
 from src.config.settings import (
@@ -1129,7 +1146,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
     # Hard timeouts: a hung provider must NEVER wedge a dashboard worker
     # thread forever.  Retries stay with RetryLLMProxy (single owner).
     if provider == "groq":
-        llm = ChatGroq(
+        llm = _provider_sdk("groq", "langchain_groq", "ChatGroq", "langchain-groq")(
             model=model,
             api_key=GROQ_API_KEY,
             request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
@@ -1140,7 +1157,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
         return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
 
     if provider == "gemini":
-        llm = ChatGoogleGenerativeAI(
+        llm = _provider_sdk("gemini", "langchain_google_genai", "ChatGoogleGenerativeAI", "langchain-google-genai")(
             model=model,
             api_key=GEMINI_API_KEY,
             timeout=request_timeout if request_timeout is not None else default_request_timeout(),

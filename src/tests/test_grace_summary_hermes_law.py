@@ -219,22 +219,36 @@ def test_model_wall_is_accounted_per_thread(monkeypatch):
 
 
 def test_bridge_receipt_splits_model_vs_non_model_wall():
+    """Field 2026-09-09: the receipt must separate model wall from the rest of
+    the turn, or "model 0.0s" is printed while the model visibly consumes
+    minutes. Field 2026-11-01 (body checkup): the implementation moved from
+    `turn_model_wall(sid)` to a read-and-clear `pop_turn_model_accounting(sid)`
+    that also attributes sub-agent model time. These tests pinned the old
+    symbol, so a correct receipt reported a red suite. They now pin the
+    contract instead of the identifier.
+    """
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall" in bridge
+    assert "pop_turn_model_accounting(sid)" in bridge, "the receipt must clear the accounting it reads"
     assert "non-model" in bridge, "the receipt must name where non-model wall lives"
+    assert "sub-agent model" in bridge, "child model seconds must be attributed, not hidden in the wait"
 
 
 def test_bridge_receipt_reads_the_wall_with_the_real_thread_id():
     """Field 2026-09-09: the receipt read turn_model_wall(session_id) but the
     bridge scope names the thread `sid` — NameError, swallowed, and the log
-    printed "model 0.0s" while the model visibly consumed minutes."""
+    printed "model 0.0s" while the model visibly consumed minutes.
+
+    The scoping rule is what matters: whatever reads the accounting is called
+    with `sid`, never with a name that does not exist in that scope.
+    """
     from pathlib import Path
 
     bridge = (Path(__file__).resolve().parents[1] / "bridge" / "__main__.py").read_text(encoding="utf-8")
-    assert "turn_model_wall(sid)" in bridge
     assert "turn_model_wall(session_id)" not in bridge
+    assert "pop_turn_model_accounting(session_id)" not in bridge
+    assert "pop_turn_model_accounting(sid)" in bridge
 
 
 def test_grace_print_names_both_budget_legs_and_the_tripped_one(monkeypatch):

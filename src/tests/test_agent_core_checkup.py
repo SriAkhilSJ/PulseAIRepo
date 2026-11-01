@@ -90,6 +90,61 @@ def test_basic_graph_imports_without_credentials():
     assert "True" in out.stdout
 
 
+# ── Defects 3 and 4: optional extras were hard prerequisites ───────────────
+# `src/llm/factory.py` imported the Google and Groq SDKs at module scope, and
+# `src/tools/web_tools.py` imported `ddgs` at module scope. Result: chat_graph,
+# the tool layer and the graph itself could not be imported without every
+# provider SDK AND a web-search package installed -- on a deployment that only
+# ever uses one provider. This subprocess hides those three packages and
+# demands that the core still imports.
+_HIDE_EXTRAS = """
+import sys
+BLOCK = {"langchain_google_genai", "langchain_groq", "ddgs"}
+
+
+class Blocker:
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in BLOCK:
+            raise ImportError(f"simulated missing extra: {name}")
+        return None
+
+
+sys.meta_path.insert(0, Blocker())
+import src.graphs.chat_graph as cg          # the core graph
+import src.tools.web_tools as wt            # the tool that needs ddgs
+assert (
+    "not installed" in wt.web_search.invoke({"query": "x"})
+), "web_search must degrade with an actionable message, not raise"
+print("core imported without extras")
+"""
+
+
+def test_core_imports_without_optional_provider_sdks():
+    import os
+
+    env = {k: v for k, v in os.environ.items() if not k.endswith("API_KEY")}
+    env["PYTHONPATH"] = str(ROOT)
+    out = subprocess.run(
+        [sys.executable, "-c", _HIDE_EXTRAS],
+        cwd=str(ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, (out.stdout + out.stderr)[-900:]
+
+
+def test_provider_sdk_error_names_the_install_command():
+    """Selecting a provider whose SDK is absent must say which pip package fixes it."""
+    sys.path.insert(0, str(ROOT))
+    from src.llm.factory import _provider_sdk
+
+    with pytest.raises(ImportError) as exc:
+        _provider_sdk("groq", "definitely_not_installed_sdk", "Nope", "langchain-groq")
+    assert "langchain-groq" in str(exc.value)
+
+
 # ── The checkup itself ─────────────────────────────────────────────────────
 def test_body_checkup_reports_zero_failures():
     """52+ probes across every pipeline, keyless. Any FAIL is a body-part that

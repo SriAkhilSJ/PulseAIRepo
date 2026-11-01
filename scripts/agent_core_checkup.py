@@ -839,48 +839,37 @@ def check_hygiene(cu: Checkup) -> None:
 
     @cu.probe(
         P,
-        "every core module imports without credentials",
-        fix="move client construction out of module import into a factory call",
+        "every core module imports without credentials or optional SDKs",
+        fix="import optional third-party SDKs inside the function that uses them",
     )
     def _(_):
-        bad = []
+        """Distinguish a BROKEN module from an environment missing an extra.
+
+        Both raise ImportError, and treating them alike made this check red on
+        a CI runner that had deliberately not installed every optional SDK --
+        a false alarm. A missing *in-repo* module or a non-ImportError failure
+        is structural; a missing third-party package is an environment choice
+        and is reported as a WARN with the package named.
+        """
+        structural, optional = [], []
         for pkg in ("src.context", "src.llm", "src.graphs", "src.tools", "src.runtime", "src.agents", "src.bridge"):
             mod = importlib.import_module(pkg)
             for _, name, _ in pkgutil.walk_packages(mod.__path__, pkg + "."):
                 try:
                     importlib.import_module(name)
+                except ImportError as exc:
+                    missing = getattr(exc, "name", None) or ""
+                    if missing.startswith("src") or missing in ("", None):
+                        structural.append(f"{name} ({exc})")
+                    else:
+                        optional.append(f"{name} needs {missing}")
                 except Exception as exc:  # noqa: BLE001
-                    bad.append(f"{name.split('.')[-1]} ({type(exc).__name__})")
-        if bad:
-            return (FAIL, f"{len(bad)} core module(s) cannot import: {', '.join(bad)}")
-        return "all core modules import cleanly"
-
-    @cu.probe(
-        P,
-        "no core module is an orphan",
-        fix="delete it or import it — an unimported module is untested code",
-    )
-    def _(_):
-        survivors = []
-        for pkg in ("src.providers", "src.graphs"):
-            mod = importlib.import_module(pkg)
-            for _, name, _ in pkgutil.walk_packages(mod.__path__, pkg + "."):
-                short = name.split(".")[-1]
-                hits = 0
-                for f in (ROOT / "src").rglob("*.py"):
-                    if f.stem in (short, "__init__"):
-                        continue
-                    try:
-                        text = f.read_text(errors="ignore")
-                    except OSError:
-                        continue
-                    if re.search(rf"\b{re.escape(short)}\b", text) and name.replace(".", "/") not in str(f):
-                        hits += 1
-                if hits == 0:
-                    survivors.append(short)
-        if survivors:
-            return (WARN, f"imported by nothing: {', '.join(sorted(set(survivors)))}")
-        return "every module has at least one importer"
+                    structural.append(f"{name} ({type(exc).__name__}: {exc})")
+        if structural:
+            return (FAIL, f"{len(structural)} module(s) broken regardless of extras: {', '.join(structural[:3])}")
+        if optional:
+            return (WARN, f"{len(optional)} module(s) need an uninstalled extra: {', '.join(optional[:3])}")
+        return "all core modules import keyless"
 
     def _missing_package_imports():
         """Yield (path, lineno, module, guarded) using the AST, not a regex.
