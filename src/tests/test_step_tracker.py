@@ -334,7 +334,10 @@ class TestStepTracker(TestCase):
             Path(self.tmpdir.name) / "diagnostics" / "LATEST_PERFORMANCE_AUDIT.md"
         ).read_text(encoding="utf-8")
         self.assertIn("Runtime Health Score", report)
-        self.assertIn("1/4 dimensions scored", report)
+        # 2026-10-31 (T4): cost became a fifth graded dimension, so an
+        # unpriced session reports 1/5 rather than 1/4. The assertion's intent
+        # is unchanged: partial coverage must be declared, never hidden.
+        self.assertIn("1/5 dimensions scored", report)
         self.assertIn("/ 100", report)
         self.assertIn("N/A (duration telemetry unavailable)", report)
         self.assertNotIn("Optimal Performance", report)

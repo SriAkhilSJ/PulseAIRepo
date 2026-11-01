@@ -643,6 +643,49 @@ def effective_iteration_budget(max_llm_calls: int) -> int:
     return max(1, int(max_llm_calls))
 
 
+def resolve_token_budget(args, env: dict) -> tuple[int, str]:
+    """(cumulative input-token cap, where it came from).
+
+    Field 2026-11-01 (runs 41278204959, 41279458317): two turns were cut at
+    iteration 6-7 of 20 with
+
+        [budget] exhausted: tokens 172,020/150,000 >= cap
+
+    and the cap was 150,000 ONLY because this function did not exist: main()
+    unconditionally did
+
+        env["AGENT_TOKEN_BUDGET"] = str(effective_max_input_tokens)
+
+    which DISCARDED the graph's own tuned default (budget.py: 600,000, chosen
+    precisely so the iteration budget binds first) and also discarded an
+    operator's explicit AGENT_TOKEN_BUDGET. An explicit setting that gets
+    silently overwritten is not a config, it is a decoy — and the log could not
+    say which wall fired because it never printed where the number came from.
+
+    Precedence, highest first:
+      1. --max-input-tokens (explicit CLI)
+      2. CRUSORAI_MAX_INPUT_TOKENS
+      3. AGENT_TOKEN_BUDGET already in the environment
+      4. adaptive default from the model's context window
+    A value <= 0 means "no cap" and is passed through untouched.
+    """
+    if getattr(args, "max_input_tokens", None) is not None:
+        return int(args.max_input_tokens), "--max-input-tokens"
+    raw = (env.get("CRUSORAI_MAX_INPUT_TOKENS") or "").strip()
+    if raw:
+        try:
+            return max(10_000, int(raw)), "CRUSORAI_MAX_INPUT_TOKENS"
+        except ValueError:
+            pass
+    raw = (env.get("AGENT_TOKEN_BUDGET") or "").strip()
+    if raw:
+        try:
+            return int(raw), "AGENT_TOKEN_BUDGET"
+        except ValueError:
+            pass
+    return resolve_default_max_input_tokens(env), "adaptive default"
+
+
 def resolve_default_max_input_tokens(env: dict) -> int:
     """Resolve an adaptive cumulative input token budget based on discovered model window.
 
@@ -672,6 +715,28 @@ def resolve_default_max_input_tokens(env: dict) -> int:
     except Exception:
         pass
     return 250_000
+
+
+def budget_shape_warning(cap: int, avg_prompt: float, max_calls: int) -> str | None:
+    """Warn when the token cap cannot possibly cover the call budget.
+
+    Field 2026-11-01: every run of the E2E was configured with a 150,000-token
+    cap beside `--max-llm-calls 20`, while one request already carries ~24,000
+    prompt tokens. That cap buys ~6 calls, so the token leg was GUARANTEED to
+    bind first and the turn was GUARANTEED to end "budget_exhausted" mid-work.
+    The configuration was self-defeating and nothing said so — it surfaced six
+    iterations in, as a failure that looked like the model running away.
+    """
+    if cap <= 0 or avg_prompt <= 0 or max_calls <= 0:
+        return None
+    calls_to_cap = cap / avg_prompt
+    if calls_to_cap >= max_calls:
+        return None
+    return (
+        f"[budget] WARNING: cap {cap:,} at ~{avg_prompt:,.0f} tokens/request buys "
+        f"~{calls_to_cap:.1f} calls, but --max-llm-calls is {max_calls}. The token "
+        "leg will bind first and the turn will end 'budget_exhausted' mid-work."
+    )
 
 
 def should_stop_for_call_budget(llm_calls: int, limit: int) -> bool:
@@ -743,12 +808,19 @@ def main() -> int:
     # protocol drift can never strand the turn waiting for a nonexistent UI.
     env.setdefault("CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
     env.setdefault("CRUSORAI_PREVIEW_AUTOSTART", "0")
-    effective_max_input_tokens = (
-        args.max_input_tokens
-        if args.max_input_tokens is not None
-        else resolve_default_max_input_tokens(env)
-    )
+    effective_max_input_tokens, token_budget_source = resolve_token_budget(args, env)
+    # 0 (or negative) means "no cap" — pass it through so the graph disables the
+    # leg too, and make sure the runner breaker below does not read 0 as
+    # "already over". Without this guard, AGENT_TOKEN_BUDGET=0 — documented as
+    # the way to disable the cap — would cancel the turn on the first frame.
+    token_budget_enabled = effective_max_input_tokens > 0
     env["AGENT_TOKEN_BUDGET"] = str(effective_max_input_tokens)
+    print(
+        f"[budget] input-token cap={effective_max_input_tokens:,} "
+        f"source={token_budget_source} iterations={agent_iteration_budget} "
+        f"enabled={token_budget_enabled}",
+        flush=True,
+    )
 
     proc = subprocess.Popen(
         [sys.executable, "-u", "-m", "src.bridge"],
@@ -809,6 +881,7 @@ def main() -> int:
     counts: dict[str, int] = {}
     llm_calls = 0
     tokens_in_seen = 0
+    budget_shape_warned = False
     budget_stop = False
     no_delivery_stop = False
     operator_cancelled = False
@@ -927,6 +1000,15 @@ def main() -> int:
                     )
                 if ftype == "telemetry":
                     tokens_in_seen = max(tokens_in_seen, int(frame.get("tokensIn") or 0))
+                    if token_budget_enabled and not budget_shape_warned and tokens_in_seen > 0:
+                        budget_shape_warned = True
+                        warning = budget_shape_warning(
+                            effective_max_input_tokens,
+                            tokens_in_seen / max(1, llm_calls),
+                            args.max_llm_calls,
+                        )
+                        if warning:
+                            print(warning, flush=True)
                 if ftype == "safety_request":
                     safety_requests += 1
                     approved = should_auto_approve_safety_request(frame, workspace)
@@ -955,7 +1037,7 @@ def main() -> int:
                 # (proven zero post-cancel spend) instead of burning more.
                 if not budget_stop and ftype not in ("turn_done", "turn_failed") and (
                     should_stop_for_call_budget(llm_calls, args.max_llm_calls)
-                    or tokens_in_seen >= effective_max_input_tokens
+                    or (token_budget_enabled and tokens_in_seen >= effective_max_input_tokens)
                 ):
                     budget_stop = True
                     emit(f"[BUDGET-STOP] calls={llm_calls} tokensIn~{tokens_in_seen} "
@@ -1011,6 +1093,8 @@ def main() -> int:
     outcome["frame_counts"] = counts
     outcome["llm_request_frames"] = llm_calls
     outcome["tokens_in_last_telemetry"] = tokens_in_seen
+    outcome["token_budget"] = effective_max_input_tokens
+    outcome["token_budget_source"] = token_budget_source
     outcome["budget_stop"] = budget_stop
     outcome["no_delivery_stop"] = no_delivery_stop
     outcome["operator_cancelled"] = operator_cancelled

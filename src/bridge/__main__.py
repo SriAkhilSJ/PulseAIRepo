@@ -969,6 +969,46 @@ class BridgeServer:
         _force_ended = threading.Event()
         _liveness = TurnLiveness()
 
+        def _record_terminal_trace(frame: dict) -> None:
+            """T3 (2026-10-31): persist the terminal verdict into the step trace.
+
+            Forensics that motivated this: of 77 recorded sessions, 63 (82%)
+            ended on an `ai` or `tools` row with NO terminal node — so the
+            trace could not say cancelled / crashed / budgeted / timed out,
+            even though the bridge HAD emitted a full `turn_done` receipt with
+            `run_outcome` and `failure_reason` on the wire. The verdict existed
+            at the edge and was never written to the artifact that survives.
+
+            Exactly-once by construction: this hangs off `_emit_terminal`,
+            which already guards duplicate terminal frames.
+            """
+            try:
+                from src.runtime.step_tracker import StepTracker
+
+                tracker = StepTracker.get_tracker(
+                    sid, workspace_root=str(workspace or ".")
+                )
+                outcome = frame.get("run_outcome") or {
+                    "turn_failed": "failed",
+                    "turn_done": "completed",
+                }.get(str(frame.get("type")), "unknown")
+                reason = frame.get("failure_reason") or frame.get("error") or ""
+                step = tracker.start_step("turn_terminal")
+                step.verification_status = str(
+                    frame.get("verification_status") or "not_applicable"
+                )
+                tracker.finish_step([
+                    f"RUN_OUTCOME: {outcome}",
+                    *([f"FAILURE_REASON: {reason}"] if reason else []),
+                    f"COMPLETED: {bool(frame.get('completed'))}",
+                    f"CANCELLED: {bool(frame.get('cancelled'))}",
+                ])
+            except Exception as exc:  # noqa: BLE001 - telemetry never blocks a turn
+                print(
+                    f"[bridge] terminal trace row skipped: {exc!r}",
+                    file=sys.stderr, flush=True,
+                )
+
         def _emit_terminal(frame: dict) -> None:
             # Exactly-once terminal delivery: after the watchdog released the
             # session, an engine thread finishing late must not emit a second
@@ -980,6 +1020,7 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
+            _record_terminal_trace(frame)
             self.emit(frame)
 
         def _stall_watchdog() -> None:

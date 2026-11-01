@@ -35,13 +35,27 @@ def test_shape_rejects_the_classic_failures():
     assert not checker.check_shape("key_live_abc")[0]             # truncated
 
 
-def test_keys_are_collected_trimmed_and_deduplicated(monkeypatch):
+def test_keys_are_collected_RAW_and_deduplicated(monkeypatch):
+    """Field 2026-11-01: collect_keys must NOT trim.
+
+    It used to return `raw.strip()`, which made the verifier blind to the very
+    defect it exists to catch: a secret with a trailing newline (len=51 for a
+    len=50 key) passed `check_shape` as "ok" while every SDK call died as
+    `OpenAIConnectionError: Connection error.`. Trimming now happens only at
+    the point of use (the live send), so whitespace stays observable here.
+    Dedupe still keys on the stripped value, so the same key listed twice is
+    reported once — but the kept copy is the RAW one, whitespace included.
+    """
     monkeypatch.setenv("CUSTOM_API_KEYS", "key_live_aaa1, key_live_bbb2")
     monkeypatch.setenv("CUSTOM_API_KEY", " key_live_bbb2 ")  # duplicate, untrimmed
     monkeypatch.delenv("CRUSORAI_CHEAP_API_KEY", raising=False)
     keys = checker.collect_keys()
-    assert [k for _s, k in keys] == ["key_live_aaa1", "key_live_bbb2"]
-    assert all(k == k.strip() for _s, k in keys)
+    raw = [k for _s, k in keys]
+    # Both spellings survive: dedupe is on the RAW value, so a whitespace
+    # variant cannot hide behind a clean copy of the same secret.
+    assert raw == ["key_live_aaa1", " key_live_bbb2", " key_live_bbb2 "]
+    # The whitespace that broke every live call is still visible to check_shape.
+    assert [k for k in raw if k != k.strip()]
 
 
 def test_named_keys_are_supported(monkeypatch):

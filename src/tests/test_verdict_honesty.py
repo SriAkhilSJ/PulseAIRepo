@@ -877,3 +877,39 @@ def test_dual_status_separation_safety_denial_with_verified_app(tmp_path):
     assert out["application_verification_status"] == "verified"
     assert out["required_checks_passed"] is True
 
+
+
+def test_budget_cut_turn_is_never_reported_completed(_no_memory, monkeypatch, capsys):
+    """Field 2026-11-01 (live 7-turn session, funded wallet).
+
+    Turns 6 and 7 were budget-cut. The bridge correctly told the client
+    `completed=False`, but this function printed `[turn] finalize done:
+    completed`, because a cut turn that happened to pass verification fell
+    through to the verified-ok exemption. The 2026-10-12 audit closed this for
+    the "failed" branch; a *cut* turn was the remaining hole.
+
+    The invariant under test is the one the function's own comment states:
+    verdict == "completed" must imply task_succeeded, because the UI, the
+    ledger and the field log all read `task_status`.
+    """
+    import src.graphs.chat_graph as chat_graph
+
+    state = {
+        "messages": [HumanMessage(content="add the README and run the suite")],
+        "current_task": "add the README and run the suite",
+        "steps_completed": ["built server"],
+        "failed_steps": [],
+        "plan": [],
+        "workspace": ".",
+    }
+    monkeypatch.setattr(chat_graph, "_budget_exhausted", lambda _state: True, raising=False)
+    monkeypatch.setattr(chat_graph, "_verification_ran_and_passed", lambda _state: True, raising=False)
+    monkeypatch.setattr(chat_graph, "_deliverables_missing_on_disk", lambda *_a, **_k: [], raising=False)
+
+    out = _finalize(state)
+
+    printed = capsys.readouterr().out
+    assert out["task_completed"] is False
+    assert out["task_status"] == "budget_exhausted", out["task_status"]
+    assert "[turn] finalize done: budget_exhausted" in printed, printed[-400:]
+    assert "finalize done: completed" not in printed

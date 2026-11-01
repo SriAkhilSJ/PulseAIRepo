@@ -1,0 +1,41 @@
+Build a minimal, COMPLETE "PulseAir Status" MVP in the current workspace. It must run with no third-party dependencies.
+
+Deliverables (exactly these paths):
+1. `mvp/server.py` — a Python standard-library HTTP server (`http.server`, no Flask) on port 8137 that:
+   - serves `mvp/index.html` at `/`
+   - serves `mvp/styles.css` at `/styles.css`
+   - serves `GET /api/health` returning HTTP 200 with JSON `{"status": "ok"}`
+   - is safe to run in a thread: use `ThreadingHTTPServer`
+2. `mvp/index.html` — a single page that fetches `/api/health` on load and renders the result in an element with id `health`.
+3. `mvp/styles.css` — clean, dark, centered card layout. No frameworks, no CDN links.
+4. `mvp/test_server.py` — a `unittest` file that starts the server on an ephemeral port in a background thread and asserts `/api/health` returns 200 and `{"status": "ok"}`.
+
+Then run `python mvp/test_server.py` with the terminal tool and confirm it passes. If it fails, fix it and re-run until it passes.
+
+Do not create any files outside `mvp/`. When finished, state the verification command you ran and its result.
+---
+Add a version endpoint to the existing MVP. In `mvp/server.py`, add `GET /api/version` returning HTTP 200 with JSON `{"version": "1.0.0"}`.
+
+Then ADD a test to `mvp/test_server.py` covering `/api/version` (status 200 and the exact version string), run `python mvp/test_server.py`, and confirm ALL tests pass — the existing health tests must still pass. Fix and re-run until green. Keep everything inside `mvp/`.
+---
+Extend the MVP with an uptime endpoint. In `mvp/server.py`, add `GET /api/status` returning HTTP 200 with JSON containing at least `{"status": "ok", "uptime_seconds": <number>}` where uptime is measured from server start.
+
+ADD a test in `mvp/test_server.py` asserting `/api/status` returns 200, `status == "ok"`, and `uptime_seconds` is a number >= 0. Run `python mvp/test_server.py` and confirm every test passes. Fix and re-run until green.
+---
+Now surface the new endpoints in the UI. Update `mvp/index.html` so the page also fetches `/api/version` and `/api/status` on load and renders each into elements with ids `version` and `status` respectively (keep the existing `health` element and `/api/health` fetch working).
+
+Update `mvp/styles.css` if needed so the card lays out the three values cleanly. Keep it dark and centered, no frameworks, no CDN links.
+
+If your test file asserts anything about the page contents, update it. Run `python mvp/test_server.py` and confirm every test passes.
+---
+Harden the server's routing. In `mvp/server.py`, make unknown paths return HTTP 404 with a small JSON body `{"error": "not found"}` instead of an HTML error page, and make sure only GET is supported (return 405 with JSON `{"error": "method not allowed"}` for other methods).
+
+ADD tests in `mvp/test_server.py` for the 404 response and for a 405 on POST to `/api/health`. Run `python mvp/test_server.py` and confirm every test passes. Fix and re-run until green.
+---
+Refactor for clarity without changing behaviour: in `mvp/server.py`, move the route handling into a small mapping or a single dispatch function, and give the server a `create_server(port)` factory so tests can build one on an ephemeral port. Keep every existing endpoint behaving exactly as before.
+
+Update `mvp/test_server.py` to use the factory if that simplifies it. Run `python mvp/test_server.py` and confirm every test passes.
+---
+Final polish pass on the same MVP. Add a short `mvp/README.md` documenting how to start the server and which endpoints exist (health, version, status) with example responses.
+
+Also confirm the whole suite still passes: run `python mvp/test_server.py` and report how many tests ran and their result. Do not change endpoint behaviour in this turn.

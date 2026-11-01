@@ -1,0 +1,133 @@
+name: Diagnosability + live token calibration
+
+# Why: the 2026-10-31 checkup found 63/77 recorded runs ended with no terminal
+# node, so a failed run could not say why it stopped. These contracts pin the
+# fixes. The `live` job is the only one that can prove the token-calibration
+# path against a real provider, because only a runner holding the secret can
+# make a billed call — and GitHub secrets are write-only, so the value is never
+# printed here (the script reports length + last four only).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'src/runtime/status_contract.py'
+      - 'src/runtime/step_tracker.py'
+      - 'src/context/token_calibration.py'
+      - 'src/context/token_budget.py'
+      - 'src/context/layer_policy.py'
+      - 'src/tools/terminal_tools.py'
+      - 'src/tools/process_boundary.py'
+      - 'src/bridge/__main__.py'
+      - 'src/tests/test_termination_diagnosability.py'
+      - 'scripts/smoke_token_calibration_live.py'
+      - '.github/workflows/diagnosability.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  contracts:
+    name: Offline diagnosability contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the dependency set these contracts import
+        # Mirrors the set the suite was validated against locally. No
+        # sentence-transformers: the contracts are deterministic and never
+        # embed, and pulling torch into CI would add ~2GB for no coverage.
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio langchain-core langgraph \
+                      langgraph-checkpoint-sqlite langgraph-prebuilt langchain \
+                      langchain-openai langchain-google-genai langchain-groq \
+                      groq google-genai copilotkit ag-ui-langgraph aiosqlite \
+                      sqlite-vec watchdog tree-sitter tree-sitter-javascript \
+                      tree-sitter-typescript tree-sitter-go tree-sitter-rust \
+                      tree-sitter-java httpx rich typer fastapi uvicorn flask \
+                      flask-cors pillow mcp opentelemetry-api opentelemetry-sdk \
+                      opentelemetry-exporter-otlp-proto-http ddgs \
+                      tiktoken pydantic python-dotenv
+
+      - name: New contracts (17)
+        run: python -m pytest src/tests/test_termination_diagnosability.py -q
+
+      - name: Existing suites touched by these edits
+        run: |
+          python -m pytest \
+            src/tests/test_step_tracker.py \
+            src/tests/test_layer_policy.py \
+            src/tests/test_context_budget.py \
+            src/tests/test_embedding_cache.py -q
+
+      - name: Trace classifier still runs
+        run: python scripts/diagnose_run_termination.py --top 3 || true
+
+  live:
+    name: Live token calibration (uses CUSTOM_API_KEY)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install langchain-core tiktoken pydantic python-dotenv
+
+      # "Is CUSTOM_API_KEY the Velona key?" is settled by check_shape(): it
+      # FAILS unless the key starts with key_live_ (Velona's live-key prefix),
+      # then the gateway catalog and a per-model live call confirm the key is
+      # not merely well-formed but accepted. Stdlib-only, never prints the key.
+      - name: Velona key identity + catalog + live models
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CUSTOM_BASE_URL: https://velona.in/v1
+          VELONA_CHECK_TIMEOUT: '30'
+        run: |
+          set -o pipefail
+          python scripts/check_velona_keys.py --json > velona-key-report.json
+          python scripts/check_velona_keys.py 2>&1 | tee velona-key.txt
+
+      - name: Live estimate-vs-bill calibration against the custom endpoint
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+          CUSTOM_BASE_URL: https://velona.in/v1
+          LLM_MODEL: z-ai/glm-5.3-flash
+          CRUSORAI_HTTP_USER_AGENT: >-
+            Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+            (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+        run: |
+          set -o pipefail
+          python scripts/smoke_token_calibration_live.py 2>&1 | tee smoke-output.txt
+
+      - name: Post the verdict to the tracking issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: '28'
+        run: |
+          set -euo pipefail
+          # The numbers belong on api.github.com: Actions logs are not
+          # reachable from every environment, and the whole point of this job
+          # is a measurable claim (estimate vs bill), not a green tick.
+          KEY_OUT=$(cat velona-key.txt 2>/dev/null | tail -20 || echo "key check produced no output")
+          OUT=$(sed -e 's/^\[/  [/' smoke-output.txt 2>/dev/null | tail -20 || echo "no output captured")
+          OUT=$(printf '%s\n\n--- token calibration ---\n%s' "$KEY_OUT" "$OUT")
+          BODY=$(printf '**Live token-calibration smoke** — `%s` @ `%s`\n\nResult: `%s`\n\n```\n%s\n```\n' \
+            "$GITHUB_WORKFLOW" "${GITHUB_SHA:0:8}" "${{ job.status }}" "$OUT")
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
+            -f body="$BODY" > /dev/null && echo "posted" || echo "post skipped"

@@ -187,8 +187,13 @@ def test_d9_build_failure_terminal_variants():
     assert up["recovery_command"] == "process:p9"
 
     # generic tool: attempts only move while already in recovery
+    # Field 2026-11-01: the cause must ride along. A bare "Tool failed: <name>"
+    # left the model (and the operator) unable to fix anything, so a broken
+    # tool got called again every turn. The first line is unchanged for log
+    # parsers; the output tail is appended.
     f, up = ph.build_failure("read_file", "x", {}, False, None)
-    assert f == "Tool failed: read_file"
+    assert f.startswith("Tool failed: read_file")
+    assert "Actual tool output:" in f and "x" in f
     assert up["recovery_attempts_inc"] == 0 and up["recovery_mode"] is False
     f, up = ph.build_failure("read_file", "x", {}, True, "make")
     assert up["recovery_attempts_inc"] == 1 and up["recovery_mode"] is True

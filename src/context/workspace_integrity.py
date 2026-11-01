@@ -190,18 +190,46 @@ def _html_files(root: Path) -> Iterable[Path]:
             continue
 
 
-def _html_reference_path(root: Path, source: Path, reference: str) -> Path | None:
-    """Resolve a browser file reference, ignoring network/data/navigation URLs."""
+def _html_reference_paths(root: Path, source: Path, reference: str) -> list[Path]:
+    """Candidate on-disk paths for a browser file reference.
+
+    Returns [] when the reference is not a local file (network/data/anchor).
+
+    Field 2026-11-01 (live GLM 5.3 MVP, session t5-6ade426ea7): a
+    root-absolute reference was resolved ONLY against the workspace root. The
+    prompt asked for `mvp/styles.css` served at `/styles.css`, the agent wrote
+    exactly that, and the audit reported "missing HTML dependency
+    `/styles.css`" — because the file lives at <ws>/mvp/styles.css while the
+    page's document root is <ws>/mvp. The integrity gate then reported
+    missing=['integrity'] and blocked a turn whose only test was green and
+    whose live HTTP contract returned 200 {"status":"ok"}.
+
+    A root-absolute URL is relative to whichever directory the page is served
+    FROM, which for `mvp/index.html` is `mvp/`. So every ancestor of the source
+    file up to the workspace root is a legitimate document root; the audit may
+    only complain when the reference resolves under NONE of them.
+    """
     ref = reference.strip()
     if not ref or ref.startswith(("#", "//")):
-        return None
+        return []
     parsed = urlsplit(ref)
     if parsed.scheme:
-        return None
+        return []
     raw_path = unquote(parsed.path)
     if not raw_path:
-        return None
-    return root / raw_path.lstrip("/") if raw_path.startswith("/") else source.parent / raw_path
+        return []
+    if not raw_path.startswith("/"):
+        return [source.parent / raw_path]
+    relative = raw_path.lstrip("/")
+    candidates: list[Path] = []
+    directory = source.parent
+    for _ in range(8):  # bounded: never walk above the workspace
+        candidates.append(directory / relative)
+        if directory == root or directory.parent == directory:
+            break
+        directory = directory.parent
+    candidates.append(root / relative)
+    return candidates
 
 
 def _html_issues(root: Path, path: Path, text: str) -> list[IntegrityIssue]:
@@ -215,8 +243,8 @@ def _html_issues(root: Path, path: Path, text: str) -> list[IntegrityIssue]:
     relative = path.relative_to(root).as_posix()
     issues: list[IntegrityIssue] = []
     for reference in parser.references:
-        target = _html_reference_path(root, path, reference)
-        if target is not None and not target.is_file():
+        candidates = _html_reference_paths(root, path, reference)
+        if candidates and not any(candidate.is_file() for candidate in candidates):
             issues.append(IntegrityIssue("missing-html-reference", relative, reference))
     return issues
 

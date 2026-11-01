@@ -66,6 +66,19 @@ def count_tokens(messages: list[BaseMessage], model: str | None = None) -> int:
     # Every reply also has a "prime" cost
     total += 2
 
+    # D6 (2026-10-31): scale by the measured estimate/bill ratio for this
+    # model. The encoder above may be cl100k_base for a non-OpenAI model, which
+    # is a systematic per-family error on code-dense text. The factor is 1.0
+    # until token_calibration has MIN_SAMPLES observations, so this is a no-op
+    # on a fresh profile and never rescales a budget on one odd call.
+    try:
+        from src.context.token_calibration import calibration_factor
+        _factor = calibration_factor(model_name)
+        if _factor != 1.0:
+            total = max(1, int(round(total * _factor)))
+    except Exception:
+        pass
+
     return total
 
 

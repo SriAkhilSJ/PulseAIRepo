@@ -1958,6 +1958,14 @@ def _turn_scoped_resets() -> dict[str, Any]:
         "verify_nudges": 0,
         "stall_continuations": 0,
         "nudged_at_msg_count": -1,
+        # T1 (2026-10-31): seed the verdict, do not leave it absent. finalize
+        # overwrites this on every path that reaches it; if the turn is
+        # cancelled, crashes, or the process dies first, the trace now says
+        # "in_progress" (a fact: no verdict was reached) instead of omitting
+        # the field (which reads as "no problem"). 63/77 recorded runs ended
+        # with no terminal node and therefore no reason at all.
+        "run_outcome": "in_progress",
+        "failure_reason": None,
         "turn_token_usage": _zero_token_usage(),
         # Do not derive this from execution_trace: informational/unavailable
         # receipts are intentionally absent from that progress ledger but are
@@ -2842,6 +2850,37 @@ def ai_node(
     except Exception:
         pass
 
+    # D6 (2026-10-31): calibrate the token estimator against what the provider
+    # actually billed. The estimate below covers the MESSAGES we sent; the bill
+    # also covers the bound tool schemas, so the schema term must be added in
+    # or the ratio is inflated by however large the toolset is (~14k/call in
+    # measured runs) and we would "correct" the estimator in the wrong
+    # direction. If the schema term cannot be measured, skip the sample rather
+    # than learn from a mismatched pair. Best-effort: never breaks the turn.
+    try:
+        from src.context.token_budget import count_tokens as _count_tokens
+        from src.context.token_calibration import record_sample
+
+        _est_messages = _count_tokens(messages, call_model)
+        _est_tools = 0
+        if tools_bound:
+            _bound = _resolve_bound_tools(state, config)
+            _schema_json = _json.dumps(
+                [getattr(t, "args_schema", None) or getattr(t, "description", "")
+                 for t in (_bound or [])],
+                ensure_ascii=False, default=str,
+            )
+            _est_tools = _count_tokens(
+                [SystemMessage(content=_schema_json)], call_model
+            )
+        record_sample(
+            call_model,
+            _est_messages + _est_tools,
+            int(call_usage.prompt_tokens or 0),
+        )
+    except Exception:
+        pass
+
     # Law-1 visibility: when the provider reports prompt-cache hits, SAY so —
     # a custom tier re-bills all bound tool schemas per call unless its
     # automatic prefix caching engages; this line is how anyone can SEE
@@ -3165,7 +3204,22 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         exec_status = state.get("task_status")
         run_outcome = "failed"
         failure_reason = state.get("task_status")
-    elif (trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or state.get("task_completed") is False or state.get("task_status") == "failed":
+    # Field 2026-11-01 (run 41280335964): `state.get("task_completed") is False`
+    # used to sit in this chain. It is NOT a declaration of failure — it is the
+    # turn-start default. The graph seeds every turn with
+    #   {"task_status": "in_progress", "task_completed": False}
+    # and nothing sets it True mid-turn (it is DERIVED at finalize by
+    # synthesize_status_contract). So the condition was true on every single
+    # turn, and the branch order meant it won whenever verification passed:
+    #     decided_by=task_completed_false
+    #     exec_status=failed run_outcome=failed failure_reason='task_failed'
+    #     signals: verified_ok=True task_completed=False task_status='in_progress'
+    # on a run whose 4 tests passed, whose live /api/health returned 200, and
+    # whose artifact was independently re-tested. Every deliberate failure path
+    # (cancelled, timed_out, failed, recovery/tool-cycle limits) already names
+    # itself in task_status above, so the redundant default check only ever
+    # produced false failures.
+    elif (trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or state.get("task_status") == "failed":
         exec_status = "failed"
         run_outcome = "failed"
         failure_reason = "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else "no_work_done" if no_work_done else "ended_mid_task" if ended_mid_task else "task_failed"
@@ -3177,6 +3231,38 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         exec_status = "completed"
         run_outcome = "completed"
         failure_reason = None
+
+    # Field 2026-11-01 (run 41280080898): verification=passed, missing=none,
+    # zero debts, steps=5 failed=0, no budget cut — and the turn still stamped
+    # `failed` with NO recorded reason. The branch above is a chained elif over
+    # six different signals, so "which one fired?" was unanswerable from the
+    # logs and cost another full run. Print the decision and its inputs.
+    _decider = (
+        "safety_denial" if trailing_safety_denial else
+        "budget_cut" if budget_cut else
+        "timed_out" if state.get("task_status") == "timed_out" else
+        "cancelled" if state.get("task_status") == "cancelled" else
+        str(state.get("task_status")) if state.get("task_status") in ("recovery_limit", "tool_cycle_limit") else
+        "trailing_tool" if (trailing_failed and not trailing_optional_diagnostic) else
+        "no_work_done" if no_work_done else
+        "ended_mid_task" if ended_mid_task else
+        "task_status_failed" if state.get("task_status") == "failed" else
+        "unverified" if unverified else
+        "none->completed"
+    )
+    print(
+        "[turn] finalize decision: "
+        f"exec_status={exec_status} run_outcome={run_outcome} "
+        f"failure_reason={failure_reason!r} decided_by={_decider} | "
+        f"signals: trailing_failed={trailing_failed} "
+        f"trailing_optional_diagnostic={trailing_optional_diagnostic} "
+        f"trailing_safety_denial={trailing_safety_denial} "
+        f"no_work_done={no_work_done} ended_mid_task={ended_mid_task} "
+        f"budget_cut={budget_cut} unverified={unverified} "
+        f"verified_ok={verified_ok} task_completed={state.get('task_completed')!r} "
+        f"task_status={state.get('task_status')!r} failed_steps={len(failed_steps)}",
+        flush=True,
+    )
 
     if verified_ok:
         curr_rev = int(state.get("workspace_revision") or 0)
@@ -3230,8 +3316,17 @@ def finalize_node(state: AgentState, config: RunnableConfig):
     # said "done: completed", so the field log contradicted the verdict the
     # UI rendered and nobody could tell which was true.
     verdict = (
-        "budget_exhausted" if (budget_cut and not verified_ok)
-        else "failed" if (state.get("task_status") == "failed" or state.get("task_completed") is False)
+        # Field 2026-11-01 (live 7-turn session, funded wallet): turns 6 and 7
+        # were budget-cut, the bridge correctly reported completed=False, and
+        # this line still printed "finalize done: completed" — because a cut
+        # turn that happened to pass verification fell through to the
+        # `verified_ok` exemption below. The 2026-10-12 audit fixed exactly
+        # this class for the "failed" branch; a cut turn was the remaining hole.
+        # The invariant is the one the comment above states: verdict ==
+        # "completed" must IMPLY task_succeeded, because the UI, the ledger
+        # (call_ledger.record_run) and the field log all read this value.
+        "budget_exhausted" if (budget_cut and not status_contract_dict["task_completed"])
+        else "failed" if state.get("task_status") == "failed"
         else "unverified" if unverified
         else "stale" if verif_status == "stale"
         else "failed" if ((trailing_failed and not trailing_optional_diagnostic) or no_work_done or ended_mid_task or spec_status == "partial")
@@ -3294,10 +3389,32 @@ def finalize_node(state: AgentState, config: RunnableConfig):
         task_display = cut[:cut.rfind(" ")] if " " in cut[20:] else cut
         task_display = task_display.rstrip(" \t-,.;:!?") + "\u2026"
     did_work = bool(steps_completed or failed_steps or unverified)
+    # Field 2026-11-01: "finalize entered: ... unverified=True" was the whole
+    # explanation three separate runs got. The gate knows exactly which receipt
+    # domains are missing and which failed checks still owe a rerun — printing
+    # the booleans instead forced a re-run to rediscover it. Name the gap.
+    _vf = gate_verification_status(state)
+    _missing: list[str] = []
+    _debts: list[str] = []
+    try:
+        from src.graphs.gates import _verification_receipt_status
+
+        _r = _verification_receipt_status(state)
+        _missing = list(_r.get("missing") or [])
+    except Exception as exc:  # diagnostics must never break finalize
+        _missing = [f"receipt-unavailable({type(exc).__name__})"]
+    try:
+        from src.graphs.gates import _unresolved_failed_verification_checks
+
+        _debts = [str(d.get("fingerprint")) for d in _unresolved_failed_verification_checks(state)]
+    except Exception:
+        _debts = []
     print(
         "[turn] finalize entered: "
         f"steps={len(steps_completed)} failed={len(failed_steps)} "
-        f"unverified={unverified} ended_mid_task={ended_mid_task}",
+        f"unverified={unverified} ended_mid_task={ended_mid_task} "
+        f"verification={_vf} missing={_missing or 'none'} "
+        f"unresolved_check_debts={len(_debts)}",
         flush=True,
     )
     if budget_cut:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -138,7 +139,42 @@ _BILLING_PATTERNS = [
     "balance_depleted",
     "model_not_supported_on_free_tier",
     "not available on the free tier",
+    # Field 2026-11-01 (Velona gateway, live 7-turn session): a dead wallet
+    # answers HTTP 402 with
+    #   "Balance ₹0.00. Top up from ₹10 at https://velona.in/wallet"
+    # None of the patterns above match that phrasing, so it classified as
+    # `unknown` with retryable=True — and the agent dutifully retried a terminal
+    # billing failure across seven turns, each of which failed again in 0.6s.
+    # A wallet with no money is not a transient condition.
+    "top up from",
+    "balance \u20b90",
+    "balance rs 0",
+    "balance rs.0",
+    "balance: 0",
+    "balance is 0",
+    "no balance",
+    "empty wallet",
 ]
+
+# A zero balance rendered with any currency marker ("Balance $0.00",
+# "balance INR 0", "balance: ₹0.00"). Literal patterns cannot cover the
+# currency variants, so this runs alongside them.
+_ZERO_BALANCE_RE = re.compile(
+    r"balance\s*[:=\u20b9$]?\s*(?:inr|rs\.?|usd|\u20b9|\$)?\s*0(?:\.0+)?\b",
+    re.IGNORECASE,
+)
+
+
+def _is_billing_message(error_msg: str) -> bool:
+    """True for any message that states the account cannot pay.
+
+    Single predicate so the seven call sites that used to copy-paste the
+    pattern list cannot drift apart — the Velona 402 was missed by all of them
+    at once, and one of them decides whether the turn retries.
+    """
+    if any(p in error_msg for p in _BILLING_PATTERNS):
+        return True
+    return bool(_ZERO_BALANCE_RE.search(error_msg))
 
 # Billing-pattern matches that are NOT proof of billing exhaustion. Anthropic
 # returns the identical "out of extra usage" body on a subscription OAuth
@@ -591,6 +627,23 @@ _CONTENT_POLICY_BLOCKED_PATTERNS = [
 _AUTH_PATTERNS = [
     "invalid api key",
     "invalid_api_key",
+    # Field 2026-11-01 (agent-core body checkup). The message fallback is what
+    # catches a wrapped exception whose `status_code` did not survive the shim.
+    # Probed against the canonical body each vendor actually returns with a bad
+    # key, and only two of six matched:
+    #   OpenAI    "Incorrect API key provided: sk-..."        -> unknown (retried 5x)
+    #   Anthropic "invalid x-api-key"                        -> unknown (retried 5x)
+    #   Gemini    "API key not valid. Please pass a valid..." -> unknown (retried 5x)
+    #   OpenRouter "No auth credentials found"               -> unknown (retried 5x)
+    # A dead key cannot heal itself, so `unknown/retryable` is the worst possible
+    # answer: it burns the retry ladder and never rotates to a working credential.
+    "incorrect api key",
+    "incorrect_api_key",
+    "invalid x-api-key",
+    "invalid api-key",
+    "api key not valid",
+    "no auth credentials",
+    "authentication failed",
     "gateway_auth_failed",
     "authentication",
     "unauthorized",
@@ -1149,8 +1202,21 @@ def classify_api_error(
         # transport-layer failure here is recoverable via the retry
         # path — not via context compression.  Reclassify as timeout.
         # (Part 1 of Fixes #52310.)
-        from agent.reasoning_timeouts import get_reasoning_stale_timeout_floor
-        if get_reasoning_stale_timeout_floor(model) is not None:
+        # Field 2026-11-01 (agent-core body checkup): this import was
+        # UNCONDITIONAL, and `agent.reasoning_timeouts` does not exist in this
+        # repository — it was carried over from hermes. So classifying the most
+        # common transient failure there is, a bare connection reset with no
+        # status code, raised ModuleNotFoundError *from inside the classifier*.
+        # The retry loop calls this function for every API failure, so a
+        # recoverable network blip became an unclassified crash instead of a
+        # retry. Import defensively and fall through to the plain timeout path.
+        try:
+            from agent.reasoning_timeouts import get_reasoning_stale_timeout_floor
+        except ImportError:
+            get_reasoning_stale_timeout_floor = None
+        if get_reasoning_stale_timeout_floor is not None and (
+            get_reasoning_stale_timeout_floor(model) is not None
+        ):
             return _result(FailoverReason.timeout, retryable=True)
         # Absolute token/message-count thresholds are only a proxy for smaller
         # context windows.  Large-context sessions can have hundreds of
@@ -1239,7 +1305,7 @@ def _classify_by_status(
             )
             or "key limit exceeded" in error_msg
             or "spending limit" in error_msg
-            or any(p in error_msg for p in _BILLING_PATTERNS)
+            or _is_billing_message(error_msg)
         ):
             return result_fn(
                 FailoverReason.billing,
@@ -1261,7 +1327,7 @@ def _classify_by_status(
         # becoming unavailable on the Free Tier, returned as 404 rather than
         # 402. Treat that as entitlement/billing exhaustion, not a missing
         # model, so the retry loop can show credit/top-up guidance.
-        if any(p in error_msg for p in _BILLING_PATTERNS):
+        if _is_billing_message(error_msg):
             return result_fn(
                 FailoverReason.billing,
                 retryable=False,
@@ -1368,7 +1434,7 @@ def _classify_by_status(
         # usage-limit wording — a provider that wraps "insufficient credits" in
         # a 429 (rather than 402) was previously retried as a rate limit and
         # burned the pool. (credit #39441)
-        has_billing = any(p in error_msg for p in _BILLING_PATTERNS)
+        has_billing = _is_billing_message(error_msg)
         has_explicit_rate_limit = any(
             p in error_msg for p in _RATE_LIMIT_PATTERNS
         )
@@ -1732,7 +1798,7 @@ def _classify_400(
             should_rotate_credential=True,
             should_fallback=True,
         )
-    if any(p in error_msg for p in _BILLING_PATTERNS):
+    if _is_billing_message(error_msg):
         return result_fn(
             FailoverReason.billing,
             retryable=False,
@@ -1917,7 +1983,7 @@ def _classify_by_message(
         )
 
     # Billing patterns
-    if any(p in error_msg for p in _BILLING_PATTERNS):
+    if _is_billing_message(error_msg):
         return result_fn(
             FailoverReason.billing,
             retryable=False,

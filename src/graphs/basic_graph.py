@@ -11,15 +11,25 @@ class AgentState(TypedDict):
     response: str
 
 
-llm = get_llm(
-    provider=LLM_PROVIDER,
-    model=LLM_MODEL,
-)
+# Field 2026-11-01 (agent-core body checkup): this module used to build its
+# client at IMPORT time. Nothing imports it (it is the demo graph), so the only
+# effect of that line was to make `import src.graphs.basic_graph` -- and any
+# health check or test that walks the package -- fail with a credential error
+# on a machine without a key. Building the client lazily keeps the demo
+# runnable and makes the package importable with no credentials at all.
+_llm = None
+
+
+def _client():
+    global _llm
+    if _llm is None:
+        _llm = get_llm(provider=LLM_PROVIDER, model=LLM_MODEL)
+    return _llm
 
 
 def ai_node(state: AgentState):
     message = state["message"]
-    result = llm.invoke(message)
+    result = _client().invoke(message)
 
     return {
         "response": result.content,

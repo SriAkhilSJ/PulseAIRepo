@@ -1,0 +1,15 @@
+Build a minimal, COMPLETE "PulseAir Status" MVP in the current workspace. It must run with no third-party dependencies.
+
+Deliverables (exactly these paths):
+1. `mvp/server.py` — a Python standard-library HTTP server (`http.server`, no Flask) on port 8137 that:
+   - serves `mvp/index.html` at `/`
+   - serves `mvp/styles.css` at `/styles.css`
+   - serves `GET /api/health` returning HTTP 200 with JSON `{"status": "ok"}`
+   - is safe to run in a thread: use `ThreadingHTTPServer`
+2. `mvp/index.html` — a single page that fetches `/api/health` on load and renders the result in an element with id `health`.
+3. `mvp/styles.css` — clean, dark, centered card layout. No frameworks, no CDN links.
+4. `mvp/test_server.py` — a `unittest` file that starts the server on an ephemeral port in a background thread and asserts `/api/health` returns 200 and `{"status": "ok"}`.
+
+Then run `python mvp/test_server.py` with the terminal tool and confirm it passes. If it fails, fix it and re-run until it passes.
+
+Do not create any files outside `mvp/`. When finished, state the verification command you ran and its result.

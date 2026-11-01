@@ -17,6 +17,12 @@ from typing_extensions import TypedDict
 
 
 RunOutcome = Literal[
+    # T1 (2026-10-31): "in_progress" is seeded at turn start so an abrupt exit
+    # (cancel, crash, process death) leaves INFORMATION behind — "this turn
+    # never reached a verdict" — instead of `None`, which is indistinguishable
+    # from "no opinion". finalize overwrites it on every path that reaches it.
+    # Forensics: 63/77 recorded runs stopped with no terminal node at all.
+    "in_progress",
     "completed",
     "failed",
     "budget_exhausted",
@@ -25,6 +31,14 @@ RunOutcome = Literal[
     "safety_denied",
     "provider_error",
 ]
+
+
+# Outcomes that mean "we reached a verdict". Anything else is a turn that was
+# interrupted before finalize could speak.
+TERMINAL_RUN_OUTCOMES: frozenset[str] = frozenset({
+    "completed", "failed", "budget_exhausted", "timed_out",
+    "cancelled", "safety_denied", "provider_error",
+})
 
 VerificationStatus = Literal[
     "verified",

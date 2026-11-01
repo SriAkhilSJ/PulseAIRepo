@@ -342,7 +342,19 @@ def build_failure(tool_name: str, result: str, tool_args: dict,
     else:
         if recovery_mode:
             updates["recovery_attempts_inc"] = 1
-        failure = f"Tool failed: {tool_name}"
+        # Field 2026-11-01 (live session): `read_terminal_output` failed on
+        # every turn and the notice was the bare string "Tool failed:
+        # read_terminal_output" — no cause for the model, no cause for the
+        # operator. The model could not fix what it could not see, so it kept
+        # calling the same broken tool; the log showed the same empty line.
+        # Every other tool branch already carries the output tail; this one
+        # dropped it.
+        detail = (result or "").strip()
+        failure = (
+            f"Tool failed: {tool_name}\nActual tool output:\n{result[-_FAILURE_RESULT_TAIL:]}"
+            if detail
+            else f"Tool failed: {tool_name}"
+        )
 
     return failure, updates
 

@@ -1,0 +1,65 @@
+name: Agent-core body checkup
+
+# Field 2026-11-01. The checkup is offline by design: it needs no API key, no
+# network and no provider credit, so it can run on every push that touches the
+# core. That is the whole point — the last three false greens happened on paths
+# nobody exercised until a paid run failed.
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'scripts/agent_core_checkup.py'
+      - '.github/workflows/agent-core-checkup.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/agent_core_checkup.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checkup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install the graph/message dependencies (no provider SDK keys needed)
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet \
+            pytest pyyaml pydantic langchain-core langchain-openai langgraph \
+            langgraph-checkpoint-sqlite tiktoken
+
+      - name: Body checkup — every pipeline, keyless
+        run: |
+          set +e
+          python scripts/agent_core_checkup.py --json checkup.json --md CHECKUP.md
+          echo "EXIT=$?" >> "$GITHUB_ENV"
+          cat CHECKUP.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any body part is broken
+        run: |
+          # The script already exits non-zero on a FAIL; this states it in the
+          # job log so a red build names the reason instead of just a step index.
+          if [ "${EXIT:-1}" != "0" ]; then
+            echo "::error::the agent-core body checkup found at least one broken pipeline"
+            exit 1
+          fi
+          echo "all pipelines passed; warnings are in the job summary"
+
+      - name: Keep the machine-readable result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-core-checkup
+          path: |
+            checkup.json
+            CHECKUP.md
+          if-no-files-found: warn

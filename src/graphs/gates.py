@@ -314,6 +314,40 @@ _VERIFICATION_COMMAND_TOKENS = (
     " lint", " build", "cargo check", "go test", " analyze",
     "curl", "health",
 )
+# Field 2026-11-01 (live GLM 5.3 MVP run t5-da9b3e8719): a prompt that says
+# "run `python mvp/test_server.py` and confirm it passes" produced a passing
+# test file, a bytecode cache proving it was actually imported and executed —
+# and a turn stamped `unverified`, because the token list above only knows
+# " test" WITH a leading space and `mvp/test_server.py` has a slash there.
+# The gate then demanded `navigate` + `rendered` too (the word "page" made
+# _looks_like_ui_task true), so a stdlib HTTP server with no browser in the
+# runner could never satisfy it. The user had named the verification channel
+# explicitly; the gate failed to read the name.
+#
+# Invoking a test FILE is a verification command regardless of how it is
+# spelled: `python test_foo.py`, `python3 -m unittest`, `./run_tests.sh`.
+_TEST_COMMAND_RE = re.compile(
+    r"(?:^|[\s/\"'=;&|(])(?:test_[\w.-]*\.py|[\w.-]*_tests?\.py"
+    r"|tests?/[\w./-]+\.py|run_tests?(?:\.sh|\.py)?|conftest\.py)",
+    re.IGNORECASE,
+)
+
+
+def _is_verification_command(command: str) -> bool:
+    """True when `command` is an executable check, not merely a shell run.
+
+    Split out (2026-11-01) so the token list, the failed-check identity
+    ledger, and the receipt aggregator can never disagree about what counts
+    as a check — they previously each open-coded the `any(token in command)`
+    test, and the ONE place that forgot the test-file spelling was the place
+    that decides whether a turn may be called verified.
+    """
+    if not command:
+        return False
+    low = command.lower()
+    if any(token in low for token in _VERIFICATION_COMMAND_TOKENS):
+        return True
+    return bool(_TEST_COMMAND_RE.search(low))
 _FAILED_CHECK_TOOLS = frozenset({
     "typecheck_workspace", "verify_ui_workspace", "verify_ui_routes",
     "build_target", "verify_target_app",
@@ -436,6 +470,44 @@ _WORK_TOOLS = frozenset({
 })
 
 
+# Field 2026-11-01 (run 41279653910): the agent ran `python mvp/test_server.py
+# -v` TWICE, both green, and the turn still finalized as failed/unverified.
+# The cause was a third command — an exploratory
+#   python -c " ... from server import create_server ... /api/health ..."
+# probe that errored because the agent was still inventing the API. It counted
+# as a "check" (it contains "health"), so it created a debt, and a debt is only
+# erased by re-running the SAME command identity. Nobody re-runs a throwaway
+# one-liner, so the turn could never be verified no matter how green the real
+# test went.
+#
+# The principle: GREEN EVIDENCE IS GENEROUS, RED DEBT IS NARROW. Anything that
+# looks like a check may count in your favour. But a check may only count
+# AGAINST the turn — blocking completion until it is re-run — when it names a
+# stable, re-runnable target: a test file, a test runner, a build/lint/type
+# pass. A network probe (`curl`, "health") or an ad-hoc `python -c` snippet has
+# a transient identity; calling it a permanent obligation turns normal
+# exploration into an unclosable debt.
+_DEBT_ELIGIBLE_TOKENS = (
+    "pytest", "unittest", "npm test", "typecheck", "tsc ",
+    " lint", " build", "cargo check", "go test", " analyze",
+)
+_DEBT_ELIGIBLE_TEST_RE = re.compile(
+    r"(?:^|[\s/\"'=;&|(])(?:test_[\w.-]+\.py|[\w.-]+_tests?\.py"
+    r"|tests?/[\w./-]+\.py|run_tests?(?:\.sh|\.py)?)",
+    re.IGNORECASE,
+)
+
+
+def _is_debt_eligible_command(command: str) -> bool:
+    """True when a failing command names a stable check worth re-running."""
+    if not command:
+        return False
+    low = command.lower()
+    if any(token in low for token in _DEBT_ELIGIBLE_TOKENS):
+        return True
+    return bool(_DEBT_ELIGIBLE_TEST_RE.search(low))
+
+
 def _verification_trace_key(item: dict) -> tuple[str, str] | None:
     """Stable identity for a concrete executable verification obligation."""
     tool_name = str(item.get("tool") or "")
@@ -445,7 +517,7 @@ def _verification_trace_key(item: dict) -> tuple[str, str] | None:
     canonical_tool = "terminal" if tool_name in {"terminal", "run_terminal"} else tool_name
     if canonical_tool == "terminal":
         command = command_fingerprint(tool_name, args) or ""
-        if not command or not any(token in command for token in _VERIFICATION_COMMAND_TOKENS):
+        if not _is_debt_eligible_command(command):
             return None
         identity = command
     else:
@@ -1189,16 +1261,11 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
             status["static"] = passed
         elif name in {"run_terminal", "terminal"}:
             command = str(tool_args(message).get("command", "")).lower()
-            is_check = any(
-                token in command for token in _VERIFICATION_COMMAND_TOKENS
-            )
-            if is_check:
+            if _is_verification_command(command):
                 status["static"] = "exit code: 0" in low
         elif name == "execute_code":
             code = str(tool_args(message).get("code", "")).lower()
-            is_check = any(
-                token in code for token in _VERIFICATION_COMMAND_TOKENS
-            ) or any(
+            is_check = _is_verification_command(code) or any(
                 token in low for token in _VERIFICATION_COMMAND_TOKENS
             )
             if is_check:
@@ -1228,7 +1295,21 @@ def _verification_receipt_status(state: AgentState) -> dict[str, object]:
 
     # If the user specifically instructs verification via automated test suite / terminal tests,
     # static test execution is the required verification domain.
-    test_suite_ask = bool(re.search(r"(?i)(?:automated test|run (?:the )?(?:automated )?tests?)", task_focus))
+    # Field 2026-11-01: the prompt named "a `unittest` file", the exact path
+    # `mvp/test_server.py`, and "run `python mvp/test_server.py` ... until it
+    # passes" — and this regex matched NONE of it, because it only knew the
+    # words "automated test"/"run the tests". An unnamed UI task keeps owing
+    # browser proof (a 500 page is unverified UI); a task that NAMES its test
+    # suite has already chosen its verification channel, and demanding a
+    # browser it never mentioned is how a proven-green turn ends as a
+    # `unverified` failure.
+    test_suite_ask = bool(re.search(
+        r"(?i)(?:automated test|run (?:the )?(?:automated )?tests?"
+        r"|\bunittest\b|\bpytest\b|\btest_[\w.-]*\.py\b|\b[\w.-]*_tests?\.py\b"
+        r"|\bpython[\d.]*\s+-m\s+(?:unittest|pytest)\b"
+        r"|\btest suite\b|\btests? pass(?:es)?\b)",
+        task_focus,
+    ))
     required = ["static", "integrity", "failed_checks"]
     if ui_task and not test_suite_ask:
         # UI verification: requires successful navigation AND at least one of

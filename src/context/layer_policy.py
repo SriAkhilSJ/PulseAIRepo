@@ -18,6 +18,7 @@ every pre-P9 method name as a thin delegate, so the test seams
 ``ContextEngine.VOLATILE_TAIL_PREAMBLE``, ...) work unmodified.
 """
 
+import os
 from typing import Any, Optional
 
 from langchain_core.messages import SystemMessage
@@ -245,13 +246,36 @@ def score_and_sort_layers(
     allow_embedding_compute: bool,
     relevance: dict[str, dict[TaskType, float]],
 ) -> list[tuple[float, SystemMessage, int]]:
-    """
-    Score each layer by: 60% task-type prior + 30% semantic similarity + 10% recency.
-    Returns list of (score, message, tokens) sorted by score descending.
+    """Score each layer, then sort by descending score.
+
+    The EMBEDDING path scores: 60% task-type prior + 30% semantic similarity
+    + 10% position bias.
+
+    The DEFAULT (non-embedding) path scores: 90% task-type prior + 10%
+    position bias.
+
+    D7 (2026-10-31) — honesty fix. The 10% term used to be called "recency",
+    but it is ``index / (n-1)`` where ``index`` is the layer's position in the
+    builders dict — repo_map=0, relevant_chunks=1, ... skills=17. It measures
+    *declaration order*, not time. Worse, its direction is exactly wrong for
+    this codebase: the two layers that carry actual source text (repo_map,
+    relevant_chunks) sit at index 0 and 1, so they received the maximum
+    NEGATIVE bias, while skills/reflections received the maximum positive one.
+
+    Two deliberate choices here:
+      * the name now says what the number is (``position_bias``), so nobody
+        reads a docstring and believes selection is time-aware;
+      * the arithmetic is unchanged by default, because silently re-ranking
+        every layer is a behaviour change that must be earned by a benchmark,
+        not slipped in with a rename. ``CRUSORAI_LAYER_POSITION_BIAS=0`` turns
+        the term off (pure task-type prior) for A/B measurement.
     """
     scored = []
+    # Position bias is switchable so the A/B is an env flip, not a code edit.
+    bias_raw = (os.environ.get("CRUSORAI_LAYER_POSITION_BIAS", "1") or "").strip().lower()
+    position_bias_on = bias_raw not in {"0", "off", "false", "no"}
     # Deadline-bound turns score DETERMINISTICALLY (task-type prior +
-    # recency). Semantic similarity requires embeddings — enabled ONLY
+    # position bias). Semantic similarity requires embeddings — enabled ONLY
     # by the explicit offline policy; a turn never encodes here, and a
     # cache miss must never trigger inference.
     if allow_embedding_compute:
@@ -278,19 +302,19 @@ def score_and_sort_layers(
                 content_emb = content_embs[i]
                 semantic_sim = sum(a * b for a, b in zip(task_emb, content_emb))
 
-                recency = i / max(len(layers) - 1, 1)
-                score = base_rel * 0.60 + semantic_sim * 0.30 + recency * 0.10
+                position_bias = (i / max(len(layers) - 1, 1)) if position_bias_on else 0.0
+                score = base_rel * 0.60 + semantic_sim * 0.30 + position_bias * 0.10
                 scored.append((score, msg, count_tokens([msg], model)))
 
             scored.sort(key=lambda x: x[0], reverse=True)
             return scored
 
-    # Deterministic fallback: task-type relevance and recency.
+    # Deterministic fallback: task-type relevance + position bias.
     for i, msg in enumerate(layers):
         name = infer_layer_name(msg)
         rel = relevance.get(name, {}).get(task_type, 0.5)
-        recency = i / max(len(layers) - 1, 1)
-        score = rel * 0.9 + recency * 0.1
+        position_bias = (i / max(len(layers) - 1, 1)) if position_bias_on else 0.0
+        score = rel * 0.9 + position_bias * 0.1
         scored.append((score, msg, count_tokens([msg], model)))
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored

@@ -60,19 +60,35 @@ def mask(key: str) -> str:
 
 
 def collect_keys() -> list[tuple[str, str]]:
-    """(source, key) pairs, trimmed, de-duplicated, never logged raw."""
+    """(source, RAW key) pairs — deliberately NOT trimmed.
+
+    Field 2026-11-01: this used to return `raw.strip()`, so check_shape could
+    never observe the whitespace it exists to catch. A secret holding a
+    trailing newline (len=51 for a len=50 key) was reported "shape ok" while
+    every SDK call died with `LocalProtocolError: illegal header value`,
+    surfacing to users as `OpenAIConnectionError: Connection error.` after 5
+    retries. A verifier must inspect the value the runtime will actually use;
+    normalising here buys a green tick and hides the bug.
+    """
     found: list[tuple[str, str]] = []
     multi = os.environ.get("CUSTOM_API_KEYS", "")
     if multi.strip():
         for i, part in enumerate(multi.split(",")):
             # tolerate "name:key" as well as bare keys
-            key = part.split(":")[-1].strip() if ":" in part else part.strip()
-            if key:
+            key = part.split(":")[-1] if ":" in part else part
+            if key.strip():
                 found.append((f"CUSTOM_API_KEYS[{i}]", key))
     for src in ("CUSTOM_API_KEY", "CRUSORAI_CHEAP_API_KEY"):
         raw = os.environ.get(src, "")
         if raw.strip():
-            found.append((src, raw.strip()))
+            found.append((src, raw))
+    # Dedupe on the RAW value, not the stripped one (field 2026-11-01).
+    # Keys on `key.strip()` collapsed a clean copy and a whitespace-dirty copy
+    # of the same secret into whichever was listed first — so a newline-bearing
+    # CUSTOM_API_KEY vanished behind a clean CUSTOM_API_KEYS[0] entry and the
+    # verifier went green on a runtime that could not make a single call.
+    # Whitespace IS the defect being hunted; two spellings of a key are two
+    # facts worth printing.
     seen, unique = set(), []
     for src, key in found:
         if key not in seen:
@@ -82,6 +98,14 @@ def collect_keys() -> list[tuple[str, str]]:
 
 
 def check_shape(key: str) -> tuple[bool, str]:
+    """Validate the RAW value, not a trimmed one.
+
+    Field 2026-11-01: collect_keys() strips, so this check never saw the
+    whitespace bug it exists to catch — it reported "shape ok" for a secret
+    carrying a trailing newline while every SDK call failed with
+    `LocalProtocolError: illegal header value`. A checker that normalises
+    before validating can only ever produce false greens.
+    """
     if key != key.strip():
         return False, "leading/trailing whitespace (a copied newline breaks the header)"
     if re.search(r"\s", key):
@@ -209,7 +233,11 @@ def main() -> int:
             report["keys"].append(entry)
             continue
 
-        status, body, secs = _get(f"{gateway_root}/gateway/v1/models", key)
+        # The runtime strips credentials at the settings boundary, so verify
+        # the key the runtime will actually send.
+        status, body, secs = _get(
+            f"{gateway_root}/gateway/v1/models", key.strip()
+        )
         ids = extract_model_ids(body) if status == 200 else []
         # No catalog parsed => we know nothing. Never report "offered" on a guess.
         offered = {m: (m in ids if ids else None) for m, _r in MODELS}
