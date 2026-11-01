@@ -141,6 +141,11 @@ jobs:
             > "$RUNNER_TEMP/e2e/decisions.txt" || true
           grep -hcE 'compact|ContextEngine' "$RUNLOG/bridge_stderr.log" 2>/dev/null \
             > "$RUNNER_TEMP/e2e/context_hits.txt" || echo 0 > "$RUNNER_TEMP/e2e/context_hits.txt"
+          # Error-shaped stderr lines are the only place a turn_failed explains
+          # itself. Artifacts are not always downloadable, so fold them in.
+          grep -hiE 'error|failed|traceback|refus|denied|limit|busy|exceed' \
+            "$RUNLOG/bridge_stderr.log" 2>/dev/null | grep -vE '^\s*$' \
+            | cut -c1-200 | tail -15 > "$RUNNER_TEMP/e2e/errors.txt" || true
 
       - name: Verify the final artifact independently (after SEVEN turns)
         if: always()
@@ -244,11 +249,12 @@ jobs:
           R="$RUNNER_TEMP/e2e/results/long-${{ github.run_id }}"
           REPORT=$(cat "$R/LONG_SESSION_REPORT.md" 2>/dev/null || echo "no session report")
           DECISIONS=$(cat "$RUNNER_TEMP/e2e/decisions.txt" 2>/dev/null | tail -25)
+          ERRORS=$(cat "$RUNNER_TEMP/e2e/errors.txt" 2>/dev/null | tail -15)
           VERIFY=$(cat "$RUNNER_TEMP/e2e/verify.txt" 2>/dev/null | tail -25)
           HITS=$(cat "$RUNNER_TEMP/e2e/context_hits.txt" 2>/dev/null | tail -1)
-          BODY=$(printf '**Long-session stamina — GLM 5.3** @ `%s`\nsession_exit=%s final_test_exit=%s context_engine_lines=%s\n\n%s\n\n### finalize / budget decisions (tail)\n```\n%s\n```\n\n### independent re-test after the whole session\n```\n%s\n```\n' \
+          BODY=$(printf '**Long-session stamina — GLM 5.3** @ `%s`\nsession_exit=%s final_test_exit=%s context_engine_lines=%s\n\n%s\n\n### finalize / budget decisions (tail)\n```\n%s\n```\n\n### error-shaped lines from the bridge\n```\n%s\n```\n\n### independent re-test after the whole session\n```\n%s\n```\n' \
             "${GITHUB_SHA:0:8}" "${SESSION_EXIT:-unknown}" "${FINAL_TEST_EXIT:-unknown}" "${HITS:-?}" \
-            "$REPORT" "$DECISIONS" "$VERIFY")
+            "$REPORT" "$DECISIONS" "$ERRORS" "$VERIFY")
           printf '%s' "$BODY" > body.md
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" -F body=@body.md >/dev/null \
             && echo posted || echo "post skipped"

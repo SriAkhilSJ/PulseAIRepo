@@ -182,6 +182,7 @@ def main() -> int:
         proc.stdin.flush()
 
     turns: list[dict] = []
+    seen_terminal_turns: set[str] = set()
     session_phase = "starting"
     session_started = time.time()
     stderr_offset = 0
@@ -208,6 +209,21 @@ def main() -> int:
                 })
                 break
 
+            # The bridge forwards event_bus traffic, and event_bus REPLAYS
+            # retained history to a new subscriber (subscribe(thread_id=None)).
+            # So a turn can start by reading yesterday's frames. Field
+            # 2026-11-01: turns 5-7 "failed" in 0.6s with 0 tokens because the
+            # driver consumed a REPLAYED terminal frame from an earlier turn and
+            # believed it. Drain to silence before sending the next prompt.
+            drained = 0
+            while True:
+                try:
+                    leftover = lines.get(timeout=1.0)
+                except queue.Empty:
+                    break
+                if leftover is None:
+                    break
+                drained += 1
             turn_started = time.time()
             send({
                 "type": "prompt", "session_id": session_id,
@@ -221,6 +237,7 @@ def main() -> int:
             result = "timeout"
             completed = False
             run_outcome = None
+            error = ""
             frame_tokens = 0
             for _ in range(200000):
                 if time.time() > deadline:
@@ -251,6 +268,11 @@ def main() -> int:
                 elif ftype == "telemetry":
                     frame_tokens = max(frame_tokens, int(frame.get("tokensIn") or 0))
                 elif ftype in TERMINAL:
+                    turn_key = str(frame.get("turn_id") or "")
+                    if turn_key and turn_key in seen_terminal_turns:
+                        continue  # replayed from an earlier turn — not ours
+                    if turn_key:
+                        seen_terminal_turns.add(turn_key)
                     result = ftype
                     # Field 2026-11-01: a turn_done frame is NOT success. A
                     # budget-cut turn ALSO ends in turn_done, with
@@ -261,6 +283,7 @@ def main() -> int:
                     # the harness itself.
                     completed = bool(frame.get("completed"))
                     run_outcome = frame.get("run_outcome")
+                    error = str(frame.get("error") or "")[:300]
                     break
             hits, stderr_offset = compaction_lines(stderr_path, stderr_offset)
             budget_cut = any("budget] exhausted" in h for h in hits)
@@ -268,6 +291,8 @@ def main() -> int:
                 result,
                 completed=completed,
                 run_outcome=run_outcome,
+                error=error,
+                drained_before_turn=drained,
                 budget_cut=budget_cut,
                 llm_calls=llm_calls,
                 tool_calls=tool_calls,
@@ -336,15 +361,16 @@ def main() -> int:
         f"{summary['verdict']}**"
     )
     out.append("")
-    out.append("| Turn | Frame | Completed | Outcome | LLM calls | History in | Tools | Wall | New tokens |")
-    out.append("| ---: | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: |")
+    out.append("| Turn | Frame | Completed | Outcome | LLM calls | History in | Tools | Wall | New tokens | Error |")
+    out.append("| ---: | :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | :--- |")
     for turn, delta in zip(turns, token_deltas):
         done = "yes" if turn.get("completed") else "**NO**"
         outcome = turn.get("run_outcome") or ("budget-cut" if turn.get("budget_cut") else "—")
         out.append(
             f"| {turn['turn']} | {turn['result']} | {done} | {outcome} | "
             f"{turn.get('llm_calls', 0)} | {turn.get('messages_at_first_call', 0)} msgs | "
-            f"{turn.get('tool_calls', 0)} | {turn['wall_s']}s | {delta:,} |"
+            f"{turn.get('tool_calls', 0)} | {turn['wall_s']}s | {delta:,} | "
+            f"{(turn.get('error') or '—')[:90]} |"
         )
     out.append("")
     growth = [t.get("messages_at_first_call", 0) for t in turns]

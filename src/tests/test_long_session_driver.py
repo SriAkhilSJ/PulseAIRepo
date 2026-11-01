@@ -120,3 +120,25 @@ def test_clean_run_reports_survival_and_a_stop_is_named():
     assert summary["ok"] is False
     assert summary["stopped_at_turn"] == 3
     assert "STOPPED at turn 3" in summary["verdict"]
+
+
+def test_replayed_terminal_frame_cannot_end_a_new_turn():
+    """Field 2026-11-01: turns 5-7 "failed" in 0.6s with 0 tokens.
+
+    The bridge forwards event_bus traffic, and event_bus replays retained
+    history to a new subscriber. The driver read a REPLAYED turn_failed from an
+    earlier turn and concluded the current turn had failed before it started.
+    A terminal frame only counts when its turn_id is one we have not concluded.
+    """
+    source = (REPO_ROOT / "scripts" / "run_long_session.py").read_text(encoding="utf-8")
+    assert "seen_terminal_turns" in source
+    assert "replayed from an earlier turn" in source
+    # The queue is drained to silence before each prompt is sent.
+    assert "Drain to silence before sending the next prompt" in source
+
+
+def test_failure_text_is_recorded_not_just_the_frame_type():
+    """turn_failed carries `error`; a receipt without it cannot diagnose."""
+    source = (REPO_ROOT / "scripts" / "run_long_session.py").read_text(encoding="utf-8")
+    assert 'frame.get("error")' in source
+    assert "| Error |" in source
