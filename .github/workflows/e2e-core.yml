@@ -170,11 +170,34 @@ jobs:
           import json
           from src.telemetry.call_ledger import load_rate_card, estimate_cost_usd
           from src.telemetry import pricing
+          import os, time
+          # Why the async path left the card empty: _ATTEMPT_FILE is an
+          # hour-long throttle and _refresh_in_flight is a single global. If
+          # any earlier step (install, SDK probe) already burnt the attempt,
+          # ensure_pricing_async() returns instantly and silently — a fresh
+          # runner then reports "no rate" for a model the gateway DOES price.
+          from src.telemetry import call_ledger as _cl
+          try:
+              attempt = os.path.join(_cl.telemetry_dir(), "pricing-attempt")
+              age = time.time() - os.path.getmtime(attempt) if os.path.exists(attempt) else None
+              print(f"async attempt marker: {'absent' if age is None else f'{age:.0f}s old'} "
+                    f"(throttle {pricing._ATTEMPT_THROTTLE_S}s), in_flight={pricing._refresh_in_flight}")
+          except Exception as exc:
+              print("attempt-marker probe failed:", type(exc).__name__, exc)
           try:
               pricing.ensure_pricing_async()
-              import time; time.sleep(8)   # opportunistic refresh is non-blocking
+              time.sleep(8)   # opportunistic refresh is non-blocking
+              print(f"after async: {len(load_rate_card() or {})} entries")
           except Exception as exc:
-              print("pricing refresh failed:", type(exc).__name__, exc)
+              print("async pricing refresh failed:", type(exc).__name__, exc)
+          # Then do it SYNCHRONOUSLY, which raises honestly instead of
+          # swallowing the reason in a daemon thread. This also seeds the cache
+          # the turn will read, so a priced catalog becomes a measured cost.
+          try:
+              rates, source = pricing.refresh()
+              print(f"sync refresh: {len(rates)} rates from {source}")
+          except Exception as exc:
+              print("sync pricing refresh failed:", type(exc).__name__, str(exc)[:200])
           card = load_rate_card() or {}
           print(f"rate card entries: {len(card)}")
           for m in ("z-ai/glm-5.3-flash", "deepseek/deepseek-v4.1-flash"):
