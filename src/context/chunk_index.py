@@ -75,6 +75,19 @@ from src.context.retrieval.fusion import (
     rrf_score,
 )
 # ---------------------------------------------------------------------
+# Storage & schema — extracted to src.context.indexing.index_storage
+# ---------------------------------------------------------------------
+from src.context.indexing.index_storage import (
+    IndexStorage,
+    get_neighbors as _storage_get_neighbors,
+    init_schema as _storage_init_schema,
+    insert_chunks as _storage_insert_chunks,
+    insert_chunks_no_commit as _storage_insert_chunks_no_commit,
+    is_index_empty as _storage_is_index_empty,
+    open_database as _storage_open_database,
+    remove_file as _storage_remove_file,
+)
+# ---------------------------------------------------------------------
 # Keyword search — extracted to src.context.retrieval.keyword_search
 # ---------------------------------------------------------------------
 from src.context.retrieval.keyword_search import (
@@ -208,24 +221,9 @@ class ChunkIndex:
         self.db_path = db_path
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
-        # check_same_thread=False: first-run indexing happens on a background
-        # thread; a default connection raises ProgrammingError when shared.
-        # check_same_thread=False: first-run indexing happens on a background
-        # thread; a default connection raises ProgrammingError when shared.
-        # NOTE on locking: this is ONE shared connection object. "WAL allows
-        # concurrent reads" applies across SEPARATE connections — not to
-        # concurrent cursor use on the same connection. Therefore ALL access
-        # (reads included) serializes through _write_lock. Correct by design;
-        # the optimization (a dedicated read connection) is not worth it at
-        # P0 scale.
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        # The dashboard AND a CLI session can hold the same per-workspace DB.
-        # WAL serializes one writer + many readers but writer-writer still
-        # raises SQLITE_BUSY immediately without a timeout — 5s is generous
-        # for single-file sync transactions.
-        self.conn.execute("PRAGMA busy_timeout=5000")
-        self._write_lock = threading.RLock()
+        self.storage = IndexStorage(self.db_path, embed_dim=EMBED_DIM)
+        self.conn = self.storage.conn
+        self._write_lock = self.storage._write_lock
         self._last_scan_report = None
         self._last_budget: ContextBudget | None = None
         self.thread_id_hint: str | None = None
@@ -248,22 +246,6 @@ class ChunkIndex:
         self._lazy_default_embedder = embedder is _LAZY_DEFAULT_EMBEDDER
         self._embedder = None if self._lazy_default_embedder else embedder
 
-        self.uses_vec = False
-        try:
-            import sqlite_vec
-            self.conn.enable_load_extension(True)
-            sqlite_vec.load(self.conn)
-            self.conn.enable_load_extension(False)
-            self.uses_vec = True
-        except Exception:
-            self.uses_vec = False
-
-        # Set before _init_schema(): the migration check inside flips this
-        # True when it finds an old DB with chunks but no edge data.
-        self._needs_edge_resync = False
-
-        self._init_schema()
-
         if watch:
             self.start_watcher()
 
@@ -284,77 +266,23 @@ class ChunkIndex:
     # SCHEMA
     # ------------------------------------------------------------------
 
+    @property
+    def uses_vec(self) -> bool:
+        return self.storage.uses_vec
+
+    @uses_vec.setter
+    def uses_vec(self, val: bool) -> None:
+        self.storage.uses_vec = val
+
+    @property
+    def _needs_edge_resync(self) -> bool:
+        return self.storage._needs_edge_resync
+
+    @_needs_edge_resync.setter
+    def _needs_edge_resync(self, val: bool) -> None:
+        self.storage._needs_edge_resync = val
     def _init_schema(self) -> None:
-        with self._write_lock:
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS code_chunks (
-                    id TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    symbol_name TEXT NOT NULL,
-                    symbol_type TEXT NOT NULL,
-                    start_line INTEGER,
-                    end_line INTEGER,
-                    signature TEXT,
-                    docstring TEXT,
-                    body TEXT,
-                    content TEXT NOT NULL,
-                    content_hash TEXT NOT NULL,
-                    modified_time REAL NOT NULL
-                )
-            """)
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_path ON code_chunks(file_path)")
-
-            # Standalone FTS5 (NOT external-content). Managed explicitly in
-            # the same transactions as code_chunks — external-content + manual
-            # inserts drift on re-index (verified lesson).
-            self.conn.execute("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
-                    content, file_path, symbol_name,
-                    chunk_id UNINDEXED
-                )
-            """)
-
-            if self.uses_vec:
-                self.conn.execute(f"""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vec USING vec0(
-                        chunk_id TEXT PRIMARY KEY,
-                        embedding FLOAT[{EMBED_DIM}]
-                    )
-                """)
-            else:
-                self.conn.execute("""
-                    CREATE TABLE IF NOT EXISTS chunk_vec_fallback (
-                        chunk_id TEXT PRIMARY KEY,
-                        embedding BLOB NOT NULL
-                    )
-                """)
-
-            # v2: file->file import edges for the related-files section.
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS import_edges (
-                    importer TEXT NOT NULL,
-                    imported TEXT NOT NULL,
-                    PRIMARY KEY (importer, imported)
-                )
-            """)
-            self.conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_edges_imported ON import_edges(imported)"
-            )
-            self.conn.commit()
-
-        # Migration edge: an existing DB has chunks but no edges. One forced
-        # re-sync rebuilds them; PRAGMA user_version marks it done so this
-        # never loops. (Files with zero imports produce zero edge rows, so
-        # "table empty" alone can NOT be the migration signal.)
-        # v2 = Python edges (D15), v3 = multi-language edges (D15-remainder
-        # §41): existing v2 DBs get ONE more full re-sync pick-up pass.
-        if self.conn.execute("PRAGMA user_version").fetchone()[0] < 3:
-            has_chunks = self.conn.execute(
-                "SELECT 1 FROM code_chunks LIMIT 1"
-            ).fetchone()
-            self._needs_edge_resync = bool(has_chunks)
-            self.conn.execute("PRAGMA user_version = 3")
-            self.conn.commit()
+        self.storage.init_schema()
 
     # ------------------------------------------------------------------
     # INDEXING
@@ -555,28 +483,8 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def remove_file(self, file_path: Path) -> int:
-        """Drop all chunks AND import edges for a file. No-op if absent.
-
-        Closes the deleted-file drift gap: before this, deleting a .py file
-        left its chunks in the index (and FTS/BM25 kept retrieving ghosts).
-        """
-        rel = str(file_path.relative_to(self.workspace))
-        vec_table = "chunk_vec" if self.uses_vec else "chunk_vec_fallback"
-        with self._write_lock:
-            with self.conn:  # single transaction for all stores
-                old_ids = [r[0] for r in self.conn.execute(
-                    "SELECT id FROM code_chunks WHERE file_path = ?", (rel,)
-                )]
-                for cid in old_ids:
-                    self.conn.execute(f"DELETE FROM {vec_table} WHERE chunk_id = ?", (cid,))
-                    self.conn.execute("DELETE FROM chunk_fts WHERE chunk_id = ?", (cid,))
-                cur = self.conn.execute(
-                    "DELETE FROM code_chunks WHERE file_path = ?", (rel,)
-                )
-                # Edges the deleted file OWNED vanish with it. Edges pointing
-                # AT it are harmless (relations start from matched live files).
-                self.conn.execute("DELETE FROM import_edges WHERE importer = ?", (rel,))
-                return len(old_ids) if old_ids else cur.rowcount
+        """Drop all chunks AND import edges for a file. No-op if absent. Delegated to storage."""
+        return self.storage.remove_file(self.workspace, file_path)
 
     def _read_source(self, file_path: Path, budget: ContextBudget | None = None) -> str | None:
         """Read ONE source file through the shared physical-read ledger.
@@ -807,81 +715,25 @@ class ChunkIndex:
         })
 
     def _insert_chunks(self, chunks: list[dict], mtime: float, commit: bool) -> None:
-        with self._write_lock:
-            self._insert_chunks_no_commit(chunks, mtime)
-            if commit:
-                self.conn.commit()
+        self.storage.insert_chunks(
+            chunks=chunks,
+            mtime=mtime,
+            commit=commit,
+            embedder=self._embedder,
+            ensure_embedder_fn=self._ensure_embedder,
+        )
 
     def _insert_chunks_no_commit(
         self, chunks: list[dict], mtime: float, budget: ContextBudget | None = None
     ) -> None:
-        """Insert chunks into all stores. Caller holds the lock / transaction.
-
-        ``budget`` (P1): the synchronous initial-turn path NEVER launches
-        uncancellable model inference. Text and FTS land synchronously for
-        every chunk; VECTORS come only from the content-addressed cache
-        (cache hits are bounded lookups) and uncached embeddings are DEFERRED
-        — a later sync backfills them. ``None`` means the BOUNDED production
-        default (cache-only), so a caller that forgets a budget can never
-        launch inference. ONLY an explicit ``ContextBudget.unbounded()``
-        (offline full rebuild) encodes synchronously, exactly like the
-        pre-P1 behavior.
-        """
-        budget = budget if budget is not None else ContextBudget()
-        if budget.expired:
-            embeddings: list[list[float] | None] = [None] * len(chunks)
-        elif budget.allow_embedding_compute:
-            # EXPLICIT offline inference policy (unbounded() maintenance
-            # rebuild ONLY): synchronous encode — never an abandoned thread.
-            self._ensure_embedder()
-            if self._embedder is None:
-                embeddings = [None] * len(chunks)
-            else:
-                from src.context.embedding_cache import get_embedding_cache
-                try:
-                    vecs = get_embedding_cache().encode(
-                        self._embedder, [c["content"] for c in chunks]
-                    )
-                    embeddings = [list(v) for v in vecs]
-                except Exception:
-                    embeddings = [None] * len(chunks)
-        elif self._embedder is not None:
-            # Default/turn/watcher path: cache hits ONLY — no inference
-            # inside the turn. ``max_elapsed <= 0`` does NOT permit compute;
-            # only the explicit policy flag does.
-            from src.context.embedding_cache import get_embedding_cache
-            cache = get_embedding_cache()
-            embeddings = [
-                cache.lookup(self._embedder, c["content"]) for c in chunks
-            ]
-        else:
-            embeddings = [None] * len(chunks)  # BM25-only degraded mode
-        vec_table_insert = (
-            "INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, vec_f32(?))"
-            if self.uses_vec else
-            "INSERT INTO chunk_vec_fallback (chunk_id, embedding) VALUES (?, ?)"
+        """Insert chunks into all stores. Caller holds the lock / transaction. Delegated to storage."""
+        self.storage.insert_chunks_no_commit(
+            chunks=chunks,
+            mtime=mtime,
+            embedder=self._embedder,
+            budget=budget,
+            ensure_embedder_fn=self._ensure_embedder,
         )
-        for chunk, emb in zip(chunks, embeddings):
-            self.conn.execute("""
-                INSERT INTO code_chunks
-                (id, file_path, symbol_name, symbol_type, start_line, end_line,
-                 signature, docstring, body, content, content_hash, modified_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                chunk["id"], chunk["file_path"], chunk["symbol_name"],
-                chunk["symbol_type"], chunk["start_line"], chunk["end_line"],
-                chunk["signature"], chunk["docstring"], chunk["body"],
-                chunk["content"], chunk["content_hash"], mtime,
-            ))
-            if emb is not None:
-                if self.uses_vec:
-                    self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb)))
-                else:
-                    self.conn.execute(vec_table_insert, (chunk["id"], json.dumps(emb).encode("utf-8")))
-            self.conn.execute(
-                "INSERT INTO chunk_fts (content, file_path, symbol_name, chunk_id) VALUES (?, ?, ?, ?)",
-                (chunk["content"], chunk["file_path"], chunk["symbol_name"], chunk["id"]),
-            )
 
     # ------------------------------------------------------------------
     # RETRIEVAL
@@ -930,9 +782,7 @@ class ChunkIndex:
         return rerank_chunks(results, query)
 
     def _is_index_empty(self) -> bool:
-        with self._write_lock:
-            row = self.conn.execute("SELECT COUNT(*) FROM code_chunks").fetchone()
-        return not row or row[0] == 0
+        return self.storage.is_index_empty()
 
     def _search_vector(
         self, query: str, limit: int, budget: ContextBudget | None = None
@@ -1014,28 +864,7 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def get_neighbors(self, chunk_id: str, radius: int = 3) -> list[ChunkResult]:
-        with self._write_lock:
-            row = self.conn.execute(
-                "SELECT file_path, start_line FROM code_chunks WHERE id = ?", (chunk_id,)
-            ).fetchone()
-            if not row:
-                return []
-            file_path, center = row[0], row[1]
-            rows = self.conn.execute("""
-                SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,
-                       signature, docstring, body
-                FROM code_chunks
-                WHERE file_path = ? AND start_line BETWEEN ? AND ?
-                ORDER BY start_line
-            """, (file_path, center - radius * 5, center + radius * 5)).fetchall()
-        return [
-            ChunkResult(
-                id=r[0], file_path=r[1], symbol_name=r[2], symbol_type=r[3],
-                start_line=r[4], end_line=r[5], signature=r[6] or "",
-                docstring=r[7], body=r[8] or "", score=0.0,
-            )
-            for r in rows
-        ]
+        return self.storage.get_neighbors(chunk_id, radius=radius, chunk_cls=ChunkResult)
 
 
 # ---------------------------------------------------------------------
