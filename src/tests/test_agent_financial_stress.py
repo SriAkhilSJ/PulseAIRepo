@@ -617,6 +617,6 @@ class TestMultiTurnAndPersistenceAnalysis:
         gov_instance_2 = CostGovernor(cfg)
         tracker_after_restart = gov_instance_2._get_or_create_tracker(sid)
 
-        # Verification: In-memory tracker resets to 0 upon process restart
-        assert tracker_after_restart.session_tokens == 0
-        assert tracker_after_restart.session_cost_inr == Decimal("0.000000")
+        # Verification: In Phase 9.1.4, resumed session retains historical expenditure and tokens
+        assert tracker_after_restart.session_tokens == 50_000
+        assert tracker_after_restart.session_cost_usd == Decimal("1.000000")

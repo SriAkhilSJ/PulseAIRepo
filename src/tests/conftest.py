@@ -87,3 +87,20 @@ def _stop_chunk_index_watchers():
             idx.stop_watcher()
         except Exception:
             pass
+
+
+@_pytest.fixture(autouse=True)
+def _isolate_financial_store(monkeypatch, tmp_path):
+    """Test hygiene: isolate financial SQLite database per test."""
+    db_file = tmp_path / "financial_test.db"
+    monkeypatch.setenv("CRUSORAI_FINANCIAL_DB", str(db_file))
+    try:
+        from src.agents import financial_store
+        financial_store._GLOBAL_STORE = None
+        from src.agents import cost_governance
+        cost_governance.cost_governor._store = None
+        cost_governance.cost_governor._sessions.clear()
+        cost_governance.cost_governor._parent_sessions.clear()
+    except Exception:
+        pass
+    yield
