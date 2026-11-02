@@ -1,79 +1,85 @@
 """
-Cost & Token Governance for Crusor AI Agent Core (Remediated Phase 9.1.2)
-========================================================================
-Central governance engine providing financial predictability, token discipline,
-model tier escalation controls, headroom reservation, root-session inheritance,
-and strict accounting for all agent and auxiliary model calls.
+cost_governance.py -- Central financial & token governance engine for Crusor AI Agent Core.
 
-Guarantees:
-- Root Session Inheritance: Every child/subagent inherits and debits the root parent session budget.
-- Deterministic Reservation Lifecycle: Automatic release on error/abort; zero reservation leakage.
-- Unknown Pricing Enforcement: Configurable policies (deny, token_limited, explicit_allow).
-- Currency Consistency: Canonical Decimal conversion matching pricing.py (forex spread 1.005, gateway fee 1.07).
-- Zero Drift Arithmetic: All accounting in exact Decimal (0.000001 precision).
+Phase 9.1.4: Persistent Financial Accounting & Session Recovery
+- Root session budget inheritance (child/subagent debits root parent).
+- Durable SQLite persistence in canonical `sessions.db` via FinancialStore.
+- Startup hydration of cumulative tokens, costs, call counts, and unrated usage.
+- Persistent reservation lifecycle: reserved -> in_flight -> reconciled | released | uncertain.
+- Crash recovery: in-flight reservations marked uncertain, retaining reserved headroom.
+- Idempotent call ledger event deduplication.
+- Configuration change management: effective budget enforcement prevents silent allowance inflation on restart.
+- Fail-closed safety on persistence errors.
 """
+
 from __future__ import annotations
 
-import os
-import threading
-import time
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any, Literal
+import json
+import logging
+import os
+import random
+import uuid
+import threading
+import time
+from typing import Any, Literal, Optional
 
+from src.config import settings
 from src.context.token_tracker import TokenUsage
 
 TierType = Literal["cheap", "standard", "premium"]
 GovernanceStatus = Literal["healthy", "near_limit", "exhausted"]
 UnknownPricingPolicy = Literal["deny", "token_limited", "explicit_allow"]
 
-# Default exchange rate and constants (matching src/telemetry/pricing.py)
-_DEFAULT_USD_TO_INR = 86.0
-_FOREX_SPREAD = 1.005
-_GATEWAY_FEE = 1.07
+log = logging.getLogger("crusorai.cost_governance")
+
+# House financial conversion constants (matching pricing.py exactly)
+_DEFAULT_USD_TO_INR = Decimal("86.0")
+_FOREX_SPREAD = Decimal("1.005")
+_GATEWAY_FEE = Decimal("1.07")
 
 
-def _quantize_currency(d: Decimal) -> Decimal:
-    return d.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+def _quantize_currency(val: Decimal) -> Decimal:
+    """Standardize monetary amounts to 6 decimal places (micro-currency precision)."""
+    return val.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
 
 
-def _to_decimal(val: float | int | str | Decimal | None) -> Decimal:
+def _to_decimal(val: Decimal | float | int | str | None) -> Decimal:
     if val is None:
         return Decimal("0.000000")
     if isinstance(val, Decimal):
-        return val
-    try:
-        return Decimal(str(val))
-    except Exception:
-        return Decimal("0.000000")
+        return _quantize_currency(val)
+    return _quantize_currency(Decimal(str(val)))
 
 
 @dataclass
 class CostGovernanceConfig:
-    """Configuration for cost and token governance."""
+    """
+    Central governance limits and financial policies.
+    Enforces the ₹5 target simple task cost and bounds token/monetary consumption.
+    """
     enabled: bool = True
-    target_simple_task_cost_inr: Decimal = field(default_factory=lambda: Decimal("5.00"))
+    target_simple_task_cost_inr: Decimal = Decimal("5.00")
     per_turn_token_budget: int = 150_000
     per_session_token_budget: int = 600_000
-    per_turn_cost_budget_inr: Decimal = field(default_factory=lambda: Decimal("25.00"))
-    per_session_cost_budget_inr: Decimal = field(default_factory=lambda: Decimal("86.00"))
-    reserve_budget_inr: Decimal = field(default_factory=lambda: Decimal("2.00"))
+    per_turn_cost_budget_inr: Decimal = Decimal("25.00")
+    per_session_cost_budget_inr: Decimal = Decimal("86.00")  # ~$0.93 USD billing equiv
+    reserve_budget_inr: Decimal = Decimal("2.00")
     reserve_tokens: int = 20_000
-    usd_to_inr_rate: Decimal = field(default_factory=lambda: Decimal(str(_DEFAULT_USD_TO_INR)))
-    max_premium_calls_per_turn: int = 3
-    max_premium_calls_per_session: int = 10
-
-    # Unknown pricing governance
-    unknown_pricing_policy: UnknownPricingPolicy = "token_limited"
-    max_unrated_calls_per_turn: int = 5
-    max_unrated_calls_per_session: int = 15
-    max_unrated_tokens_per_turn: int = 50_000
-    max_unrated_tokens_per_session: int = 150_000
+    usd_to_inr_rate: Decimal = _DEFAULT_USD_TO_INR
+    max_premium_calls_per_turn: int = getattr(settings, "CRUSORAI_MAX_PREMIUM_CALLS_PER_TURN", 3)
+    max_premium_calls_per_session: int = getattr(settings, "CRUSORAI_MAX_PREMIUM_CALLS_PER_SESSION", 10)
+    unknown_pricing_policy: UnknownPricingPolicy = getattr(settings, "CRUSORAI_UNKNOWN_PRICING_POLICY", "token_limited")  # type: ignore
+    max_unrated_calls_per_turn: int = getattr(settings, "CRUSORAI_MAX_UNRATED_CALLS_PER_TURN", 5)
+    max_unrated_calls_per_session: int = getattr(settings, "CRUSORAI_MAX_UNRATED_CALLS_PER_SESSION", 15)
+    max_unrated_tokens_per_turn: int = getattr(settings, "CRUSORAI_MAX_UNRATED_TOKENS_PER_TURN", 50_000)
+    max_unrated_tokens_per_session: int = getattr(settings, "CRUSORAI_MAX_UNRATED_TOKENS_PER_SESSION", 150_000)
 
     @classmethod
     def from_env(cls) -> "CostGovernanceConfig":
-        raw_enabled = os.environ.get("CRUSORAI_COST_GOVERNANCE", "on").strip().lower()
-        enabled = raw_enabled not in {"off", "0", "false", "no"}
+        enabled_str = os.environ.get("CRUSORAI_COST_GOVERNANCE", "on").strip().lower()
+        enabled = enabled_str not in {"off", "0", "false", "no"}
 
         def _env_dec(name: str, default: str) -> Decimal:
             val = os.environ.get(name, default).strip()
@@ -89,24 +95,19 @@ class CostGovernanceConfig:
             except Exception:
                 return default
 
-        # USD to INR conversion rate
         fx = _env_dec("CRUSORAI_USD_INR", str(_DEFAULT_USD_TO_INR))
 
-        # Check if session cost budget is in USD (AGENT_COST_BUDGET)
         agent_cost_usd_raw = os.environ.get("AGENT_COST_BUDGET")
         if agent_cost_usd_raw:
             try:
-                # Billing multiplier includes forex spread and gateway fee
-                multiplier = fx * Decimal(str(_FOREX_SPREAD)) * Decimal(str(_GATEWAY_FEE))
+                multiplier = fx * _FOREX_SPREAD * _GATEWAY_FEE
                 session_inr = _quantize_currency(Decimal(agent_cost_usd_raw) * multiplier)
             except Exception:
                 session_inr = Decimal("86.00")
         else:
             session_inr = _env_dec("CRUSORAI_SESSION_COST_BUDGET_INR", "86.00")
 
-        # Session token budget
-        session_tokens = _env_int("CRUSORAI_SESSION_TOKEN_BUDGET",
-                                  _env_int("AGENT_TOKEN_BUDGET", 600_000))
+        session_tokens = _env_int("CRUSORAI_SESSION_TOKEN_BUDGET", _env_int("AGENT_TOKEN_BUDGET", 600_000))
 
         raw_policy = os.environ.get("CRUSORAI_UNKNOWN_PRICING_POLICY", "token_limited").strip().lower()
         policy: UnknownPricingPolicy = (
@@ -132,6 +133,26 @@ class CostGovernanceConfig:
             max_unrated_tokens_per_session=_env_int("CRUSORAI_MAX_UNRATED_TOKENS_PER_SESSION", 150_000),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "target_simple_task_cost_inr": str(self.target_simple_task_cost_inr),
+            "per_turn_token_budget": self.per_turn_token_budget,
+            "per_session_token_budget": self.per_session_token_budget,
+            "per_turn_cost_budget_inr": str(self.per_turn_cost_budget_inr),
+            "per_session_cost_budget_inr": str(self.per_session_cost_budget_inr),
+            "reserve_budget_inr": str(self.reserve_budget_inr),
+            "reserve_tokens": self.reserve_tokens,
+            "usd_to_inr_rate": str(self.usd_to_inr_rate),
+            "max_premium_calls_per_turn": self.max_premium_calls_per_turn,
+            "max_premium_calls_per_session": self.max_premium_calls_per_session,
+            "unknown_pricing_policy": self.unknown_pricing_policy,
+            "max_unrated_calls_per_turn": self.max_unrated_calls_per_turn,
+            "max_unrated_calls_per_session": self.max_unrated_calls_per_session,
+            "max_unrated_tokens_per_turn": self.max_unrated_tokens_per_turn,
+            "max_unrated_tokens_per_session": self.max_unrated_tokens_per_session,
+        }
+
 
 @dataclass
 class ModelCallRecord:
@@ -150,7 +171,7 @@ class ModelCallRecord:
     cost_usd: Decimal | None
     cost_inr: Decimal | None
     cost_known: bool
-    duration_s: float
+    duration_s: float = 0.0
     purpose: str = "work"
 
     def to_dict(self) -> dict[str, Any]:
@@ -183,6 +204,7 @@ class BudgetReservation:
     estimated_tokens: int
     purpose: str
     active: bool = True
+    status: str = "reserved"  # 'reserved', 'in_flight', 'reconciled', 'released', 'uncertain'
     created_at: float = field(default_factory=time.time)
 
 
@@ -202,6 +224,10 @@ class SessionSpendTracker:
     session_calls_standard: int = 0
     session_calls_premium: int = 0
 
+    cumulative_input_tokens: int = 0
+    cumulative_output_tokens: int = 0
+    total_calls_count: int = 0
+
     # Current turn cumulative
     turn_tokens: int = 0
     turn_cached_tokens: int = 0
@@ -217,6 +243,10 @@ class SessionSpendTracker:
     unrated_calls_turn: int = 0
     unrated_tokens_session: int = 0
     unrated_tokens_turn: int = 0
+
+    # Snapshot configuration & reliability
+    budget_config_snapshot: dict[str, Any] | None = None
+    persistence_failed: bool = False
 
     # Active reservations & call history
     reservations: dict[str, BudgetReservation] = field(default_factory=dict)
@@ -269,6 +299,10 @@ class ReservationContext:
         self.reason: str = ""
         self.is_reconciled: bool = False
 
+    @property
+    def reserved(self) -> bool:
+        return self.ok
+
     def __enter__(self) -> "ReservationContext":
         self.ok, self.reservation_id, self.reason = self.governor.reserve(
             session_id=self.session_id,
@@ -276,10 +310,20 @@ class ReservationContext:
             estimated_tokens=self.estimated_tokens,
             purpose=self.purpose,
         )
+        if self.ok and self.reservation_id:
+            store = self.governor._get_store()
+            if store:
+                try:
+                    store.update_reservation_status(self.reservation_id, "in_flight")
+                except Exception:
+                    pass
         return self
 
     def mark_reconciled(self) -> None:
         self.is_reconciled = True
+
+    def reconcile(self) -> None:
+        self.mark_reconciled()
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if self.reservation_id and not self.is_reconciled:
@@ -290,14 +334,33 @@ class CostGovernor:
     """
     Central financial and token governor for Crusor AI Agent Core.
     Guarantees root session budget inheritance, financial predictability,
-    headroom preservation, and zero arithmetic drift.
+    headroom preservation, zero arithmetic drift, and persistent session recovery.
     """
 
-    def __init__(self, config: CostGovernanceConfig | None = None):
+    def __init__(
+        self,
+        config: CostGovernanceConfig | None = None,
+        store: Any | None = None,
+    ):
         self._config = config or CostGovernanceConfig.from_env()
         self._lock = threading.RLock()
         self._sessions: dict[str, SessionSpendTracker] = {}
         self._parent_sessions: dict[str, str] = {}
+        self._store = store
+
+    def _get_store(self) -> Any:
+        if self._store is None:
+            persistence_env = os.environ.get("CRUSORAI_FINANCIAL_PERSISTENCE", "on").strip().lower()
+            if persistence_env in {"off", "0", "false", "no"}:
+                self._store = False
+                return None
+            try:
+                from src.agents.financial_store import get_financial_store
+                self._store = get_financial_store()
+            except Exception as exc:
+                log.warning("Could not initialize financial store: %s", exc)
+                self._store = False
+        return self._store if self._store is not False else None
 
     def get_config(self) -> CostGovernanceConfig:
         return self._config
@@ -310,6 +373,57 @@ class CostGovernor:
         return self._config.enabled
 
     # --------------------------------------------------------------------------
+    # CONFIGURATION EVOLUTION & EFFECTIVE BUDGET
+    # --------------------------------------------------------------------------
+
+    def get_effective_config(self, session_id: str) -> CostGovernanceConfig:
+        """
+        Derive effective budget configuration for a session.
+        Rule: An application restart must never silently grant an existing session extra budget.
+        Tighter limits between persisted snapshot and current configuration always bind.
+        """
+        root_id = self.get_root_session_id(session_id)
+        tracker = self._get_or_create_tracker(root_id)
+        snap = tracker.budget_config_snapshot
+        current = self._config
+        if not snap:
+            return current
+
+        snap_session_cost = _to_decimal(snap.get("per_session_cost_budget_inr", current.per_session_cost_budget_inr))
+        snap_session_tokens = int(snap.get("per_session_token_budget", current.per_session_token_budget))
+        snap_turn_cost = _to_decimal(snap.get("per_turn_cost_budget_inr", current.per_turn_cost_budget_inr))
+        snap_turn_tokens = int(snap.get("per_turn_token_budget", current.per_turn_token_budget))
+
+        effective_session_cost = min(snap_session_cost, current.per_session_cost_budget_inr)
+        effective_session_tokens = min(snap_session_tokens, current.per_session_token_budget)
+        effective_turn_cost = min(snap_turn_cost, current.per_turn_cost_budget_inr)
+        effective_turn_tokens = min(snap_turn_tokens, current.per_turn_token_budget)
+
+        policy_rank = {"deny": 0, "token_limited": 1, "explicit_allow": 2}
+        snap_policy = snap.get("unknown_pricing_policy", current.unknown_pricing_policy)
+        curr_policy = current.unknown_pricing_policy
+        effective_policy = snap_policy if policy_rank.get(snap_policy, 1) < policy_rank.get(curr_policy, 1) else curr_policy
+
+        return CostGovernanceConfig(
+            enabled=current.enabled,
+            target_simple_task_cost_inr=current.target_simple_task_cost_inr,
+            per_session_cost_budget_inr=effective_session_cost,
+            per_turn_cost_budget_inr=effective_turn_cost,
+            per_session_token_budget=effective_session_tokens,
+            per_turn_token_budget=effective_turn_tokens,
+            reserve_budget_inr=current.reserve_budget_inr,
+            reserve_tokens=current.reserve_tokens,
+            usd_to_inr_rate=current.usd_to_inr_rate,
+            max_premium_calls_per_turn=min(int(snap.get("max_premium_calls_per_turn", current.max_premium_calls_per_turn)), current.max_premium_calls_per_turn),
+            max_premium_calls_per_session=min(int(snap.get("max_premium_calls_per_session", current.max_premium_calls_per_session)), current.max_premium_calls_per_session),
+            unknown_pricing_policy=effective_policy,
+            max_unrated_calls_per_turn=min(int(snap.get("max_unrated_calls_per_turn", current.max_unrated_calls_per_turn)), current.max_unrated_calls_per_turn),
+            max_unrated_calls_per_session=min(int(snap.get("max_unrated_calls_per_session", current.max_unrated_calls_per_session)), current.max_unrated_calls_per_session),
+            max_unrated_tokens_per_turn=min(int(snap.get("max_unrated_tokens_per_turn", current.max_unrated_tokens_per_turn)), current.max_unrated_tokens_per_turn),
+            max_unrated_tokens_per_session=min(int(snap.get("max_unrated_tokens_per_session", current.max_unrated_tokens_per_session)), current.max_unrated_tokens_per_session),
+        )
+
+    # --------------------------------------------------------------------------
     # ROOT SESSION HIERARCHY
     # --------------------------------------------------------------------------
 
@@ -319,6 +433,12 @@ class CostGovernor:
             return
         with self._lock:
             self._parent_sessions[str(child_session_id)] = str(parent_session_id)
+            store = self._get_store()
+            if store:
+                try:
+                    store.save_parent_session(str(child_session_id), str(parent_session_id))
+                except Exception as exc:
+                    log.error("Failed to persist parent session: %s", exc)
 
     def get_root_session_id(self, session_id: str) -> str:
         """Resolve the top-level parent session ID across arbitrarily nested delegations."""
@@ -330,8 +450,18 @@ class CostGovernor:
                     break
                 visited.add(current)
                 parent = self._parent_sessions.get(current)
+                if not parent:
+                    # Check persistent store
+                    store = self._get_store()
+                    if store:
+                        try:
+                            parent = store.get_parent_session(current)
+                            if parent:
+                                self._parent_sessions[current] = parent
+                        except Exception:
+                            pass
                 if not parent and current.startswith("sub-"):
-                    # Dynamic discovery from persistent store
+                    # Dynamic discovery from subagent_store
                     try:
                         from src.runtime.subagent_store import get_store
                         row = get_store().get_by_child(current)
@@ -345,24 +475,177 @@ class CostGovernor:
                 current = parent
         return current
 
+    # --------------------------------------------------------------------------
+    # HYDRATION & SNAPSHOT PERSISTENCE
+    # --------------------------------------------------------------------------
+
+    def _hydrate_tracker_from_snapshot(self, session_id: str, snapshot: dict[str, Any]) -> SessionSpendTracker:
+        """Hydrate a SessionSpendTracker from persisted database snapshot."""
+        cfg_snapshot = None
+        cfg_json = snapshot.get("budget_config_json")
+        if cfg_json:
+            try:
+                cfg_snapshot = json.loads(cfg_json)
+            except Exception:
+                pass
+
+        tracker = SessionSpendTracker(
+            session_id=session_id,
+            current_turn_id=int(snapshot.get("current_turn_id", 1)),
+            session_tokens=int(snapshot.get("cumulative_total_tokens", 0)),
+            session_cached_tokens=int(snapshot.get("cumulative_cached_tokens", 0)),
+            session_cost_inr=Decimal(str(snapshot.get("cumulative_cost_inr", "0.000000"))),
+            session_cost_usd=Decimal(str(snapshot.get("cumulative_cost_usd", "0.000000"))),
+            session_has_unknown_spend=bool(snapshot.get("has_unknown_spend", 0)),
+            session_calls_cheap=int(snapshot.get("cheap_calls_count", 0)),
+            session_calls_standard=int(snapshot.get("standard_calls_count", 0)),
+            session_calls_premium=int(snapshot.get("premium_calls_count", 0)),
+            cumulative_input_tokens=int(snapshot.get("cumulative_input_tokens", 0)),
+            cumulative_output_tokens=int(snapshot.get("cumulative_output_tokens", 0)),
+            total_calls_count=int(snapshot.get("total_calls_count", 0)),
+            turn_tokens=int(snapshot.get("turn_tokens", 0)),
+            turn_cached_tokens=int(snapshot.get("turn_cached_tokens", 0)),
+            turn_cost_inr=Decimal(str(snapshot.get("turn_cost_inr", "0.000000"))),
+            turn_cost_usd=Decimal(str(snapshot.get("turn_cost_usd", "0.000000"))),
+            turn_has_unknown_spend=bool(snapshot.get("has_unknown_spend", 0)),
+            turn_calls_cheap=int(snapshot.get("turn_calls_cheap", 0)),
+            turn_calls_standard=int(snapshot.get("turn_calls_standard", 0)),
+            turn_calls_premium=int(snapshot.get("turn_calls_premium", 0)),
+            unrated_calls_session=int(snapshot.get("unrated_calls_count", 0)),
+            unrated_tokens_session=int(snapshot.get("unrated_tokens_count", 0)),
+            budget_config_snapshot=cfg_snapshot,
+        )
+
+        parent_sid = snapshot.get("parent_session_id")
+        if parent_sid:
+            self._parent_sessions[session_id] = str(parent_sid)
+
+        # Recover unresolved reservations
+        store = self._get_store()
+        if store:
+            root_id = str(snapshot.get("root_session_id") or session_id)
+            unresolved = store.recover_interrupted_reservations_on_startup(root_id)
+            for res in unresolved:
+                if res.get("session_id") == session_id or session_id == root_id:
+                    rid = res["reservation_id"]
+                    tracker.reservations[rid] = BudgetReservation(
+                        reservation_id=rid,
+                        session_id=res["session_id"],
+                        estimated_cost_inr=Decimal(str(res["estimated_cost_inr"])),
+                        estimated_tokens=int(res["estimated_tokens"]),
+                        purpose=res.get("purpose", "work"),
+                        active=True,
+                        status=res.get("status", "uncertain"),
+                    )
+        return tracker
+
+    def _persist_session_snapshot(
+        self,
+        tracker: SessionSpendTracker,
+        root_session_id: str,
+        parent_session_id: str | None,
+    ) -> None:
+        """Save a snapshot of the tracker to durable storage."""
+        store = self._get_store()
+        if not store:
+            return
+        data = {
+            "cumulative_input_tokens": tracker.cumulative_input_tokens,
+            "cumulative_output_tokens": tracker.cumulative_output_tokens,
+            "session_cached_tokens": tracker.session_cached_tokens,
+            "session_tokens": tracker.session_tokens,
+            "session_cost_usd": tracker.session_cost_usd,
+            "session_cost_inr": tracker.session_cost_inr,
+            "session_has_unknown_spend": tracker.session_has_unknown_spend,
+            "unrated_calls_session": tracker.unrated_calls_session,
+            "unrated_tokens_session": tracker.unrated_tokens_session,
+            "session_calls_cheap": tracker.session_calls_cheap,
+            "session_calls_standard": tracker.session_calls_standard,
+            "session_calls_premium": tracker.session_calls_premium,
+            "total_calls_count": len(tracker.call_history) or tracker.total_calls_count,
+            "current_turn_id": tracker.current_turn_id,
+            "turn_tokens": tracker.turn_tokens,
+            "turn_cached_tokens": tracker.turn_cached_tokens,
+            "turn_cost_usd": tracker.turn_cost_usd,
+            "turn_cost_inr": tracker.turn_cost_inr,
+            "turn_calls_cheap": tracker.turn_calls_cheap,
+            "turn_calls_standard": tracker.turn_calls_standard,
+            "turn_calls_premium": tracker.turn_calls_premium,
+        }
+        cfg_json = json.dumps(self._config.to_dict(), ensure_ascii=False)
+        ok = store.save_session_snapshot(
+            session_id=tracker.session_id,
+            root_session_id=root_session_id,
+            parent_session_id=parent_session_id,
+            tracker_data=data,
+            budget_config_json=cfg_json,
+        )
+        if not ok:
+            tracker.persistence_failed = True
+
     def _get_or_create_tracker(self, session_id: str) -> SessionSpendTracker:
         sid = session_id or "default"
-        if sid not in self._sessions:
-            self._sessions[sid] = SessionSpendTracker(session_id=sid)
-        return self._sessions[sid]
+        if sid in self._sessions:
+            return self._sessions[sid]
+
+        store = self._get_store()
+        tracker = None
+        if store:
+            try:
+                snapshot = store.load_session_snapshot(sid)
+                if snapshot:
+                    tracker = self._hydrate_tracker_from_snapshot(sid, snapshot)
+            except Exception as exc:
+                log.error("Failed hydrating session %s: %s", sid, exc)
+
+        if tracker is None:
+            tracker = SessionSpendTracker(session_id=sid)
+            if store:
+                try:
+                    stored_parent = store.get_parent_session(sid)
+                    if stored_parent:
+                        self._parent_sessions[sid] = stored_parent
+                    root_id = self.get_root_session_id(sid)
+                    unresolved = store.recover_interrupted_reservations_on_startup(root_id)
+                    for res in unresolved:
+                        if res.get("session_id") == sid or sid == root_id:
+                            rid = res["reservation_id"]
+                            tracker.reservations[rid] = BudgetReservation(
+                                reservation_id=rid,
+                                session_id=res["session_id"],
+                                estimated_cost_inr=Decimal(str(res["estimated_cost_inr"])),
+                                estimated_tokens=int(res["estimated_tokens"]),
+                                purpose=res.get("purpose", "work"),
+                                active=True,
+                                status=res.get("status", "uncertain"),
+                            )
+                except Exception as exc:
+                    log.error("Failed loading unresolved reservations on fresh tracker: %s", exc)
+
+        self._sessions[sid] = tracker
+        return tracker
 
     def reset_session(self, session_id: str) -> None:
         with self._lock:
             sid = session_id or "default"
             if sid in self._sessions:
                 del self._sessions[sid]
-            # Remove any parent links referencing sid
             self._parent_sessions = {c: p for c, p in self._parent_sessions.items() if c != sid and p != sid}
 
     def start_turn(self, session_id: str) -> None:
         with self._lock:
             tracker = self._get_or_create_tracker(session_id)
             tracker.next_turn()
+            root_id = self.get_root_session_id(session_id)
+            self._persist_session_snapshot(tracker, root_id, self._parent_sessions.get(session_id))
+
+    def get_tracker(self, session_id: str) -> SessionSpendTracker:
+        """Public accessor to get or hydrate the tracker for a session."""
+        return self._get_or_create_tracker(session_id)
+
+    def advance_turn(self, session_id: str) -> None:
+        """Advance to the next turn for a session."""
+        self.start_turn(session_id)
 
     # --------------------------------------------------------------------------
     # CANONICAL CURRENCY CONVERSION (Matching pricing.py)
@@ -373,26 +656,26 @@ class CostGovernor:
         if usd_val is None:
             return None
         dec_usd = _to_decimal(usd_val)
-        fx = self._config.usd_to_inr_rate
+        rate = self._config.usd_to_inr_rate
         if apply_forex_fees:
-            multiplier = fx * Decimal(str(_FOREX_SPREAD)) * Decimal(str(_GATEWAY_FEE))
+            effective_rate = rate * _FOREX_SPREAD * _GATEWAY_FEE
         else:
-            multiplier = fx
-        return _quantize_currency(dec_usd * multiplier)
+            effective_rate = rate
+        return _quantize_currency(dec_usd * effective_rate)
 
-    def inr_to_usd(self, inr_val: float | Decimal | None, apply_forex_fees: bool = True) -> Decimal | None:
-        """Convert INR to USD using canonical exchange rate and gateway fees."""
+    def inr_to_usd(self, inr_val: float | Decimal | None, apply_forex_fees: bool = False) -> Decimal | None:
+        """Convert INR to USD using canonical rate without double fee deductions."""
         if inr_val is None:
             return None
         dec_inr = _to_decimal(inr_val)
-        fx = self._config.usd_to_inr_rate
-        if fx <= Decimal("0"):
+        rate = self._config.usd_to_inr_rate
+        if rate <= Decimal("0"):
             return Decimal("0.000000")
         if apply_forex_fees:
-            multiplier = fx * Decimal(str(_FOREX_SPREAD)) * Decimal(str(_GATEWAY_FEE))
+            divisor = rate * _FOREX_SPREAD * _GATEWAY_FEE
         else:
-            multiplier = fx
-        return _quantize_currency(dec_inr / multiplier)
+            divisor = rate
+        return _quantize_currency(dec_inr / divisor)
 
     def estimate_tokens_cost(
         self,
@@ -422,13 +705,11 @@ class CostGovernor:
             dec_cost = _to_decimal(cost)
             curr = str(currency or "USD").upper()
             if curr == "INR":
-                # Catalog already converted with forex fees: use INR directly
                 cost_inr = _quantize_currency(dec_cost)
                 cost_usd = self.inr_to_usd(cost_inr, apply_forex_fees=False)
                 return cost_usd, cost_inr, "INR", True
             else:
                 cost_usd = _quantize_currency(dec_cost)
-                # Apply canonical billing multiplier to USD cost
                 cost_inr = self.usd_to_inr(cost_usd, apply_forex_fees=True)
                 return cost_usd, cost_inr, "USD", True
         except Exception:
@@ -446,31 +727,30 @@ class CostGovernor:
         purpose: str = "work",
         reservation_id: str | None = None,
     ) -> tuple[bool, str, str]:
-        """
-        Attempt to reserve budget for a planned model call or tool cycle.
-        Always debits and enforces against the ROOT session tracker!
-        """
-        if not self._config.enabled:
+        """Attempt to reserve budget for a planned model call or tool cycle."""
+        cfg = self.get_effective_config(session_id)
+        if not cfg.enabled:
             rid = reservation_id or f"res_{int(time.time()*1000)}"
             return True, rid, "governance_disabled"
 
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             root_tracker = self._get_or_create_tracker(root_id)
-            dec_cost = _to_decimal(estimated_cost_inr)
-            rid = reservation_id or f"res_{int(time.time()*1000)}"
+            if root_tracker.persistence_failed:
+                return False, "", "persistence_failure"
 
-            # Final response always gets reserved if headroom remains
+            dec_cost = _to_decimal(estimated_cost_inr)
+            rid = reservation_id or f"res_{int(time.time()*1000)}_{uuid.uuid4().hex[:12]}"
+
             is_final = purpose in {"final_response", "reserve", "summary"}
 
-            # Calculate remaining against ROOT tracker
-            rem_session_cost = self._config.per_session_cost_budget_inr - root_tracker.session_cost_inr - root_tracker.total_reserved_inr()
-            rem_turn_cost = self._config.per_turn_cost_budget_inr - root_tracker.turn_cost_inr - root_tracker.total_reserved_inr()
-            rem_session_tokens = self._config.per_session_token_budget - root_tracker.session_tokens - root_tracker.total_reserved_tokens()
-            rem_turn_tokens = self._config.per_turn_token_budget - root_tracker.turn_tokens - root_tracker.total_reserved_tokens()
+            rem_session_cost = cfg.per_session_cost_budget_inr - root_tracker.session_cost_inr - root_tracker.total_reserved_inr()
+            rem_turn_cost = cfg.per_turn_cost_budget_inr - root_tracker.turn_cost_inr - root_tracker.total_reserved_inr()
+            rem_session_tokens = cfg.per_session_token_budget - root_tracker.session_tokens - root_tracker.total_reserved_tokens()
+            rem_turn_tokens = cfg.per_turn_token_budget - root_tracker.turn_tokens - root_tracker.total_reserved_tokens()
 
-            headroom_cost = Decimal("0.000000") if is_final else self._config.reserve_budget_inr
-            headroom_tokens = 0 if is_final else self._config.reserve_tokens
+            headroom_cost = Decimal("0.000000") if is_final else cfg.reserve_budget_inr
+            headroom_tokens = 0 if is_final else cfg.reserve_tokens
 
             if (rem_session_cost - dec_cost) < headroom_cost:
                 return False, "", f"Insufficient root session monetary budget (needed ₹{dec_cost}, headroom ₹{headroom_cost})"
@@ -484,15 +764,30 @@ class CostGovernor:
             if (rem_turn_tokens - estimated_tokens) < headroom_tokens:
                 return False, "", f"Insufficient turn token budget (needed {estimated_tokens}, headroom {headroom_tokens})"
 
-            # Store reservation on ROOT tracker
             res = BudgetReservation(
                 reservation_id=rid,
                 session_id=root_id,
                 estimated_cost_inr=dec_cost,
                 estimated_tokens=estimated_tokens,
                 purpose=purpose,
+                active=True,
+                status="reserved",
             )
             root_tracker.reservations[rid] = res
+
+            store = self._get_store()
+            if store:
+                store.save_reservation(
+                    reservation_id=rid,
+                    root_session_id=root_id,
+                    session_id=session_id,
+                    turn_id=root_tracker.current_turn_id,
+                    estimated_cost_inr=dec_cost,
+                    estimated_tokens=estimated_tokens,
+                    purpose=purpose,
+                    status="reserved",
+                )
+                self._persist_session_snapshot(root_tracker, root_id, None)
             return True, rid, "ok"
 
     def release_reservation(self, session_id: str, reservation_id: str) -> None:
@@ -502,6 +797,9 @@ class CostGovernor:
             root_tracker = self._get_or_create_tracker(root_id)
             if reservation_id in root_tracker.reservations:
                 del root_tracker.reservations[reservation_id]
+            store = self._get_store()
+            if store:
+                store.update_reservation_status(reservation_id, "released")
 
     def reservation_context(
         self,
@@ -519,8 +817,24 @@ class CostGovernor:
             purpose=purpose,
         )
 
+    def reservation(
+        self,
+        session_id: str,
+        estimated_cost_inr: Decimal | float,
+        estimated_tokens: int = 4000,
+        purpose: str = "work",
+    ) -> ReservationContext:
+        """Alias for reservation_context."""
+        return self.reservation_context(session_id, estimated_cost_inr, estimated_tokens, purpose)
+
+    def get_active_reservations_inr(self, session_id: str) -> Decimal:
+        with self._lock:
+            root_id = self.get_root_session_id(session_id)
+            tracker = self._get_or_create_tracker(root_id)
+            return tracker.total_reserved_inr()
+
     # --------------------------------------------------------------------------
-    # RECORD CALL & RECONCILIATION
+    # MODEL CALL ACCOUNTING (Root Session Debited)
     # --------------------------------------------------------------------------
 
     def record_call(
@@ -533,26 +847,45 @@ class CostGovernor:
         duration_s: float = 0.0,
         purpose: str = "work",
         reservation_id: str | None = None,
+        event_id: str | None = None,
     ) -> ModelCallRecord:
         """
         Record a completed model call, update root session and child accumulators,
-        and reconcile any active reservation.
+        and reconcile any active reservation. Idempotent across restarts.
         """
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             root_tracker = self._get_or_create_tracker(root_id)
             local_tracker = self._get_or_create_tracker(session_id) if root_id != session_id else root_tracker
 
-            # Release reservation on ROOT tracker
-            if reservation_id and reservation_id in root_tracker.reservations:
-                del root_tracker.reservations[reservation_id]
-
             if isinstance(usage, dict):
                 u = TokenUsage.from_dict(usage)
             else:
                 u = usage
 
-            # Extract costs
+            # Idempotency check against durable store
+            store = self._get_store()
+            call_evt_id = event_id or getattr(u, "event_id", None) or f"evt_{session_id}_{local_tracker.current_turn_id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:12]}"
+            if store and store.has_call_event(call_evt_id):
+                log.info("Duplicate event %s detected; skipping double debit", call_evt_id)
+                # Return existing record from history if found
+                for rec in root_tracker.call_history:
+                    if rec.call_id == call_evt_id:
+                        return rec
+                return ModelCallRecord(
+                    call_id=call_evt_id, session_id=session_id, turn_id=local_tracker.current_turn_id,
+                    timestamp=time.time(), provider=provider, model=model, tier=tier,
+                    input_tokens=u.prompt_tokens, output_tokens=u.completion_tokens,
+                    cached_tokens=u.cached_tokens, total_tokens=u.total_tokens,
+                    cost_usd=None, cost_inr=None, cost_known=True,
+                )
+
+            # Reconcile reservation on ROOT tracker
+            if reservation_id and reservation_id in root_tracker.reservations:
+                del root_tracker.reservations[reservation_id]
+                if store:
+                    store.update_reservation_status(reservation_id, "reconciled")
+
             cost_known = bool(u.cost_known)
             if cost_known and u.estimated_cost_usd is not None:
                 dec_usd = _to_decimal(u.estimated_cost_usd)
@@ -561,9 +894,8 @@ class CostGovernor:
                 dec_usd = None
                 dec_inr = None
 
-            call_id = f"call_{len(root_tracker.call_history)+1}_{int(time.time()*1000)}"
             record = ModelCallRecord(
-                call_id=call_id,
+                call_id=call_evt_id,
                 session_id=session_id,
                 turn_id=local_tracker.current_turn_id,
                 timestamp=time.time(),
@@ -581,12 +913,14 @@ class CostGovernor:
                 purpose=purpose,
             )
 
-            # Update helper for a tracker
             def _apply_spend(tracker: SessionSpendTracker):
                 tracker.session_tokens += u.total_tokens
                 tracker.session_cached_tokens += u.cached_tokens
                 tracker.turn_tokens += u.total_tokens
                 tracker.turn_cached_tokens += u.cached_tokens
+                tracker.cumulative_input_tokens += u.prompt_tokens
+                tracker.cumulative_output_tokens += u.completion_tokens
+                tracker.total_calls_count += 1
 
                 if dec_usd is not None and dec_inr is not None:
                     tracker.session_cost_usd += dec_usd
@@ -613,11 +947,41 @@ class CostGovernor:
 
                 tracker.call_history.append(record)
 
-            # Always apply to ROOT tracker
             _apply_spend(root_tracker)
-            # If child session, also track locally for child diagnostics
             if local_tracker is not root_tracker:
                 _apply_spend(local_tracker)
+
+            # Persist event & snapshots
+            if store:
+                event_dict = {
+                    "event_id": call_evt_id,
+                    "root_session_id": root_id,
+                    "child_session_id": session_id if session_id != root_id else None,
+                    "turn_id": local_tracker.current_turn_id,
+                    "provider": provider,
+                    "model": model,
+                    "tier": tier,
+                    "purpose": purpose,
+                    "input_tokens": u.prompt_tokens,
+                    "output_tokens": u.completion_tokens,
+                    "cached_tokens": u.cached_tokens,
+                    "total_tokens": u.total_tokens,
+                    "estimated_cost_usd": str(dec_usd) if dec_usd is not None else None,
+                    "estimated_cost_inr": str(dec_inr) if dec_inr is not None else None,
+                    "actual_cost_usd": str(dec_usd) if dec_usd is not None else None,
+                    "actual_cost_inr": str(dec_inr) if dec_inr is not None else None,
+                    "cost_known": cost_known,
+                    "pricing_status": "fresh",
+                    "reservation_id": reservation_id,
+                    "call_outcome": "completed",
+                    "created_at": time.time(),
+                }
+                store.record_call_event(event_dict)
+                self._persist_session_snapshot(root_tracker, root_id, None)
+                if local_tracker is not root_tracker:
+                    self._persist_session_snapshot(
+                        local_tracker, root_id, self._parent_sessions.get(session_id)
+                    )
 
             return record
 
@@ -629,13 +993,8 @@ class CostGovernor:
         messages_or_prompt: Any,
         response: Any,
         purpose: str = "auxiliary",
-    ) -> ModelCallRecord | None:
-        """
-        Reusable tracking helper for auxiliary / housekeeping LLM calls.
-        Safe: never raises, never breaks the caller.
-        """
-        if not self._config.enabled:
-            return None
+    ) -> Optional[ModelCallRecord]:
+        """Track auxiliary / background LLM invocations safely."""
         try:
             from langchain_core.messages import HumanMessage
             from src.context.token_tracker import TokenTracker
@@ -671,48 +1030,45 @@ class CostGovernor:
         estimated_tokens: int = 4000,
         model_name: str | None = None,
     ) -> tuple[bool, TierType, str]:
-        """
-        Check if the requested tier can be afforded given root budget, headroom, and call caps.
-        """
-        if not self._config.enabled or tier == "cheap":
+        """Check if the requested tier can be afforded given root budget, headroom, and call caps."""
+        cfg = self.get_effective_config(session_id)
+        if not cfg.enabled:
             return True, tier, "ok"
 
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             root_tracker = self._get_or_create_tracker(root_id)
+            if root_tracker.persistence_failed:
+                return False, "cheap", "persistence_failure: storage unwritable"
 
-            # Check unknown pricing policy if model is specified
-            if model_name and self._config.unknown_pricing_policy == "deny":
+            if tier == "cheap":
+                return True, tier, "ok"
+
+            if model_name and cfg.unknown_pricing_policy == "deny":
                 _, _, _, cost_known = self.estimate_tokens_cost(model_name, estimated_tokens, 1000)
                 if not cost_known:
                     return False, "cheap", "Unrated model blocked under deny unknown_pricing_policy"
 
-            # Check premium call count limits against ROOT tracker
             if tier == "premium":
-                if root_tracker.turn_calls_premium >= self._config.max_premium_calls_per_turn:
-                    return False, "standard", f"Premium call cap reached for this turn ({root_tracker.turn_calls_premium}/{self._config.max_premium_calls_per_turn})"
-                if root_tracker.session_calls_premium >= self._config.max_premium_calls_per_session:
-                    return False, "standard", f"Premium call cap reached for this session ({root_tracker.session_calls_premium}/{self._config.max_premium_calls_per_session})"
+                if root_tracker.turn_calls_premium >= cfg.max_premium_calls_per_turn:
+                    return False, "standard", f"Premium call cap reached for this turn ({root_tracker.turn_calls_premium}/{cfg.max_premium_calls_per_turn})"
+                if root_tracker.session_calls_premium >= cfg.max_premium_calls_per_session:
+                    return False, "standard", f"Premium call cap reached for this session ({root_tracker.session_calls_premium}/{cfg.max_premium_calls_per_session})"
 
-            # Estimate cost if not provided
             if estimated_cost_inr is None:
                 dec_est = Decimal("1.50") if tier == "premium" else Decimal("0.30")
             else:
                 dec_est = _to_decimal(estimated_cost_inr)
 
-            # Check remaining against ROOT tracker
-            avail_session = self._config.per_session_cost_budget_inr - root_tracker.session_cost_inr - root_tracker.total_reserved_inr()
-            avail_turn = self._config.per_turn_cost_budget_inr - root_tracker.turn_cost_inr - root_tracker.total_reserved_inr()
+            rem_cost = cfg.per_session_cost_budget_inr - root_tracker.session_cost_inr - root_tracker.total_reserved_inr()
+            rem_tokens = cfg.per_session_token_budget - root_tracker.session_tokens - root_tracker.total_reserved_tokens()
 
-            if (avail_session - dec_est) < self._config.reserve_budget_inr or (avail_turn - dec_est) < self._config.reserve_budget_inr:
-                demoted: TierType = "standard" if tier == "premium" else "cheap"
-                return False, demoted, f"Tier {tier} exceeds budget headroom; demoting to {demoted}"
-
-            # Token check against ROOT tracker
-            avail_tokens_session = self._config.per_session_token_budget - root_tracker.session_tokens - root_tracker.total_reserved_tokens()
-            if (avail_tokens_session - estimated_tokens) < self._config.reserve_tokens:
-                demoted = "standard" if tier == "premium" else "cheap"
-                return False, demoted, f"Tier {tier} exceeds token headroom; demoting to {demoted}"
+            if (rem_cost - dec_est) < cfg.reserve_budget_inr or (rem_tokens - estimated_tokens) < cfg.reserve_tokens:
+                if tier == "premium":
+                    dec_std = Decimal("0.30")
+                    if (rem_cost - dec_std) >= cfg.reserve_budget_inr:
+                        return False, "standard", "demoting from premium to standard to preserve budget reserve"
+                return False, "cheap", "demoting to cheap tier to preserve budget reserve"
 
             return True, tier, "ok"
 
@@ -722,97 +1078,98 @@ class CostGovernor:
 
     def is_exhausted(self, session_id: str) -> bool:
         """Whether any budget leg on the root tracker or local turn has tripped."""
-        if not self._config.enabled:
+        cfg = self.get_effective_config(session_id)
+        if not cfg.enabled:
             return False
 
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             root_tracker = self._get_or_create_tracker(root_id)
-
-            # Unknown pricing policy checks
-            if self._config.unknown_pricing_policy == "deny" and root_tracker.session_has_unknown_spend:
-                return True
-            if self._config.unknown_pricing_policy == "token_limited":
-                if root_tracker.unrated_calls_turn >= self._config.max_unrated_calls_per_turn:
-                    return True
-                if root_tracker.unrated_calls_session >= self._config.max_unrated_calls_per_session:
-                    return True
-                if root_tracker.unrated_tokens_turn >= self._config.max_unrated_tokens_per_turn:
-                    return True
-                if root_tracker.unrated_tokens_session >= self._config.max_unrated_tokens_per_session:
-                    return True
-
-            # General token and cost ceilings
-            if root_tracker.session_tokens >= self._config.per_session_token_budget:
-                return True
-            if root_tracker.turn_tokens >= self._config.per_turn_token_budget:
-                return True
-            if root_tracker.session_cost_inr >= self._config.per_session_cost_budget_inr:
-                return True
-            if root_tracker.turn_cost_inr >= self._config.per_turn_cost_budget_inr:
+            if root_tracker.persistence_failed:
                 return True
 
-            # If child session exists, also enforce local turn caps
+            if cfg.unknown_pricing_policy == "deny" and root_tracker.session_has_unknown_spend:
+                return True
+            if cfg.unknown_pricing_policy == "token_limited":
+                if root_tracker.unrated_calls_turn >= cfg.max_unrated_calls_per_turn:
+                    return True
+                if root_tracker.unrated_calls_session >= cfg.max_unrated_calls_per_session:
+                    return True
+                if root_tracker.unrated_tokens_turn >= cfg.max_unrated_tokens_per_turn:
+                    return True
+                if root_tracker.unrated_tokens_session >= cfg.max_unrated_tokens_per_session:
+                    return True
+
+            if root_tracker.session_tokens >= cfg.per_session_token_budget:
+                return True
+            if root_tracker.turn_tokens >= cfg.per_turn_token_budget:
+                return True
+            if root_tracker.session_cost_inr >= cfg.per_session_cost_budget_inr:
+                return True
+            if root_tracker.turn_cost_inr >= cfg.per_turn_cost_budget_inr:
+                return True
+
             if root_id != session_id:
                 local_tracker = self._get_or_create_tracker(session_id)
-                if local_tracker.turn_tokens >= self._config.per_turn_token_budget:
+                if local_tracker.turn_tokens >= cfg.per_turn_token_budget:
                     return True
-                if local_tracker.turn_cost_inr >= self._config.per_turn_cost_budget_inr:
+                if local_tracker.turn_cost_inr >= cfg.per_turn_cost_budget_inr:
                     return True
 
             return False
 
     def trip_reason(self, session_id: str) -> str:
         """Detailed diagnostic explanation of trip reason."""
+        cfg = self.get_effective_config(session_id)
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             tracker = self._get_or_create_tracker(root_id)
             parts = []
 
-            # Session tokens
+            if tracker.persistence_failed:
+                parts.append("tripped: persistence_failure")
+
             s_tok = tracker.session_tokens
-            s_cap = self._config.per_session_token_budget
+            s_cap = cfg.per_session_token_budget
             s_cached = tracker.session_cached_tokens
             cached_str = f" ({s_cached:,} cached)" if s_cached else ""
             parts.append(f"root session tokens {s_tok:,}/{s_cap:,}{cached_str}")
 
-            # Turn tokens
             t_tok = tracker.turn_tokens
-            t_cap = self._config.per_turn_token_budget
+            t_cap = cfg.per_turn_token_budget
             parts.append(f"turn tokens {t_tok:,}/{t_cap:,}")
 
-            # Session cost
             if tracker.session_has_unknown_spend and tracker.session_cost_inr == Decimal("0.000000"):
-                parts.append(f"session cost ₹unknown/{self._config.per_session_cost_budget_inr:.2f}")
+                parts.append(f"session cost ₹unknown/{cfg.per_session_cost_budget_inr:.2f}")
             else:
                 unkn = f" + unrated({tracker.unrated_calls_session} calls)" if tracker.session_has_unknown_spend else ""
-                parts.append(f"session cost ₹{tracker.session_cost_inr:.2f}/{self._config.per_session_cost_budget_inr:.2f}{unkn}")
+                parts.append(f"session cost ₹{tracker.session_cost_inr:.2f}/{cfg.per_session_cost_budget_inr:.2f}{unkn}")
 
-            # Turn cost
             if tracker.turn_has_unknown_spend and tracker.turn_cost_inr == Decimal("0.000000"):
-                parts.append(f"turn cost ₹unknown/{self._config.per_turn_cost_budget_inr:.2f}")
+                parts.append(f"turn cost ₹unknown/{cfg.per_turn_cost_budget_inr:.2f}")
             else:
                 unkn = f" + unrated({tracker.unrated_calls_turn} calls)" if tracker.turn_has_unknown_spend else ""
-                parts.append(f"turn cost ₹{tracker.turn_cost_inr:.2f}/{self._config.per_turn_cost_budget_inr:.2f}{unkn}")
+                parts.append(f"turn cost ₹{tracker.turn_cost_inr:.2f}/{cfg.per_turn_cost_budget_inr:.2f}{unkn}")
 
-            # Unrated policy check
-            if self._config.unknown_pricing_policy == "deny" and tracker.session_has_unknown_spend:
+            if cfg.unknown_pricing_policy == "deny" and tracker.session_has_unknown_spend:
                 parts.append("tripped: unrated_denied")
-            elif self._config.unknown_pricing_policy == "token_limited" and (
-                tracker.unrated_calls_turn >= self._config.max_unrated_calls_per_turn
-                or tracker.unrated_calls_session >= self._config.max_unrated_calls_per_session
-                or tracker.unrated_tokens_turn >= self._config.max_unrated_tokens_per_turn
-                or tracker.unrated_tokens_session >= self._config.max_unrated_tokens_per_session
+            elif cfg.unknown_pricing_policy == "token_limited" and (
+                tracker.unrated_calls_turn >= cfg.max_unrated_calls_per_turn
+                or tracker.unrated_calls_session >= cfg.max_unrated_calls_per_session
+                or tracker.unrated_tokens_turn >= cfg.max_unrated_tokens_per_turn
+                or tracker.unrated_tokens_session >= cfg.max_unrated_tokens_per_session
             ):
                 parts.append("tripped: unrated_limits")
             elif s_tok >= s_cap:
                 parts.append("tripped: session_tokens")
             elif t_tok >= t_cap:
                 parts.append("tripped: turn_tokens")
-            elif tracker.session_cost_inr >= self._config.per_session_cost_budget_inr:
+            elif tracker.session_cost_inr >= cfg.per_session_cost_budget_inr:
                 parts.append("tripped: session_cost")
-            elif tracker.turn_cost_inr >= self._config.per_turn_cost_budget_inr:
+            elif tracker.turn_cost_inr >= cfg.per_turn_cost_budget_inr:
                 parts.append("tripped: turn_cost")
+            elif tracker.persistence_failed:
+                pass
             else:
                 parts.append("tripped: none")
 
@@ -822,45 +1179,43 @@ class CostGovernor:
         if self.is_exhausted(session_id):
             return "exhausted"
 
+        cfg = self.get_effective_config(session_id)
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             tracker = self._get_or_create_tracker(root_id)
-            near_cost = (tracker.session_cost_inr >= self._config.per_session_cost_budget_inr * Decimal("0.85")
-                         or tracker.turn_cost_inr >= self._config.per_turn_cost_budget_inr * Decimal("0.85"))
-            near_tokens = (tracker.session_tokens >= self._config.per_session_token_budget * 0.85
-                           or tracker.turn_tokens >= self._config.per_turn_token_budget * 0.85)
+            near_cost = (tracker.session_cost_inr >= cfg.per_session_cost_budget_inr * Decimal("0.85")
+                         or tracker.turn_cost_inr >= cfg.per_turn_cost_budget_inr * Decimal("0.85"))
+            near_tokens = (tracker.session_tokens >= cfg.per_session_token_budget * 0.85
+                           or tracker.turn_tokens >= cfg.per_turn_token_budget * 0.85)
             if near_cost or near_tokens:
                 return "near_limit"
             return "healthy"
 
     def get_compact_summary(self, session_id: str) -> str:
         """Generate a compact user-facing summary string with '₹' and token breakdown."""
+        cfg = self.get_effective_config(session_id)
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             tracker = self._get_or_create_tracker(root_id)
             status = self.get_status(root_id).upper()
 
-            # Session cost string
             if tracker.session_has_unknown_spend and tracker.session_cost_inr == Decimal("0.000000"):
-                cost_str = f"₹unknown / ₹{self._config.per_session_cost_budget_inr:.2f}"
+                cost_str = f"₹unknown / ₹{cfg.per_session_cost_budget_inr:.2f}"
             else:
-                pct = int((tracker.session_cost_inr / self._config.per_session_cost_budget_inr) * 100) if self._config.per_session_cost_budget_inr > 0 else 0
+                pct = int((tracker.session_cost_inr / cfg.per_session_cost_budget_inr) * 100) if cfg.per_session_cost_budget_inr > 0 else 0
                 unkn = f" (+{tracker.unrated_calls_session} unrated)" if tracker.session_has_unknown_spend else ""
-                cost_str = f"₹{tracker.session_cost_inr:.2f} / ₹{self._config.per_session_cost_budget_inr:.2f} ({pct}%){unkn}"
+                cost_str = f"₹{tracker.session_cost_inr:.2f} / ₹{cfg.per_session_cost_budget_inr:.2f} ({pct}%){unkn}"
 
-            # Turn cost string
             if tracker.turn_has_unknown_spend and tracker.turn_cost_inr == Decimal("0.000000"):
-                turn_str = f"₹unknown / ₹{self._config.per_turn_cost_budget_inr:.2f}"
+                turn_str = f"₹unknown / ₹{cfg.per_turn_cost_budget_inr:.2f}"
             else:
-                turn_str = f"₹{tracker.turn_cost_inr:.2f} / ₹{self._config.per_turn_cost_budget_inr:.2f}"
+                turn_str = f"₹{tracker.turn_cost_inr:.2f} / ₹{cfg.per_turn_cost_budget_inr:.2f}"
 
-            # Tokens string
-            tok_str = f"{tracker.session_tokens:,} / {self._config.per_session_token_budget:,}"
+            tok_str = f"{tracker.session_tokens:,} / {cfg.per_session_token_budget:,}"
             if tracker.session_cached_tokens:
                 tok_str += f" ({tracker.session_cached_tokens:,} cached)"
 
-            # Calls string
-            tot_calls = len(tracker.call_history)
+            tot_calls = len(tracker.call_history) or tracker.total_calls_count
             calls_str = f"{tot_calls} (cheap: {tracker.session_calls_cheap}, standard: {tracker.session_calls_standard}, premium: {tracker.session_calls_premium})"
 
             root_prefix = f"Root [{root_id[:12]}] " if root_id != session_id else ""
@@ -869,11 +1224,16 @@ class CostGovernor:
                 f"Tokens: {tok_str} | Calls: {calls_str} | Status: {status}"
             )
 
-    def get_audit_records(self, session_id: str) -> list[dict[str, Any]]:
+    def get_call_history(self, session_id: str) -> list[dict[str, Any]]:
         with self._lock:
             root_id = self.get_root_session_id(session_id)
             tracker = self._get_or_create_tracker(root_id)
-            return [r.to_dict() for r in tracker.call_history]
+            if tracker.call_history:
+                return [r.to_dict() for r in tracker.call_history]
+            store = self._get_store()
+            if store:
+                return store.get_session_call_history(root_id)
+            return []
 
 
 # Global singleton instance
