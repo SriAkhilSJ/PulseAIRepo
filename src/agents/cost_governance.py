@@ -539,17 +539,9 @@ class CostGovernor:
                     )
         return tracker
 
-    def _persist_session_snapshot(
-        self,
-        tracker: SessionSpendTracker,
-        root_session_id: str,
-        parent_session_id: str | None,
-    ) -> None:
-        """Save a snapshot of the tracker to durable storage."""
-        store = self._get_store()
-        if not store:
-            return
-        data = {
+    def _extract_tracker_snapshot_dict(self, tracker: SessionSpendTracker) -> dict[str, Any]:
+        """Extract tracker metrics into snapshot data dictionary."""
+        return {
             "cumulative_input_tokens": tracker.cumulative_input_tokens,
             "cumulative_output_tokens": tracker.cumulative_output_tokens,
             "session_cached_tokens": tracker.session_cached_tokens,
@@ -572,6 +564,18 @@ class CostGovernor:
             "turn_calls_standard": tracker.turn_calls_standard,
             "turn_calls_premium": tracker.turn_calls_premium,
         }
+
+    def _persist_session_snapshot(
+        self,
+        tracker: SessionSpendTracker,
+        root_session_id: str,
+        parent_session_id: str | None,
+    ) -> None:
+        """Save a snapshot of the tracker to durable storage."""
+        store = self._get_store()
+        if not store:
+            return
+        data = self._extract_tracker_snapshot_dict(tracker)
         cfg_json = json.dumps(self._config.to_dict(), ensure_ascii=False)
         ok = store.save_session_snapshot(
             session_id=tracker.session_id,
@@ -848,6 +852,7 @@ class CostGovernor:
         purpose: str = "work",
         reservation_id: str | None = None,
         event_id: str | None = None,
+        _failpoint: str | None = None,
     ) -> ModelCallRecord:
         """
         Record a completed model call, update root session and child accumulators,
@@ -880,11 +885,9 @@ class CostGovernor:
                     cost_usd=None, cost_inr=None, cost_known=True,
                 )
 
-            # Reconcile reservation on ROOT tracker
+            # Reconcile reservation in-memory on ROOT tracker (durable update is performed atomically below)
             if reservation_id and reservation_id in root_tracker.reservations:
                 del root_tracker.reservations[reservation_id]
-                if store:
-                    store.update_reservation_status(reservation_id, "reconciled")
 
             cost_known = bool(u.cost_known)
             if cost_known and u.estimated_cost_usd is not None:
@@ -951,7 +954,7 @@ class CostGovernor:
             if local_tracker is not root_tracker:
                 _apply_spend(local_tracker)
 
-            # Persist event & snapshots
+            # Persist event, reservation update, and session snapshots ATOMICALLY in a single SQLite transaction
             if store:
                 event_dict = {
                     "event_id": call_evt_id,
@@ -976,12 +979,42 @@ class CostGovernor:
                     "call_outcome": "completed",
                     "created_at": time.time(),
                 }
-                store.record_call_event(event_dict)
-                self._persist_session_snapshot(root_tracker, root_id, None)
-                if local_tracker is not root_tracker:
-                    self._persist_session_snapshot(
-                        local_tracker, root_id, self._parent_sessions.get(session_id)
-                    )
+                cfg_json = json.dumps(self._config.to_dict(), ensure_ascii=False)
+                root_snap = {
+                    "session_id": root_id,
+                    "root_session_id": root_id,
+                    "parent_session_id": None,
+                    "tracker_data": self._extract_tracker_snapshot_dict(root_tracker),
+                    "budget_config_json": cfg_json,
+                }
+                child_snap = (
+                    {
+                        "session_id": session_id,
+                        "root_session_id": root_id,
+                        "parent_session_id": self._parent_sessions.get(session_id),
+                        "tracker_data": self._extract_tracker_snapshot_dict(local_tracker),
+                        "budget_config_json": cfg_json,
+                    }
+                    if local_tracker is not root_tracker
+                    else None
+                )
+                parent_link = (
+                    (session_id, self._parent_sessions.get(session_id))
+                    if (session_id != root_id and self._parent_sessions.get(session_id))
+                    else None
+                )
+                ok = store.record_call_and_snapshot(
+                    event_dict=event_dict,
+                    root_snapshot=root_snap,
+                    child_snapshot=child_snap,
+                    reservation_id=reservation_id,
+                    parent_link=parent_link,
+                    _failpoint=_failpoint,
+                )
+                if not ok:
+                    root_tracker.persistence_failed = True
+                    if local_tracker is not root_tracker:
+                        local_tracker.persistence_failed = True
 
             return record
 
@@ -1190,6 +1223,79 @@ class CostGovernor:
             if near_cost or near_tokens:
                 return "near_limit"
             return "healthy"
+
+    # --------------------------------------------------------------------------
+    # UNCERTAIN RESERVATION RESOLUTION & RECONCILIATION (Phase 9.1.6)
+    # --------------------------------------------------------------------------
+
+    def get_uncertain_reservations_for_review(
+        self,
+        root_session_id: str | None = None,
+        min_age_seconds: float = 1800.0,
+    ) -> list[dict[str, Any]]:
+        """
+        Query uncertain reservations that are eligible for review (> 30 mins).
+        Safety principle: These reservations retain headroom and are NEVER automatically released.
+        """
+        store = self._get_store()
+        if not store:
+            return []
+        return store.get_reservations_eligible_for_reconciliation(min_age_seconds=min_age_seconds)
+
+    def resolve_uncertain_reservation(
+        self,
+        session_id: str,
+        reservation_id: str,
+        action: str,
+        actual_cost_inr: Decimal | float | None = None,
+        resolution_notes: str = "",
+        resolved_by: str = "admin",
+    ) -> tuple[bool, str]:
+        """
+        Stage C resolution: explicitly resolve an uncertain reservation.
+        Supported actions:
+        - 'release': Verified non-execution. Headroom is safely unlocked.
+        - 'reconcile': Verified execution. Debit actual cost and clear reservation.
+
+        Safety: Never allows duplicate resolution; rejects invalid state transitions.
+        """
+        action_clean = str(action).strip().lower()
+        if action_clean not in {"release", "reconcile"}:
+            return False, f"Invalid resolution action '{action}'. Must be 'release' or 'reconcile'."
+
+        with self._lock:
+            root_id = self.get_root_session_id(session_id)
+            root_tracker = self._get_or_create_tracker(root_id)
+
+            store = self._get_store()
+            if store:
+                ok, msg = store.resolve_uncertain_reservation(
+                    reservation_id=reservation_id,
+                    action=action_clean,
+                    actual_cost_inr=actual_cost_inr,
+                    resolution_notes=resolution_notes,
+                    resolved_by=resolved_by,
+                )
+                if not ok:
+                    return False, msg
+
+            # Update in-memory tracker
+            if reservation_id in root_tracker.reservations:
+                del root_tracker.reservations[reservation_id]
+
+            if action_clean == "reconcile" and actual_cost_inr is not None:
+                dec_cost = _to_decimal(actual_cost_inr)
+                root_tracker.session_cost_inr += dec_cost
+                root_tracker.turn_cost_inr += dec_cost
+
+            if store:
+                self._persist_session_snapshot(root_tracker, root_id, None)
+
+            log.info(
+                "Uncertain reservation %s resolved via %s in session %s",
+                reservation_id, action_clean, root_id
+            )
+            return True, f"Reservation '{reservation_id}' resolved via {action_clean}."
 
     def get_compact_summary(self, session_id: str) -> str:
         """Generate a compact user-facing summary string with '₹' and token breakdown."""
