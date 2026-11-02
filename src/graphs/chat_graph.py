@@ -625,6 +625,7 @@ from src.graphs.budget import (
     _FINAL_RESPONSE_RESERVE_REQUEST,
     _MAX_ITERATIONS_SUMMARY_REQUEST,
     _iteration_budget,
+    _continuous_execution,
     _recursion_limit,
     _budget_exhausted,
     _final_response_reserve_reached,
@@ -2128,6 +2129,21 @@ def ai_node(
             "iteration_used": int(state.get("iteration_used", 0)),
         }
 
+    # Continuous runs must not make a paid "grace" request after an
+    # explicit limit has fired (or its price cannot be verified). Previously
+    # that extra request could exceed the very limit that stopped the work.
+    # Pending tool calls are dispatched by the router before reaching here.
+    if _continuous_execution() and _budget_exhausted(state):
+        from src.graphs.budget import _budget_trip_reason
+        return {
+            "messages": [AIMessage(content=(
+                "The run stopped at a configured budget or could not verify its cost. "
+                f"Work may be incomplete. ({_budget_trip_reason(state)})"
+            ))],
+            "iteration_used": int(state.get("iteration_used", 0) or 0),
+            "grace_done": 1,
+        }
+
     base_provider = _cfg(configurable, "provider", LLM_PROVIDER)
     base_model = _cfg(configurable, "model", LLM_MODEL)
 
@@ -2427,11 +2443,20 @@ def ai_node(
                 # the iterations wording on a token-cap cut told the model it
                 # ran out of tool-calling iterations while iterations had
                 # headroom left (same mislabel class as the [grace] prefix).
-                if iteration_used >= _iteration_budget():
+                if _iteration_budget() is not None and iteration_used >= _iteration_budget():
                     _summary_request = _MAX_ITERATIONS_SUMMARY_REQUEST
                 else:
-                    from src.graphs.budget import _TOKEN_BUDGET_SUMMARY_REQUEST
-                    _summary_request = _TOKEN_BUDGET_SUMMARY_REQUEST
+                    from src.graphs.budget import (
+                        _TOKEN_BUDGET_SUMMARY_REQUEST, _COST_BUDGET_SUMMARY_REQUEST,
+                        _token_budget,
+                    )
+                    usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
+                    cap = _token_budget()
+                    token_tripped = cap is not None and int(usage.get("total_tokens", 0) or 0) >= cap
+                    if token_tripped:
+                        _summary_request = _TOKEN_BUDGET_SUMMARY_REQUEST
+                    else:
+                        _summary_request = _COST_BUDGET_SUMMARY_REQUEST
                 messages = messages + [
                     HumanMessage(content=_summary_request)
                 ]
@@ -7560,19 +7585,25 @@ def invoke_agent(
         }
 
         _begin_diagnostic_turn(thread_id, workspace, message)
-        result = graph.invoke(
-            {
-                "messages": [
-                    HumanMessage(content=message)
-                ],
-                "latest_instruction": message,
-                "execution_mode": execution_mode,
-                # Safety/gate budgets are turn-scoped even when checkpoint
-                # state is resumed (all channels, not only token iteration).
-                **_turn_scoped_resets(),
-            },
-            config=config,
-        )
+        initial_state = {
+            "messages": [HumanMessage(content=message)],
+            "latest_instruction": message,
+            "execution_mode": execution_mode,
+            # Reset only for a fresh user turn, not for internal segments.
+            **_turn_scoped_resets(),
+        }
+        if _continuous_execution():
+            from src.graphs.continuous_execution import stream_checkpointed_segments
+            result = None
+            for result in stream_checkpointed_segments(
+                graph, initial_state, config=config, stream_mode="values",
+                on_segment=lambda n: print(f"[continuous] resumed checkpoint segment {n}", flush=True),
+            ):
+                pass
+            if result is None:
+                raise RuntimeError("Continuous graph returned no state")
+        else:
+            result = graph.invoke(initial_state, config=config)
 
         from src.context.self_curation import maybe_spawn_memory_review
         try:
@@ -7601,6 +7632,26 @@ def invoke_agent(
 # =========================================================
 # STREAMING INVOCATION
 # =========================================================
+
+def _emit_continuous_usage(update: dict, thread_id: str) -> None:
+    """Publish cumulative, estimated usage as the continuous turn progresses.
+
+    Match finalize's existing session-wide analytics shape; unknown cost stays
+    unknown instead of being reported as zero. No extra provider calls.
+    """
+    usage = update.get("token_usage")
+    if not isinstance(usage, dict):
+        return
+    known = bool(usage.get("cost_known", True))
+    event_bus.emit("analytics.update", {
+        "thread_id": thread_id,
+        "totalCost": usage.get("estimated_cost_usd", 0) if known else None,
+        "costKnown": known,
+        "tokensIn": usage.get("prompt_tokens", 0),
+        "tokensOut": usage.get("completion_tokens", 0),
+        "apiCalls": usage.get("calls_made", 0),
+    })
+
 
 class AgentTurnResult(str):
     """String-compatible final response carrying the graph's honest verdict and status contract."""
@@ -7705,11 +7756,15 @@ def stream_agent(
         final_run_outcome = None
         final_failure_reason = None
         final_verification_status = None
-        for event in graph.stream(
-            initial_state,
-            config=config,
-            stream_mode="updates",
-        ):
+        if _continuous_execution():
+            from src.graphs.continuous_execution import stream_checkpointed_segments
+            events = stream_checkpointed_segments(
+                graph, initial_state, config=config, stream_mode="updates",
+                on_segment=lambda n: print(f"[continuous] resumed checkpoint segment {n}", flush=True),
+            )
+        else:
+            events = graph.stream(initial_state, config=config, stream_mode="updates")
+        for event in events:
             # ---------------------------------------------
             # PLANNER NODE — show plan creation
             # ---------------------------------------------
@@ -7730,6 +7785,8 @@ def stream_agent(
             # AI NODE
             # ---------------------------------------------
             if "ai" in event:
+                if _continuous_execution() and isinstance(event["ai"], dict):
+                    _emit_continuous_usage(event["ai"], thread_id)
                 ai_messages = event["ai"].get(
                     "messages",
                     [],

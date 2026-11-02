@@ -10,6 +10,7 @@ the grace path is always reachable. Depends only on state (for the type hint).
 from __future__ import annotations
 
 import os
+import math
 
 from src.graphs.state import AgentState
 
@@ -74,14 +75,26 @@ _TOKEN_BUDGET_SUMMARY_REQUEST = (
     "summarizing what you've found and accomplished so far, without calling "
     "any more tools."
 )
+_COST_BUDGET_SUMMARY_REQUEST = (
+    "You've reached this run's cost budget. Please provide a final response "
+    "summarizing what you've found and accomplished so far, without calling "
+    "any more tools."
+)
 
 
-def _iteration_budget() -> int:
+def _continuous_execution() -> bool:
+    """Opt-in only; existing bounded behavior remains the default."""
+    return os.environ.get("AGENT_CONTINUOUS_EXECUTION", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _iteration_budget() -> int | None:
+    if _continuous_execution() and not os.environ.get("AGENT_ITERATION_BUDGET", "").strip():
+        return None
     try:
         value = int(os.environ.get("AGENT_ITERATION_BUDGET", _ITERATION_BUDGET_DEFAULT))
     except (TypeError, ValueError):
         value = _ITERATION_BUDGET_DEFAULT
-    return min(max(1, value), _ITERATION_BUDGET_CLAMP)
+    return max(1, value) if _continuous_execution() else min(max(1, value), _ITERATION_BUDGET_CLAMP)
 
 
 def _final_response_reserve_reached(state: AgentState) -> bool:
@@ -93,7 +106,7 @@ def _final_response_reserve_reached(state: AgentState) -> bool:
     """
     used = int(state.get("iteration_used", 0) or 0)
     budget = _iteration_budget()
-    return used < budget and used >= budget - 1
+    return budget is not None and used < budget and used >= budget - 1
 
 
 # hermes turn_iteration_prep.py::_maybe_inject_iteration_budget_warning:
@@ -128,7 +141,7 @@ def _budget_warning_threshold() -> int | None:
     """
     ratio = _budget_warning_ratio()
     budget = _iteration_budget()
-    if ratio is None or budget <= 2:
+    if ratio is None or budget is None or budget <= 2:
         return None
     return int(min(ratio * budget, budget - 2))
 
@@ -139,7 +152,8 @@ def _budget_warning_threshold() -> int | None:
 # GraphRecursionError kills runs mid-work (Test-2 retest D4 hit 50 at only
 # ~16 iterations, losing 11 written files). Budget governs; this is backstop.
 def _recursion_limit() -> int:
-    return max(200, _iteration_budget() * 4 + 40)
+    budget = _iteration_budget()
+    return max(200, budget * 4 + 40) if budget is not None else 200
 
 
 # Field 2026-09-10: the 120k default cut a HEALTHY turn at iteration 8/30
@@ -160,14 +174,15 @@ _VERIFICATION_ITERATION_RESERVE_DEFAULT = 6
 
 def _token_budget() -> int | None:
     """Known provider-token ceiling for one run; 0 disables the token cap."""
-    raw = os.environ.get("AGENT_TOKEN_BUDGET", str(_TOKEN_BUDGET_DEFAULT))
+    default = "0" if _continuous_execution() else str(_TOKEN_BUDGET_DEFAULT)
+    raw = os.environ.get("AGENT_TOKEN_BUDGET", default)
     try:
         value = int(raw)
     except (TypeError, ValueError):
         value = _TOKEN_BUDGET_DEFAULT
     if value <= 0:
         return None
-    return min(max(10_000, value), _TOKEN_BUDGET_CLAMP)
+    return value if _continuous_execution() else min(max(10_000, value), _TOKEN_BUDGET_CLAMP)
 
 
 # D4 (2026-10-31): the third leg. Iterations and tokens bound WORK; neither
@@ -182,14 +197,19 @@ _COST_BUDGET_DEFAULT_USD = 1.00
 
 def _cost_budget() -> float | None:
     """USD ceiling for one run; None when disabled or unparseable."""
-    raw = os.environ.get("AGENT_COST_BUDGET", str(_COST_BUDGET_DEFAULT_USD))
+    default = "0" if _continuous_execution() else str(_COST_BUDGET_DEFAULT_USD)
+    raw = os.environ.get("AGENT_COST_BUDGET", default)
     try:
         value = float(raw)
     except (TypeError, ValueError):
         value = _COST_BUDGET_DEFAULT_USD
+    if not math.isfinite(value):
+        if _continuous_execution():
+            raise ValueError("AGENT_COST_BUDGET must be a finite number")
+        value = _COST_BUDGET_DEFAULT_USD
     if value <= 0:
         return None
-    return min(value, 1000.0)
+    return value if _continuous_execution() else min(value, 1000.0)
 
 
 def _run_cost_usd(state: AgentState) -> float | None:
@@ -207,7 +227,8 @@ def _run_cost_usd(state: AgentState) -> float | None:
     if not known:
         return None
     try:
-        return float(usage.get("estimated_cost_usd") or 0.0)
+        cost = float(usage.get("estimated_cost_usd") or 0.0)
+        return cost if math.isfinite(cost) else None
     except (TypeError, ValueError):
         return None
 
@@ -235,7 +256,8 @@ def _verification_iteration_reserve() -> int:
         value = _VERIFICATION_ITERATION_RESERVE_DEFAULT
     if value <= 0:
         return 0
-    return min(value, _iteration_budget() // 2)
+    budget = _iteration_budget()
+    return min(value, budget // 2) if budget is not None else 0
 
 
 def _verification_reserve_reached(state: AgentState) -> bool:
@@ -244,6 +266,7 @@ def _verification_reserve_reached(state: AgentState) -> bool:
     iteration_reserve = _verification_iteration_reserve()
     iteration_near = (
         iteration_reserve > 0
+        and _iteration_budget() is not None
         and used_iterations >= _iteration_budget() - iteration_reserve
         and used_iterations < _iteration_budget()
     )
@@ -274,7 +297,7 @@ def _budget_trip_reason(state: AgentState) -> str:
     usage = state.get("turn_token_usage") or state.get("token_usage", {}) or {}
     total = int(usage.get("total_tokens", 0) or 0)
     cached = int(usage.get("cached_tokens", 0) or 0)
-    parts = [f"iterations {used}/{budget}"]
+    parts = [f"iterations {used}/{budget}" if budget is not None else f"iterations {used}/uncapped"]
     if cap is not None:
         # Field 2026-11-01: the receipt read "tokens 172,020/150,000, tripped:
         # tokens" and implied a runaway turn. Two facts were missing. `total`
@@ -299,10 +322,12 @@ def _budget_trip_reason(state: AgentState) -> str:
         parts.append(
             f"spend ${spend:.4f}" if spend is not None else "spend unknown"
         )
-    if used >= budget:
+    if budget is not None and used >= budget:
         parts.append("tripped: iterations")
     elif cap is not None and total >= cap:
         parts.append("tripped: tokens")
+    elif cost_cap is not None and spend is None and _continuous_execution():
+        parts.append("tripped: cost unknown")
     elif cost_cap is not None and spend is not None and spend >= cost_cap:
         parts.append("tripped: cost")
     else:
@@ -313,7 +338,7 @@ def _budget_trip_reason(state: AgentState) -> str:
 def _budget_exhausted(state: AgentState) -> bool:
     used = int(state.get("iteration_used", 0))
     budget = _iteration_budget()
-    if used >= budget:
+    if budget is not None and used >= budget:
         print(f"[budget] exhausted: iterations {used}/{budget} >= budget", flush=True)
         return True
     token_cap = _token_budget()
@@ -334,6 +359,9 @@ def _budget_exhausted(state: AgentState) -> bool:
     cost_cap = _cost_budget()
     if cost_cap is not None:
         spend = _run_cost_usd(state)
+        if spend is None and _continuous_execution():
+            print("[budget] exhausted: cost unknown with explicit cost cap; stopping safely", flush=True)
+            return True
         if spend is not None and spend >= cost_cap:
             print(
                 f"[budget] exhausted: cost ${spend:.4f}/${cost_cap:.4f} >= cap",

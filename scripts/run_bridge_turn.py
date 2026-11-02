@@ -674,7 +674,9 @@ def resolve_token_budget(args, env: dict) -> tuple[int, str]:
     raw = (env.get("CRUSORAI_MAX_INPUT_TOKENS") or "").strip()
     if raw:
         try:
-            return max(10_000, int(raw)), "CRUSORAI_MAX_INPUT_TOKENS"
+            value = int(raw)
+            continuous = str(env.get("AGENT_CONTINUOUS_EXECUTION", "")).strip().lower() in {"1", "true", "yes", "on"}
+            return (value if continuous else max(10_000, value)), "CRUSORAI_MAX_INPUT_TOKENS"
         except ValueError:
             pass
     raw = (env.get("AGENT_TOKEN_BUDGET") or "").strip()
@@ -683,6 +685,8 @@ def resolve_token_budget(args, env: dict) -> tuple[int, str]:
             return int(raw), "AGENT_TOKEN_BUDGET"
         except ValueError:
             pass
+    if str(env.get("AGENT_CONTINUOUS_EXECUTION", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        return 0, "continuous default (uncapped)"
     return resolve_default_max_input_tokens(env), "adaptive default"
 
 
@@ -753,13 +757,16 @@ def main() -> int:
     ap.add_argument("--workspace", required=True)
     ap.add_argument("--prompt-file", required=True)
     ap.add_argument("--run-id", default=None)
-    ap.add_argument("--timeout-s", type=int, default=5400)
-    ap.add_argument("--max-llm-calls", type=int, default=60,
+    ap.add_argument("--continuous", action="store_true",
+                    help="continue across graph recursion segments; default work, token and cost limits are disabled")
+    ap.add_argument("--timeout-s", type=int, default=None,
+                    help="wall-clock timeout in seconds (0 disables)")
+    ap.add_argument("--max-llm-calls", type=int, default=None,
                     help=("inclusive provider-call ceiling; Agent Core reserves the final "
                           "call for text and the runner cancels contract drift beyond it"))
     ap.add_argument("--max-input-tokens", type=int, default=None,
                     help="credit circuit-breaker: cancel when cumulative input tokens pass this (defaults dynamically)")
-    ap.add_argument("--max-no-delivery-calls", type=int, default=12,
+    ap.add_argument("--max-no-delivery-calls", type=int, default=None,
                     help="cancel a paid build that still has no workspace file at this many LLM requests")
     ap.add_argument("--reasoning-effort", default=None,
                     help="per-turn reasoning effort on the prompt frame (desktop Think-picker parity)")
@@ -793,10 +800,23 @@ def main() -> int:
         pass
 
     env = dict(os.environ)
-    agent_iteration_budget = effective_iteration_budget(args.max_llm_calls)
-    # The graph owns the inclusive N-call contract and reserves call N for a
-    # tool-free final response. The runner remains an N+1 emergency backstop.
-    env["AGENT_ITERATION_BUDGET"] = str(agent_iteration_budget)
+    continuous = args.continuous or str(env.get("AGENT_CONTINUOUS_EXECUTION", "")).strip().lower() in {"1", "true", "yes", "on"}
+    if continuous:
+        env["AGENT_CONTINUOUS_EXECUTION"] = "1"
+        print("[continuous] implicit time, call, token and cost limits disabled; explicit limits still apply", flush=True)
+    if args.timeout_s is None:
+        args.timeout_s = 0 if continuous else 5400
+    if args.max_no_delivery_calls is None:
+        args.max_no_delivery_calls = 0 if continuous else 12
+    explicit_calls = args.max_llm_calls is not None
+    if args.max_llm_calls is None:
+        args.max_llm_calls = 0 if continuous else 60
+    if explicit_calls or not continuous:
+        agent_iteration_budget = effective_iteration_budget(args.max_llm_calls)
+        env["AGENT_ITERATION_BUDGET"] = str(agent_iteration_budget)
+    else:
+        # Preserve an explicitly supplied graph limit, if any.
+        agent_iteration_budget = env.get("AGENT_ITERATION_BUDGET") or None
     env["PYTHONUNBUFFERED"] = "1"
     env["OPENBLAS_NUM_THREADS"] = "1"
     env["MKL_NUM_THREADS"] = "1"
@@ -881,6 +901,7 @@ def main() -> int:
     counts: dict[str, int] = {}
     llm_calls = 0
     tokens_in_seen = 0
+    cost_seen = None
     budget_shape_warned = False
     budget_stop = False
     no_delivery_stop = False
@@ -897,7 +918,7 @@ def main() -> int:
             if args.reasoning_effort:
                 prompt_frame["reasoning_effort"] = args.reasoning_effort
             send(prompt_frame)
-            deadline = time.time() + args.timeout_s
+            deadline = time.time() + args.timeout_s if args.timeout_s > 0 else float("inf")
             while time.time() < deadline:
                 remaining = deadline - time.time()
                 try:
@@ -999,6 +1020,13 @@ def main() -> int:
                         now=event_time,
                     )
                 if ftype == "telemetry":
+                    if frame.get("costKnown", True) and frame.get("totalCost") is not None:
+                        try:
+                            cost_seen = float(frame["totalCost"])
+                        except (TypeError, ValueError):
+                            cost_seen = None
+                    elif frame.get("costKnown") is False:
+                        cost_seen = None
                     tokens_in_seen = max(tokens_in_seen, int(frame.get("tokensIn") or 0))
                     if token_budget_enabled and not budget_shape_warned and tokens_in_seen > 0:
                         budget_shape_warned = True
@@ -1030,7 +1058,7 @@ def main() -> int:
                     should_emit = (counts[ftype] == 1) or (counts[ftype] % 100 == 0)
                 if should_emit:
                     emit(f"[{time.strftime('%H:%M:%S')}] {ftype} x{counts[ftype]}"
-                         + (f" | calls={llm_calls}/{args.max_llm_calls} tokensIn~{tokens_in_seen}/{effective_max_input_tokens}"
+                         + (f" | calls={llm_calls}/{args.max_llm_calls or 'uncapped'} tokensIn~{tokens_in_seen}/{effective_max_input_tokens or 'uncapped'} cost~{f'${cost_seen:.4f}' if cost_seen is not None else 'unknown'}"
                             if ftype in ("llm.request", "telemetry") else ""))
                 # ── CREDIT CIRCUIT-BREAKER ────────────────────────────────
                 # Credits are valuable: past either cap the turn is CANCELLED
@@ -1093,6 +1121,7 @@ def main() -> int:
     outcome["frame_counts"] = counts
     outcome["llm_request_frames"] = llm_calls
     outcome["tokens_in_last_telemetry"] = tokens_in_seen
+    outcome["estimated_cost_last_telemetry"] = cost_seen
     outcome["token_budget"] = effective_max_input_tokens
     outcome["token_budget_source"] = token_budget_source
     outcome["budget_stop"] = budget_stop

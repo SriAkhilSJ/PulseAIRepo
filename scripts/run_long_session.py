@@ -148,7 +148,11 @@ def build_env(args) -> dict:
     # (`[budget] exhausted: iterations 20/20 >= budget`). The two knobs are now
     # separate: the agent's budget is a measured property, and --max-llm-calls
     # is a harness safety stop that aborts a runaway turn instead of shaping it.
-    env["AGENT_ITERATION_BUDGET"] = str(args.agent_iteration_budget)
+    continuous = getattr(args, "continuous", False) or str(env.get("AGENT_CONTINUOUS_EXECUTION", "")).strip().lower() in {"1", "true", "yes", "on"}
+    if continuous:
+        env["AGENT_CONTINUOUS_EXECUTION"] = "1"
+    if not continuous or "agent_iteration_budget" in getattr(args, "_provided_limits", set()):
+        env["AGENT_ITERATION_BUDGET"] = str(args.agent_iteration_budget)
     env["PYTHONUNBUFFERED"] = "1"
     for thread_var in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         env[thread_var] = "1"
@@ -183,6 +187,15 @@ def compaction_lines(stderr_path: Path, offset: int) -> tuple[list[str], int]:
     return hits, new_offset
 
 
+class _ExplicitLimit(argparse.Action):
+    """Remember which benchmark limits the operator actually specified."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        provided = set(getattr(namespace, "_provided_limits", set()))
+        provided.add(self.dest)
+        setattr(namespace, "_provided_limits", provided)
+        setattr(namespace, self.dest, values)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """The CLI, as a function so tests can assert the DEFAULTS.
 
@@ -194,10 +207,12 @@ def _build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--prompts-file", required=True)
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--turns", type=int, default=0, help="0 = every prompt in the file")
-    ap.add_argument("--timeout-s-per-turn", type=int, default=600)
-    ap.add_argument("--max-session-minutes", type=int, default=45)
+    ap.add_argument("--continuous", action="store_true", help="continue per turn without implicit harness caps")
+    ap.add_argument("--timeout-s-per-turn", type=int, default=600, action=_ExplicitLimit)
+    ap.add_argument("--max-session-minutes", type=int, default=45, action=_ExplicitLimit)
     ap.add_argument(
         "--agent-iteration-budget",
+        action=_ExplicitLimit,
         type=int,
         default=45,
         help="the AGENT's own per-turn iteration budget (production default is 45)",
@@ -206,12 +221,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-cost-usd",
         type=float,
         default=0.0,
-        help="hard USD stop for the whole session (0 = rely on the token cap). "
+        help="estimated per-turn USD cap (0 = use the graph default). Not a whole-session spending cap. "
         "A token cap cannot bound money: cached tokens are charged at full weight, "
         "so a 600k-token cap can cost far more than the tokens that did work.",
     )
     ap.add_argument(
         "--max-llm-calls",
+        action=_ExplicitLimit,
         type=int,
         default=60,
         help="harness safety stop: abandon a turn that exceeds this many calls",
@@ -240,6 +256,12 @@ def main(argv: list[str] | None = None) -> int:
 
     session_id = f"t5-{uuid.uuid4().hex[:10]}"
     env = build_env(args)
+    if str(env.get("AGENT_CONTINUOUS_EXECUTION", "")).strip().lower() in {"1", "true", "yes", "on"}:
+        supplied = getattr(args, "_provided_limits", set())
+        for name in ("timeout_s_per_turn", "max_session_minutes", "max_llm_calls"):
+            if name not in supplied:
+                setattr(args, name, 0)
+        print("[continuous] implicit time, call, token and cost limits disabled; explicit limits still apply", flush=True)
     proc = subprocess.Popen(
         [sys.executable, "-u", "-m", "src.bridge"],
         cwd=str(REPO_ROOT), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -288,7 +310,8 @@ def main(argv: list[str] | None = None) -> int:
         session_phase = "ready"
 
         for index, prompt in enumerate(prompts):
-            remaining_session = args.max_session_minutes * 60 - (time.time() - session_started)
+            remaining_session = (args.max_session_minutes * 60 - (time.time() - session_started)
+                                 if args.max_session_minutes > 0 else float("inf"))
             if remaining_session <= 30:
                 turns.append({
                     "turn": index + 1, "result": "session-wall-budget-exhausted",
@@ -317,7 +340,8 @@ def main(argv: list[str] | None = None) -> int:
                 "workspace": workspace, "text": prompt,
             })
 
-            deadline = turn_started + min(args.timeout_s_per_turn, remaining_session)
+            turn_timeout = args.timeout_s_per_turn if args.timeout_s_per_turn > 0 else float("inf")
+            deadline = turn_started + min(turn_timeout, remaining_session)
             message_count = 0
             llm_calls = 0
             tool_calls = 0
@@ -326,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
             run_outcome = None
             error = ""
             frame_tokens = 0
-            for _ in range(200000):
+            while True:
                 if time.time() > deadline:
                     result = "turn-timeout"
                     try:
@@ -355,8 +379,12 @@ def main(argv: list[str] | None = None) -> int:
                     # runaway turn was shaped by the harness rather than caught
                     # by it. Exceeding this is a harness abort and is reported as
                     # such — never as the agent's own budget telling us anything.
-                    if llm_calls > args.max_llm_calls:
+                    if args.max_llm_calls > 0 and llm_calls > args.max_llm_calls:
                         result = "harness-aborted-llm-call-cap"
+                        try:
+                            send({"type": "cancel", "session_id": session_id})
+                        except Exception:
+                            pass
                         break
                 elif ftype in ("tool_call_start",):
                     tool_calls += 1
@@ -408,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"tools={tool_calls} wall={turns[-1]['wall_s']}s",
                 flush=True,
             )
-            if result in ("bridge-exited", "turn-timeout"):
+            if result in ("bridge-exited", "turn-timeout", "harness-aborted-llm-call-cap"):
                 break
             if billing_stop:
                 turns.append({
