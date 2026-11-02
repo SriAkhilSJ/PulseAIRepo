@@ -74,7 +74,16 @@ from src.context.retrieval.fusion import (
     reciprocal_rank_fusion,
     rrf_score,
 )
-FTS_MAX_TOKENS_PER_QUERY = 12
+# ---------------------------------------------------------------------
+# Keyword search — extracted to src.context.retrieval.keyword_search
+# ---------------------------------------------------------------------
+from src.context.retrieval.keyword_search import (
+    DEFAULT_FTS_MAX_TOKENS,
+    FTS_MAX_TOKENS_PER_QUERY,
+    FTS_SEARCH_SQL,
+    sanitize_fts_query,
+    search_bm25,
+)
 
 # ---------------------------------------------------------------------
 # D13 (§37): feature re-rank over the fused candidate set
@@ -1092,26 +1101,14 @@ class ChunkIndex:
         )
 
     def _search_bm25(self, query: str, limit: int) -> list[tuple[str, float]]:
-        # Raw task text is not valid FTS5 syntax (parens, colons, AND/OR...).
-        # Tokenize to words and OR-join them as quoted phrases — this can
-        # never produce a syntax error, so the except is truly exceptional.
-        tokens = re.findall(r"\w+", query.lower())[:FTS_MAX_TOKENS_PER_QUERY]
-        if not tokens:
-            return []
-        safe_query = " OR ".join(f'"{t}"' for t in tokens)
-        with self._write_lock:
-            try:
-                rows = self.conn.execute("""
-                    SELECT chunk_id FROM chunk_fts
-                    WHERE chunk_fts MATCH ?
-                    ORDER BY rank
-                    LIMIT ?
-                """, (safe_query, limit)).fetchall()
-            except Exception:
-                return []
-        # Return rank POSITIONS (0, 1, 2...); raw `rank` values are not
-        # comparable to vector distances, so RRF consumes positions only.
-        return [(r[0], float(i)) for i, r in enumerate(rows)]
+        """Execute FTS5 BM25 search. Delegated to keyword_search."""
+        return search_bm25(
+            conn=self.conn,
+            write_lock=self._write_lock,
+            query=query,
+            limit=limit,
+            max_tokens=FTS_MAX_TOKENS_PER_QUERY,
+        )
 
     def _rrf_fuse(
         self,

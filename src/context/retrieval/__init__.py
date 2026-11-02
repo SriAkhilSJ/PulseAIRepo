@@ -9,6 +9,14 @@ from src.context.retrieval.fusion import (
     reciprocal_rank_fusion,
     rrf_score,
 )
+from src.context.retrieval.keyword_search import (
+    DEFAULT_FTS_MAX_TOKENS,
+    FTS_MAX_TOKENS_PER_QUERY,
+    FTS_SEARCH_SQL,
+    keyword_search,
+    sanitize_fts_query,
+    search_bm25,
+)
 from src.context.retrieval.reranker import (
     RERANK_MIN_WORD,
     RERANK_NAME_PART_CAP,
@@ -73,4 +81,11 @@ __all__ = [
     "search_vec_fast",
     "search_vec_linear",
     "search_vector",
+    # Keyword search
+    "FTS_MAX_TOKENS_PER_QUERY",
+    "DEFAULT_FTS_MAX_TOKENS",
+    "FTS_SEARCH_SQL",
+    "sanitize_fts_query",
+    "search_bm25",
+    "keyword_search",
 ]
