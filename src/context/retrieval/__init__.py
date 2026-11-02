@@ -26,6 +26,17 @@ from src.context.retrieval.reranker import (
     rerank,
     rerank_chunks,
 )
+from src.context.retrieval.vector_search import (
+    VEC0_FULLSCAN_SQL,
+    VEC0_KNN_SQL,
+    _VEC0_FULLSCAN_SQL,
+    _VEC0_KNN_SQL,
+    dot_product_to_unit_score,
+    l2_distance_to_cosine_similarity,
+    search_vec_fast,
+    search_vec_linear,
+    search_vector,
+)
 
 __all__ = [
     # Reranker
@@ -52,4 +63,14 @@ __all__ = [
     "reciprocal_rank_fusion",
     "hydrate_chunk_results",
     "fuse_rankings",
+    # Vector search
+    "_VEC0_KNN_SQL",
+    "_VEC0_FULLSCAN_SQL",
+    "VEC0_KNN_SQL",
+    "VEC0_FULLSCAN_SQL",
+    "l2_distance_to_cosine_similarity",
+    "dot_product_to_unit_score",
+    "search_vec_fast",
+    "search_vec_linear",
+    "search_vector",
 ]
