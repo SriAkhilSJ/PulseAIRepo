@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   benchmark:
-    if: ${{ contains(github.event.head_commit.message, '[deepseek-progressive-ab]') }}
-    name: DeepSeek main / Qwen auxiliary — sequential A/B
+    if: ${{ contains(github.event.head_commit.message, '[deepseek-progressive-on]') }}
+    name: DeepSeek main / Qwen auxiliary — discovery on only
     runs-on: ubuntu-latest
     timeout-minutes: 50
     env:
@@ -74,14 +74,15 @@ jobs:
                   if price is None or price <= 0:
                       raise SystemExit('Pricing unknown: stop before any paid turn')
           PY
-      - name: Run baseline then progressive experiment
+      - name: Run only the missing progressive experiment
         env:
           CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
         run: |
+          set +e
           set -uo pipefail
           ROOT="$RUNNER_TEMP/deepseek-ab"
           mkdir -p "$ROOT"
-          for arm in off on; do
+          for arm in on; do
             echo "=== ARM $arm ==="
             mkdir -p "$ROOT/$arm/ws" "$ROOT/$arm/results"
             export CRUSORAI_PROGRESSIVE_TOOLS="$arm"
@@ -100,14 +101,14 @@ jobs:
               2>&1 | tee "$ROOT/$arm/runner.log"
             status=${PIPESTATUS[0]}
             printf 'runner_exit=%s\n' "$status" | tee "$ROOT/$arm/runner_exit.txt"
-            # A nonzero task verdict is evidence, not a reason to skip the other arm.
+            # A nonzero task verdict is evidence; preserve it without failing the harness.
           done
       - name: Independently inspect generated workspaces
         if: always()
         run: |
           set +e
           ROOT="$RUNNER_TEMP/deepseek-ab"
-          for arm in off on; do
+          for arm in on; do
             WS="$ROOT/$arm/ws"
             OUT="$ROOT/$arm/independent.txt"
             mkdir -p "$WS"
@@ -172,7 +173,7 @@ jobs:
 
   collect:
     needs: benchmark
-    if: ${{ always() && needs.benchmark.result != 'skipped' && contains(github.event.head_commit.message, '[deepseek-progressive-ab]') }}
+    if: ${{ always() && needs.benchmark.result != 'skipped' && contains(github.event.head_commit.message, '[deepseek-progressive-on]') }}
     name: Persist redacted evidence (no model calls)
     runs-on: ubuntu-latest
     permissions:
