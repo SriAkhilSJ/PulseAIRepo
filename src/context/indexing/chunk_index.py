@@ -14,9 +14,10 @@ import hashlib
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from src.context.budgeting.context_budget import ContextBudget
 from src.context.types import ChunkResult
@@ -155,6 +156,15 @@ class ChunkIndex:
             sync_workspace_fn=self.sync_workspace,
         )
 
+        self._is_initialized: bool = not self.storage.is_index_empty()
+        self._init_lock = threading.Lock()
+        self._async_sync_lock = threading.Lock()
+        self._bg_sync_thread: Optional[threading.Thread] = None
+        self._is_syncing: bool = False
+        self._last_sync_time: float = 0.0
+        self._last_sync_error: Optional[str] = None
+        self._full_sync_count: int = 0
+
         if watch:
             self.start_watcher()
 
@@ -227,7 +237,18 @@ class ChunkIndex:
 
     def index_workspace(self, budget: ContextBudget | None = None) -> None:
         """FULL REBUILD — explicit offline/maintenance only."""
-        self.synchronizer.index_workspace(budget)
+        self._is_syncing = True
+        self._last_sync_error = None
+        try:
+            self.synchronizer.index_workspace(budget)
+            self._full_sync_count += 1
+            self._last_sync_time = time.time()
+            self._is_initialized = True
+        except Exception as exc:
+            self._last_sync_error = str(exc)
+            raise
+        finally:
+            self._is_syncing = False
 
     # ------------------------------------------------------------------
     # FILE WATCHER
@@ -265,6 +286,10 @@ class ChunkIndex:
 
     def stop_watcher(self) -> None:
         self.watcher.stop()
+        with self._async_sync_lock:
+            if self._bg_sync_thread is not None and self._bg_sync_thread.is_alive():
+                self._bg_sync_thread.join(timeout=2.0)
+                self._bg_sync_thread = None
 
     def _enqueue_sync(self, path: str) -> None:
         self.watcher.enqueue_sync(path)
@@ -304,7 +329,87 @@ class ChunkIndex:
         return self.synchronizer.edges_for(file_path, rel, budget, source)
 
     def sync_workspace(self, budget: ContextBudget | None = None) -> int:
-        return self.synchronizer.sync_workspace(budget)
+        self._is_syncing = True
+        self._last_sync_error = None
+        try:
+            changed = self.synchronizer.sync_workspace(budget)
+            self._full_sync_count += 1
+            self._last_sync_time = time.time()
+            self._is_initialized = True
+            return changed
+        except Exception as exc:
+            self._last_sync_error = str(exc)
+            raise
+        finally:
+            self._is_syncing = False
+
+    def ensure_initialized(self, budget: ContextBudget | None = None) -> None:
+        """Ensure initial workspace indexing has occurred.
+
+        If the index is unpopulated (empty), performs initial sync so
+        retrieval has data. If already populated, marks initialized
+        and returns immediately without blocking.
+        """
+        if self._is_initialized and not self.storage.is_index_empty():
+            return
+        with self._init_lock:
+            if self._is_initialized and not self.storage.is_index_empty():
+                return
+            if self.storage.is_index_empty():
+                self.sync_workspace(budget)
+            self._is_initialized = True
+
+    def flush_pending_changes(self) -> None:
+        """Immediately apply any queued file modifications and deletions."""
+        if hasattr(self, "watcher") and self.watcher is not None:
+            self.watcher.apply_queued_changes()
+
+    def sync_workspace_async(
+        self,
+        budget: ContextBudget | None = None,
+        on_complete: Optional[Callable[[int], None]] = None,
+        on_error: Optional[Callable[[Exception], None]] = None,
+    ) -> Optional[threading.Thread]:
+        """Trigger workspace synchronization in a background thread."""
+        with self._async_sync_lock:
+            if self._bg_sync_thread is not None and self._bg_sync_thread.is_alive():
+                return self._bg_sync_thread
+
+            def _bg_run():
+                try:
+                    changed = self.sync_workspace(budget)
+                    if on_complete:
+                        on_complete(changed)
+                except Exception as exc:
+                    if on_error:
+                        on_error(exc)
+
+            thread = threading.Thread(
+                target=_bg_run, daemon=True, name="chunk-index-bg-sync"
+            )
+            self._bg_sync_thread = thread
+            thread.start()
+            return thread
+
+    @property
+    def is_syncing(self) -> bool:
+        return self._is_syncing
+
+    @property
+    def is_initialized(self) -> bool:
+        return self._is_initialized
+
+    @property
+    def last_sync_time(self) -> float:
+        return self._last_sync_time
+
+    @property
+    def last_sync_error(self) -> Optional[str]:
+        return self._last_sync_error
+
+    @property
+    def full_sync_count(self) -> int:
+        return self._full_sync_count
 
     def _iter_source_files(self, budget: ContextBudget | None = None):
         return self.synchronizer.iter_source_files(budget)
@@ -476,7 +581,20 @@ def build_relevant_chunks_layer(state: dict[str, Any], budget: ContextBudget | N
         get_idx_fn = getattr(ci_mod, "get_index", get_index) if ci_mod is not None else get_index
         index = get_idx_fn(state.get("workspace", "."))
         index.thread_id_hint = str(state.get("thread_id") or state.get("session_id") or "")
-        index.sync_workspace(budget)
+        
+        # Non-blocking workspace synchronization:
+        # 1. Ensure initial indexing if cold or unpopulated
+        if hasattr(index, "ensure_initialized"):
+            index.ensure_initialized(budget)
+        elif hasattr(index, "sync_workspace"):
+            index.sync_workspace(budget)
+
+        # 2. Flush pending dirty changes for read-after-write consistency (<5ms)
+        if hasattr(index, "flush_pending_changes"):
+            index.flush_pending_changes()
+        elif hasattr(index, "watcher") and hasattr(index.watcher, "apply_queued_changes"):
+            index.watcher.apply_queued_changes()
+
         chunks = index.search(task, top_k=3, budget=budget)
         if not chunks:
             return None

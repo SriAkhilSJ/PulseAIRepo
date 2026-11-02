@@ -78,6 +78,7 @@ from src.context.core.context_engine import (
     TaskClassifier,
     _skills_phase,
     _skills_text,
+    _get_shared_classifier,
 )
 
 
@@ -143,4 +144,5 @@ __all__ = [
     "get_embedding_cache",
     "_skills_phase",
     "_skills_text",
+    "_get_shared_classifier",
 ]

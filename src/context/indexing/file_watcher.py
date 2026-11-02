@@ -82,6 +82,8 @@ class FileWatcher:
 
     def apply_queued_changes(self) -> None:
         to_sync, to_remove = self.drain_pending_syncs()
+        if not to_sync and not to_remove:
+            return
         budget = ContextBudget()
         for path in to_remove:
             try:
