@@ -1,0 +1,2322 @@
+{
+ "fetched_at": "2026-11-02T08:39:12",
+ "source": "https://velona.in/gateway/v1/models",
+ "rates": {
+  "particle-ai/particle-1": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6.1-terra-pro": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6.1-terra": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k3.1-pro": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m3.1-flash": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4.1-flash-1017": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "elorian/glimpse": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "reflection/beam-1.0-501b-a23b": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inception/mercury-3": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.35,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "prism-ml/ternary-bonsai-2-9b": {
+   "input_per_1m": 0.08,
+   "output_per_1m": 0.13,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moondream/moondream3-preview": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moondream/moondream3.1-9b-a2b": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-spark-open": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 4.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3.5-super-vl": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "unbiased/pareto-26.10": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 3.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "unbiased/pareto-26.9": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 7.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "liquid/lfm-2.5-24b-a2b": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-4-argon": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "scaledown/summarize": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "scaledown/extract": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-wonder": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "stepfun/step-5-preview": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 2.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-haiku-5.5": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-nano-banana-2.1": {
+   "input_per_1m": 1.5,
+   "output_per_1m": 7.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-large-4-0": {
+   "input_per_1m": 0.7,
+   "output_per_1m": 2.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inclusionai/ling-3.1-flash": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.225,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6.1-sol-pro": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6.1-sol": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-sonnet-5.5": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perceptron/perceptron-mk1.5": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "fireworks/ember-1": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.3-prime": {
+   "input_per_1m": 2.8,
+   "output_per_1m": 8.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-max-prime": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-3.5-mini": {
+   "input_per_1m": 0.7,
+   "output_per_1m": 1.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-3.5": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "upstage/solar-mini4": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cohere/command-a-plus": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-luna-pro": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-luna": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-sol-pro": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-sol": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-5.5": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "xiaomi/mimo-v2.6-pro-ultraspeed": {
+   "input_per_1m": 4.35,
+   "output_per_1m": 8.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "xiaomi/mimo-v2.6-flash": {
+   "input_per_1m": 0.14,
+   "output_per_1m": 0.28,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "xiaomi/mimo-v2.6-pro": {
+   "input_per_1m": 0.435,
+   "output_per_1m": 0.87,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.7": {
+   "input_per_1m": 6.0,
+   "output_per_1m": 18.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-omni-flash": {
+   "input_per_1m": 0.43,
+   "output_per_1m": 1.66,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "prism-ml/ternary-bonsai-2-27b": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.3-flashx": {
+   "input_per_1m": 0.37,
+   "output_per_1m": 1.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inference-net/schematron-v2-turbo": {
+   "input_per_1m": 0.03,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inference-net/schematron-v2-small": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.23,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "sakana/fugu-ultra-v2": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 30.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "sakana/fugu-max": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inclusionai/ling-3.0-flash-vl": {
+   "input_per_1m": 0.06,
+   "output_per_1m": 0.18,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4.1-flash": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inception/mercury-2.5": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nex-agi/nex-n2.5-mini": {
+   "input_per_1m": 0.025,
+   "output_per_1m": 0.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nex-agi/nex-n2.5-pro": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-astra": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 50.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-6-astra-pro": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 50.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-max-0902": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-spark-1.3": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 4.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.8-flash": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 3.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-fable-5.1": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 50.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "ibm-granite/granite-4.2-8b": {
+   "input_per_1m": 0.06,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy4-preview": {
+   "input_per_1m": 0.834,
+   "output_per_1m": 2.501,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-flash": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.47,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.3-flash": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4-flash-vision-exp": {
+   "input_per_1m": 0.2156,
+   "output_per_1m": 0.6468,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy-mt2-1.8b": {
+   "input_per_1m": 0.044,
+   "output_per_1m": 0.177,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy-mt2-30b-a3b": {
+   "input_per_1m": 0.074,
+   "output_per_1m": 0.295,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy-mt2-7b": {
+   "input_per_1m": 0.074,
+   "output_per_1m": 0.295,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.3": {
+   "input_per_1m": 1.4,
+   "output_per_1m": 4.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-27b": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.7-flash": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 3.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-2-1-turbo": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.8-2.4t-a95b": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-2.0-code": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4-pro-0813": {
+   "input_per_1m": 1.32,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.6": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3.5-lightning": {
+   "input_per_1m": 0.07,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "upstage/solar-pro4": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-glimmer-30b": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-spark-1.2": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 4.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4-flash-0731": {
+   "input_per_1m": 0.44,
+   "output_per_1m": 1.32,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "thinkingmachines/inkling-small": {
+   "input_per_1m": 0.45,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.7-flash": {
+   "input_per_1m": 0.03,
+   "output_per_1m": 0.13,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-5": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inclusionai/ling-3.0-flash": {
+   "input_per_1m": 0.021,
+   "output_per_1m": 0.063,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.6-flash": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 3.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.5-flash-lite": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meituan/longcat-2.0": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "thinkingmachines/inkling": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 4.05,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k3": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta/muse-spark-1.1": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 4.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-luna-pro": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-luna": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-terra-pro": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-terra": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-sol-pro": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.6-sol": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.5": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-3.0-mini": {
+   "input_per_1m": 0.7,
+   "output_per_1m": 1.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-3.0": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy3": {
+   "input_per_1m": 0.132,
+   "output_per_1m": 0.528,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-sonnet-5": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-flash-lite-image": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "sakana/fugu-ultra": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 30.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-flash-image": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3-pro-image": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.2": {
+   "input_per_1m": 0.006,
+   "output_per_1m": 6.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2.7-code": {
+   "input_per_1m": 0.95,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-fable-5": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 50.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3.5-content-safety": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3-ultra-550b-a55b": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.7-plus": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m3": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "stepfun/step-3.7-flash": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-4.8": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.7-max": {
+   "input_per_1m": 1.475,
+   "output_per_1m": 4.425,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-build-0.1": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.5-flash": {
+   "input_per_1m": 1.5,
+   "output_per_1m": 9.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perceptron/perceptron-mk1": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-flash-lite": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-chat-latest": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 30.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.3": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-medium-3-5": {
+   "input_per_1m": 1.5,
+   "output_per_1m": 7.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-plus-20260420": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.6-flash": {
+   "input_per_1m": 0.1875,
+   "output_per_1m": 1.125,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.6-35b-a3b": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.6-27b": {
+   "input_per_1m": 0.45,
+   "output_per_1m": 2.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.5-pro": {
+   "input_per_1m": 30.0,
+   "output_per_1m": 180.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.5": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 30.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4-pro": {
+   "input_per_1m": 1.74,
+   "output_per_1m": 3.48,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v4-flash": {
+   "input_per_1m": 0.19,
+   "output_per_1m": 0.51,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hy3-preview": {
+   "input_per_1m": 0.18,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "xiaomi/mimo-v2.5-pro": {
+   "input_per_1m": 0.48,
+   "output_per_1m": 1.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "xiaomi/mimo-v2.5": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.4-image-2": {
+   "input_per_1m": 8.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2.6": {
+   "input_per_1m": 0.95,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-4.7": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5.1": {
+   "input_per_1m": 1.4,
+   "output_per_1m": 4.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-4-26b-a4b-it": {
+   "input_per_1m": 0.13,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-4-31b-it": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.6-plus": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5v-turbo": {
+   "input_per_1m": 1.2,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.20-multi-agent": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "x-ai/grok-4.20": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "rekaai/reka-edge": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m2.7": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.4-nano": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.4-mini": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 4.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-small-2603": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5-turbo": {
+   "input_per_1m": 1.2,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3-super-120b-a12b": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-2.0-lite": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-9b": {
+   "input_per_1m": 0.17,
+   "output_per_1m": 0.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.4-pro": {
+   "input_per_1m": 30.0,
+   "output_per_1m": 180.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.4": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "inception/mercury-2": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 0.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-flash-lite-preview": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-2.0-mini": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-flash-image-preview": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-35b-a3b": {
+   "input_per_1m": 0.14,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-27b": {
+   "input_per_1m": 0.26,
+   "output_per_1m": 2.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-122b-a10b": {
+   "input_per_1m": 0.26,
+   "output_per_1m": 2.08,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-flash-02-23": {
+   "input_per_1m": 0.065,
+   "output_per_1m": 0.26,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-pro-preview-customtools": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.3-codex": {
+   "input_per_1m": 1.75,
+   "output_per_1m": 14.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-2.0": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 1.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3.1-pro-preview": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-sonnet-4.6": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-plus-02-15": {
+   "input_per_1m": 0.26,
+   "output_per_1m": 1.56,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3.5-397b-a17b": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m2.5": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-5": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 3.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-4.6": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-coder-next": {
+   "input_per_1m": 0.12,
+   "output_per_1m": 0.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "stepfun/step-3.5-flash": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2.5": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m2-her": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "writer/palmyra-x5": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-audio": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-audio-mini": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.7-flash": {
+   "input_per_1m": 0.0605,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.2-codex": {
+   "input_per_1m": 1.75,
+   "output_per_1m": 14.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-1.6-flash": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance-seed/seed-1.6": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m2.1": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.7": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3-flash-preview": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nvidia/nemotron-3-nano-30b-a3b": {
+   "input_per_1m": 0.06,
+   "output_per_1m": 0.24,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.2-pro": {
+   "input_per_1m": 21.0,
+   "output_per_1m": 168.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.2": {
+   "input_per_1m": 1.75,
+   "output_per_1m": 14.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/devstral-2512": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "relace/relace-search": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.6v": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 0.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.1-codex-max": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "amazon/nova-2-lite-v1": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/ministral-14b-2512": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/ministral-8b-2512": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/ministral-3b-2512": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-large-2512": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v3.2": {
+   "input_per_1m": 0.26,
+   "output_per_1m": 0.38,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-4.5": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-3-pro-image-preview": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.1": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.1-codex": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5.1-codex-mini": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2-thinking": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "amazon/nova-premier-v1": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 12.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perplexity/sonar-pro-search": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/voxtral-small-24b-2507": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-oss-safeguard-20b": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m2": {
+   "input_per_1m": 0.255,
+   "output_per_1m": 1.02,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5-image-mini": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-haiku-4.5": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-vl-8b-instruct": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 0.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5-image": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-2.5-flash-image": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-vl-30b-a3b-thinking": {
+   "input_per_1m": 0.29,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-vl-30b-a3b-instruct": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5-pro": {
+   "input_per_1m": 15.0,
+   "output_per_1m": 120.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.6": {
+   "input_per_1m": 0.55,
+   "output_per_1m": 2.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-sonnet-4.5": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v3.2-exp": {
+   "input_per_1m": 0.27,
+   "output_per_1m": 0.41,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "thedrummer/cydonia-24b-v4.1": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "relace/relace-apply-3": {
+   "input_per_1m": 0.85,
+   "output_per_1m": 1.25,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-vl-235b-a22b-instruct": {
+   "input_per_1m": 0.21,
+   "output_per_1m": 1.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-v3.1-terminus": {
+   "input_per_1m": 0.27,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-coder-flash": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-next-80b-a3b-instruct": {
+   "input_per_1m": 0.09,
+   "output_per_1m": 1.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2-0905": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nousresearch/hermes-4-405b": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-chat-v3.1": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 0.95,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-medium-3.1": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.5v": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 1.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5-mini": {
+   "input_per_1m": 0.25,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-5-nano": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-oss-120b": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-oss-20b": {
+   "input_per_1m": 0.07,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthropic/claude-opus-4.1": {
+   "input_per_1m": 15.0,
+   "output_per_1m": 75.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/codestral-2508": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 0.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-coder-30b-a3b-instruct": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-30b-a3b-instruct-2507": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.5": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "z-ai/glm-4.5-air": {
+   "input_per_1m": 0.13,
+   "output_per_1m": 0.85,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-235b-a22b-thinking-2507": {
+   "input_per_1m": 0.45,
+   "output_per_1m": 3.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-coder": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "bytedance/ui-tars-1.5-7b": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-2.5-flash-lite": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-235b-a22b-2507": {
+   "input_per_1m": 0.09,
+   "output_per_1m": 0.55,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "moonshotai/kimi-k2": {
+   "input_per_1m": 0.57,
+   "output_per_1m": 2.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cognitivecomputations/dolphin-mistral-24b-venice-edition": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "tencent/hunyuan-a13b-instruct": {
+   "input_per_1m": 0.14,
+   "output_per_1m": 0.57,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "morph/morph-v3-large": {
+   "input_per_1m": 0.9,
+   "output_per_1m": 1.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "morph/morph-v3-fast": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-small-3.2-24b-instruct": {
+   "input_per_1m": 0.075,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-m1": {
+   "input_per_1m": 0.55,
+   "output_per_1m": 2.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-2.5-flash": {
+   "input_per_1m": 0.3,
+   "output_per_1m": 2.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-2.5-pro": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/o3-pro": {
+   "input_per_1m": 20.0,
+   "output_per_1m": 80.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemini-2.5-pro-preview": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-r1-0528": {
+   "input_per_1m": 0.5,
+   "output_per_1m": 2.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-medium-3": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-guard-4-12b": {
+   "input_per_1m": 0.18,
+   "output_per_1m": 0.18,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-30b-a3b": {
+   "input_per_1m": 0.12,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-14b": {
+   "input_per_1m": 0.12,
+   "output_per_1m": 0.24,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-32b": {
+   "input_per_1m": 0.08,
+   "output_per_1m": 0.28,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/o3": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 8.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4.1": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 8.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4.1-mini": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 1.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4.1-nano": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-4-maverick": {
+   "input_per_1m": 0.1875,
+   "output_per_1m": 0.6525,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-4-scout": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-chat-v3-0324": {
+   "input_per_1m": 0.29,
+   "output_per_1m": 1.14,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-small-3.1-24b-instruct": {
+   "input_per_1m": 0.351,
+   "output_per_1m": 0.555,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-3-4b-it": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-3-12b-it": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cohere/command-a": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "rekaai/reka-flash-3": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-3-27b-it": {
+   "input_per_1m": 0.08,
+   "output_per_1m": 0.35,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "thedrummer/skyfall-36b-v2": {
+   "input_per_1m": 0.55,
+   "output_per_1m": 0.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perplexity/sonar-reasoning-pro": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 8.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perplexity/sonar-pro": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perplexity/sonar-deep-research": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 8.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-saba": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "aion-labs/aion-rp-llama-3.1-8b": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 1.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen2.5-vl-72b-instruct": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen-plus": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-small-24b-instruct-2501": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.08,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "perplexity/sonar": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax/minimax-01": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "microsoft/phi-4": {
+   "input_per_1m": 0.07,
+   "output_per_1m": 0.14,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "deepseek/deepseek-chat": {
+   "input_per_1m": 0.2574,
+   "output_per_1m": 1.0287,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cohere/command-r7b-12-2024": {
+   "input_per_1m": 0.0375,
+   "output_per_1m": 0.15,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-3.3-70b-instruct": {
+   "input_per_1m": 0.135,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "amazon/nova-lite-v1": {
+   "input_per_1m": 0.06,
+   "output_per_1m": 0.24,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "amazon/nova-micro-v1": {
+   "input_per_1m": 0.035,
+   "output_per_1m": 0.14,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "amazon/nova-pro-v1": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 3.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o-2024-11-20": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-large-2407": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen-2.5-coder-32b-instruct": {
+   "input_per_1m": 0.66,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "thedrummer/unslopnemo-12b": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "anthracite-org/magnum-v4-72b": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen-2.5-7b-instruct": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-3.2-1b-instruct": {
+   "input_per_1m": 0.027,
+   "output_per_1m": 0.201,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-3.2-3b-instruct": {
+   "input_per_1m": 0.0509,
+   "output_per_1m": 0.335,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen-2.5-72b-instruct": {
+   "input_per_1m": 0.36,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cohere/command-r-08-2024": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "cohere/command-r-plus-08-2024": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "sao10k/l3.1-euryale-70b": {
+   "input_per_1m": 0.85,
+   "output_per_1m": 0.85,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nousresearch/hermes-3-llama-3.1-70b": {
+   "input_per_1m": 0.7,
+   "output_per_1m": 0.7,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nousresearch/hermes-3-llama-3.1-405b": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 1.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "sao10k/l3-lunaris-8b": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.05,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o-2024-08-06": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-3.1-70b-instruct": {
+   "input_per_1m": 0.72,
+   "output_per_1m": 0.72,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "meta-llama/llama-3.1-8b-instruct": {
+   "input_per_1m": 0.22,
+   "output_per_1m": 0.22,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-nemo": {
+   "input_per_1m": 0.029,
+   "output_per_1m": 0.03,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o-mini": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o-mini-2024-07-18": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "google/gemma-2-27b-it": {
+   "input_per_1m": 0.65,
+   "output_per_1m": 0.65,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o": {
+   "input_per_1m": 2.5,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4o-2024-05-13": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mixtral-8x22b-instruct": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistralai/mistral-large": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-3.5-turbo-0613": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-3.5-turbo-16k": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 4.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mancer/weaver": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 0.75,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "undi95/remm-slerp-l2-13b": {
+   "input_per_1m": 0.35,
+   "output_per_1m": 0.65,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "gryphe/mythomax-l2-13b": {
+   "input_per_1m": 0.08,
+   "output_per_1m": 0.11,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "openai/gpt-4": {
+   "input_per_1m": 30.0,
+   "output_per_1m": 60.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-sonnet-4-5-20250929": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistral-small-2506": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.3,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "kimi-k2.7-code-highspeed": {
+   "input_per_1m": 1.9,
+   "output_per_1m": 8.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen3-235b-a22b-fp8": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.8,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen3-vl-plus": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-4.6v-flashx": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen3.8-max": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 6.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nova-2-lite": {
+   "input_per_1m": 0.04,
+   "output_per_1m": 0.16,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen-flash": {
+   "input_per_1m": 0.05,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax-m2.1-lightning": {
+   "input_per_1m": 0.12,
+   "output_per_1m": 0.48,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-haiku-4-5": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-4.7-flashx": {
+   "input_per_1m": 0.07,
+   "output_per_1m": 0.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nova-pro": {
+   "input_per_1m": 0.8,
+   "output_per_1m": 3.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "zai-glm-5.2": {
+   "input_per_1m": 1.4,
+   "output_per_1m": 4.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen/qwen3-max": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen3.8-flash-next": {
+   "input_per_1m": 0.201,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "abliterated-model-large-flash": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 2.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistral-large-4": {
+   "input_per_1m": 0.7,
+   "output_per_1m": 2.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-4-32b-0414-128k": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-4.5-x": {
+   "input_per_1m": 2.2,
+   "output_per_1m": 8.9,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "llama-4-scout-17b-instruct": {
+   "input_per_1m": 0.17,
+   "output_per_1m": 0.66,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-4-7": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax-text-01": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 1.1,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "mistral-large-latest": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 12.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nova-micro": {
+   "input_per_1m": 0.035,
+   "output_per_1m": 0.14,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen3-235b-a22b-instruct-2507": {
+   "input_per_1m": 0.2,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-haiku-4-5-20251001": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-4-8": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-sonnet-4-6": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-sonnet-5-5": {
+   "input_per_1m": 2.0,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-4-6": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-4.5-airx": {
+   "input_per_1m": 1.1,
+   "output_per_1m": 4.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-4-1-20250805": {
+   "input_per_1m": 15.0,
+   "output_per_1m": 75.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-4-5-20251101": {
+   "input_per_1m": 5.0,
+   "output_per_1m": 25.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen-max": {
+   "input_per_1m": 1.6,
+   "output_per_1m": 6.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "nova-lite": {
+   "input_per_1m": 0.06,
+   "output_per_1m": 0.24,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "gpt-5-codex": {
+   "input_per_1m": 1.25,
+   "output_per_1m": 10.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "llama-4-maverick-17b-instruct": {
+   "input_per_1m": 0.24,
+   "output_per_1m": 0.97,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "qwen-plus-latest": {
+   "input_per_1m": 0.4,
+   "output_per_1m": 1.2,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-fable-5-1": {
+   "input_per_1m": 10.0,
+   "output_per_1m": 50.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "minimax-m2.5-highspeed": {
+   "input_per_1m": 0.6,
+   "output_per_1m": 2.4,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-opus-5-5": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "abliterated-model-large-v2": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 5.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "gemini-3.8-live": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 4.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "abliterated-model": {
+   "input_per_1m": 1.0,
+   "output_per_1m": 3.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "gemini-3.8-live-extended-thinking": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 4.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "gemini-3.1-flash-live-preview": {
+   "input_per_1m": 0.75,
+   "output_per_1m": 4.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "glm-ocr": {
+   "input_per_1m": 0.03,
+   "output_per_1m": 0.03,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "kimi-k3.1-pro-highspeed": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "muse-wonder-1.0": {
+   "input_per_1m": 4.0,
+   "output_per_1m": 20.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-haiku-5-5": {
+   "input_per_1m": 0.1,
+   "output_per_1m": 0.5,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "MiniMax-M3.1-Flash": {
+   "input_per_1m": 0.15,
+   "output_per_1m": 0.6,
+   "currency": "USD",
+   "source": "provider-catalog"
+  },
+  "claude-sonnet-4-5": {
+   "input_per_1m": 3.0,
+   "output_per_1m": 15.0,
+   "currency": "USD",
+   "source": "provider-catalog"
+  }
+ }
+}

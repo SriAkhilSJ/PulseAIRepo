@@ -1,0 +1,38 @@
+159 def cart_summary(conn, token):
+160     rows = conn.execute(
+161         "SELECT ci.id item_id, ci.qty, p.id, p.title, p.price_cents, p.image_emoji, p.stock, p.active"
+162         " FROM cart_items ci JOIN products p ON p.id = ci.product_id"
+163         " WHERE ci.cart_token = ? ORDER BY ci.id",
+164         (token,),
+165     ).fetchall()
+166     items = []
+167     subtotal = 0
+168     for r in rows:
+169         line = r["price_cents"] * r["qty"]
+170         subtotal += line
+171         items.append({
+172             "item_id": r["item_id"], "product_id": r["id"], "title": r["title"],
+173             "image_emoji": r["image_emoji"], "price": round(r["price_cents"] / 100, 2),
+174             "price_cents": r["price_cents"], "qty": r["qty"],
+175             "stock": r["stock"], "active": bool(r["active"]), "line_total": round(line / 100, 2),
+176         })
+177     shipping = 0 if subtotal == 0 or subtotal >= 3500 else 499
+178     return {
+179         "items": items,
+180         "count": sum(i["qty"] for i in items),
+181         "subtotal_cents": subtotal,
+182         "subtotal": round(subtotal / 100, 2),
+183         "shipping_cents": shipping,
+184         "shipping": round(shipping / 100, 2),
+185         "total_cents": subtotal + shipping,
+186         "total": round((subtotal + shipping) / 100, 2),
+187     }
+188 
+189 
+190 # --------------------------------------------------------------------------
+191 # Request handler
+192 # --------------------------------------------------------------------------
+193 class Handler(BaseHTTPRequestHandler):
+194     server_version = "PulseCart/1.0"
+195 
+196     # ---- low-level helpers ----

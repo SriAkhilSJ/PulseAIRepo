@@ -1,0 +1,93 @@
+139 def row_to_product(row, categories):
+140     return {
+141         "id": row["id"],
+142         "title": row["title"],
+143         "description": row["description"],
+144         "category_id": row["category_id"],
+145         "category": categories.get(row["category_id"], "Uncategorised"),
+146         "price_cents": row["price_cents"],
+147         "price": round(row["price_cents"] / 100, 2),
+148         "stock": row["stock"],
+149         "rating": row["rating"],
+150         "image_emoji": row["image_emoji"],
+151         "active": bool(row["active"]),
+152     }
+153 
+154 
+155 def category_map(conn):
+156     return {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM categories")}
+157 
+158 
+159 def cart_summary(conn, token):
+160     rows = conn.execute(
+161         "SELECT ci.id item_id, ci.qty, p.id, p.title, p.price_cents, p.image_emoji, p.stock, p.active"
+162         " FROM cart_items ci JOIN products p ON p.id = ci.product_id"
+163         " WHERE ci.cart_token = ? ORDER BY ci.id",
+164         (token,),
+165     ).fetchall()
+166     items = []
+167     subtotal = 0
+168     for r in rows:
+169         line = r["price_cents"] * r["qty"]
+170         subtotal += line
+171         items.append({
+172             "item_id": r["item_id"], "product_id": r["id"], "title": r["title"],
+173             "image_emoji": r["image_emoji"], "price": round(r["price_cents"] / 100, 2),
+174             "price_cents": r["price_cents"], "qty": r["qty"],
+175             "stock": r["stock"], "active": bool(r["active"]), "line_total": round(line / 100, 2),
+176         })
+177     shipping = 0 if subtotal == 0 or subtotal >= 3500 else 499
+178     return {
+179         "items": items,
+180         "count": sum(i["qty"] for i in items),
+181         "subtotal_cents": subtotal,
+182         "subtotal": round(subtotal / 100, 2),
+183         "shipping_cents": shipping,
+184         "shipping": round(shipping / 100, 2),
+185         "total_cents": subtotal + shipping,
+186         "total": round((subtotal + shipping) / 100, 2),
+187     }
+188 
+189 
+190 # --------------------------------------------------------------------------
+191 # Request handler
+192 # --------------------------------------------------------------------------
+193 class Handler(BaseHTTPRequestHandler):
+194     server_version = "PulseCart/1.0"
+195 
+196     # ---- low-level helpers ----
+197     def _send(self, status, payload):
+198         body = json.dumps(payload, default=str).encode()
+199         self.send_response(status)
+200         self.send_header("Content-Type", "application/json; charset=utf-8")
+440                 cur = conn.execute(
+441                     "INSERT INTO orders(order_ref, customer_name, email, address, total_cents, status, created_at)"
+442                     " VALUES (?,?,?,?,?, 'placed', ?)",
+443                     (ref, name, email, address, summary["total_cents"], datetime.now(timezone.utc).isoformat()))
+444                 order_id = cur.lastrowid
+445                 for item in summary["items"]:
+446                     conn.execute("INSERT INTO order_items(order_id, product_id, title_snapshot, price_cents, qty)"
+447                                  " VALUES (?,?,?,?,?)",
+448                                  (order_id, item["product_id"], item["title"], item["price_cents"], item["qty"]))
+449                     conn.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item["qty"], item["product_id"]))
+450                 conn.execute("DELETE FROM cart_items WHERE cart_token=?", (token,))
+451                 conn.commit()
+452                 return self._send(201, {"order_ref": ref, "total": summary["total"], "status": "placed"})
+453 
+454             # ---- admin mutations ----
+455             if path == "/api/products" and method == "POST":
+456                 if not self._is_admin():
+457                     return self._send(401, {"error": "admin key required"})
+458                 if not body.get("title") or body.get("price_cents") is None:
+459                     return self._send(400, {"error": "title and price_cents are required"})
+460                 cat_id = body.get("category_id")
+461                 cur = conn.execute(
+462                     "INSERT INTO products(title, description, category_id, price_cents, stock, rating, image_emoji, active, created_at)"
+463                     " VALUES (?,?,?,?,?,?,?,1,?)",
+464                     (body["title"], body.get("description", ""), cat_id, int(body["price_cents"]),
+465                      int(body.get("stock", 0)), float(body.get("rating", 0)),
+466                      body.get("image_emoji", "📦"), datetime.now(timezone.utc).isoformat()))
+467                 conn.commit()
+468                 row = conn.execute("SELECT * FROM products WHERE id=?", (cur.lastrowid,)).fetchone()
+469                 return self._send(201, {"product": row_to_product(row, category_map(conn))})
+470 

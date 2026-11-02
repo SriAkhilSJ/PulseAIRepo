@@ -1,0 +1,21 @@
+440                 cur = conn.execute(
+441                     "INSERT INTO orders(order_ref, customer_name, email, address, total_cents, status, created_at)"
+442                     " VALUES (?,?,?,?,?, 'placed', ?)",
+443                     (ref, name, email, address, summary["total_cents"], datetime.now(timezone.utc).isoformat()))
+444                 order_id = cur.lastrowid
+445                 for item in summary["items"]:
+446                     conn.execute("INSERT INTO order_items(order_id, product_id, title_snapshot, price_cents, qty)"
+447                                  " VALUES (?,?,?,?,?)",
+448                                  (order_id, item["product_id"], item["title"], item["price_cents"], item["qty"]))
+449                     conn.execute("UPDATE products SET stock = stock - ? WHERE id = ?", (item["qty"], item["product_id"]))
+450                 conn.execute("DELETE FROM cart_items WHERE cart_token=?", (token,))
+451                 conn.commit()
+452                 return self._send(201, {"order_ref": ref, "total": summary["total"], "status": "placed"})
+453 
+454             # ---- admin mutations ----
+455             if path == "/api/products" and method == "POST":
+456                 if not self._is_admin():
+457                     return self._send(401, {"error": "admin key required"})
+458                 if not body.get("title") or body.get("price_cents") is None:
+459                     return self._send(400, {"error": "title and price_cents are required"})
+460                 cat_id = body.get("category_id")

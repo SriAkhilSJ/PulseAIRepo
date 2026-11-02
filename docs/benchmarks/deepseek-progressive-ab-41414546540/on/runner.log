@@ -1,0 +1,661 @@
+[continuous] implicit time, call, token and cost limits disabled; explicit limits still apply
+[budget] input-token cap=2,500,000 source=--max-input-tokens iterations=None enabled=True
+[08:39:12] hello x1
+[08:39:12] session_info x1
+[08:39:12] workspace.bound x1
+[08:39:14] workspace.bound x2
+[08:39:15] turn_started x1
+[08:39:15] runtime_degraded x1
+[08:39:15] llm.request x1 | calls=1/uncapped tokensIn~0/2500000 cost~unknown
+[08:39:20] token x1
+[08:39:33] tool_call_args x1
+[08:39:33] llm.response x1
+[08:39:34] telemetry x1 | calls=1/uncapped tokensIn~18365/2500000 cost~$0.0141
+[08:39:34] tool_call_start x1
+[08:39:34] verification_updated x1
+[settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='deepseek/deepseek-v4.1-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'
+[08:39:35] tool_call_end x1
+[08:39:35] llm.request x2 | calls=2/uncapped tokensIn~18365/2500000 cost~$0.0141
+[08:40:45] llm.response x2
+[08:40:45] telemetry x2 | calls=2/uncapped tokensIn~49754/2500000 cost~$0.0333
+[08:40:45] tool_call_start x2
+[08:40:45] verification_updated x2
+[08:40:45] tool_call_end x2
+[08:40:45] llm.request x3 | calls=3/uncapped tokensIn~49754/2500000 cost~$0.0333
+[08:40:49] llm.response x3
+[08:40:49] telemetry x3 | calls=3/uncapped tokensIn~83096/2500000 cost~$0.0435
+[08:40:49] tool_call_start x3
+[08:40:49] tool_call_start x4
+[08:40:49] tool_call_end x3
+[08:40:49] tool_call_end x4
+[08:40:49] llm.request x4 | calls=4/uncapped tokensIn~83096/2500000 cost~$0.0435
+[08:40:53] llm.response x4
+[08:40:53] telemetry x4 | calls=4/uncapped tokensIn~116865/2500000 cost~$0.0541
+[08:40:53] tool_call_start x5
+[08:40:53] tool_call_start x6
+[08:40:54] verification_updated x3
+[08:40:54] tool_call_end x5
+[08:40:54] verification_updated x4
+[08:40:54] tool_call_end x6
+[08:40:54] llm.request x5 | calls=5/uncapped tokensIn~116865/2500000 cost~$0.0541
+[08:40:56] llm.response x5
+[08:40:56] telemetry x5 | calls=5/uncapped tokensIn~143288/2500000 cost~$0.0624
+[08:40:56] tool_call_start x7
+[08:40:56] tool_call_start x8
+[08:40:56] tool_call_end x7
+[08:40:56] tool_output x1
+[08:40:56] tool_output x2
+[08:40:56] tool_output x3
+[08:40:56] tool_output x4
+[08:40:56] tool_output x5
+[08:40:56] tool_call_end x8
+[08:40:56] llm.request x6 | calls=6/uncapped tokensIn~143288/2500000 cost~$0.0624
+[08:40:59] llm.response x6
+[08:40:59] telemetry x6 | calls=6/uncapped tokensIn~169947/2500000 cost~$0.0707
+[08:40:59] tool_call_start x9
+[08:40:59] tool_call_start x10
+[08:40:59] tool_call_end x9
+[08:41:00] tool_call_end x10
+[08:41:00] llm.request x7 | calls=7/uncapped tokensIn~169947/2500000 cost~$0.0707
+[08:41:04] llm.response x7
+[08:41:04] telemetry x7 | calls=7/uncapped tokensIn~196854/2500000 cost~$0.0794
+[08:41:04] tool_call_start x11
+[08:41:04] tool_call_end x11
+[08:41:04] llm.request x8 | calls=8/uncapped tokensIn~196854/2500000 cost~$0.0794
+[08:41:07] llm.response x8
+[08:41:07] telemetry x8 | calls=8/uncapped tokensIn~227366/2500000 cost~$0.0888
+[08:41:07] tool_call_start x12
+[08:41:07] tool_call_end x12
+[08:41:07] llm.request x9 | calls=9/uncapped tokensIn~227366/2500000 cost~$0.0888
+[08:41:09] llm.response x9
+[08:41:09] telemetry x9 | calls=9/uncapped tokensIn~258002/2500000 cost~$0.0981
+[08:41:09] tool_call_start x13
+[08:41:09] tool_call_end x13
+[08:41:09] llm.request x10 | calls=10/uncapped tokensIn~258002/2500000 cost~$0.0981
+[08:41:12] llm.response x10
+[08:41:12] telemetry x10 | calls=10/uncapped tokensIn~287865/2500000 cost~$0.1072
+[08:41:12] tool_call_start x14
+[08:41:12] tool_call_end x14
+[08:41:12] llm.request x11 | calls=11/uncapped tokensIn~287865/2500000 cost~$0.1072
+[08:41:21] llm.response x11
+[08:41:21] telemetry x11 | calls=11/uncapped tokensIn~318135/2500000 cost~$0.1190
+[08:41:21] tool_call_start x15
+[08:41:21] verification_updated x5
+[08:41:21] tool_call_end x15
+[08:41:21] llm.request x12 | calls=12/uncapped tokensIn~318135/2500000 cost~$0.1190
+[08:41:22] llm.response x12
+[08:41:22] telemetry x12 | calls=12/uncapped tokensIn~350869/2500000 cost~$0.1289
+[08:41:22] tool_call_start x16
+[08:41:22] tool_output x6
+[08:41:22] tool_output x7
+[08:41:22] tool_output x8
+[08:41:22] tool_output x9
+[08:41:22] tool_output x10
+[08:41:22] tool_output x11
+[08:41:22] tool_output x12
+[08:41:22] tool_output x13
+[08:41:22] tool_output x14
+[08:41:22] tool_output x15
+[08:41:22] tool_call_end x16
+[08:41:22] llm.request x13 | calls=13/uncapped tokensIn~350869/2500000 cost~$0.1289
+[08:41:25] llm.response x13
+[08:41:25] telemetry x13 | calls=13/uncapped tokensIn~383974/2500000 cost~$0.1391
+[08:41:25] tool_call_start x17
+[08:41:25] tool_call_end x17
+[08:41:25] llm.request x14 | calls=14/uncapped tokensIn~383974/2500000 cost~$0.1391
+[08:41:27] llm.response x14
+[08:41:28] telemetry x14 | calls=14/uncapped tokensIn~417215/2500000 cost~$0.1494
+[08:41:28] tool_call_start x18
+[08:41:28] tool_output x16
+[08:41:28] tool_output x17
+[08:41:28] tool_output x18
+[08:41:28] tool_output x19
+[08:41:28] tool_output x20
+[08:41:28] tool_output x21
+[08:41:28] tool_output x22
+[08:41:28] tool_output x23
+[08:41:28] tool_output x24
+[08:41:28] tool_output x25
+[08:41:28] tool_output x26
+[08:41:28] tool_output x27
+[08:41:28] tool_output x28
+[08:41:28] tool_output x29
+[08:41:28] tool_output x30
+[08:41:28] tool_output x31
+[08:41:28] tool_output x32
+[08:41:28] tool_output x33
+[08:41:28] tool_output x34
+[08:41:28] tool_output x35
+[08:41:28] tool_output x36
+[08:41:28] tool_output x37
+[08:41:28] tool_output x38
+[08:41:28] tool_output x39
+[08:41:28] tool_output x40
+[08:41:28] tool_output x41
+[08:41:28] tool_output x42
+[08:41:28] tool_output x43
+[08:41:28] tool_output x44
+[08:41:28] tool_output x45
+[08:41:28] tool_output x46
+[08:41:28] tool_output x47
+[08:41:28] tool_output x48
+[08:41:28] tool_output x49
+[08:41:28] tool_output x50
+[08:41:28] tool_output x51
+[08:41:28] tool_output x52
+[08:41:28] tool_output x53
+[08:41:28] tool_output x54
+[08:41:28] tool_output x55
+[08:41:28] tool_output x56
+[08:41:28] tool_output x57
+[08:41:28] tool_output x58
+[08:41:28] tool_output x59
+[08:41:28] tool_output x60
+[08:41:28] tool_call_end x18
+[08:41:28] llm.request x15 | calls=15/uncapped tokensIn~417215/2500000 cost~$0.1494
+[08:41:29] llm.response x15
+[08:41:29] telemetry x15 | calls=15/uncapped tokensIn~450935/2500000 cost~$0.1596
+[08:41:29] tool_call_start x19
+[08:41:30] tool_output x61
+[08:41:30] tool_output x62
+[08:41:30] tool_output x63
+[08:41:30] tool_output x64
+[08:41:30] tool_output x65
+[08:41:30] tool_output x66
+[08:41:30] tool_output x67
+[08:41:30] tool_output x68
+[08:41:30] tool_output x69
+[08:41:30] tool_output x70
+[08:41:30] tool_output x71
+[08:41:30] tool_output x72
+[08:41:30] tool_output x73
+[08:41:30] tool_output x74
+[08:41:30] tool_output x75
+[08:41:30] tool_output x76
+[08:41:30] tool_output x77
+[08:41:30] tool_output x78
+[08:41:30] tool_output x79
+[08:41:30] tool_output x80
+[08:41:30] tool_call_end x19
+[08:41:30] llm.request x16 | calls=16/uncapped tokensIn~450935/2500000 cost~$0.1596
+[08:41:32] llm.response x16
+[08:41:32] telemetry x16 | calls=16/uncapped tokensIn~485062/2500000 cost~$0.1701
+[08:41:32] tool_call_start x20
+[08:41:32] tool_call_start x21
+[08:41:32] tool_call_end x20
+[08:41:32] tool_call_end x21
+[08:41:32] llm.request x17 | calls=17/uncapped tokensIn~485062/2500000 cost~$0.1701
+[08:41:33] llm.response x17
+[08:41:34] telemetry x17 | calls=17/uncapped tokensIn~519528/2500000 cost~$0.1806
+[08:41:34] tool_call_start x22
+[08:41:34] tool_output x81
+[08:41:34] tool_output x82
+[08:41:34] tool_output x83
+[08:41:34] tool_output x84
+[08:41:34] tool_output x85
+[08:41:34] tool_output x86
+[08:41:34] tool_output x87
+[08:41:34] tool_output x88
+[08:41:34] tool_output x89
+[08:41:34] tool_output x90
+[08:41:34] tool_output x91
+[08:41:34] tool_output x92
+[08:41:34] tool_output x93
+[08:41:34] tool_output x94
+[08:41:34] tool_output x95
+[08:41:34] tool_output x96
+[08:41:34] tool_output x97
+[08:41:34] tool_output x98
+[08:41:34] tool_output x99
+[08:41:34] tool_output x100
+[08:41:34] tool_output x101
+[08:41:34] tool_output x102
+[08:41:34] tool_output x103
+[08:41:34] tool_output x104
+[08:41:34] tool_output x105
+[08:41:34] tool_output x106
+[08:41:34] tool_output x107
+[08:41:34] tool_call_end x22
+[08:41:34] llm.request x18 | calls=18/uncapped tokensIn~519528/2500000 cost~$0.1806
+[08:41:36] llm.response x18
+[08:41:36] telemetry x18 | calls=18/uncapped tokensIn~554601/2500000 cost~$0.1914
+[08:41:36] tool_call_start x23
+[08:41:36] tool_output x108
+[08:41:36] tool_output x109
+[08:41:36] tool_output x110
+[08:41:36] tool_output x111
+[08:41:36] tool_output x112
+[08:41:36] tool_output x113
+[08:41:36] tool_output x114
+[08:41:36] tool_output x115
+[08:41:36] tool_output x116
+[08:41:36] tool_output x117
+[08:41:36] tool_output x118
+[08:41:36] tool_output x119
+[08:41:36] tool_output x120
+[08:41:36] tool_output x121
+[08:41:36] tool_output x122
+[08:41:36] tool_output x123
+[08:41:36] tool_output x124
+[08:41:36] tool_output x125
+[08:41:36] tool_output x126
+[08:41:36] tool_output x127
+[08:41:36] tool_output x128
+[08:41:36] tool_output x129
+[08:41:36] tool_output x130
+[08:41:36] tool_output x131
+[08:41:36] tool_output x132
+[08:41:36] tool_output x133
+[08:41:36] tool_output x134
+[08:41:36] tool_output x135
+[08:41:36] tool_output x136
+[08:41:36] tool_output x137
+[08:41:36] tool_output x138
+[08:41:36] tool_output x139
+[08:41:36] tool_output x140
+[08:41:36] tool_output x141
+[08:41:36] tool_output x142
+[08:41:36] tool_output x143
+[08:41:36] tool_output x144
+[08:41:36] tool_output x145
+[08:41:36] tool_output x146
+[08:41:36] tool_output x147
+[08:41:36] tool_output x148
+[08:41:36] tool_output x149
+[08:41:36] tool_output x150
+[08:41:36] tool_output x151
+[08:41:36] tool_output x152
+[08:41:36] tool_output x153
+[08:41:36] tool_output x154
+[08:41:36] tool_output x155
+[08:41:36] tool_output x156
+[08:41:36] tool_output x157
+[08:41:36] tool_output x158
+[08:41:36] tool_output x159
+[08:41:36] tool_output x160
+[08:41:36] tool_output x161
+[08:41:36] tool_output x162
+[08:41:36] tool_output x163
+[08:41:36] tool_output x164
+[08:41:36] tool_output x165
+[08:41:36] tool_output x166
+[08:41:36] tool_output x167
+[08:41:36] tool_output x168
+[08:41:36] tool_output x169
+[08:41:36] tool_output x170
+[08:41:36] tool_output x171
+[08:41:36] tool_output x172
+[08:41:36] tool_output x173
+[08:41:36] tool_output x174
+[08:41:36] tool_output x175
+[08:41:36] tool_output x176
+[08:41:36] tool_output x177
+[08:41:36] tool_output x178
+[08:41:36] tool_output x179
+[08:41:36] tool_output x180
+[08:41:36] tool_output x181
+[08:41:36] tool_output x182
+[08:41:36] tool_output x183
+[08:41:36] tool_output x184
+[08:41:36] tool_output x185
+[08:41:36] tool_output x186
+[08:41:36] tool_output x187
+[08:41:36] tool_output x188
+[08:41:36] tool_output x189
+[08:41:36] tool_output x190
+[08:41:36] tool_output x191
+[08:41:36] tool_output x192
+[08:41:36] tool_output x193
+[08:41:36] tool_output x194
+[08:41:36] tool_output x195
+[08:41:36] tool_output x196
+[08:41:36] tool_output x197
+[08:41:36] tool_output x198
+[08:41:36] tool_output x199
+[08:41:36] tool_output x200
+[08:41:36] tool_output x201
+[08:41:36] tool_output x202
+[08:41:36] tool_output x203
+[08:41:36] tool_output x204
+[08:41:36] tool_output x205
+[08:41:36] tool_output x206
+[08:41:36] tool_output x207
+[08:41:36] tool_output x208
+[08:41:36] tool_output x209
+[08:41:36] tool_output x210
+[08:41:36] tool_output x211
+[08:41:36] tool_output x212
+[08:41:36] tool_output x213
+[08:41:36] tool_output x214
+[08:41:36] tool_output x215
+[08:41:36] tool_output x216
+[08:41:36] tool_output x217
+[08:41:36] tool_output x218
+[08:41:36] tool_output x219
+[08:41:36] tool_output x220
+[08:41:36] tool_output x221
+[08:41:36] tool_output x222
+[08:41:36] tool_output x223
+[08:41:36] tool_output x224
+[08:41:36] tool_output x225
+[08:41:36] tool_output x226
+[08:41:36] tool_output x227
+[08:41:36] tool_output x228
+[08:41:36] tool_output x229
+[08:41:36] tool_output x230
+[08:41:36] tool_output x231
+[08:41:36] tool_output x232
+[08:41:36] tool_output x233
+[08:41:36] tool_output x234
+[08:41:36] tool_output x235
+[08:41:36] tool_output x236
+[08:41:36] tool_output x237
+[08:41:36] tool_output x238
+[08:41:36] tool_output x239
+[08:41:36] tool_output x240
+[08:41:36] tool_output x241
+[08:41:36] tool_output x242
+[08:41:36] tool_output x243
+[08:41:36] tool_output x244
+[08:41:36] tool_output x245
+[08:41:36] tool_output x246
+[08:41:36] tool_output x247
+[08:41:36] tool_output x248
+[08:41:36] tool_output x249
+[08:41:36] tool_output x250
+[08:41:36] tool_output x251
+[08:41:36] tool_output x252
+[08:41:36] tool_output x253
+[08:41:36] tool_output x254
+[08:41:36] tool_output x255
+[08:41:36] tool_output x256
+[08:41:36] tool_output x257
+[08:41:36] tool_output x258
+[08:41:36] tool_output x259
+[08:41:36] tool_output x260
+[08:41:36] tool_output x261
+[08:41:36] tool_output x262
+[08:41:36] tool_output x263
+[08:41:36] tool_output x264
+[08:41:36] tool_output x265
+[08:41:36] tool_output x266
+[08:41:36] tool_output x267
+[08:41:36] tool_output x268
+[08:41:36] tool_output x269
+[08:41:36] tool_output x270
+[08:41:36] tool_output x271
+[08:41:36] tool_output x272
+[08:41:36] tool_output x273
+[08:41:36] tool_output x274
+[08:41:36] tool_output x275
+[08:41:36] tool_output x276
+[08:41:36] tool_output x277
+[08:41:36] tool_output x278
+[08:41:36] tool_output x279
+[08:41:36] tool_output x280
+[08:41:36] tool_output x281
+[08:41:36] tool_output x282
+[08:41:36] tool_output x283
+[08:41:36] tool_output x284
+[08:41:36] tool_output x285
+[08:41:36] tool_output x286
+[08:41:36] tool_output x287
+[08:41:36] tool_output x288
+[08:41:36] tool_output x289
+[08:41:36] tool_output x290
+[08:41:36] tool_output x291
+[08:41:36] tool_output x292
+[08:41:36] tool_output x293
+[08:41:36] tool_output x294
+[08:41:36] tool_output x295
+[08:41:36] tool_output x296
+[08:41:36] tool_output x297
+[08:41:36] tool_output x298
+[08:41:36] tool_output x299
+[08:41:36] tool_output x300
+[08:41:36] tool_output x301
+[08:41:36] tool_call_end x23
+[08:41:36] llm.request x19 | calls=19/uncapped tokensIn~554601/2500000 cost~$0.1914
+[08:41:40] llm.response x19
+[08:41:40] telemetry x19 | calls=19/uncapped tokensIn~590085/2500000 cost~$0.2023
+[08:41:40] tool_call_start x24
+[08:41:40] tool_output x302
+[08:41:40] tool_output x303
+[08:41:40] tool_output x304
+[08:41:40] tool_output x305
+[08:41:40] tool_output x306
+[08:41:40] tool_output x307
+[08:41:40] tool_output x308
+[08:41:40] tool_output x309
+[08:41:40] tool_output x310
+[08:41:40] tool_output x311
+[08:41:40] tool_output x312
+[08:41:40] tool_output x313
+[08:41:40] tool_output x314
+[08:41:40] tool_output x315
+[08:41:40] tool_output x316
+[08:41:40] tool_output x317
+[08:41:40] tool_output x318
+[08:41:40] tool_output x319
+[08:41:40] tool_output x320
+[08:41:40] tool_output x321
+[08:41:40] tool_output x322
+[08:41:40] tool_output x323
+[08:41:40] tool_output x324
+[08:41:40] tool_output x325
+[08:41:40] tool_output x326
+[08:41:40] tool_output x327
+[08:41:40] tool_output x328
+[08:41:40] tool_output x329
+[08:41:40] tool_output x330
+[08:41:40] tool_output x331
+[08:41:40] tool_output x332
+[08:41:40] tool_output x333
+[08:41:40] tool_output x334
+[08:41:40] tool_output x335
+[08:41:40] tool_output x336
+[08:41:40] tool_output x337
+[08:41:40] tool_output x338
+[08:41:40] tool_output x339
+[08:41:40] tool_output x340
+[08:41:40] tool_output x341
+[08:41:40] tool_output x342
+[08:41:40] tool_output x343
+[08:41:40] tool_output x344
+[08:41:40] tool_output x345
+[08:41:40] tool_output x346
+[08:41:40] tool_output x347
+[08:41:40] tool_output x348
+[08:41:40] tool_output x349
+[08:41:40] tool_output x350
+[08:41:40] tool_output x351
+[08:41:40] tool_output x352
+[08:41:40] tool_output x353
+[08:41:40] tool_output x354
+[08:41:40] tool_output x355
+[08:41:40] tool_output x356
+[08:41:40] tool_output x357
+[08:41:40] tool_output x358
+[08:41:40] tool_output x359
+[08:41:40] tool_output x360
+[08:41:40] tool_output x361
+[08:41:40] tool_output x362
+[08:41:40] tool_output x363
+[08:41:40] tool_output x364
+[08:41:40] tool_output x365
+[08:41:40] tool_output x366
+[08:41:40] tool_output x367
+[08:41:40] tool_output x368
+[08:41:40] tool_output x369
+[08:41:40] tool_output x370
+[08:41:40] tool_output x371
+[08:41:40] tool_output x372
+[08:41:40] tool_output x373
+[08:41:40] tool_output x374
+[08:41:40] tool_output x375
+[08:41:40] tool_output x376
+[08:41:40] tool_output x377
+[08:41:40] tool_output x378
+[08:41:40] tool_output x379
+[08:41:40] tool_output x380
+[08:41:40] tool_output x381
+[08:41:40] tool_output x382
+[08:41:40] tool_output x383
+[08:41:40] tool_output x384
+[08:41:40] tool_output x385
+[08:41:40] tool_output x386
+[08:41:40] tool_output x387
+[08:41:40] tool_output x388
+[08:41:40] tool_output x389
+[08:41:40] tool_output x390
+[08:41:40] tool_output x391
+[08:41:40] tool_output x392
+[08:41:40] tool_output x393
+[08:41:40] tool_output x394
+[08:41:40] tool_output x395
+[08:41:40] tool_output x396
+[08:41:40] tool_output x397
+[08:41:40] tool_output x398
+[08:41:40] tool_output x399
+[08:41:40] tool_output x400
+[08:41:40] tool_output x401
+[08:41:40] tool_output x402
+[08:41:40] tool_output x403
+[08:41:40] tool_output x404
+[08:41:40] tool_output x405
+[08:41:40] tool_call_end x24
+[08:41:40] llm.request x20 | calls=20/uncapped tokensIn~590085/2500000 cost~$0.2023
+[08:41:42] llm.response x20
+[08:41:42] telemetry x20 | calls=20/uncapped tokensIn~626121/2500000 cost~$0.2133
+[08:41:42] tool_call_start x25
+[08:41:42] verification_updated x6
+[08:41:42] tool_call_end x25
+[08:41:42] llm.request x21 | calls=21/uncapped tokensIn~626121/2500000 cost~$0.2133
+[08:41:44] llm.response x21
+[08:41:44] telemetry x21 | calls=21/uncapped tokensIn~660090/2500000 cost~$0.2236
+[08:41:44] tool_call_start x26
+[08:41:44] tool_call_end x26
+[08:41:44] llm.request x22 | calls=22/uncapped tokensIn~660090/2500000 cost~$0.2236
+[08:41:49] llm.response x22
+[08:41:49] telemetry x22 | calls=22/uncapped tokensIn~694374/2500000 cost~$0.2344
+[08:41:49] tool_call_start x27
+[08:41:49] tool_call_end x27
+[08:41:49] llm.request x23 | calls=23/uncapped tokensIn~694374/2500000 cost~$0.2344
+[08:41:52] llm.response x23
+[08:41:52] telemetry x23 | calls=23/uncapped tokensIn~728961/2500000 cost~$0.2452
+[08:41:52] tool_call_start x28
+[08:41:52] tool_output x406
+[08:41:52] tool_call_end x28
+[08:41:52] llm.request x24 | calls=24/uncapped tokensIn~728961/2500000 cost~$0.2452
+[08:41:53] llm.response x24
+[08:41:53] telemetry x24 | calls=24/uncapped tokensIn~763741/2500000 cost~$0.2557
+[08:41:53] tool_call_start x29
+[08:41:54] tool_call_end x29
+[08:41:54] llm.request x25 | calls=25/uncapped tokensIn~763741/2500000 cost~$0.2557
+[08:41:55] llm.response x25
+[08:41:55] telemetry x25 | calls=25/uncapped tokensIn~798911/2500000 cost~$0.2664
+[08:41:55] tool_call_start x30
+[08:41:56] tool_output x407
+[08:41:56] tool_call_end x30
+[08:41:56] llm.request x26 | calls=26/uncapped tokensIn~798911/2500000 cost~$0.2664
+[08:41:57] llm.response x26
+[08:41:57] telemetry x26 | calls=26/uncapped tokensIn~834288/2500000 cost~$0.2770
+[08:41:57] tool_call_start x31
+[08:41:57] tool_call_end x31
+[08:41:58] llm.request x27 | calls=27/uncapped tokensIn~834288/2500000 cost~$0.2770
+[08:42:00] llm.response x27
+[08:42:00] telemetry x27 | calls=27/uncapped tokensIn~870180/2500000 cost~$0.2881
+[08:42:00] tool_call_start x32
+[08:42:00] tool_output x408
+[08:42:00] tool_call_end x32
+[08:42:00] llm.request x28 | calls=28/uncapped tokensIn~870180/2500000 cost~$0.2881
+[08:42:02] llm.response x28
+[08:42:02] telemetry x28 | calls=28/uncapped tokensIn~906370/2500000 cost~$0.2991
+[08:42:02] tool_call_start x33
+[08:42:02] tool_call_start x34
+[08:42:02] tool_call_end x33
+[08:42:02] tool_call_end x34
+[08:42:02] llm.request x29 | calls=29/uncapped tokensIn~906370/2500000 cost~$0.2991
+[08:42:10] llm.response x29
+[08:42:10] telemetry x29 | calls=29/uncapped tokensIn~943343/2500000 cost~$0.3128
+[08:42:10] tool_call_start x35
+[08:42:10] verification_updated x7
+[08:42:10] tool_call_end x35
+[08:42:10] llm.request x30 | calls=30/uncapped tokensIn~943343/2500000 cost~$0.3128
+[08:42:12] llm.response x30
+[08:42:12] telemetry x30 | calls=30/uncapped tokensIn~982500/2500000 cost~$0.3247
+[08:42:12] tool_call_start x36
+[08:42:12] tool_call_end x36
+[08:42:12] llm.request x31 | calls=31/uncapped tokensIn~982500/2500000 cost~$0.3247
+[08:42:14] llm.response x31
+[08:42:14] telemetry x31 | calls=31/uncapped tokensIn~1021635/2500000 cost~$0.3365
+[08:42:14] tool_call_start x37
+[08:42:14] tool_call_end x37
+[08:42:14] llm.request x32 | calls=32/uncapped tokensIn~1021635/2500000 cost~$0.3365
+[08:42:17] llm.response x32
+[08:42:17] telemetry x32 | calls=32/uncapped tokensIn~1060478/2500000 cost~$0.3484
+[08:42:17] tool_call_start x38
+[08:42:17] tool_output x409
+[08:42:17] tool_call_end x38
+[08:42:17] llm.request x33 | calls=33/uncapped tokensIn~1060478/2500000 cost~$0.3484
+[08:42:19] llm.response x33
+[08:42:19] telemetry x33 | calls=33/uncapped tokensIn~1099464/2500000 cost~$0.3602
+[08:42:19] tool_call_start x39
+[08:42:20] tool_call_end x39
+[08:42:20] llm.request x34 | calls=34/uncapped tokensIn~1099464/2500000 cost~$0.3602
+[08:42:22] llm.response x34
+[08:42:22] telemetry x34 | calls=34/uncapped tokensIn~1138588/2500000 cost~$0.3720
+[08:42:22] tool_call_start x40
+[08:42:22] tool_output x410
+[08:42:22] tool_output x411
+[08:42:22] tool_output x412
+[08:42:22] tool_output x413
+[08:42:22] tool_output x414
+[08:42:22] tool_output x415
+[08:42:22] tool_output x416
+[08:42:22] tool_output x417
+[08:42:22] tool_output x418
+[08:42:22] tool_output x419
+[08:42:22] tool_output x420
+[08:42:22] tool_output x421
+[08:42:22] tool_output x422
+[08:42:22] tool_output x423
+[08:42:22] tool_output x424
+[08:42:22] tool_output x425
+[08:42:22] tool_output x426
+[08:42:22] tool_output x427
+[08:42:22] tool_output x428
+[08:42:22] tool_output x429
+[08:42:22] tool_output x430
+[08:42:22] tool_output x431
+[08:42:22] tool_output x432
+[08:42:22] tool_output x433
+[08:42:22] tool_output x434
+[08:42:22] tool_output x435
+[08:42:22] tool_call_end x40
+[08:42:22] llm.request x35 | calls=35/uncapped tokensIn~1138588/2500000 cost~$0.3720
+[08:42:24] llm.response x35
+[08:42:24] telemetry x35 | calls=35/uncapped tokensIn~1178436/2500000 cost~$0.3842
+[08:42:24] tool_call_start x41
+[08:42:24] tool_output x436
+[08:42:24] tool_call_end x41
+[08:42:25] llm.request x36 | calls=36/uncapped tokensIn~1178436/2500000 cost~$0.3842
+[08:42:27] llm.response x36
+[08:42:27] telemetry x36 | calls=36/uncapped tokensIn~1218422/2500000 cost~$0.3963
+[08:42:27] tool_call_start x42
+[08:42:27] tool_call_end x42
+[08:42:27] llm.request x37 | calls=37/uncapped tokensIn~1218422/2500000 cost~$0.3963
+[08:42:30] llm.response x37
+[08:42:30] telemetry x37 | calls=37/uncapped tokensIn~1259209/2500000 cost~$0.4091
+[08:42:30] tool_call_start x43
+[08:42:30] tool_call_start x44
+[08:42:30] tool_call_end x43
+[08:42:30] tool_output x437
+[08:42:30] tool_call_end x44
+[08:42:30] llm.request x38 | calls=38/uncapped tokensIn~1259209/2500000 cost~$0.4091
+[08:42:32] turn_failed x1
+::notice title=Agent Core monitoring summary::{"completed":false,"llm_request_frames":38,"outcome_schema_version":2,"receipt_privacy":"tool arguments, prompts, commands, file bodies, and full results omitted","request_outcome_counts":{"failed":1,"succeeded":37},"request_receipts_omitted":6,"result":"turn_failed","timing_ms":{"requests":{"count":38,"max_ms":71012,"min_ms":1494,"p50_ms":2442,"p95_ms":18082,"total_ms":189452},"run_elapsed_ms":200888,"tools":{"count":44,"max_ms":808,"min_ms":4,"p50_ms":38,"p95_ms":199,"total_ms":3183}},"tokens_in_last_telemetry":1259209,"tool_outcome_counts":{"failed":5,"succeeded":39},"tool_outcomes_omitted":12}
+::notice title=Agent Core requests 1/1::{"request_receipts":[{"duration_ms":18082,"sequence":1,"status":"succeeded"},{"duration_ms":71012,"sequence":2,"status":"succeeded"},{"duration_ms":4367,"sequence":3,"status":"succeeded"},{"duration_ms":3948,"sequence":4,"status":"succeeded"},{"duration_ms":2640,"sequence":5,"status":"succeeded"},{"duration_ms":2954,"sequence":6,"status":"succeeded"},{"duration_ms":3631,"sequence":7,"status":"succeeded"},{"duration_ms":2824,"sequence":8,"status":"succeeded"},{"duration_ms":1822,"sequence":9,"status":"succeeded"},{"duration_ms":2904,"sequence":10,"status":"succeeded"},{"duration_ms":8780,"sequence":11,"status":"succeeded"},{"duration_ms":1576,"sequence":12,"status":"succeeded"},{"duration_ms":2143,"sequence":13,"status":"succeeded"},{"duration_ms":2734,"sequence":14,"status":"succeeded"},{"duration_ms":1811,"sequence":15,"status":"succeeded"},{"duration_ms":2148,"sequence":16,"status":"succeeded"},{"duration_ms":2780,"sequence":23,"status":"succeeded"},{"duration_ms":1600,"sequence":24,"status":"succeeded"},{"duration_ms":1832,"sequence":25,"status":"succeeded"},{"duration_ms":1829,"sequence":26,"status":"succeeded"},{"duration_ms":2158,"sequence":27,"status":"succeeded"},{"duration_ms":2019,"sequence":28,"status":"succeeded"},{"duration_ms":7814,"sequence":29,"status":"succeeded"},{"duration_ms":1543,"sequence":30,"status":"succeeded"},{"duration_ms":2388,"sequence":31,"status":"succeeded"},{"duration_ms":2308,"sequence":32,"status":"succeeded"},{"duration_ms":2512,"sequence":33,"status":"succeeded"},{"duration_ms":1494,"sequence":34,"status":"succeeded"},{"duration_ms":2442,"sequence":35,"status":"succeeded"},{"duration_ms":2077,"sequence":36,"status":"succeeded"},{"duration_ms":3308,"sequence":37,"status":"succeeded"},{"duration_ms":1920,"sequence":38,"status":"failed"}]}
+::notice title=Agent Core tools 1/2::{"tool_outcomes":[{"duration_ms":199,"result_summary":"File written: app.py (lines added: 530, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\" +PulseCart - Amazon-like Ecommerce Platform (backend). + +Zero third-party dependencies: uses only the Python standard library plus +SQLite for p","sequence":1,"status":"succeeded","tool":"write_file"},{"duration_ms":40,"result_summary":"File written: frontend/index.html (lines added: 488, removed: 0) Diff preview: +<!DOCTYPE html> +<html lang=\"en\"> +<head> +<meta charset=\"utf-8\" /> +<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /> +<title>PulseCart —","sequence":2,"status":"succeeded","tool":"write_file"},{"duration_ms":10,"result_summary":"result received (41 chars; content omitted)","sequence":3,"status":"succeeded","tool":"search_files"},{"duration_ms":58,"result_summary":"result received (25614 chars; content omitted)","sequence":4,"status":"succeeded","tool":"read_file"},{"duration_ms":40,"result_summary":"✅ Edited frontend/index.html (lines added: 1, removed: 1) Diff preview: if (c.cart_token) { this.token = c.cart_token; localStorage.setItem(\"pulsecart_token\", this.token); } this.state.cart = c; document.getElementById(\"cartBadge\").textCont","sequence":5,"status":"succeeded","tool":"edit_file"},{"duration_ms":47,"result_summary":"✅ Edited frontend/index.html (lines added: 4, removed: 2) Diff preview: <button class=\"add\" ${x.stock === 0 ? \"disabled\" : \"\"} onclick=\"Store.addToCart(${x.id})\"> ${x.stock === 0 ? \"Unavailable\" : \"Add to cart\"}</button> </div>`).join(\"\") :","sequence":6,"status":"succeeded","tool":"edit_file"},{"duration_ms":60,"result_summary":"Exit code: 0","sequence":7,"status":"succeeded","tool":"terminal"},{"duration_ms":29,"result_summary":"result received (27 chars; content omitted)","sequence":8,"status":"succeeded","tool":"list_files"},{"duration_ms":5,"result_summary":"result received (53 chars; content omitted)","sequence":9,"status":"succeeded","tool":"search_files"},{"duration_ms":808,"result_summary":"tool completed (204 chars; output omitted)","sequence":10,"status":"succeeded","tool":"start_terminal"},{"duration_ms":6,"result_summary":"00; echo echo \"== frontend ==\"; curl -s -o /dev/null -w \"%25{http_code}\\n\" http://127.0.0.1:8000/ Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval.","sequence":11,"status":"failed","tool":"terminal"},{"duration_ms":5,"result_summary":"result received (148 chars; content omitted)","sequence":12,"status":"succeeded","tool":"read_file"},{"duration_ms":4,"result_summary":"Error: File not found: 'app.py:150:530'. Similar names in its folder: app.py. Workspace root: /home/runner/work/_temp/deepseek-ab/on/ws — list_files it first when the name is a guess.","sequence":13,"status":"failed","tool":"read_file"},{"duration_ms":4,"result_summary":"result received (869 chars; content omitted)","sequence":14,"status":"succeeded","tool":"search_files"},{"duration_ms":38,"result_summary":"File written: verify.py (lines added: 166, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\"End-to-end verification of the PulseCart API against a running server.\"\"\" +import json +import urllib.request +import urllib.error + +BASE = \"h","sequence":15,"status":"succeeded","tool":"write_file"}]}
+::notice title=Agent Core tools 2/2::{"tool_outcomes":[{"duration_ms":95,"result_summary":"ing', 'image_emoji', 'active'] PASS search q=head matches=18 STDERR: Traceback (most recent call last): File \"/home/runner/work/_temp/deepseek-ab/on/ws/verify.py\", line 59, in <module> slug = cats[0][\"slug\"] ~~~~^^^ KeyError: 0 Exit code: 1","sequence":16,"status":"failed","tool":"terminal"},{"duration_ms":19,"result_summary":"result received (4896 chars; content omitted)","sequence":29,"status":"succeeded","tool":"read_file"},{"duration_ms":43,"result_summary":"Exit code: 0","sequence":30,"status":"succeeded","tool":"terminal"},{"duration_ms":10,"result_summary":"result received (1650 chars; content omitted)","sequence":31,"status":"succeeded","tool":"read_file"},{"duration_ms":44,"result_summary":"Exit code: 0","sequence":32,"status":"succeeded","tool":"terminal"},{"duration_ms":24,"result_summary":"result received (3708 chars; content omitted)","sequence":33,"status":"succeeded","tool":"read_file"},{"duration_ms":23,"result_summary":"result received (1555 chars; content omitted)","sequence":34,"status":"succeeded","tool":"read_file"},{"duration_ms":44,"result_summary":"File written: verify.py (lines added: 103, removed: 113) Diff preview: #!/usr/bin/env python3 -\"\"\"End-to-end verification of the PulseCart API against a running server.\"\"\" +\"\"\"End-to-end verification of the PulseCart API against a running s","sequence":35,"status":"succeeded","tool":"write_file"},{"duration_ms":5,"result_summary":"result received (40 chars; content omitted)","sequence":36,"status":"succeeded","tool":"stop_terminal"},{"duration_ms":4,"result_summary":"db && (python3 app.py > /tmp/server.log 2>&1 &) && sleep 2 && python3 verify.py; echo \"EXIT=$?\" Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval.","sequence":37,"status":"failed","tool":"terminal"},{"duration_ms":34,"result_summary":"Exit code: 0","sequence":38,"status":"succeeded","tool":"terminal"},{"duration_ms":805,"result_summary":"tool completed (204 chars; output omitted)","sequence":39,"status":"succeeded","tool":"start_terminal"},{"duration_ms":124,"result_summary":"s', 'low_stock', 'revenue'] PASS admin create product id=19 PASS admin update stock stock=42 PASS admin deactivate product status=200 PASS deactivated product hidden status=404 PASS frontend served len=26421 17 passed, 7 failed Exit code: 1","sequence":40,"status":"failed","tool":"terminal"},{"duration_ms":45,"result_summary":"Exit code: 0","sequence":41,"status":"succeeded","tool":"terminal"},{"duration_ms":12,"result_summary":"result received (3085 chars; content omitted)","sequence":42,"status":"succeeded","tool":"read_file"},{"duration_ms":49,"result_summary":"Exit code: 0","sequence":43,"status":"succeeded","tool":"terminal"},{"duration_ms":10,"result_summary":"result received (393 chars; content omitted)","sequence":44,"status":"succeeded","tool":"search_files"}]}
+OUTCOME: turn_failed completed=False llm.calls=38 -> /home/runner/work/_temp/deepseek-ab/on/results/deepseek-on-41414546540

@@ -1,0 +1,62 @@
+337             if path == "/api/cart":
+338                 token = self._ensure_cart(conn, self._cart_token())
+339                 data = cart_summary(conn, token)
+340                 data["cart_token"] = token
+341                 return self._send(200, data)
+342 
+343             if path == "/api/orders":
+344                 if not self._is_admin():
+345                     return self._send(401, {"error": "admin key required"})
+346                 orders = []
+347                 for o in conn.execute("SELECT * FROM orders ORDER BY id DESC"):
+348                     items = [dict(r) for r in conn.execute("SELECT * FROM order_items WHERE order_id=?", (o["id"],))]
+349                     orders.append({**dict(o), "total": round(o["total_cents"] / 100, 2), "items": items})
+350                 return self._send(200, {"orders": orders})
+351 
+352             if path == "/api/admin/stats":
+353                 if not self._is_admin():
+354                     return self._send(401, {"error": "admin key required"})
+355                 stats = {
+356                     "products": conn.execute("SELECT COUNT(*) c FROM products WHERE active=1").fetchone()["c"],
+357                     "orders": conn.execute("SELECT COUNT(*) c FROM orders").fetchone()["c"],
+358                     "revenue_cents": conn.execute("SELECT COALESCE(SUM(total_cents),0) c FROM orders WHERE status!='cancelled'").fetchone()["c"],
+359                     "low_stock": [row_to_product(r, category_map(conn)) for r in conn.execute(
+360                         "SELECT * FROM products WHERE active=1 AND stock <= 15 ORDER BY stock ASC")],
+361                 }
+362                 stats["revenue"] = round(stats["revenue_cents"] / 100, 2)
+363                 return self._send(200, stats)
+364 
+365             return self._send(404, {"error": "unknown endpoint"})
+366         finally:
+367             conn.close()
+368 
+369     # ---- write routes ----
+370     def _route_write(self, method, path):
+371         conn = get_db()
+372         body = self._read_json()
+373         try:
+374             # ---- cart mutations ----
+375             if path == "/api/cart/items" and method == "POST":
+376                 token = self._ensure_cart(conn, body.get("cart_token") or self._cart_token())
+377                 pid, qty = int(body.get("product_id", 0)), max(1, int(body.get("qty", 1)))
+378                 prod = conn.execute("SELECT id, stock FROM products WHERE id=? AND active=1", (pid,)).fetchone()
+379                 if not prod:
+380                     return self._send(404, {"error": "product not found"})
+381                 existing = conn.execute("SELECT id, qty FROM cart_items WHERE cart_token=? AND product_id=?",
+382                                         (token, pid)).fetchone()
+383                 new_qty = (existing["qty"] if existing else 0) + qty
+384                 if new_qty > prod["stock"]:
+385                     return self._send(400, {"error": f"only {prod['stock']} in stock"})
+386                 if existing:
+387                     conn.execute("UPDATE cart_items SET qty=? WHERE id=?", (new_qty, existing["id"]))
+388                 else:
+389                     conn.execute("INSERT INTO cart_items(cart_token, product_id, qty) VALUES (?,?,?)",
+390                                  (token, pid, qty))
+391                 conn.commit()
+392                 data = cart_summary(conn, token)
+393                 data["cart_token"] = token
+394                 return self._send(200, data)
+395 
+396             m = re.match(r"^/api/cart/items/(\d+)$", path)
+397             if m and method == "PUT":
+398                 token = self._ensure_cart(conn, body.get("cart_token") or self._cart_token())

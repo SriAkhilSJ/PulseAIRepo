@@ -1,0 +1,50 @@
+375             if path == "/api/cart/items" and method == "POST":
+376                 token = self._ensure_cart(conn, body.get("cart_token") or self._cart_token())
+377                 pid, qty = int(body.get("product_id", 0)), max(1, int(body.get("qty", 1)))
+378                 prod = conn.execute("SELECT id, stock FROM products WHERE id=? AND active=1", (pid,)).fetchone()
+379                 if not prod:
+380                     return self._send(404, {"error": "product not found"})
+381                 existing = conn.execute("SELECT id, qty FROM cart_items WHERE cart_token=? AND product_id=?",
+382                                         (token, pid)).fetchone()
+383                 new_qty = (existing["qty"] if existing else 0) + qty
+384                 if new_qty > prod["stock"]:
+385                     return self._send(400, {"error": f"only {prod['stock']} in stock"})
+386                 if existing:
+387                     conn.execute("UPDATE cart_items SET qty=? WHERE id=?", (new_qty, existing["id"]))
+388                 else:
+389                     conn.execute("INSERT INTO cart_items(cart_token, product_id, qty) VALUES (?,?,?)",
+390                                  (token, pid, qty))
+391                 conn.commit()
+392                 data = cart_summary(conn, token)
+393                 data["cart_token"] = token
+394                 return self._send(200, data)
+395 
+396             m = re.match(r"^/api/cart/items/(\d+)$", path)
+397             if m and method == "PUT":
+398                 token = self._ensure_cart(conn, body.get("cart_token") or self._cart_token())
+399                 item_id = int(m.group(1))
+400                 qty = int(body.get("qty", 1))
+401                 row = conn.execute("SELECT ci.id, p.stock FROM cart_items ci JOIN products p ON p.id=ci.product_id"
+402                                    " WHERE ci.id=? AND ci.cart_token=?", (item_id, token)).fetchone()
+403                 if not row:
+404                     return self._send(404, {"error": "cart item not found"})
+405                 if qty <= 0:
+406                     conn.execute("DELETE FROM cart_items WHERE id=?", (item_id,))
+407                 elif qty > row["stock"]:
+408                     return self._send(400, {"error": f"only {row['stock']} in stock"})
+409                 else:
+410                     conn.execute("UPDATE cart_items SET qty=? WHERE id=?", (qty, item_id))
+411                 conn.commit()
+412                 data = cart_summary(conn, token)
+413                 data["cart_token"] = token
+414                 return self._send(200, data)
+415 
+416             m = re.match(r"^/api/cart/items/(\d+)$", path)
+417             if m and method == "DELETE":
+418                 token = self._ensure_cart(conn, self._cart_token())
+419                 conn.execute("DELETE FROM cart_items WHERE id=? AND cart_token=?", (int(m.group(1)), token))
+420                 conn.commit()
+421                 data = cart_summary(conn, token)
+422                 data["cart_token"] = token
+423                 return self._send(200, data)
+424 

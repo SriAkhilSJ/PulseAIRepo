@@ -1,0 +1,461 @@
+{
+  "run_id": "deepseek-on-41414546540",
+  "session_id": "t5-d63c391aa1",
+  "workspace": "/home/runner/work/_temp/deepseek-ab/on/ws",
+  "agent_iteration_budget": null,
+  "result": "turn_failed",
+  "completed": false,
+  "status_contract": null,
+  "run_outcome": null,
+  "failure_reason": null,
+  "verification_status": null,
+  "error": "Wallet balance exhausted mid-stream; response truncated. Insufficient wallet balance. Top up from ₹10 at https://velona.in/wallet",
+  "reasoning_effort_requested": null,
+  "frame_counts": {
+    "hello": 1,
+    "session_info": 1,
+    "workspace.bound": 2,
+    "turn_started": 1,
+    "runtime_degraded": 1,
+    "llm.request": 38,
+    "token": 46,
+    "tool_call_args": 88,
+    "llm.response": 37,
+    "telemetry": 37,
+    "tool_call_start": 44,
+    "verification_updated": 7,
+    "tool_call_end": 44,
+    "tool_output": 437,
+    "turn_failed": 1
+  },
+  "llm_request_frames": 38,
+  "tokens_in_last_telemetry": 1259209,
+  "estimated_cost_last_telemetry": 0.4091139,
+  "token_budget": 2500000,
+  "token_budget_source": "--max-input-tokens",
+  "budget_stop": false,
+  "no_delivery_stop": false,
+  "operator_cancelled": false,
+  "safety_requests": 0,
+  "safety_approved": 0,
+  "safety_denied": 0,
+  "outcome_schema_version": 2,
+  "request_receipts": [
+    {
+      "sequence": 1,
+      "status": "succeeded",
+      "duration_ms": 18082
+    },
+    {
+      "sequence": 2,
+      "status": "succeeded",
+      "duration_ms": 71012
+    },
+    {
+      "sequence": 3,
+      "status": "succeeded",
+      "duration_ms": 4367
+    },
+    {
+      "sequence": 4,
+      "status": "succeeded",
+      "duration_ms": 3948
+    },
+    {
+      "sequence": 5,
+      "status": "succeeded",
+      "duration_ms": 2640
+    },
+    {
+      "sequence": 6,
+      "status": "succeeded",
+      "duration_ms": 2954
+    },
+    {
+      "sequence": 7,
+      "status": "succeeded",
+      "duration_ms": 3631
+    },
+    {
+      "sequence": 8,
+      "status": "succeeded",
+      "duration_ms": 2824
+    },
+    {
+      "sequence": 9,
+      "status": "succeeded",
+      "duration_ms": 1822
+    },
+    {
+      "sequence": 10,
+      "status": "succeeded",
+      "duration_ms": 2904
+    },
+    {
+      "sequence": 11,
+      "status": "succeeded",
+      "duration_ms": 8780
+    },
+    {
+      "sequence": 12,
+      "status": "succeeded",
+      "duration_ms": 1576
+    },
+    {
+      "sequence": 13,
+      "status": "succeeded",
+      "duration_ms": 2143
+    },
+    {
+      "sequence": 14,
+      "status": "succeeded",
+      "duration_ms": 2734
+    },
+    {
+      "sequence": 15,
+      "status": "succeeded",
+      "duration_ms": 1811
+    },
+    {
+      "sequence": 16,
+      "status": "succeeded",
+      "duration_ms": 2148
+    },
+    {
+      "sequence": 23,
+      "status": "succeeded",
+      "duration_ms": 2780
+    },
+    {
+      "sequence": 24,
+      "status": "succeeded",
+      "duration_ms": 1600
+    },
+    {
+      "sequence": 25,
+      "status": "succeeded",
+      "duration_ms": 1832
+    },
+    {
+      "sequence": 26,
+      "status": "succeeded",
+      "duration_ms": 1829
+    },
+    {
+      "sequence": 27,
+      "status": "succeeded",
+      "duration_ms": 2158
+    },
+    {
+      "sequence": 28,
+      "status": "succeeded",
+      "duration_ms": 2019
+    },
+    {
+      "sequence": 29,
+      "status": "succeeded",
+      "duration_ms": 7814
+    },
+    {
+      "sequence": 30,
+      "status": "succeeded",
+      "duration_ms": 1543
+    },
+    {
+      "sequence": 31,
+      "status": "succeeded",
+      "duration_ms": 2388
+    },
+    {
+      "sequence": 32,
+      "status": "succeeded",
+      "duration_ms": 2308
+    },
+    {
+      "sequence": 33,
+      "status": "succeeded",
+      "duration_ms": 2512
+    },
+    {
+      "sequence": 34,
+      "status": "succeeded",
+      "duration_ms": 1494
+    },
+    {
+      "sequence": 35,
+      "status": "succeeded",
+      "duration_ms": 2442
+    },
+    {
+      "sequence": 36,
+      "status": "succeeded",
+      "duration_ms": 2077
+    },
+    {
+      "sequence": 37,
+      "status": "succeeded",
+      "duration_ms": 3308
+    },
+    {
+      "sequence": 38,
+      "status": "failed",
+      "duration_ms": 1920
+    }
+  ],
+  "request_receipts_omitted": 6,
+  "request_outcome_counts": {
+    "succeeded": 37,
+    "failed": 1
+  },
+  "tool_outcomes": [
+    {
+      "sequence": 1,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 199,
+      "result_summary": "File written: app.py (lines added: 530, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\" +PulseCart - Amazon-like Ecommerce Platform (backend). + +Zero third-party dependencies: uses only the Python standard library plus +SQLite for p"
+    },
+    {
+      "sequence": 2,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 40,
+      "result_summary": "File written: frontend/index.html (lines added: 488, removed: 0) Diff preview: +<!DOCTYPE html> +<html lang=\"en\"> +<head> +<meta charset=\"utf-8\" /> +<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" /> +<title>PulseCart — "
+    },
+    {
+      "sequence": 3,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 10,
+      "result_summary": "result received (41 chars; content omitted)"
+    },
+    {
+      "sequence": 4,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 58,
+      "result_summary": "result received (25614 chars; content omitted)"
+    },
+    {
+      "sequence": 5,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 40,
+      "result_summary": "✅ Edited frontend/index.html (lines added: 1, removed: 1) Diff preview: if (c.cart_token) { this.token = c.cart_token; localStorage.setItem(\"pulsecart_token\", this.token); } this.state.cart = c; document.getElementById(\"cartBadge\").textCont"
+    },
+    {
+      "sequence": 6,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 47,
+      "result_summary": "✅ Edited frontend/index.html (lines added: 4, removed: 2) Diff preview: <button class=\"add\" ${x.stock === 0 ? \"disabled\" : \"\"} onclick=\"Store.addToCart(${x.id})\"> ${x.stock === 0 ? \"Unavailable\" : \"Add to cart\"}</button> </div>`).join(\"\") :"
+    },
+    {
+      "sequence": 7,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 60,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 8,
+      "tool": "list_files",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "result received (27 chars; content omitted)"
+    },
+    {
+      "sequence": 9,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "result received (53 chars; content omitted)"
+    },
+    {
+      "sequence": 10,
+      "tool": "start_terminal",
+      "status": "succeeded",
+      "duration_ms": 808,
+      "result_summary": "tool completed (204 chars; output omitted)"
+    },
+    {
+      "sequence": 11,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 6,
+      "result_summary": "00; echo echo \"== frontend ==\"; curl -s -o /dev/null -w \"%{http_code}\\n\" http://127.0.0.1:8000/ Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval."
+    },
+    {
+      "sequence": 12,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "result received (148 chars; content omitted)"
+    },
+    {
+      "sequence": 13,
+      "tool": "read_file",
+      "status": "failed",
+      "duration_ms": 4,
+      "result_summary": "Error: File not found: 'app.py:150:530'. Similar names in its folder: app.py. Workspace root: /home/runner/work/_temp/deepseek-ab/on/ws — list_files it first when the name is a guess."
+    },
+    {
+      "sequence": 14,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 4,
+      "result_summary": "result received (869 chars; content omitted)"
+    },
+    {
+      "sequence": 15,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 38,
+      "result_summary": "File written: verify.py (lines added: 166, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\"End-to-end verification of the PulseCart API against a running server.\"\"\" +import json +import urllib.request +import urllib.error + +BASE = \"h"
+    },
+    {
+      "sequence": 16,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 95,
+      "result_summary": "ing', 'image_emoji', 'active'] PASS search q=head matches=18 STDERR: Traceback (most recent call last): File \"/home/runner/work/_temp/deepseek-ab/on/ws/verify.py\", line 59, in <module> slug = cats[0][\"slug\"] ~~~~^^^ KeyError: 0 Exit code: 1"
+    },
+    {
+      "sequence": 29,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 19,
+      "result_summary": "result received (4896 chars; content omitted)"
+    },
+    {
+      "sequence": 30,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 43,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 31,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 10,
+      "result_summary": "result received (1650 chars; content omitted)"
+    },
+    {
+      "sequence": 32,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 44,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 33,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 24,
+      "result_summary": "result received (3708 chars; content omitted)"
+    },
+    {
+      "sequence": 34,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 23,
+      "result_summary": "result received (1555 chars; content omitted)"
+    },
+    {
+      "sequence": 35,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 44,
+      "result_summary": "File written: verify.py (lines added: 103, removed: 113) Diff preview: #!/usr/bin/env python3 -\"\"\"End-to-end verification of the PulseCart API against a running server.\"\"\" +\"\"\"End-to-end verification of the PulseCart API against a running s"
+    },
+    {
+      "sequence": 36,
+      "tool": "stop_terminal",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "result received (40 chars; content omitted)"
+    },
+    {
+      "sequence": 37,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 4,
+      "result_summary": "db && (python3 app.py > /tmp/server.log 2>&1 &) && sleep 2 && python3 verify.py; echo \"EXIT=$?\" Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval."
+    },
+    {
+      "sequence": 38,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 34,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 39,
+      "tool": "start_terminal",
+      "status": "succeeded",
+      "duration_ms": 805,
+      "result_summary": "tool completed (204 chars; output omitted)"
+    },
+    {
+      "sequence": 40,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 124,
+      "result_summary": "s', 'low_stock', 'revenue'] PASS admin create product id=19 PASS admin update stock stock=42 PASS admin deactivate product status=200 PASS deactivated product hidden status=404 PASS frontend served len=26421 17 passed, 7 failed Exit code: 1"
+    },
+    {
+      "sequence": 41,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 45,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 42,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 12,
+      "result_summary": "result received (3085 chars; content omitted)"
+    },
+    {
+      "sequence": 43,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 49,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 44,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 10,
+      "result_summary": "result received (393 chars; content omitted)"
+    }
+  ],
+  "tool_outcomes_omitted": 12,
+  "tool_outcome_counts": {
+    "succeeded": 39,
+    "failed": 5
+  },
+  "timing_ms": {
+    "run_elapsed_ms": 200888,
+    "requests": {
+      "count": 38,
+      "total_ms": 189452,
+      "min_ms": 1494,
+      "p50_ms": 2442,
+      "p95_ms": 18082,
+      "max_ms": 71012
+    },
+    "tools": {
+      "count": 44,
+      "total_ms": 3183,
+      "min_ms": 4,
+      "p50_ms": 38,
+      "p95_ms": 199,
+      "max_ms": 808
+    }
+  },
+  "receipt_privacy": "tool arguments, prompts, commands, file bodies, and full results omitted"
+}

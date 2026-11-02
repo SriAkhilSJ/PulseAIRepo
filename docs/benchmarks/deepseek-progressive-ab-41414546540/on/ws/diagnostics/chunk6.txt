@@ -1,0 +1,66 @@
+197     def _send(self, status, payload):
+198         body = json.dumps(payload, default=str).encode()
+199         self.send_response(status)
+200         self.send_header("Content-Type", "application/json; charset=utf-8")
+201         self.send_header("Content-Length", str(len(body)))
+202         self.send_header("Access-Control-Allow-Origin", "*")
+203         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key")
+204         self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+205         self.end_headers()
+206         self.wfile.write(body)
+207 
+208     def _read_json(self):
+209         length = int(self.headers.get("Content-Length") or 0)
+210         if not length:
+211             return {}
+212         try:
+213             return json.loads(self.rfile.read(length) or b"{}")
+214         except json.JSONDecodeError:
+215             return {}
+216 
+217     def _cart_token(self):
+218         return self.headers.get("X-Cart-Token") or parse_qs(urlparse(self.path).query).get("cart", [None])[0]
+219 
+220     def _ensure_cart(self, conn, token):
+221         if not token:
+222             token = secrets.token_hex(16)
+223             conn.execute("INSERT INTO carts(token, created_at) VALUES (?, ?)",
+224                          (token, datetime.now(timezone.utc).isoformat()))
+225             conn.commit()
+226         else:
+227             if not conn.execute("SELECT 1 FROM carts WHERE token=?", (token,)).fetchone():
+228                 conn.execute("INSERT INTO carts(token, created_at) VALUES (?, ?)",
+229                              (token, datetime.now(timezone.utc).isoformat()))
+230                 conn.commit()
+231         return token
+232 
+233     def _is_admin(self):
+234         return self.headers.get("X-Admin-Key") == ADMIN_KEY
+235 
+236     def log_message(self, fmt, *args):
+237         pass  # keep the console clean
+238 
+239     # ---- static files ----
+240     def _serve_static(self, path):
+241         rel = "index.html" if path in ("/", "") else path.lstrip("/")
+242         safe = os.path.normpath(os.path.join(FRONTEND_DIR, rel))
+243         if not safe.startswith(FRONTEND_DIR) or not os.path.isfile(safe):
+244             safe = os.path.join(FRONTEND_DIR, "index.html")
+245         ctype = {
+246             ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
+247             ".svg": "image/svg+xml", ".json": "application/json",
+248         }.get(os.path.splitext(safe)[1], "application/octet-stream")
+249         with open(safe, "rb") as fh:
+250             body = fh.read()
+251         self.send_response(200)
+252         self.send_header("Content-Type", ctype)
+253         self.send_header("Content-Length", str(len(body)))
+254         self.end_headers()
+255         self.wfile.write(body)
+256 
+257     # ---- HTTP verbs ----
+258     def do_OPTIONS(self):
+259         self._send(204, {})
+260 
+261     def do_GET(self):
+262         parsed = urlparse(self.path)
