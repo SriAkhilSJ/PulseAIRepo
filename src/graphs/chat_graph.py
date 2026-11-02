@@ -2017,68 +2017,160 @@ def _is_autonomous_workspace(config: RunnableConfig) -> bool:
     return str(config.get("configurable", {}).get("approval_policy", "")).strip().lower() == "workspace_session"
 
 
-def _insert_system_prefix(messages: list, content: str) -> None:
-    """Insert runtime guidance before conversation history, never after user.
+def _insert_system_prefix(messages: list, content: str, volatile: bool = False) -> None:
+    """Insert runtime guidance into messages.
 
-    Sarvam receives an OpenAI-compatible role sequence. Appending SystemMessage
-    after HumanMessage made the highest-priority delivery instruction a trailing
-    role that some adapters/models handle inconsistently. Hermes assembles its
-    stable/context/volatile system prefix before conversation messages.
+    If volatile=False (default):
+        inserted before conversation history among system messages (for stable/invariant prefixes).
+    If volatile=True:
+        tagged as volatile runtime guidance, which _fuse_system_head will place in the
+        volatile tail rather than mutating the stable system prefix.
     """
     index = next(
         (i for i, message in enumerate(messages) if getattr(message, "type", "") != "system"),
         len(messages),
     )
-    messages.insert(index, SystemMessage(content=content))
+    msg = SystemMessage(content=content)
+    if volatile:
+        msg.response_metadata = {"volatile": True}
+        msg.additional_kwargs = {"volatile": True}
+    messages.insert(index, msg)
 
 
 def _fuse_system_head(messages: list) -> list:
-    """Hermes request shape (run_agent.py:2657): ONE system message, then the
-    conversation. Runtime prefixes (mode banner, CopilotKit context, safety
-    guard, terminal platform, grace nudge) are inserted as separate
-    SystemMessages for assembly clarity, and nodes append guidance blocks into
-    the transcript (the tool cycle's progress reflection, out-of-band steers);
-    before the provider call EVERY system block folds into the head in
-    original order, so the request leaves as a single system + history —
-    exactly hermes' `effective_system`, recomposed per call. Exact-duplicate
-    texts collapse: the tool cycle re-appends the same reflection prompt every
-    batch, and folding N copies would bloat the head with repeats.
-    CRUSORAI_CONTEXT_MULTI_SYSTEM=1 (read per call) keeps the legacy
-    multi-system request.
+    """Hermes request shape with stable prompt-prefix stabilization.
+
+    Separates prompt content into two logical regions:
+    1. STABLE PREFIX (messages[0]):
+       Invariant base instructions, agent persona, stable coding conventions,
+       invariant terminal platform, invariant safety rules, and stable context layers.
+       Remains 100% byte-identical across turns to maximize prompt-cache hits.
+    2. VOLATILE CONTEXT (tail message, after conversation history):
+       Current execution phase, dynamic steering, CopilotKit workspace context,
+       pre-delivery warnings, active todos, iteration budget checkpoints, and
+       volatile context layers.
+
+    CRUSORAI_CONTEXT_MULTI_SYSTEM=1: bypasses fusion completely (multi-system request).
+    CRUSORAI_FUSE_VOLATILE_SYSTEM=1: legacy full-fusion (folds all system blocks into head).
     """
     if os.environ.get(
         "CRUSORAI_CONTEXT_MULTI_SYSTEM", ""
     ).strip().lower() in {"1", "true", "yes", "on"}:
         return messages
+    if not messages:
+        return messages
+
+    # Legacy full-fusion fallback
+    if os.environ.get(
+        "CRUSORAI_FUSE_VOLATILE_SYSTEM", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        head = messages[0] if messages else None
+        if head is None or getattr(head, "type", "") != "system":
+            return messages
+        texts: list[str] = []
+        seen: set[str] = set()
+        fused = 0
+        rest: list = []
+        for m in messages:
+            if getattr(m, "type", "") == "system":
+                text = str(getattr(m, "content", "") or "")
+                if text.strip() and text not in seen:
+                    texts.append(text)
+                    seen.add(text)
+                fused += 1
+            else:
+                rest.append(m)
+        if fused == 1:
+            return messages
+        merged = SystemMessage(content="\n\n".join(t for t in texts if t.strip()))
+        merged.additional_kwargs = dict(getattr(head, "additional_kwargs", {}) or {})
+        merged.response_metadata = {
+            **dict(getattr(head, "response_metadata", {}) or {}),
+            "fused_system_blocks": fused,
+        }
+        return [merged, *rest]
+
     head = messages[0] if messages else None
     if head is None or getattr(head, "type", "") != "system":
         return messages
-    texts: list[str] = []
-    seen: set[str] = set()
-    fused = 0
+
+    stable_texts: list[str] = []
+    seen_stable: set[str] = set()
+    volatile_texts: list[str] = []
+    seen_volatile: set[str] = set()
     rest: list = []
+    fused_stable_count = 0
+    fused_volatile_count = 0
+
+    _VOLATILE_PREFIXES = (
+        "=== RUNTIME EXECUTION PHASE:",
+        "=== CRUSOR WORKSPACE CONTEXT",
+        "=== CRUSOR CONTEXT MISSING",
+        "=== PRE-DELIVERY NO-PROGRESS WARNING",
+        "=== ITERATION BUDGET CHECKPOINT",
+        "=== DYNAMIC RUNTIME CONTEXT ===",
+        "=== ACTIVE TASK LIST",
+        "Active Tasks / Todos",
+        "=== ACTIVE TODO",
+    )
+
     for m in messages:
         if getattr(m, "type", "") == "system":
             text = str(getattr(m, "content", "") or "")
-            if text.strip() and text not in seen:
-                texts.append(text)
-                seen.add(text)
-            fused += 1
+            stripped = text.strip()
+            if not stripped:
+                continue
+
+            resp_meta = getattr(m, "response_metadata", {}) or {}
+            add_kw = getattr(m, "additional_kwargs", {}) or {}
+            is_vol = (
+                resp_meta.get("volatile") is True
+                or add_kw.get("volatile") is True
+                or any(stripped.startswith(prefix) for prefix in _VOLATILE_PREFIXES)
+            )
+
+            if is_vol:
+                if stripped not in seen_volatile:
+                    volatile_texts.append(stripped)
+                    seen_volatile.add(stripped)
+                fused_volatile_count += 1
+            else:
+                if stripped not in seen_stable:
+                    stable_texts.append(stripped)
+                    seen_stable.add(stripped)
+                fused_stable_count += 1
         else:
             rest.append(m)
-    if fused == 1:
-        return messages
-    merged = SystemMessage(content="\n\n".join(t for t in texts if t.strip()))
-    merged.additional_kwargs = dict(
-        getattr(head, "additional_kwargs", {}) or {}
-    )
-    # Provenance: the engine's layer names ride along untouched; the runtime
-    # prefixes are not engine layers, so they only announce their count.
-    merged.response_metadata = {
+
+    # Build stable head
+    if not stable_texts and head:
+        head_text = str(getattr(head, "content", "") or "").strip()
+        if head_text:
+            stable_texts.append(head_text)
+            seen_stable.add(head_text)
+
+    stable_merged = SystemMessage(content="\n\n".join(t for t in stable_texts if t.strip()))
+    stable_merged.additional_kwargs = dict(getattr(head, "additional_kwargs", {}) or {})
+    stable_merged.response_metadata = {
         **dict(getattr(head, "response_metadata", {}) or {}),
-        "fused_system_blocks": fused,
+        "fused_system_blocks": max(1, fused_stable_count),
+        "prompt_cache_region": "stable_prefix",
     }
-    return [merged, *rest]
+
+    result = [stable_merged, *rest]
+
+    # Append volatile tail after conversation history
+    if volatile_texts:
+        volatile_merged = SystemMessage(content="\n\n".join(t for t in volatile_texts if t.strip()))
+        volatile_merged.additional_kwargs = {"volatile": True}
+        volatile_merged.response_metadata = {
+            "volatile": True,
+            "fused_volatile_blocks": fused_volatile_count,
+            "prompt_cache_region": "volatile_tail",
+        }
+        result.append(volatile_merged)
+
+    return result
 
 
 def _inject_steers_after_newest_tool_result(
@@ -2246,6 +2338,7 @@ def ai_node(
             messages,
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
             + phase_guidance,
+            volatile=True,
         )
 
     # --- CopilotKit app context (agent-app-context) + refusal guard ---
@@ -2262,12 +2355,14 @@ def ai_node(
             "=== CRUSOR WORKSPACE CONTEXT (shared via useAgentContext) ===\n"
             + str(_crusor_ctx)[:4000]
             + "\n\nUse this context to answer. If the user asks about an entity not in this context, refuse and name what is missing instead of inventing.",
+            volatile=True,
         )
     else:
         _insert_system_prefix(
             messages,
             "=== CRUSOR CONTEXT MISSING ===\n"
             "No Crusor workspace context was shared via useAgentContext. If the user asks about files, tasks, or workspace entities, you must refuse to answer about entities the shared context does not carry, and name what is missing instead of inventing plausible entities. Ask the frontend to share context.",
+            volatile=True,
         )
     # Guard unattended side effects: remind model to use clarify for destructive actions
     _insert_system_prefix(
@@ -2308,6 +2403,7 @@ def ai_node(
             "next response must create the smallest complete baseline with "
             "write_file (batch independent files). Do not verify an empty "
             "workspace.",
+            volatile=True,
         )
     # hermes turn_iteration_prep.py::_maybe_inject_iteration_budget_warning
     # (field 2026-09-16 audit): the hard wall gets a SOFT checkpoint first.
@@ -2339,6 +2435,7 @@ def ai_node(
                 f"You have used {iteration_used} of {_iteration_budget()} "
                 "iterations. Checkpoint durable progress now, then continue "
                 "the task; do not stop solely because of this warning.",
+                volatile=True,
             )
 
     steers = turn_controls.drain_steer(session_id)
@@ -2465,7 +2562,10 @@ def ai_node(
     _sid_for_todos = str(session_id or "default")
     _todo_block = inject_active_todos(_sid_for_todos)
     if _todo_block:
-        messages.append(SystemMessage(content=_todo_block))
+        _todo_msg = SystemMessage(content=_todo_block)
+        _todo_msg.response_metadata = {"volatile": True}
+        _todo_msg.additional_kwargs = {"volatile": True}
+        messages.append(_todo_msg)
 
     # Hermes request shape: exactly one system message leaves the door (see
     # _fuse_system_head). The anatomy log below then reports the TRUE request.
@@ -4549,6 +4649,7 @@ def _invoke_with_token_pump(
             input_tokens=_usage.get("input_tokens"),
             output_tokens=_usage.get("output_tokens"),
             total_tokens=_usage.get("total_tokens"),
+            cached_tokens=_usage.get("cached_tokens"),
             reasoning_chars=int(_usage.get("reasoning_chars") or 0),
             streamed=pump.streamed,
             provider_cost=_usage.get("reported_cost"),

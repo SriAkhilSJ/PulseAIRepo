@@ -16,21 +16,107 @@ from typing import Any, Dict, List
 
 from src.context.prompt_cache_boundary import find_stable_prefix
 
-_DEFAULT_CACHEABLE_PROVIDERS = frozenset({"openai","groq","gemini"})
+_DEFAULT_CACHEABLE_PROVIDERS = frozenset({"openai", "anthropic", "gemini", "groq", "deepseek"})
 _CACHE_BREAKPOINTS = 4
 _TTL = "5m"
-ALIBABA_FAMILY_PROVIDERS = frozenset({"opencode","opencode-zen","opencode-go","alibaba"})
+ALIBABA_FAMILY_PROVIDERS = frozenset({"opencode", "opencode-zen", "opencode-go", "alibaba"})
+
+
+def minimum_prefix_tokens(provider: str | None, model: str | None = None) -> int:
+    """Return the minimum token threshold required for prompt caching."""
+    prov = (provider or "").strip().lower()
+    if prov == "gemini":
+        return 32768
+    return 1024
+
+
+def is_explicit_cache_route(
+    provider: str | None,
+    native_anthropic: bool = False,
+    explicit_markers: bool | None = None,
+    static_system_prefix: str | None = None,
+) -> bool:
+    """Whether this route uses Anthropic explicit breakpoint markers."""
+    if explicit_markers is not None:
+        return bool(explicit_markers)
+    if os.environ.get("CRUSORAI_PROMPT_CACHE_FORCE_EXPLICIT", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    if native_anthropic:
+        return True
+    prov = (provider or "").strip().lower()
+    if prov == "anthropic":
+        return True
+    if static_system_prefix is not None:
+        return True
+    return False
+
+
+def is_provider_cache_supported(
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+) -> bool:
+    """Check whether a provider/model combination supports prompt caching."""
+    val = os.environ.get("CRUSORAI_PROMPT_CACHE", "1").strip().lower()
+    if val in ("0", "false", "no", "off"):
+        return False
+    prov = (provider or "").strip().lower()
+    if prov in _DEFAULT_CACHEABLE_PROVIDERS:
+        prov_var = f"CRUSORAI_PROMPT_CACHE_{prov.upper().replace('-', '_')}"
+        if os.environ.get(prov_var, "").strip().lower() in ("0", "false", "no", "off"):
+            return False
+        return True
+    if prov in {"custom", "litellm", "openai-compatible", "nvidia", "cheap", "vllm", "openrouter", "sarvam"}:
+        allow = os.environ.get("CRUSORAI_PROMPT_CACHE_CUSTOM", "").strip().lower()
+        if allow in ("1", "true", "yes", "on"):
+            return True
+        if base_url:
+            lowered = base_url.lower()
+            if any(h in lowered for h in ("openrouter.ai", "api.deepseek.com", "vllm", "localhost:4000")):
+                return True
+        return False
+    return _cache_enabled(provider, model)
+
+
+def _estimate_prefix_tokens(messages: list) -> int:
+    """Fast estimation of prefix tokens for threshold checking."""
+    if not messages:
+        return 0
+    first = messages[0]
+    content = ""
+    if isinstance(first, dict):
+        c = first.get("content", "")
+        if isinstance(c, str):
+            content = c
+        elif isinstance(c, list):
+            content = " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
+    else:
+        c = getattr(first, "content", "")
+        if isinstance(c, str):
+            content = c
+        elif isinstance(c, list):
+            content = " ".join(str(p) for p in c)
+    return max(1, len(content) // 4)
+
 
 def _cache_enabled(provider: str | None = None, model: str | None = None) -> bool:
-    val = os.environ.get("CRUSORAI_PROMPT_CACHE", "").strip().lower()
-    if val not in ("1", "true", "yes", "on"):
+    val = os.environ.get("CRUSORAI_PROMPT_CACHE", "1").strip().lower()
+    if val in ("0", "false", "no", "off"):
         return False
-    if provider and provider.strip().lower() in _DEFAULT_CACHEABLE_PROVIDERS:
-        return True
-    if provider and provider.strip().lower() == "custom":
-        allow = os.environ.get("CRUSORAI_PROMPT_CACHE_CUSTOM", "").strip().lower()
-        return allow in ("1", "true", "yes", "on")
-    return False
+    if provider:
+        norm_prov = provider.strip().lower()
+        prov_var = f"CRUSORAI_PROMPT_CACHE_{norm_prov.upper().replace('-', '_')}"
+        prov_val = os.environ.get(prov_var, "").strip().lower()
+        if prov_val in ("0", "false", "no", "off"):
+            return False
+        if prov_val in ("1", "true", "yes", "on"):
+            return True
+        if norm_prov in _DEFAULT_CACHEABLE_PROVIDERS:
+            return True
+        if norm_prov in {"custom", "litellm", "openai-compatible", "nvidia", "cheap", "vllm", "openrouter", "sarvam"}:
+            allow = os.environ.get("CRUSORAI_PROMPT_CACHE_CUSTOM", "").strip().lower()
+            return allow in ("1", "true", "yes", "on")
+    return True
 
 #: Routes whose OpenAI→Anthropic translation copies content parts verbatim
 #: (LiteLLM et al. — and any generic ``custom`` OpenAI-compatible endpoint,
@@ -351,20 +437,71 @@ def strip_cache_control(messages: list) -> tuple[list, int]:
         return out, stripped
     return messages, stripped
 
-def build_prompt_cache_plan(messages: list, provider: str | None = None, model: str | None = None, *, static_system_prefix: str | None = None, tools: List[Dict[str, Any]] | None = None, cache_ttl: str | None = "5m", native_anthropic: bool = False, direct_native_tool_cache: bool = False, base_url: str | None = None, tool_part_markers: bool | None = None) -> tuple[list, dict[str, Any]]:
-    """Place the 4 cache breakpoints on this request.
+def build_prompt_cache_plan(
+    messages: list,
+    provider: str | None = None,
+    model: str | None = None,
+    *,
+    static_system_prefix: str | None = None,
+    tools: List[Dict[str, Any]] | None = None,
+    cache_ttl: str | None = "5m",
+    native_anthropic: bool = False,
+    direct_native_tool_cache: bool = False,
+    base_url: str | None = None,
+    tool_part_markers: bool | None = None,
+    explicit_markers: bool | None = None,
+) -> tuple[list, dict[str, Any]]:
+    """Place the 4 cache breakpoints on this request or prepare implicit prefix.
 
-    ``tool_part_markers=None`` derives the flag from the route
-    (:func:`envelope_tool_part_cache_markers_supported`); pass it explicitly to
-    override. Markers never exceed 4 and never land on a carrier the provider
-    ignores.
+    - For Anthropic (explicit markers route): places up to 4 breakpoints.
+    - For OpenAI/Groq/Gemini/DeepSeek (implicit caching route): returns clean
+      messages without raw cache_control markers, guaranteeing zero 400 Bad Request
+      errors while verifying minimum prefix size.
     """
     if tool_part_markers is None:
         tool_part_markers = envelope_tool_part_cache_markers_supported(provider, base_url)
     if not isinstance(messages, list) or not messages:
         return messages, {"enabled": False, "markers": 0, "reason": "empty"}
     if not _cache_enabled(provider, model):
-        return messages, {"enabled": False, "markers": 0, "reason": "opt-in"}
+        return messages, {"enabled": False, "markers": 0, "reason": "disabled"}
+
+    explicit = is_explicit_cache_route(
+        provider,
+        native_anthropic=native_anthropic,
+        explicit_markers=explicit_markers,
+        static_system_prefix=static_system_prefix,
+    )
+
+    if not explicit:
+        min_tokens = minimum_prefix_tokens(provider, model)
+        prefix_tokens = _estimate_prefix_tokens(messages)
+        eligible = prefix_tokens >= min_tokens
+
+        if messages and isinstance(messages[0], dict) and "role" in messages[0]:
+            clean_msgs = copy.deepcopy(messages or [])
+            strip_anthropic_cache_control_dict(clean_msgs)
+            clean_tools = strip_anthropic_tool_cache_control_dict(tools) if tools else []
+        else:
+            clean_msgs, _ = strip_cache_control(list(messages))
+            clean_tools = strip_anthropic_tool_cache_control_dict(tools) if tools else []
+
+        plan_info = {
+            "enabled": True,
+            "markers": 0,
+            "caching_mode": "implicit_prefix",
+            "provider": provider or "unknown",
+            "model": model or "unknown",
+            "reason": "implicit_prefix" if eligible else f"prefix_below_minimum_{min_tokens}",
+            "prefix_tokens": prefix_tokens,
+            "min_prefix_tokens": min_tokens,
+            "prefix_eligible": eligible,
+            "tools": clean_tools,
+        }
+        if os.environ.get("CRUSORAI_PROMPT_CACHE_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"):
+            print(f"[PromptCache] provider={provider} mode=implicit_prefix prefix_tokens={prefix_tokens} min={min_tokens} eligible={eligible}")
+        return clean_msgs, plan_info
+
+    # Explicit 4-breakpoint path (Anthropic)
     if messages and isinstance(messages[0], dict) and "role" in messages[0]:
         ttl = effective_cache_ttl(cache_ttl or "5m", model=model or "", provider=provider or "")
         marker = _build_marker(ttl)
@@ -380,7 +517,7 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
             for idx in non_sys[-remaining:]:
                 _apply_cache_marker_dict(msgs[idx], marker, native_anthropic=native_anthropic, tool_part_markers=tool_part_markers)
             mcount = _count_cache_markers(msgs, planned_tools)
-            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
+            return msgs, {"enabled": True, "markers": mcount, "caching_mode": "explicit", "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
         else:
             if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system":
                 _apply_system_cache_markers_dict(msgs[0], marker, static_system_prefix, native_anthropic=True, mark_suffix=False, fallback_to_whole=False)
@@ -388,7 +525,7 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
             for ep in _completed_transaction_endpoint_indexes_dict(msgs, native_anthropic=True)[-2:]:
                 _apply_cache_marker_dict(msgs[ep], marker, native_anthropic=True)
             mcount = _count_cache_markers(msgs, planned_tools)
-            return msgs, {"enabled": True, "markers": mcount, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
+            return msgs, {"enabled": True, "markers": mcount, "caching_mode": "explicit", "reason": "applied", "hit_rate_hint": None, "tools": planned_tools, "tool_part_markers": tool_part_markers}
     ttl = effective_cache_ttl(cache_ttl or "5m", model=model or "", provider=provider or "")
     marker = _build_marker(ttl)
     stripped_msgs, _ = strip_cache_control(list(messages))
@@ -412,7 +549,7 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
             if new is not None:
                 msgs[idx] = new
         marked = sum(1 for m in msgs if (getattr(m, "additional_kwargs", None) or {}).get("cache_control")) + sum(1 for t in planned_tools if "cache_control" in t)
-        return msgs, {"enabled": True, "markers": marked, "reason": "applied", "hit_rate_hint": None, "tools": planned_tools}
+        return msgs, {"enabled": True, "markers": marked, "caching_mode": "explicit", "reason": "applied", "hit_rate_hint": None, "tools": planned_tools}
     breakpoints_used = 0
     if msgs and type(msgs[0]).__name__ == "SystemMessage":
         content = getattr(msgs[0], "content", "")
@@ -441,8 +578,8 @@ def build_prompt_cache_plan(messages: list, provider: str | None = None, model: 
     marked = sum(1 for m in msgs if (getattr(m, "additional_kwargs", None) or {}).get("cache_control"))
     marked += sum(1 for t in planned_tools if "cache_control" in t)
     if marked == 0:
-        return messages, {"enabled": True, "markers": 0, "reason": "no_carryable", "hit_rate_hint": None}
-    return msgs, {"enabled": True, "markers": marked, "reason": "applied", "hit_rate_hint": None}
+        return messages, {"enabled": True, "markers": 0, "caching_mode": "explicit", "reason": "no_carryable", "hit_rate_hint": None}
+    return msgs, {"enabled": True, "markers": marked, "caching_mode": "explicit", "reason": "applied", "hit_rate_hint": None}
 
 
 class PromptCachePlan:

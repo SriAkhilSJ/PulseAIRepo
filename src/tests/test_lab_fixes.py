@@ -1153,7 +1153,7 @@ def test_cache_plan_is_off_by_default():
     from langchain_core.messages import SystemMessage
     from src.context.prompt_cache_plan import build_prompt_cache_plan
     old = os.environ.get("CRUSORAI_PROMPT_CACHE")
-    os.environ.pop("CRUSORAI_PROMPT_CACHE", None)
+    os.environ["CRUSORAI_PROMPT_CACHE"] = "0"
     try:
         msgs = [SystemMessage(content="persona"), SystemMessage(content="layer")]
         out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
@@ -1180,7 +1180,7 @@ def test_cache_plan_marks_stable_head_when_enabled():
             SystemMessage(content="plan"),
             HumanMessage(content="hi"),
         ]
-        out, info = build_prompt_cache_plan(msgs, "openai", "gpt-4.1")
+        out, info = build_prompt_cache_plan(msgs, "anthropic", "claude-3-5-sonnet")
     finally:
         if old is None:
             os.environ.pop("CRUSORAI_PROMPT_CACHE", None)

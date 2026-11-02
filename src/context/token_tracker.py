@@ -242,7 +242,13 @@ class TokenTracker:
                 resp_meta = getattr(response, "response_metadata", {}) or {}
                 usage_dict = resp_meta.get("token_usage") or resp_meta.get("usage") or {}
                 raw = usage_dict.get("prompt_tokens_details") or {}
-                cached = int(raw.get("cached_tokens") or usage_dict.get("cache_read_input_tokens") or 0)
+                cached = int(
+                    raw.get("cached_tokens")
+                    or usage_dict.get("cache_read_input_tokens")
+                    or usage_dict.get("cached_content_token_count")
+                    or resp_meta.get("cached_content_token_count")
+                    or 0
+                )
             except (TypeError, ValueError):
                 cached = 0
 

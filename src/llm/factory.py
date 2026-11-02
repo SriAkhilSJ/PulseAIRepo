@@ -321,8 +321,13 @@ def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | 
     """Normalize bounded token counters from LangChain/provider metadata."""
     usage = getattr(response, "usage_metadata", None)
     usage = usage if isinstance(usage, dict) else {}
-    provider_usage = metadata.get("token_usage")
+    resp_metadata = getattr(response, "response_metadata", None)
+    resp_metadata = resp_metadata if isinstance(resp_metadata, dict) else {}
+    combined_metadata = {**resp_metadata, **(metadata if isinstance(metadata, dict) else {})}
+    provider_usage = combined_metadata.get("token_usage")
     provider_usage = provider_usage if isinstance(provider_usage, dict) else {}
+    additional = getattr(response, "additional_kwargs", None)
+    additional = additional if isinstance(additional, dict) else {}
 
     def value(*names: str) -> int | None:
         for source in (usage, provider_usage):
@@ -330,6 +335,45 @@ def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | 
                 candidate = source.get(name)
                 if isinstance(candidate, int) and not isinstance(candidate, bool):
                     return max(0, candidate)
+        return None
+
+    def cached_tokens_value() -> int | None:
+        for source in (usage, provider_usage):
+            details = source.get("input_token_details")
+            if isinstance(details, dict):
+                c = details.get("cache_read") or details.get("cached_tokens")
+                if isinstance(c, int) and not isinstance(c, bool):
+                    return max(0, c)
+            prompt_details = source.get("prompt_tokens_details")
+            if isinstance(prompt_details, dict):
+                c = prompt_details.get("cached_tokens")
+                if isinstance(c, int) and not isinstance(c, bool):
+                    return max(0, c)
+
+        raw_prompt_details = additional.get("prompt_tokens_details")
+        if isinstance(raw_prompt_details, dict):
+            c = raw_prompt_details.get("cached_tokens")
+            if isinstance(c, int) and not isinstance(c, bool):
+                return max(0, c)
+
+        for source in (usage, provider_usage, metadata, additional):
+            if isinstance(source, dict):
+                c = source.get("cache_read_input_tokens")
+                if isinstance(c, int) and not isinstance(c, bool):
+                    return max(0, c)
+
+        for source in (usage, provider_usage, metadata, resp_metadata, additional):
+            if isinstance(source, dict):
+                c = source.get("cached_content_token_count")
+                if isinstance(c, int) and not isinstance(c, bool):
+                    return max(0, c)
+
+        for source in (usage, provider_usage, metadata, additional):
+            if isinstance(source, dict):
+                c = source.get("cached_tokens")
+                if isinstance(c, int) and not isinstance(c, bool):
+                    return max(0, c)
+
         return None
 
     def reported_cost() -> float | None:
@@ -346,6 +390,7 @@ def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | 
         "input_tokens": value("input_tokens", "prompt_tokens"),
         "output_tokens": value("output_tokens", "completion_tokens"),
         "total_tokens": value("total_tokens"),
+        "cached_tokens": cached_tokens_value(),
         "reported_cost": reported_cost(),
     }
 
@@ -446,11 +491,26 @@ class RetryLLMProxy:
         llm: Any,
         max_attempts: int = 5,
         *,
+        provider: str | None = None,
         _abort_state: _AbortState | None = None,
     ):
         self._llm = llm
         self._max_attempts = max_attempts
         self._abort_state = _abort_state or _AbortState(llm)
+        self.provider = provider
+        if self.provider is None:
+            prov_attr = getattr(llm, "provider", None) or getattr(llm, "_provider", None)
+            if prov_attr and isinstance(prov_attr, str):
+                self.provider = prov_attr
+            else:
+                cls_name = type(llm).__name__.lower()
+                self.provider = (
+                    "gemini" if "google" in cls_name
+                    else "groq" if "groq" in cls_name
+                    else "anthropic" if "anthropic" in cls_name
+                    else "openai" if "openai" in cls_name
+                    else cls_name
+                )
         # Birth-heal: ai_node builds a fresh proxy per model call, so a proxy
         # can be born onto langchain-openai's poisoned process-global httpx
         # cache after another turn's abort. Heal now (no-op when healthy or
@@ -619,15 +679,21 @@ class RetryLLMProxy:
             # ------------------------------------------------------------------
             if isinstance(messages_arg, list):
                 cls = type(self._llm).__name__.lower()
-                provider = (
+                provider = self.provider or (
                     "gemini" if "google" in cls
                     else "groq" if "groq" in cls
+                    else "anthropic" if "anthropic" in cls
                     else "custom" if "openai" in cls  # includes the base_url custom route
                     else cls
                 )
                 try:
                     from src.context.prompt_cache_plan import build_prompt_cache_plan
-                    planned, _info = build_prompt_cache_plan(messages_arg, provider, self.model)
+                    planned, _info = build_prompt_cache_plan(
+                        messages_arg,
+                        provider=provider,
+                        model=self.model,
+                        base_url=getattr(self._llm, "base_url", None),
+                    )
                     if planned is not messages_arg:
                         if args:
                             args = (planned,) + args[1:]
@@ -1154,7 +1220,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             max_retries=0,  # hermes #54465: hidden SDK retries multiply wall time; RetryLLMProxy owns the policy
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="groq") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="groq")
 
     if provider == "gemini":
         llm = _provider_sdk("gemini", "langchain_google_genai", "ChatGoogleGenerativeAI", "langchain-google-genai")(
@@ -1165,7 +1231,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             max_retries=0,
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="gemini") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="gemini")
 
     if provider == "nvidia":
         llm = ChatOpenAI(
@@ -1178,7 +1244,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             max_retries=0,
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="nvidia") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="nvidia")
 
     if provider == "openai":
         llm = ChatOpenAI(
@@ -1190,7 +1256,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             max_retries=0,
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="openai") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="openai")
 
     if provider == "cheap":
         # Owner directive 2026-09-06: the low tier is a FULLY env-configured
@@ -1217,7 +1283,7 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="cheap") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="cheap")
 
     if provider == "custom":
         streaming = streaming_enabled(default=True)
@@ -1249,7 +1315,31 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
             default_headers=_http_default_headers() or None,
             **reasoning_kwargs,
         )
-        return RetryLLMProxy(llm) if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts)
+        return RetryLLMProxy(llm, provider="custom") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="custom")
+
+    if provider == "anthropic":
+        llm = _provider_sdk("anthropic", "langchain_anthropic", "ChatAnthropic", "langchain-anthropic")(
+            model=model,
+            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            timeout=request_timeout if request_timeout is not None else default_request_timeout(),
+            streaming=streaming_enabled(default=True),
+            max_retries=0,
+            **reasoning_kwargs,
+        )
+        return RetryLLMProxy(llm, provider="anthropic") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="anthropic")
+
+    if provider == "deepseek":
+        llm = ReasoningAwareOpenAI(
+            api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
+            base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            model=model,
+            request_timeout=request_timeout if request_timeout is not None else default_request_timeout(),
+            streaming=streaming_enabled(default=True),
+            stream_usage=True,
+            max_retries=0,
+            **reasoning_kwargs,
+        )
+        return RetryLLMProxy(llm, provider="deepseek") if max_attempts is None else RetryLLMProxy(llm, max_attempts=max_attempts, provider="deepseek")
 
     raise ValueError(f"Unknown provider: {provider}")
 
