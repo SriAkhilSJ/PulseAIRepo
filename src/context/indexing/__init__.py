@@ -1,5 +1,15 @@
 """Indexing subsystem for CrusorAI Context Engine."""
 
+from src.context.indexing.chunk_index import (
+    BODY_HARD_CAP_CHARS,
+    ChunkIndex,
+    ChunkResult,
+    _INDEX_CACHE,
+    _INDEX_CACHE_LOCK,
+    _related_files_lines,
+    build_relevant_chunks_layer,
+    get_index,
+)
 from src.context.indexing.file_watcher import (
     WATCH_BATCH_S,
     WATCH_POLL_S,
@@ -30,6 +40,15 @@ from src.context.indexing.index_sync import (
 )
 
 __all__ = [
+    # Chunk Index Facade & Layer
+    "BODY_HARD_CAP_CHARS",
+    "ChunkResult",
+    "ChunkIndex",
+    "get_index",
+    "build_relevant_chunks_layer",
+    "_related_files_lines",
+    "_INDEX_CACHE",
+    "_INDEX_CACHE_LOCK",
     # Storage
     "EMBED_DIM",
     "SCHEMA_USER_VERSION",
