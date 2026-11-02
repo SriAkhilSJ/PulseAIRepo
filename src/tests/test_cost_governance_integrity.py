@@ -169,7 +169,7 @@ def test_reservation_deterministic_lifecycle():
     # Case A: Successful reservation and reconciliation via record_call
     ok, res_id, _ = gov.reserve(sid, estimated_cost_inr=Decimal("5.00"), estimated_tokens=1000)
     assert ok and res_id is not None
-    assert gov.get_active_reservations_inr(sid) == Decimal("5.00")
+    assert gov._get_or_create_tracker(sid).total_reserved_inr() == Decimal("5.00")
 
     gov.record_call(
         sid, "p", "m", "standard",
@@ -177,30 +177,30 @@ def test_reservation_deterministic_lifecycle():
         reservation_id=res_id,
     )
     # Reservation must be gone
-    assert gov.get_active_reservations_inr(sid) == Decimal("0.00")
+    assert gov._get_or_create_tracker(sid).total_reserved_inr() == Decimal("0.00")
 
     # Case B: Context manager auto-release on exception
     try:
-        with gov.reservation(sid, estimated_cost_inr=Decimal("8.00"), estimated_tokens=2000) as ctx:
-            assert ctx.reserved
-            assert gov.get_active_reservations_inr(sid) == Decimal("8.00")
+        with gov.reservation_context(sid, estimated_cost_inr=Decimal("8.00"), estimated_tokens=2000) as ctx:
+            assert ctx.ok
+            assert gov._get_or_create_tracker(sid).total_reserved_inr() == Decimal("8.00")
             raise RuntimeError("LLM simulation failure")
     except RuntimeError:
         pass
 
     # Reservation must have been auto-released without leaking
-    assert gov.get_active_reservations_inr(sid) == Decimal("0.00")
+    assert gov._get_or_create_tracker(sid).total_reserved_inr() == Decimal("0.00")
 
     # Case C: Context manager reconciled in-body via record_call
-    with gov.reservation(sid, estimated_cost_inr=Decimal("4.00")) as ctx:
-        assert ctx.reserved
+    with gov.reservation_context(sid, estimated_cost_inr=Decimal("4.00")) as ctx:
+        assert ctx.ok
         gov.record_call(
             sid, "p", "m", "standard",
             TokenUsage(total_tokens=1000, estimated_cost_usd=0.01),
             reservation_id=ctx.reservation_id,
         )
-        ctx.reconcile()
-    assert gov.get_active_reservations_inr(sid) == Decimal("0.00")
+        ctx.mark_reconciled()
+    assert gov._get_or_create_tracker(sid).total_reserved_inr() == Decimal("0.00")
 
 
 # -----------------------------------------------------------------------------
