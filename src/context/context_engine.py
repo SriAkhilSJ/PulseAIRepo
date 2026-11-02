@@ -61,6 +61,7 @@ from src.context.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
 from src.context.micro_compaction import MicroCompactionMixin
 from src.context.compression_fence import CompressionCommitFence, try_acquire_compression_lock, release_compression_lock
+from src.context.core.context_builder import ContextBuilder
 from src.context.core.context_state import (
     HASHED_STATE_KEYS,
     ContextState,
@@ -583,6 +584,13 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # Frozen workspace snapshot — pin per thread_id + cwd for prompt-cache stability
         self._frozen_workspace_snapshot: Dict[str, str] = {}
         self._frozen_workspace_cwd: str = ""
+        self._builder = ContextBuilder(
+            model=self.model,
+            allow_embedding_compute=self._allow_embedding_compute,
+            volatile_tail=self._volatile_tail,
+            layer_relevance=self.LAYER_RELEVANCE,
+            volatile_layers=self.VOLATILE_LAYERS,
+        )
 
         # Set only here, at the end of construction: the background metadata probe reads this
         # before touching budget fields, and must not interleave with __init__'s own derived values.
@@ -1976,96 +1984,31 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # before that, per-turn token/execution noise busted it every turn.)
         current_hash = self._active_state_hash or self._hash_state(state)
 
-        autonomous = bool(state.get("_autonomous_workspace"))
-        autonomous_skip = {
-            "task", "tone", "quality", "ambiguity",
-            # Keep headless runs deterministic and network/startup inert. Old
-            # cross-session lessons and tool summaries must not contaminate a
-            # fresh workspace contract; successful completion may still write
-            # memory after the run.
-            "long_term_memory", "tool_memory", "memory_validation", "reflections",
-        }
-        if autonomous and not state.get("plan"):
-            autonomous_skip.add("plan")
-        # Gate the progress layer on exactly what `_progress_layer` renders
-        # (steps_completed / failed_steps). execution_trace is per-turn noise
-        # that no layer reads; gating on it would couple a skip decision to
-        # un-hashed churn without changing the layer's content.
-        if autonomous and not (
-            state.get("steps_completed") or state.get("failed_steps")
-        ):
-            autonomous_skip.add("progress")
-        if autonomous:
-            from pathlib import Path
-            workspace = Path(state.get("workspace", "."))
-            try:
-                empty_workspace = not any(path.is_file() for path in workspace.rglob("*"))
-            except OSError:
-                empty_workspace = False
-            if empty_workspace:
-                autonomous_skip.update({"repo_map", "relevant_chunks", "git_context", "conventions"})
+        def _set_active_budget(b):
+            self._active_budget = b
 
-        for name, builder in builders.items():
-            # Headless requests already carry the task as the HumanMessage.
-            # Interactive response-style layers told Sarvam to explain its
-            # reasoning, start with an overview, and ask questions—the direct
-            # opposite of the autonomous action contract. Hermes keeps such UI
-            # presentation policy out of its headless prompt.
-            if autonomous and name in autonomous_skip:
-                continue
-            relevance_map = self.LAYER_RELEVANCE.get(name, {})
-            score = relevance_map.get(task_type, 0.0)
-            if score < 0.15:
-                continue  # Skip low-value layers entirely
-
-            # Differential check: reuse cached layer if state deps haven't
-            # changed. VOLATILE layers (git_context) describe the world
-            # OUTSIDE the state dict — a commit or `git add` does not change
-            # the state hash — so they must rebuild every turn. Building one
-            # is a handful of fast local subprocess calls, well under 100ms.
-            cached = None if name in self.VOLATILE_LAYERS else self._layer_cache.get(name)
-            if cached and self._last_state_hash == current_hash:
-                layers.append(cached)
-                continue
-
-            # P1-fix: each file-walking layer gets its OWN slice of the shared
-            # pool (cap // n_walkers), so three walkers cannot each consume a
-            # fresh full allowance. Non-walking layers share the pool but
-            # never scan, so they never touch it.
-            if name in walkers:
-                self._active_budget = self._active_pool.share(n_walkers)
-            else:
-                self._active_budget = None
-
-            try:
-                msg = builder(state)
-                if msg:
-                    # IDENTITY TAG: the layer's name travels IN the message
-                    # (response_metadata is local-only — verified invisible
-                    # in provider payloads). Scoring/dedup/feedback must not
-                    # depend on string-sniffing a header line: one "=" short
-                    # and attribution silently degrades to "unknown".
-                    msg.response_metadata["layer"] = name
-                    layers.append(msg)
-                    if name not in self.VOLATILE_LAYERS:
-                        self._layer_cache[name] = msg
-            except Exception as exc:
-                # Never silent: a masked builder error hid the _quality_layer
-                # signature bug for months. Skip the layer, but say so.
-                print(f"[ContextEngine] layer '{name}' builder failed: {exc}")
-                continue
-
-        return layers
+        return self._builder.build_layers(
+            builders=builders,
+            state=state,
+            task_type=task_type,
+            layer_cache=self._layer_cache,
+            last_state_hash=self._last_state_hash,
+            current_hash=current_hash,
+            walkers=walkers,
+            active_pool=self._active_pool,
+            set_active_budget_cb=_set_active_budget,
+            layer_relevance=self.LAYER_RELEVANCE,
+            volatile_layers=self.VOLATILE_LAYERS,
+        )
 
     def _score_and_sort_layers(
         self, layers: list[SystemMessage], task: str, task_type: TaskType
     ) -> list[tuple[float, SystemMessage, int]]:
-        """P9: the scoring pipeline (task-type prior + optional semantic
-        similarity + recency) lives in layer_policy.score_and_sort_layers.
+        """P9: the scoring pipeline lives in ContextBuilder.
         The engine feeds it the LIVE per-instance relevance dict — feedback
         learning mutates it mid-session — and the current model, so a
         mid-session update_model is always seen."""
-        return layer_policy.score_and_sort_layers(
+        return self._builder.score_and_sort_layers(
             layers, task, task_type,
             model=self.model,
             allow_embedding_compute=self._allow_embedding_compute,
@@ -2073,16 +2016,15 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         )
 
     def _infer_layer_name(self, msg: SystemMessage) -> str:
-        """Metadata tag first, header-prefix chain as fallback — P9:
-        layer_policy.infer_layer_name."""
-        return layer_policy.infer_layer_name(msg)
+        """Metadata tag first, header-prefix chain as fallback."""
+        return self._builder.infer_layer_name(msg)
 
     def _deduplicate_layers(
         self, scored_layers: list[tuple[float, SystemMessage, int]]
     ) -> list[tuple[float, SystemMessage, int]]:
-        """P9: layer_policy.deduplicate_layers (semantic near-duplicate
+        """P9: ContextBuilder.deduplicate_layers (semantic near-duplicate
         removal, gated on the embedding policy)."""
-        return layer_policy.deduplicate_layers(
+        return self._builder.deduplicate_layers(
             scored_layers, self._allow_embedding_compute
         )
 
@@ -2091,31 +2033,28 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         context_messages: list[SystemMessage],
         trimmed_history: list,
     ) -> list:
-        """D23 placement (volatile block tails the whole prompt) — P9:
-        layer_policy.position_volatile_tail."""
-        return layer_policy.position_volatile_tail(
+        """D23 placement (volatile block tails the whole prompt)."""
+        return self._builder.position_volatile_tail(
             context_messages, trimmed_history, self._volatile_tail
         )
 
     def _emission_sort_key(self, msg: SystemMessage) -> tuple:
-        """D19 canonical placement — P9: layer_policy.emission_sort_key."""
-        return layer_policy.emission_sort_key(msg)
+        """D19 canonical placement."""
+        return self._builder.emission_sort_key(msg)
 
     def _assemble_hierarchical(
         self,
         scored_layers: list[tuple[float, SystemMessage, int]],
         budget: int,
     ) -> list[SystemMessage]:
-        """Score-driven fit + canonical emission order — P9:
-        layer_policy.assemble_hierarchical."""
-        return layer_policy.assemble_hierarchical(
+        """Score-driven fit + canonical emission order."""
+        return self._builder.assemble_hierarchical(
             scored_layers, budget, model=self.model
         )
 
     def _compress_layer(self, msg: SystemMessage, max_tokens: int) -> Optional[SystemMessage]:
-        """Compress a single layer to fit a token budget — P9:
-        layer_policy.compress_layer."""
-        return layer_policy.compress_layer(msg, max_tokens, model=self.model)
+        """Compress a single layer to fit a token budget."""
+        return self._builder.compress_layer(msg, max_tokens, model=self.model)
 
     def _reflection_layer(self, state: dict[str, Any]) -> SystemMessage | None:
         """Layer 13: Inject lessons learned from past reflections."""
@@ -2633,12 +2572,12 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
     @staticmethod
     def _planner_prompt(planner_prompt: str) -> str:
-        """P10: plan_messages.wrap_planner_prompt."""
-        return plan_messages.wrap_planner_prompt(planner_prompt)
+        """P10: ContextBuilder.wrap_planner_prompt."""
+        return ContextBuilder.wrap_planner_prompt(planner_prompt)
 
     def build_planner_messages(self, task: str, planner_prompt: str) -> list[BaseMessage]:
-        """P10: plan_messages.build_planner_messages (planner node)."""
-        return plan_messages.build_planner_messages(task, planner_prompt)
+        """P10: ContextBuilder.build_planner_messages (planner node)."""
+        return self._builder.build_planner_messages(task, planner_prompt)
 
     def build_reviser_messages(
         self,
@@ -2647,7 +2586,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         revision: str,
         planner_prompt: str,
     ) -> list[BaseMessage]:
-        """P10: plan_messages.build_reviser_messages (plan reviser node)."""
-        return plan_messages.build_reviser_messages(
+        """P10: ContextBuilder.build_reviser_messages (plan reviser node)."""
+        return self._builder.build_reviser_messages(
             task, plan, revision, planner_prompt
         )
