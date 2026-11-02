@@ -1,0 +1,6 @@
+=== workspace file list ===
+server.py
+=== python compilation ===
+compile_exit=0
+=== test files ===
+pytest: NOT RUN (no Python test files)

@@ -1,0 +1,466 @@
+{
+  "run_id": "continuous-glm-41396088687",
+  "session_id": "t5-bdb3930784",
+  "workspace": "/home/runner/work/_temp/continuous/ws",
+  "agent_iteration_budget": null,
+  "result": "turn_done",
+  "completed": false,
+  "status_contract": {
+    "run_outcome": "budget_exhausted",
+    "failure_reason": "budget_exhausted",
+    "verification_status": "failed",
+    "specification_status": "unknown",
+    "diagnostics": []
+  },
+  "run_outcome": "budget_exhausted",
+  "failure_reason": null,
+  "verification_status": "failed",
+  "error": null,
+  "reasoning_effort_requested": null,
+  "frame_counts": {
+    "hello": 1,
+    "session_info": 1,
+    "workspace.bound": 2,
+    "turn_started": 1,
+    "runtime_degraded": 1,
+    "llm.request": 55,
+    "llm.response": 55,
+    "telemetry": 56,
+    "tool_call_args": 637,
+    "tool_call_start": 55,
+    "tool_call_end": 58,
+    "token": 23,
+    "verification_updated": 7,
+    "tool_output": 2088,
+    "turn_done": 1
+  },
+  "llm_request_frames": 55,
+  "tokens_in_last_telemetry": 2449090,
+  "estimated_cost_last_telemetry": 0.3995625,
+  "token_budget": 2500000,
+  "token_budget_source": "--max-input-tokens",
+  "budget_stop": false,
+  "no_delivery_stop": false,
+  "operator_cancelled": false,
+  "safety_requests": 0,
+  "safety_approved": 0,
+  "safety_denied": 0,
+  "outcome_schema_version": 2,
+  "request_receipts": [
+    {
+      "sequence": 1,
+      "status": "succeeded",
+      "duration_ms": 44600
+    },
+    {
+      "sequence": 2,
+      "status": "succeeded",
+      "duration_ms": 47930
+    },
+    {
+      "sequence": 3,
+      "status": "succeeded",
+      "duration_ms": 16525
+    },
+    {
+      "sequence": 4,
+      "status": "succeeded",
+      "duration_ms": 4706
+    },
+    {
+      "sequence": 5,
+      "status": "succeeded",
+      "duration_ms": 7156
+    },
+    {
+      "sequence": 6,
+      "status": "succeeded",
+      "duration_ms": 8296
+    },
+    {
+      "sequence": 7,
+      "status": "succeeded",
+      "duration_ms": 10253
+    },
+    {
+      "sequence": 8,
+      "status": "succeeded",
+      "duration_ms": 2676
+    },
+    {
+      "sequence": 9,
+      "status": "succeeded",
+      "duration_ms": 3104
+    },
+    {
+      "sequence": 10,
+      "status": "succeeded",
+      "duration_ms": 3037
+    },
+    {
+      "sequence": 11,
+      "status": "succeeded",
+      "duration_ms": 10475
+    },
+    {
+      "sequence": 12,
+      "status": "succeeded",
+      "duration_ms": 2639
+    },
+    {
+      "sequence": 13,
+      "status": "succeeded",
+      "duration_ms": 3403
+    },
+    {
+      "sequence": 14,
+      "status": "succeeded",
+      "duration_ms": 3235
+    },
+    {
+      "sequence": 15,
+      "status": "succeeded",
+      "duration_ms": 2251
+    },
+    {
+      "sequence": 16,
+      "status": "succeeded",
+      "duration_ms": 2546
+    },
+    {
+      "sequence": 40,
+      "status": "succeeded",
+      "duration_ms": 19255
+    },
+    {
+      "sequence": 41,
+      "status": "succeeded",
+      "duration_ms": 18480
+    },
+    {
+      "sequence": 42,
+      "status": "succeeded",
+      "duration_ms": 14645
+    },
+    {
+      "sequence": 43,
+      "status": "succeeded",
+      "duration_ms": 14446
+    },
+    {
+      "sequence": 44,
+      "status": "succeeded",
+      "duration_ms": 15843
+    },
+    {
+      "sequence": 45,
+      "status": "succeeded",
+      "duration_ms": 30719
+    },
+    {
+      "sequence": 46,
+      "status": "succeeded",
+      "duration_ms": 43597
+    },
+    {
+      "sequence": 47,
+      "status": "succeeded",
+      "duration_ms": 34892
+    },
+    {
+      "sequence": 48,
+      "status": "succeeded",
+      "duration_ms": 2744
+    },
+    {
+      "sequence": 49,
+      "status": "succeeded",
+      "duration_ms": 3132
+    },
+    {
+      "sequence": 50,
+      "status": "succeeded",
+      "duration_ms": 2984
+    },
+    {
+      "sequence": 51,
+      "status": "succeeded",
+      "duration_ms": 3175
+    },
+    {
+      "sequence": 52,
+      "status": "succeeded",
+      "duration_ms": 2826
+    },
+    {
+      "sequence": 53,
+      "status": "succeeded",
+      "duration_ms": 2791
+    },
+    {
+      "sequence": 54,
+      "status": "succeeded",
+      "duration_ms": 2689
+    },
+    {
+      "sequence": 55,
+      "status": "succeeded",
+      "duration_ms": 3610
+    }
+  ],
+  "request_receipts_omitted": 23,
+  "request_outcome_counts": {
+    "succeeded": 55
+  },
+  "tool_outcomes": [
+    {
+      "sequence": 1,
+      "tool": "write_file",
+      "status": "failed",
+      "duration_ms": 11,
+      "result_summary": "❌ Write rejected: the result would not be valid Python (line 298): '(' was never closed. File not written — fix the syntax error and retry."
+    },
+    {
+      "sequence": 2,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 56,
+      "result_summary": "File written: server.py (lines added: 180, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\" +ShopNova — an Amazon-style ecommerce platform. + +Pure Python 3 standard library: http.server for the REST API + static hosting, +sqlite3 for"
+    },
+    {
+      "sequence": 3,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 28,
+      "result_summary": "✅ Edited server.py (lines added: 87, removed: 0) Diff preview: conn.close() +# ---------------------------------------------------------------- sessions + +def create_session(user_id): + token = secrets.token_hex(32) + conn = get_db() + try"
+    },
+    {
+      "sequence": 4,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 26,
+      "result_summary": "✅ Edited server.py (lines added: 103, removed: 0) Diff preview: } +# ---------------------------------------------------------------- handlers + +def api_register(body, user, params): + name = clean_str(body.get(\"name\"), \"Name\", 80) + email"
+    },
+    {
+      "sequence": 5,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 54,
+      "result_summary": "✅ Edited server.py (lines added: 132, removed: 0) Diff preview: return 200, {\"product\": product_dict(row)} +# ---------------------------------------------------------------- cart / orders + +def cart_rows(conn, user_id): + items = rows(con"
+    },
+    {
+      "sequence": 6,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "✅ Edited server.py (lines added: 181, removed: 0) Diff preview: return 200, {\"orders\": result} +# ---------------------------------------------------------------- routing + +def api_products(body, user, params): + q = (params.get(\"q\") or [\""
+    },
+    {
+      "sequence": 7,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "result received (27641 chars; content omitted)"
+    },
+    {
+      "sequence": 8,
+      "tool": "execute_code",
+      "status": "succeeded",
+      "duration_ms": 26,
+      "result_summary": "result received (179 chars; content omitted)"
+    },
+    {
+      "sequence": 9,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 0,
+      "result_summary": "result received (151 chars; content omitted)"
+    },
+    {
+      "sequence": 10,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 53,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 11,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 31,
+      "result_summary": "✅ Edited server.py (lines added: 134, removed: 1) Diff preview: return 200, {\"ok\": True} -# __APPEND__ +# ---------------------------------------------------------------- routing + +ROUTES = { + (\"POST\", \"/api/register\"): (api_register, Fal"
+    },
+    {
+      "sequence": 12,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 78,
+      "result_summary": " line 2, in <module> File \"/home/runner/work/_temp/continuous/ws/server.py\", line 688, in <module> (\"POST\", \"/api/logout\"): (api_logout, False), ^^^^^^^^^^ NameError: name 'api_logout' is not defined. Did you mean: 'api_login'? Exit code: 1"
+    },
+    {
+      "sequence": 13,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 14,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 36,
+      "result_summary": "305: raise ApiError(401, \"Incorrect email or password.\") 366: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 15,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "ror(404, \"Product not found.\") 438: raise ApiError(400, f\"Only {product['stock']} in stock.\") 455: raise ApiError(400, \"Your cart is empty.\") 468: raise ApiError(409, f\"'{it['title']}' is no longer available in that quantity.\") Exit code: 0"
+    },
+    {
+      "sequence": 16,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 35,
+      "result_summary": "r(400, \"Enter a valid email address.\") 276: raise ApiError(400, \"Password must be at least 6 characters.\") 281: raise ApiError(409, \"An account with this email already exists.\") 298: raise ApiError(400, \"Password is required.\") Exit code: 0"
+    },
+    {
+      "sequence": 43,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 38,
+      "result_summary": "409: raise ApiError(404, \"Product not found.\") 558: raise ApiError(403, \"Admin access required.\") 624: raise ApiError(403, \"Admin access required.\") Exit code: 0"
+    },
+    {
+      "sequence": 44,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 37,
+      "result_summary": "298: raise ApiError(400, \"Password is required.\") 305: raise ApiError(401, \"Incorrect email or password.\") 409: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 45,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 38,
+      "result_summary": "552: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 46,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 31,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 47,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 37,
+      "result_summary": "305: raise ApiError(401, \"Incorrect email or password.\") 558: raise ApiError(403, \"Admin access required.\") Exit code: 0"
+    },
+    {
+      "sequence": 48,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 37,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 49,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 68,
+      "result_summary": "305: raise ApiError(401, \"Incorrect email or password.\") Exit code: 0"
+    },
+    {
+      "sequence": 50,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 31,
+      "result_summary": "✅ Edited server.py (lines added: 0, removed: 48) Diff preview: return 200, {\"user\": user, \"cart_count\": cart_count} -def api_categories(user, params): - conn = get_db() - try: - cats = rows(conn.execute( - \"SELECT DISTINCT category FROM pro"
+    },
+    {
+      "sequence": 51,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 42,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 52,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "504: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 53,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 54,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 28,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 55,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "(403, \"Admin access required.\") 533: raise ApiError(403, \"Admin access required.\") 539: raise ApiError(404, \"Product not found.\") 560: raise ApiError(403, \"Admin access required.\") 566: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 56,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 30,
+      "result_summary": "510: raise ApiError(403, \"Admin access required.\") Exit code: 0"
+    },
+    {
+      "sequence": 57,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "533: raise ApiError(403, \"Admin access required.\") 539: raise ApiError(404, \"Product not found.\") Exit code: 0"
+    },
+    {
+      "sequence": 58,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 35,
+      "result_summary": "nd_json(500, {\"error\": f\"Internal error: {e}\"}) 715: return self.send_json(405, {\"error\": \"Method not allowed.\"}) 724: return self.send_json(403, {\"error\": \"Forbidden.\"}) 726: return self.send_json(404, {\"error\": \"Not found.\"}) Exit code: 0"
+    }
+  ],
+  "tool_outcomes_omitted": 26,
+  "tool_outcome_counts": {
+    "failed": 8,
+    "succeeded": 50
+  },
+  "timing_ms": {
+    "run_elapsed_ms": 490607,
+    "requests": {
+      "count": 55,
+      "total_ms": 479356,
+      "min_ms": 2251,
+      "p50_ms": 3175,
+      "p95_ms": 43597,
+      "max_ms": 47930
+    },
+    "tools": {
+      "count": 58,
+      "total_ms": 1862,
+      "min_ms": 0,
+      "p50_ms": 32,
+      "p95_ms": 61,
+      "max_ms": 78
+    }
+  },
+  "receipt_privacy": "tool arguments, prompts, commands, file bodies, and full results omitted"
+}
