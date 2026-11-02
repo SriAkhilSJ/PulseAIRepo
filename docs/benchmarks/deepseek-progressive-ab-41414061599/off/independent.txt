@@ -1,0 +1,15 @@
+=== files ===
+frontend/app.js
+frontend/index.html
+frontend/styles.css
+server.py
+store.db
+test_api.py
+=== python compilation ===
+compile_exit=0
+=== python tests ===
+
+no tests ran in 0.03s
+pytest_exit=5
+=== server import ===
+import_exit=0

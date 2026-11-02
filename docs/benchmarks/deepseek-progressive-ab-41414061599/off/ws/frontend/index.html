@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nova Market — Shop everything</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="logo" href="/" onclick="return Nova.goHome()">
+      <span class="logo-mark">N</span> Nova<span>Market</span>
+    </a>
+
+    <div class="search">
+      <input id="q" type="search" placeholder="Search products, brands and categories" autocomplete="off" />
+      <button class="btn primary" onclick="Nova.applyFilters()">Search</button>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="link-btn" id="adminToggle" onclick="Nova.toggleAdmin()">Admin Hub</button>
+      <button class="cart-btn" onclick="Nova.openCart()">
+        Cart <span class="badge" id="cartCount">0</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== STOREFRONT ===================== -->
+<main id="storefront" class="wrap">
+  <section class="hero">
+    <div>
+      <h1>Everything you need, delivered fast.</h1>
+      <p>Thousands of products across electronics, home, fitness and more — with free shipping over $50.</p>
+      <button class="btn primary lg" onclick="Nova.scrollToCatalog()">Start shopping</button>
+    </div>
+    <div class="hero-badge">★ 4.7 average from 60k+ reviews</div>
+  </section>
+
+  <section class="toolbar">
+    <div class="chips" id="categoryChips"></div>
+    <div class="toolbar-right">
+      <label class="stock-toggle">
+        <input type="checkbox" id="inStockOnly" onchange="Nova.applyFilters()" /> In stock only
+      </label>
+      <select id="sort" onchange="Nova.applyFilters()">
+        <option value="featured">Featured</option>
+        <option value="price_asc">Price: Low to High</option>
+        <option value="price_desc">Price: High to Low</option>
+        <option value="rating">Top rated</option>
+        <option value="newest">Newest</option>
+      </select>
+    </div>
+  </section>
+
+  <section id="catalog" class="grid" aria-live="polite"></section>
+  <p class="empty" id="emptyState" hidden>No products match your search.</p>
+</main>
+
+<!-- ===================== ADMIN HUB ===================== -->
+<main id="admin" class="wrap admin" hidden>
+  <div class="admin-head">
+    <h1>Admin Hub</h1>
+    <div class="token-row">
+      <input id="adminToken" type="password" placeholder="Admin token (default: nova-admin)" />
+      <button class="btn primary" onclick="Nova.saveToken()">Connect</button>
+      <span id="adminStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="admin-grid">
+    <form class="card" id="productForm" onsubmit="return Nova.saveProduct(event)">
+      <h3 id="formTitle">Add product</h3>
+      <input type="hidden" id="p_id" />
+      <label>Title<input id="p_title" required minlength="3" /></label>
+      <div class="row2">
+        <label>Brand<input id="p_brand" placeholder="Nova" /></label>
+        <label>Category<input id="p_category" required placeholder="Electronics" /></label>
+      </div>
+      <div class="row2">
+        <label>Price ($)<input id="p_price" type="number" step="0.01" min="0" required /></label>
+        <label>List price ($)<input id="p_list" type="number" step="0.01" min="0" /></label>
+      </div>
+      <label>Stock<input id="p_stock" type="number" min="0" value="0" required /></label>
+      <label>Image URL<input id="p_image" placeholder="https://… (auto if blank)" /></label>
+      <label>Description<textarea id="p_desc" rows="3"></textarea></label>
+      <div class="form-actions">
+        <button class="btn primary" type="submit" id="formSubmit">Save product</button>
+        <button class="btn ghost" type="button" onclick="Nova.resetForm()">Clear</button>
+      </div>
+    </form>
+
+    <div class="card table-card">
+      <h3>Inventory</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th></th></tr></thead>
+          <tbody id="adminTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>Orders</h3>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Ref</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th></tr></thead>
+        <tbody id="ordersTable"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- ===================== CART DRAWER ===================== -->
+<div class="overlay" id="cartOverlay" hidden onclick="Nova.closeCart(event)">
+  <aside class="drawer" onclick="event.stopPropagation()">
+    <div class="drawer-head">
+      <h2>Your Cart</h2>
+      <button class="link-btn" onclick="Nova.closeCart()">✕</button>
+    </div>
+    <div id="cartItems" class="cart-items"></div>
+    <div class="cart-summary" id="cartSummary"></div>
+    <form id="checkoutForm" class="checkout" onsubmit="return Nova.checkout(event)">
+      <h3>Checkout</h3>
+      <label>Full name<input id="c_name" required /></label>
+      <label>Email<input id="c_email" type="email" required /></label>
+      <label>Shipping address<textarea id="c_address" rows="2" required></textarea></label>
+      <button class="btn primary block" type="submit" id="placeOrder">Place order</button>
+      <p class="form-msg" id="checkoutMsg"></p>
+    </form>
+  </aside>
+</div>
+
+<!-- ===================== PRODUCT MODAL ===================== -->
+<div class="overlay center" id="productOverlay" hidden onclick="Nova.closeProduct(event)">
+  <div class="modal" id="productModal" onclick="event.stopPropagation()"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

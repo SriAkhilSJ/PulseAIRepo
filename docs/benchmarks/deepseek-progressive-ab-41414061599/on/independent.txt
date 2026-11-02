@@ -1,0 +1,7 @@
+=== files ===
+=== python compilation ===
+compile_exit=0
+=== python tests ===
+pytest: NOT RUN (no Python test files)
+=== server import ===
+import: NOT RUN (server.py not found)

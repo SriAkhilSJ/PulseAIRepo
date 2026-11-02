@@ -1,0 +1,466 @@
+{
+  "run_id": "deepseek-off-41414061599",
+  "session_id": "t5-4eed8875c9",
+  "workspace": "/home/runner/work/_temp/deepseek-ab/off/ws",
+  "agent_iteration_budget": null,
+  "result": "turn_done",
+  "completed": false,
+  "status_contract": {
+    "run_outcome": "budget_exhausted",
+    "failure_reason": "budget_exhausted",
+    "verification_status": "failed",
+    "specification_status": "unknown",
+    "diagnostics": []
+  },
+  "run_outcome": "budget_exhausted",
+  "failure_reason": null,
+  "verification_status": "failed",
+  "error": null,
+  "reasoning_effort_requested": null,
+  "frame_counts": {
+    "hello": 1,
+    "session_info": 1,
+    "workspace.bound": 2,
+    "turn_started": 1,
+    "runtime_degraded": 1,
+    "llm.request": 44,
+    "token": 31,
+    "tool_call_args": 96,
+    "llm.response": 44,
+    "telemetry": 45,
+    "tool_call_start": 48,
+    "verification_updated": 6,
+    "tool_call_end": 49,
+    "tool_output": 2380,
+    "turn_done": 1
+  },
+  "llm_request_frames": 44,
+  "tokens_in_last_telemetry": 1909333,
+  "estimated_cost_last_telemetry": 0.6061503,
+  "token_budget": 2500000,
+  "token_budget_source": "--max-input-tokens",
+  "budget_stop": false,
+  "no_delivery_stop": false,
+  "operator_cancelled": false,
+  "safety_requests": 0,
+  "safety_approved": 0,
+  "safety_denied": 0,
+  "outcome_schema_version": 2,
+  "request_receipts": [
+    {
+      "sequence": 1,
+      "status": "succeeded",
+      "duration_ms": 22282
+    },
+    {
+      "sequence": 2,
+      "status": "succeeded",
+      "duration_ms": 8366
+    },
+    {
+      "sequence": 3,
+      "status": "succeeded",
+      "duration_ms": 2158
+    },
+    {
+      "sequence": 4,
+      "status": "succeeded",
+      "duration_ms": 2595
+    },
+    {
+      "sequence": 5,
+      "status": "succeeded",
+      "duration_ms": 2609
+    },
+    {
+      "sequence": 6,
+      "status": "succeeded",
+      "duration_ms": 1491
+    },
+    {
+      "sequence": 7,
+      "status": "succeeded",
+      "duration_ms": 2189
+    },
+    {
+      "sequence": 8,
+      "status": "succeeded",
+      "duration_ms": 2129
+    },
+    {
+      "sequence": 9,
+      "status": "succeeded",
+      "duration_ms": 1910
+    },
+    {
+      "sequence": 10,
+      "status": "succeeded",
+      "duration_ms": 2271
+    },
+    {
+      "sequence": 11,
+      "status": "succeeded",
+      "duration_ms": 1907
+    },
+    {
+      "sequence": 12,
+      "status": "succeeded",
+      "duration_ms": 4372
+    },
+    {
+      "sequence": 13,
+      "status": "succeeded",
+      "duration_ms": 1765
+    },
+    {
+      "sequence": 14,
+      "status": "succeeded",
+      "duration_ms": 1971
+    },
+    {
+      "sequence": 15,
+      "status": "succeeded",
+      "duration_ms": 2084
+    },
+    {
+      "sequence": 16,
+      "status": "succeeded",
+      "duration_ms": 1964
+    },
+    {
+      "sequence": 29,
+      "status": "succeeded",
+      "duration_ms": 9066
+    },
+    {
+      "sequence": 30,
+      "status": "succeeded",
+      "duration_ms": 2975
+    },
+    {
+      "sequence": 31,
+      "status": "succeeded",
+      "duration_ms": 1811
+    },
+    {
+      "sequence": 32,
+      "status": "succeeded",
+      "duration_ms": 2090
+    },
+    {
+      "sequence": 33,
+      "status": "succeeded",
+      "duration_ms": 1833
+    },
+    {
+      "sequence": 34,
+      "status": "succeeded",
+      "duration_ms": 1847
+    },
+    {
+      "sequence": 35,
+      "status": "succeeded",
+      "duration_ms": 1868
+    },
+    {
+      "sequence": 36,
+      "status": "succeeded",
+      "duration_ms": 2256
+    },
+    {
+      "sequence": 37,
+      "status": "succeeded",
+      "duration_ms": 3171
+    },
+    {
+      "sequence": 38,
+      "status": "succeeded",
+      "duration_ms": 2382
+    },
+    {
+      "sequence": 39,
+      "status": "succeeded",
+      "duration_ms": 10077
+    },
+    {
+      "sequence": 40,
+      "status": "succeeded",
+      "duration_ms": 2172
+    },
+    {
+      "sequence": 41,
+      "status": "succeeded",
+      "duration_ms": 2008
+    },
+    {
+      "sequence": 42,
+      "status": "succeeded",
+      "duration_ms": 5017
+    },
+    {
+      "sequence": 43,
+      "status": "succeeded",
+      "duration_ms": 5258
+    },
+    {
+      "sequence": 44,
+      "status": "succeeded",
+      "duration_ms": 1931
+    }
+  ],
+  "request_receipts_omitted": 12,
+  "request_outcome_counts": {
+    "succeeded": 44
+  },
+  "tool_outcomes": [
+    {
+      "sequence": 1,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 84,
+      "result_summary": "File written: /home/runner/work/_temp/deepseek-ab/off/ws/server.py (lines added: 577, removed: 0) Diff preview: +#!/usr/bin/env python3 +\"\"\" +Nova Market - Amazon-style ecommerce backend. + +Zero third-party dependencies (python3 stdlib onl"
+    },
+    {
+      "sequence": 2,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "File written: /home/runner/work/_temp/deepseek-ab/off/ws/frontend/index.html (lines added: 147, removed: 0) Diff preview: +<!DOCTYPE html> +<html lang=\"en\"> +<head> +<meta charset=\"utf-8\" /> +<meta name=\"viewport\" content=\"width=device-widt"
+    },
+    {
+      "sequence": 3,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 4,
+      "result_summary": "result received (300 chars; content omitted)"
+    },
+    {
+      "sequence": 4,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "result received (32 chars; content omitted)"
+    },
+    {
+      "sequence": 5,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 24,
+      "result_summary": "result received (26373 chars; content omitted)"
+    },
+    {
+      "sequence": 6,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 3,
+      "result_summary": "result received (151 chars; content omitted)"
+    },
+    {
+      "sequence": 7,
+      "tool": "read_file",
+      "status": "failed",
+      "duration_ms": 2,
+      "result_summary": "le` was not executed. 🌀 **Doom loop:** the same call has repeated 3 times with identical input. Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval."
+    },
+    {
+      "sequence": 8,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 6,
+      "result_summary": "result received (1243 chars; content omitted)"
+    },
+    {
+      "sequence": 9,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 7,
+      "result_summary": "result received (2359 chars; content omitted)"
+    },
+    {
+      "sequence": 10,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 3,
+      "result_summary": "result received (509 chars; content omitted)"
+    },
+    {
+      "sequence": 11,
+      "tool": "read_file",
+      "status": "succeeded",
+      "duration_ms": 3,
+      "result_summary": "result received (509 chars; content omitted)"
+    },
+    {
+      "sequence": 12,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 6,
+      "result_summary": "result received (388 chars; content omitted)"
+    },
+    {
+      "sequence": 13,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "result received (449 chars; content omitted)"
+    },
+    {
+      "sequence": 14,
+      "tool": "search_files",
+      "status": "succeeded",
+      "duration_ms": 6,
+      "result_summary": "result received (447 chars; content omitted)"
+    },
+    {
+      "sequence": 15,
+      "tool": "read_file",
+      "status": "failed",
+      "duration_ms": 20,
+      "result_summary": "executed after code has already been scaffolded. Stop searching internal symbols. Required Action: Advance to the next milestone immediately: write the runnable server entrypoint (server.py / app.py), scaffold the frontend UI, or run tests."
+    },
+    {
+      "sequence": 16,
+      "tool": "execute_code",
+      "status": "succeeded",
+      "duration_ms": 25,
+      "result_summary": "result received (366 chars; content omitted)"
+    },
+    {
+      "sequence": 34,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 25,
+      "result_summary": "File written: /home/runner/work/_temp/deepseek-ab/off/ws/frontend/styles.css (lines added: 255, removed: 0) Diff preview: +:root { + --bg: #f3f4f7; + --surface: #ffffff; + --ink: #12151c; + --muted: #5b6472; + --line: #e3e6ec; + --brand: #0"
+    },
+    {
+      "sequence": 35,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 14,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 36,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 34,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 37,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 34,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 38,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 39,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 30,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 40,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 41,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 5,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 42,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 30,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 43,
+      "tool": "edit_file",
+      "status": "succeeded",
+      "duration_ms": 33,
+      "result_summary": "✅ Edited /home/runner/work/_temp/deepseek-ab/off/ws/server.py (lines added: 17, removed: 0) Diff preview: return HTTPStatus.OK, {\"products\": products, \"low_stock\": low, \"orders\": orders, \"revenue\": round(revenue, 2)} + if path == \"/api/admi"
+    },
+    {
+      "sequence": 44,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 27,
+      "result_summary": "File written: /home/runner/work/_temp/deepseek-ab/off/ws/frontend/app.js (lines added: 454, removed: 0) Diff preview: +/* Nova Market — storefront + admin hub (vanilla JS, no build step). */ +(function () { + \"use strict\"; + + const $ = (id"
+    },
+    {
+      "sequence": 45,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 30,
+      "result_summary": "Exit code: 0"
+    },
+    {
+      "sequence": 46,
+      "tool": "start_terminal",
+      "status": "succeeded",
+      "duration_ms": 806,
+      "result_summary": "tool completed (249 chars; output omitted)"
+    },
+    {
+      "sequence": 47,
+      "tool": "terminal",
+      "status": "failed",
+      "duration_ms": 10,
+      "result_summary": "d \"item_count\" in o for o in d[\"orders\"]), d) print(f\"\\nRESULT: {ok} passed, {fail} failed\") PY Choose a safe alternative (edit_file for small changes, a different path, or a non-destructive command) and continue — do not wait for approval."
+    },
+    {
+      "sequence": 48,
+      "tool": "write_file",
+      "status": "succeeded",
+      "duration_ms": 29,
+      "result_summary": "File written: /home/runner/work/_temp/deepseek-ab/off/ws/test_api.py (lines added: 97, removed: 0) Diff preview: +import json, urllib.request, urllib.error, http.cookiejar + +BASE = \"http://127.0.0.1:8000\" +cj = http.cookiejar.CookieJar() +"
+    },
+    {
+      "sequence": 49,
+      "tool": "terminal",
+      "status": "succeeded",
+      "duration_ms": 84,
+      "result_summary": "st_price': None, 'stock': 8, 'rating': 4.5, 'reviews': 0, 'image': 'https://picsum.photos/seed/7efc8d95/600/450', 'featured': 0, 'created_at': '2026-11-02 08:37:31', 'in_stock': True, 'discount': 0}} RESULT: 21 passed, 2 failed Exit code: 0"
+    }
+  ],
+  "tool_outcomes_omitted": 17,
+  "tool_outcome_counts": {
+    "succeeded": 46,
+    "failed": 3
+  },
+  "timing_ms": {
+    "run_elapsed_ms": 155777,
+    "requests": {
+      "count": 44,
+      "total_ms": 146172,
+      "min_ms": 1491,
+      "p50_ms": 2172,
+      "p95_ms": 9066,
+      "max_ms": 22282
+    },
+    "tools": {
+      "count": 49,
+      "total_ms": 2082,
+      "min_ms": 0,
+      "p50_ms": 30,
+      "p95_ms": 84,
+      "max_ms": 806
+    }
+  },
+  "receipt_privacy": "tool arguments, prompts, commands, file bodies, and full results omitted"
+}
