@@ -60,8 +60,20 @@ from src.context.lang_extractors import (
 )
 
 EMBED_DIM = 384  # all-MiniLM-L6-v2 output size
-RRF_K = 60
 BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
+
+# ---------------------------------------------------------------------
+# RRF Fusion — extracted to src.context.retrieval.fusion
+# ---------------------------------------------------------------------
+from src.context.retrieval.fusion import (
+    DEFAULT_RRF_K,
+    RRF_K,
+    compute_rrf_scores,
+    fuse_rankings,
+    hydrate_chunk_results,
+    reciprocal_rank_fusion,
+    rrf_score,
+)
 FTS_MAX_TOKENS_PER_QUERY = 12
 
 # ---------------------------------------------------------------------
@@ -1159,39 +1171,26 @@ class ChunkIndex:
         bm25_results: list[tuple[str, float]],
         k: int = RRF_K,
     ) -> list[ChunkResult]:
-        """Reciprocal Rank Fusion on list POSITIONS, not raw scores."""
-        scores: dict[str, float] = {}
-        for rank, (cid, _score) in enumerate(vec_results):
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
-        for rank, (cid, _score) in enumerate(bm25_results):
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
-        if not scores:
-            return []
+        """Reciprocal Rank Fusion on list POSITIONS, not raw scores.
+        Delegated to src.context.retrieval.fusion.
+        """
+        def _fetch_rows(ids: list[str]):
+            placeholders = ",".join("?" * len(ids))
+            with self._write_lock:  # shared connection: all access serialized
+                return self.conn.execute(
+                    f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
+                    f" signature, docstring, body, modified_time FROM code_chunks"
+                    f" WHERE id IN ({placeholders})",
+                    ids,
+                ).fetchall()
 
-        ordered_ids = sorted(scores, key=lambda cid: scores[cid], reverse=True)
-        placeholders = ",".join("?" * len(ordered_ids))
-        with self._write_lock:  # shared connection: all access serialized
-            rows = self.conn.execute(
-                f"SELECT id, file_path, symbol_name, symbol_type, start_line, end_line,"
-                f" signature, docstring, body, modified_time FROM code_chunks"
-                f" WHERE id IN ({placeholders})",
-                ordered_ids,
-            ).fetchall()
-        by_id = {r[0]: r for r in rows}
-
-        results: list[ChunkResult] = []
-        for cid in ordered_ids:
-            row = by_id.get(cid)
-            if not row:
-                continue
-            results.append(ChunkResult(
-                id=row[0], file_path=row[1], symbol_name=row[2],
-                symbol_type=row[3], start_line=row[4], end_line=row[5],
-                signature=row[6] or "", docstring=row[7],
-                body=row[8] or "", score=scores[cid],
-                modified_time=row[9] or 0.0,
-            ))
-        return results
+        return fuse_rankings(
+            vec_results=vec_results,
+            bm25_results=bm25_results,
+            fetch_rows_fn=_fetch_rows,
+            k=k,
+            chunk_cls=ChunkResult,
+        )
 
     # ------------------------------------------------------------------
     # NEIGHBORS (surrounding-chunk context window)
