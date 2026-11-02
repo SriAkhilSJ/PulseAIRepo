@@ -265,6 +265,18 @@ Output:
             SystemMessage(content=prompt),
             HumanMessage(content=truncated),
         ])
+        try:
+            from src.agents.cost_governance import cost_governor
+            cost_governor.track_auxiliary_call(
+                session_id="summarizer",
+                provider="aux",
+                model=getattr(self.llm, "model", "summarizer"),
+                messages_or_prompt=[SystemMessage(content=prompt), HumanMessage(content=truncated)],
+                response=response,
+                purpose="tool_summarizer",
+            )
+        except Exception:
+            pass
 
         summary = str(response.content).strip()
         result = f"[LLM-Summarized {tool_name} output]\n{summary}\n[Original was {len(content)} chars]"

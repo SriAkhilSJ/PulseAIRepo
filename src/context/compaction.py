@@ -430,6 +430,18 @@ def _build_chunk_digests(turns: list[BaseMessage], aux_llm_getter=None, pristine
             llm = aux_llm_getter()
             prompt = _LEAN_DIGEST_PROMPT.format(segment=segment)
             resp = llm.invoke(prompt)
+            try:
+                from src.agents.cost_governance import cost_governor
+                cost_governor.track_auxiliary_call(
+                    session_id=session_id or "compaction",
+                    provider="aux",
+                    model=getattr(llm, "model", "aux"),
+                    messages_or_prompt=prompt,
+                    response=resp,
+                    purpose="compaction_digest",
+                )
+            except Exception:
+                pass
             body = getattr(resp, "content", str(resp)) or ""
             body = str(body).strip()
             if not body:
@@ -758,6 +770,18 @@ class HistoryCompactor:
                 llm = aux_llm_for_route(self._aux_llm_getter, route)
                 prompt = _EXTEND_PROMPT.format(prev=self._summary or "(empty)", new=new_text)
                 response = llm.invoke(prompt)
+                try:
+                    from src.agents.cost_governance import cost_governor
+                    cost_governor.track_auxiliary_call(
+                        session_id=getattr(self, "_session_id", "compaction") or "compaction",
+                        provider="aux",
+                        model=getattr(llm, "model", "aux"),
+                        messages_or_prompt=prompt,
+                        response=response,
+                        purpose="compaction_summary",
+                    )
+                except Exception:
+                    pass
                 text = getattr(response, "content", str(response))
                 base = " ".join(str(text).split())[:_SUMMARY_MAX_CHARS]
                 # Hermes coverage rule: the pin covers THE summary call only

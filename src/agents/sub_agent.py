@@ -98,6 +98,11 @@ class SubAgentCoordinator:
         # id while every surface pointed at the lifecycle id, so
         # opening the child read an empty checkpoint.
         agent_id = agent_id or f"sub-{mode}-{uuid.uuid4().hex[:6]}"
+        try:
+            from src.agents.cost_governance import cost_governor
+            cost_governor.register_parent_session(agent_id, parent_thread_id)
+        except Exception:
+            pass
 
         # Visibility contract (OpenCode parity): a spawned child is
         # announced BEFORE it runs and again when it settles, on the

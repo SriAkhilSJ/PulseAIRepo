@@ -288,12 +288,52 @@ def cache_path(directory: str | None = None) -> str:
     return os.path.join(directory or telemetry_dir(), _CACHE_FILE)
 
 
+_stale_warned = False
+
+
+def pricing_ttl() -> float:
+    """Configured pricing TTL in seconds (CRUSORAI_PRICING_TTL or 24 hours)."""
+    try:
+        raw = os.environ.get("CRUSORAI_PRICING_TTL", "").strip()
+        if raw:
+            return max(60.0, float(raw))
+    except Exception:
+        pass
+    return float(_DEFAULT_TTL_S)
+
+
+def pricing_status(directory: str | None = None) -> tuple[str, float | None]:
+    """Return ('fresh' | 'stale' | 'unavailable', age_in_seconds)."""
+    age = _cache_age_s(directory)
+    if age is None:
+        return "unavailable", None
+    ttl = pricing_ttl()
+    if age <= ttl:
+        return "fresh", age
+    return "stale", age
+
+
+def load_cached_rates_with_status(directory: str | None = None) -> tuple[dict[str, dict], str]:
+    """Return (rates_dict, status_str) where status_str is 'fresh', 'stale', or 'unavailable'."""
+    status, _ = pricing_status(directory)
+    rates = load_cached_rates(directory)
+    return rates, status
+
+
 def load_cached_rates(directory: str | None = None) -> dict[str, dict]:
+    global _stale_warned
     try:
         with open(cache_path(directory), "r", encoding="utf-8") as handle:
             parsed = json.load(handle)
         rates = parsed.get("rates") if isinstance(parsed, dict) else None
-        return rates if isinstance(rates, dict) else {}
+        if not isinstance(rates, dict):
+            return {}
+        status, age = pricing_status(directory)
+        if status == "stale" and not _stale_warned:
+            _stale_warned = True
+            age_h = (age or 0) / 3600.0
+            print(f"[pricing] notice: cached pricing is stale (age: {age_h:.1f}h) - using offline fallback", flush=True)
+        return rates
     except (OSError, json.JSONDecodeError):
         return {}
 

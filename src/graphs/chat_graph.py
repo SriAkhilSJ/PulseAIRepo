@@ -2559,19 +2559,167 @@ def ai_node(
     except Exception:
         pass
 
+    _reconciled = False
     try:
-        result = _invoke_with_token_pump(
-            call_llm, messages, session_id, provider, model,
-            strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
-            hold_text=tools_bound,
-        )
-    except Exception as exc:
-        # A Stop that fired while the request was in flight wins over provider
-        # failover: never launch a base-provider request after cancellation.
+
+        try:
+            result = _invoke_with_token_pump(
+                call_llm, messages, session_id, provider, model,
+                strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
+                hold_text=tools_bound,
+            )
+        except Exception as exc:
+            # A Stop that fired while the request was in flight wins over provider
+            # failover: never launch a base-provider request after cancellation.
+            if turn_controls.cancelled(session_id):
+                print(
+                    f"[ai_node] provider-failover path cancelled for {session_id}; "
+                    f"NOT failing over to {base_provider}/{base_model}"
+                )
+                return {
+                    "messages": [AIMessage(
+                        content="Operation cancelled by the user.",
+                        additional_kwargs={"crusor_cancelled": True},
+                    )],
+                    "iteration_used": int(state.get("iteration_used", 0)),
+                }
+            if grace_summary_lap1 and _is_tool_messages_rejection(exc):
+                # hermes sends the iteration summary with the FULL history and no
+                # tools key (its providers accept tool traffic unbound,
+                # chat_completion_helpers.py:1937-2025). This provider didn't —
+                # the D40 400 ("Tool messages found but no tools provided").
+                # Retry ONCE text-only so the turn still ends with a real
+                # summary instead of dying on its farewell call.
+                print(
+                    "[grace] provider rejected the full-history summary request "
+                    f"({type(exc).__name__}); retrying text-only (D40 fallback)",
+                    flush=True,
+                )
+                result = _invoke_with_token_pump(
+                    call_llm, _drop_tool_pairs(messages), session_id,
+                    provider, model, strip_tool_blocks=tools_bound,
+                    reasoning_config=reasoning_config,
+                )
+            elif (provider, model) == (base_provider, base_model):
+                raise
+            else:
+                print(
+                    f"[ai_node] provider failover {provider}/{model} -> "
+                    f"{base_provider}/{base_model} ({type(exc).__name__})"
+                )
+                if _mark_auth_dead(provider, model, exc):
+                    print(
+                        f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
+                        "process; future turns skip straight to failover"
+                    )
+                    # Hermes honesty discipline: a dead credential is the OWNER's
+                    # actionable fact, not console noise. One surface per process,
+                    # on the degraded channel the panel already renders.
+                    try:
+                        from src.dashboard.event_bus import event_bus as _eb
+                        _eb.emit("runtime.degraded", {
+                            "thread_id": session_id,
+                            "component": "llm_credentials",
+                            "reason": (
+                                f"{provider} rejected the API key "
+                                f"({type(exc).__name__}) — fix the {provider.upper()}"
+                                f"_API_KEY in settings; using "
+                                f"{base_provider}/{base_model} for this session."
+                            ),
+                        })
+                    except Exception:
+                        pass  # diagnostics never break the turn
+                provider, model = base_provider, base_model
+                try:
+                    from src.agents.cost_router import cost_router as _cr
+                    _route = getattr(_cr, "_last_route", None)
+                    if isinstance(_route, dict):
+                        _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
+                except Exception:
+                    pass  # diagnostics never break the turn
+                llm = get_llm(provider=provider, model=model, reasoning_config=reasoning_config)
+                llm_with_tools = (
+                    llm if execution_mode == "ask"
+                    else llm.bind_tools(_resolve_bound_tools(state, config))
+                )
+                from src.context.cache_preservation import redecorate_for_failover
+                messages, _d37_info = redecorate_for_failover(messages)
+                call_model = model
+                call_llm = llm_with_tools
+                if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
+                    bind_generation = getattr(llm_with_tools, "bind", None)
+                    if callable(bind_generation):
+                        # Provider's stated ceiling (base 6a2717bd), clamped by
+                        # any rejection headroom — env knob stays the desired
+                        # amount; the hardcoded 8,192 is gone.
+                        from src.llm.output_budget import requested_output_cap, take_available_output
+                        from src.config.reasoning_config import THINKING_BUDGET_TOKENS
+
+                        # Thinking budget inside max_tokens — same accounting as
+                        # the primary delivery bind (field 2026-10-22).
+                        _think = 0
+                        if (reasoning_config or {}).get("enabled"):
+                            _think = THINKING_BUDGET_TOKENS.get(
+                                str((reasoning_config or {}).get("effort", "")), 0
+                            )
+                        allowed = requested_output_cap(model, thinking_tokens=_think)
+                        _room = take_available_output(model)
+                        if _room:
+                            allowed = max(512, min(allowed, _room))
+                        call_llm = bind_generation(max_tokens=allowed)
+                if budget_exhausted or wrap_summary or final_response_slot or execution_mode == "ask":
+                    call_llm = llm
+                    # Failover must also be no-tools safe — strip tool pairs so
+                    # strict providers don't 400 on "Tool messages found but no
+                    # tools provided" after redecoration.
+                    messages = _drop_tool_pairs(messages)
+                try:
+                    # The repair gate needs to know whether THIS call bound tools: the
+                    # grace/ask path invokes the unbound `llm`, everything else a
+                    # tools-bound callable (see repair_text_tool_calls `allow`).
+                    tools_bound = call_llm is not llm
+                    try:
+                        result = _invoke_with_token_pump(
+                            call_llm, messages, session_id, provider, model,
+                            strip_tool_blocks=tools_bound,
+                            reasoning_config=reasoning_config,
+                            hold_text=tools_bound,
+                        )
+                    except Exception as _failover_exc:
+                        if _is_tool_messages_rejection(_failover_exc):
+                            print(
+                                f"[failover] tool rejection on failover path ({type(_failover_exc).__name__}); retrying stripped no-tools",
+                                flush=True,
+                            )
+                            _discard_held_answer(session_id)
+                            result = _invoke_with_token_pump(
+                                llm, _drop_tool_pairs(messages), session_id,
+                                provider, model, strip_tool_blocks=False,
+                                reasoning_config=reasoning_config,
+                            )
+                        else:
+                            raise
+                except TurnCancelledError:
+                    return {
+                        "messages": [AIMessage(
+                            content="Operation cancelled by the user.",
+                            additional_kwargs={"crusor_cancelled": True},
+                        )],
+                        "iteration_used": int(state.get("iteration_used", 0)),
+                    }
+
+        # ── Post-LLM cancellation gate ──────────────────────────────
+        # Check immediately after every blocking LLM invocation. If the
+        # user pressed Stop while the HTTP request was in flight, the
+        # result contains tool_calls that MUST NOT execute. Replace the
+        # result with a cancellation message and let should_continue
+        # route to finalize (crusor_cancelled=True). Preserve valid
+        # tool-call/result pairing by never returning orphaned tool
+        # calls into the graph.
         if turn_controls.cancelled(session_id):
             print(
-                f"[ai_node] provider-failover path cancelled for {session_id}; "
-                f"NOT failing over to {base_provider}/{base_model}"
+                f"[ai_node] post-LLM cancellation detected for {session_id}; "
+                f"discarding LLM result with {len(getattr(result, 'tool_calls', None) or [])} tool_call(s)"
             )
             return {
                 "messages": [AIMessage(
@@ -2580,458 +2728,321 @@ def ai_node(
                 )],
                 "iteration_used": int(state.get("iteration_used", 0)),
             }
-        if grace_summary_lap1 and _is_tool_messages_rejection(exc):
-            # hermes sends the iteration summary with the FULL history and no
-            # tools key (its providers accept tool traffic unbound,
-            # chat_completion_helpers.py:1937-2025). This provider didn't —
-            # the D40 400 ("Tool messages found but no tools provided").
-            # Retry ONCE text-only so the turn still ends with a real
-            # summary instead of dying on its farewell call.
+
+        # Hermes-pattern repair: some models emit tool calls as TEXT
+        # (<tool_call>NAME<arg_key>...<arg_value>...) instead of structured
+        # tool_calls. Parse them so the loop can execute instead of stalling —
+        # but ONLY when this call actually bound tools. On the grace/ask call
+        # (`call_llm is llm`) the dialect text stays prose and the turn
+        # finalizes: hermes' grace law (no tools bound → no actions), field
+        # 2026-09-09 @7a7111b9 — post-grace phantom executions otherwise.
+        from src.graphs.parallel_tools import repair_text_tool_calls
+        result = repair_text_tool_calls(result, allow=tools_bound)
+
+        # Hermes dropped tool-call recovery (conversation_loop.py:8381-8424):
+        # Some providers (DeepSeek v4, Claude on Copilot) return
+        # finish_reason="tool_calls" with an empty tool_calls array — the model
+        # signalled it wanted to act but delivered no call. Re-prompt up to 3
+        # times with a nudge so the turn doesn't waste a full provider round-trip.
+        if _should_reprompt_dropped_toolcall(
+            result, tools_bound, int(state.get("_dropped_toolcall_retries", 0))
+        ):
+            _dropped_retries = int(state.get("_dropped_toolcall_retries", 0)) + 1
             print(
-                "[grace] provider rejected the full-history summary request "
-                f"({type(exc).__name__}); retrying text-only (D40 fallback)",
+                f"[ai_node] finish_reason=tool_calls with empty tool_calls "
+                f"(retry {_dropped_retries}/3, model={model}) — re-prompting",
                 flush=True,
             )
-            result = _invoke_with_token_pump(
-                call_llm, _drop_tool_pairs(messages), session_id,
-                provider, model, strip_tool_blocks=tools_bound,
-                reasoning_config=reasoning_config,
-            )
-        elif (provider, model) == (base_provider, base_model):
-            raise
-        else:
-            print(
-                f"[ai_node] provider failover {provider}/{model} -> "
-                f"{base_provider}/{base_model} ({type(exc).__name__})"
-            )
-            if _mark_auth_dead(provider, model, exc):
+            _nudge = HumanMessage(content=(
+                "Your previous turn indicated a tool call but none was "
+                "included. Do not narrate a plan or restate intent — issue "
+                "the actual tool call now to continue the task."
+            ))
+            messages_with_nudge = messages + [_nudge]
+            # The first attempt is being DISCARDED (it signalled a tool call
+            # and delivered none). Its held text dies silently; anything that
+            # already streamed live is retracted by exact painted char count,
+            # so the re-prompt's answer never glues onto it (field 2026-10-15:
+            # 'Hello! How' + the replacement answer).
+            _discard_held_answer(session_id)
+            try:
+                result = _invoke_with_token_pump(
+                    call_llm, messages_with_nudge, session_id, provider, model,
+                    strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
+                    hold_text=tools_bound,
+                )
+                result = repair_text_tool_calls(result, allow=tools_bound)
+                # Update state for the retry count (carried via additional_kwargs)
+                extra = dict(getattr(result, "additional_kwargs", {}) or {})
+                extra["_dropped_toolcall_retries"] = _dropped_retries
+                try:
+                    result = result.model_copy(update={"additional_kwargs": extra})
+                except AttributeError:
+                    result.additional_kwargs = extra
+            except Exception as _re_nudge_exc:
                 print(
-                    f"[ai_node] {provider}/{model} marked AUTH-DEAD for this "
-                    "process; future turns skip straight to failover"
+                    f"[ai_node] dropped-toolcall re-prompt failed "
+                    f"({type(_re_nudge_exc).__name__}) — continuing with empty",
+                    flush=True,
                 )
-                # Hermes honesty discipline: a dead credential is the OWNER's
-                # actionable fact, not console noise. One surface per process,
-                # on the degraded channel the panel already renders.
-                try:
-                    from src.dashboard.event_bus import event_bus as _eb
-                    _eb.emit("runtime.degraded", {
-                        "thread_id": session_id,
-                        "component": "llm_credentials",
-                        "reason": (
-                            f"{provider} rejected the API key "
-                            f"({type(exc).__name__}) — fix the {provider.upper()}"
-                            f"_API_KEY in settings; using "
-                            f"{base_provider}/{base_model} for this session."
-                        ),
-                    })
-                except Exception:
-                    pass  # diagnostics never break the turn
-            provider, model = base_provider, base_model
-            try:
-                from src.agents.cost_router import cost_router as _cr
-                _route = getattr(_cr, "_last_route", None)
-                if isinstance(_route, dict):
-                    _cr._last_route = {**_route, "provider": provider, "model": model, "failed_over": True}
-            except Exception:
-                pass  # diagnostics never break the turn
-            llm = get_llm(provider=provider, model=model, reasoning_config=reasoning_config)
-            llm_with_tools = (
-                llm if execution_mode == "ask"
-                else llm.bind_tools(_resolve_bound_tools(state, config))
+        elif tools_bound and not (getattr(result, "tool_calls", None) or []):
+            if _finish_reason_is_tool_calls(result) and _result_answer_text(result).strip():
+                # The velona/GLM shape: a full text answer wearing a
+                # tool_calls finish_reason. Accepted as-is -- re-prompting
+                # here double-bills every step (field logs 2026-10-15).
+                print(
+                    "[ai_node] finish_reason=tool_calls with empty tool_calls "
+                    "but a text answer was delivered -- accepting the answer "
+                    "(provider mislabels finish_reason; no re-prompt)",
+                    flush=True,
+                )
+            # Reset retry counter if we got a non-empty result or gave up
+            pass
+
+        # hermes handle_max_iterations tail: the summary response is the turn's
+        # FINAL answer — <think> stripped, one retry when empty, honest fallback
+        # text. No tool_calls can ride it (repair is disarmed; no tools bound).
+        if grace_summary_lap1:
+            # For strict providers (Sarvam), the reinvoke must also be text-only.
+            # The original lambda used `messages` (full history with tool pairs)
+            # which would 400 again if summary text was empty (field 2026-09-12:
+            # 10.7s text-only fallback succeeded, but empty summary triggered
+            # reinvoke with tool history → 400 → turn FAILED). Use stripped
+            # version for reinvoke as well.
+            _stripped_for_reinvoke = _drop_tool_pairs(messages)
+            result = _finalize_iteration_summary(
+                result,
+                lambda: _invoke_with_token_pump(
+                    call_llm, _stripped_for_reinvoke, session_id, provider, model,
+                    strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
+                ),
             )
-            from src.context.cache_preservation import redecorate_for_failover
-            messages, _d37_info = redecorate_for_failover(messages)
-            call_model = model
-            call_llm = llm_with_tools
-            if execution_mode != "ask" and configurable.get("execution_phase") in {"deliver", "forced_delivery"}:
-                bind_generation = getattr(llm_with_tools, "bind", None)
-                if callable(bind_generation):
-                    # Provider's stated ceiling (base 6a2717bd), clamped by
-                    # any rejection headroom — env knob stays the desired
-                    # amount; the hardcoded 8,192 is gone.
-                    from src.llm.output_budget import requested_output_cap, take_available_output
-                    from src.config.reasoning_config import THINKING_BUDGET_TOKENS
 
-                    # Thinking budget inside max_tokens — same accounting as
-                    # the primary delivery bind (field 2026-10-22).
-                    _think = 0
-                    if (reasoning_config or {}).get("enabled"):
-                        _think = THINKING_BUDGET_TOKENS.get(
-                            str((reasoning_config or {}).get("effort", "")), 0
-                        )
-                    allowed = requested_output_cap(model, thinking_tokens=_think)
-                    _room = take_available_output(model)
-                    if _room:
-                        allowed = max(512, min(allowed, _room))
-                    call_llm = bind_generation(max_tokens=allowed)
-            if budget_exhausted or wrap_summary or final_response_slot or execution_mode == "ask":
-                call_llm = llm
-                # Failover must also be no-tools safe — strip tool pairs so
-                # strict providers don't 400 on "Tool messages found but no
-                # tools provided" after redecoration.
-                messages = _drop_tool_pairs(messages)
-            try:
-                # The repair gate needs to know whether THIS call bound tools: the
-                # grace/ask path invokes the unbound `llm`, everything else a
-                # tools-bound callable (see repair_text_tool_calls `allow`).
-                tools_bound = call_llm is not llm
-                try:
-                    result = _invoke_with_token_pump(
-                        call_llm, messages, session_id, provider, model,
-                        strip_tool_blocks=tools_bound,
-                        reasoning_config=reasoning_config,
-                        hold_text=tools_bound,
-                    )
-                except Exception as _failover_exc:
-                    if _is_tool_messages_rejection(_failover_exc):
-                        print(
-                            f"[failover] tool rejection on failover path ({type(_failover_exc).__name__}); retrying stripped no-tools",
-                            flush=True,
-                        )
-                        _discard_held_answer(session_id)
-                        result = _invoke_with_token_pump(
-                            llm, _drop_tool_pairs(messages), session_id,
-                            provider, model, strip_tool_blocks=False,
-                            reasoning_config=reasoning_config,
-                        )
-                    else:
-                        raise
-            except TurnCancelledError:
-                return {
-                    "messages": [AIMessage(
-                        content="Operation cancelled by the user.",
-                        additional_kwargs={"crusor_cancelled": True},
-                    )],
-                    "iteration_used": int(state.get("iteration_used", 0)),
-                }
-
-    # ── Post-LLM cancellation gate ──────────────────────────────
-    # Check immediately after every blocking LLM invocation. If the
-    # user pressed Stop while the HTTP request was in flight, the
-    # result contains tool_calls that MUST NOT execute. Replace the
-    # result with a cancellation message and let should_continue
-    # route to finalize (crusor_cancelled=True). Preserve valid
-    # tool-call/result pairing by never returning orphaned tool
-    # calls into the graph.
-    if turn_controls.cancelled(session_id):
-        print(
-            f"[ai_node] post-LLM cancellation detected for {session_id}; "
-            f"discarding LLM result with {len(getattr(result, 'tool_calls', None) or [])} tool_call(s)"
-        )
-        return {
-            "messages": [AIMessage(
-                content="Operation cancelled by the user.",
-                additional_kwargs={"crusor_cancelled": True},
-            )],
-            "iteration_used": int(state.get("iteration_used", 0)),
-        }
-
-    # Hermes-pattern repair: some models emit tool calls as TEXT
-    # (<tool_call>NAME<arg_key>...<arg_value>...) instead of structured
-    # tool_calls. Parse them so the loop can execute instead of stalling —
-    # but ONLY when this call actually bound tools. On the grace/ask call
-    # (`call_llm is llm`) the dialect text stays prose and the turn
-    # finalizes: hermes' grace law (no tools bound → no actions), field
-    # 2026-09-09 @7a7111b9 — post-grace phantom executions otherwise.
-    from src.graphs.parallel_tools import repair_text_tool_calls
-    result = repair_text_tool_calls(result, allow=tools_bound)
-
-    # Hermes dropped tool-call recovery (conversation_loop.py:8381-8424):
-    # Some providers (DeepSeek v4, Claude on Copilot) return
-    # finish_reason="tool_calls" with an empty tool_calls array — the model
-    # signalled it wanted to act but delivered no call. Re-prompt up to 3
-    # times with a nudge so the turn doesn't waste a full provider round-trip.
-    if _should_reprompt_dropped_toolcall(
-        result, tools_bound, int(state.get("_dropped_toolcall_retries", 0))
-    ):
-        _dropped_retries = int(state.get("_dropped_toolcall_retries", 0)) + 1
-        print(
-            f"[ai_node] finish_reason=tool_calls with empty tool_calls "
-            f"(retry {_dropped_retries}/3, model={model}) — re-prompting",
-            flush=True,
-        )
-        _nudge = HumanMessage(content=(
-            "Your previous turn indicated a tool call but none was "
-            "included. Do not narrate a plan or restate intent — issue "
-            "the actual tool call now to continue the task."
-        ))
-        messages_with_nudge = messages + [_nudge]
-        # The first attempt is being DISCARDED (it signalled a tool call
-        # and delivered none). Its held text dies silently; anything that
-        # already streamed live is retracted by exact painted char count,
-        # so the re-prompt's answer never glues onto it (field 2026-10-15:
-        # 'Hello! How' + the replacement answer).
-        _discard_held_answer(session_id)
-        try:
-            result = _invoke_with_token_pump(
-                call_llm, messages_with_nudge, session_id, provider, model,
-                strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
-                hold_text=tools_bound,
-            )
-            result = repair_text_tool_calls(result, allow=tools_bound)
-            # Update state for the retry count (carried via additional_kwargs)
+        # Hermes refuses to dispatch tool arguments from a token-limited response.
+        # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
+        # returns an explicit error observation instead of mutating the workspace.
+        # The next iteration can split the write or continue with a larger budget.
+        completion = provider_response_info(result)
+        incomplete_retries = int(state.get("incomplete_response_retries", 0))
+        if completion["incomplete"]:
+            incomplete_retries += 1
             extra = dict(getattr(result, "additional_kwargs", {}) or {})
-            extra["_dropped_toolcall_retries"] = _dropped_retries
-            try:
-                result = result.model_copy(update={"additional_kwargs": extra})
-            except AttributeError:
-                result.additional_kwargs = extra
-        except Exception as _re_nudge_exc:
-            print(
-                f"[ai_node] dropped-toolcall re-prompt failed "
-                f"({type(_re_nudge_exc).__name__}) — continuing with empty",
-                flush=True,
-            )
-    elif tools_bound and not (getattr(result, "tool_calls", None) or []):
-        if _finish_reason_is_tool_calls(result) and _result_answer_text(result).strip():
-            # The velona/GLM shape: a full text answer wearing a
-            # tool_calls finish_reason. Accepted as-is -- re-prompting
-            # here double-bills every step (field logs 2026-10-15).
-            print(
-                "[ai_node] finish_reason=tool_calls with empty tool_calls "
-                "but a text answer was delivered -- accepting the answer "
-                "(provider mislabels finish_reason; no re-prompt)",
-                flush=True,
-            )
-        # Reset retry counter if we got a non-empty result or gave up
-        pass
-
-    # hermes handle_max_iterations tail: the summary response is the turn's
-    # FINAL answer — <think> stripped, one retry when empty, honest fallback
-    # text. No tool_calls can ride it (repair is disarmed; no tools bound).
-    if grace_summary_lap1:
-        # For strict providers (Sarvam), the reinvoke must also be text-only.
-        # The original lambda used `messages` (full history with tool pairs)
-        # which would 400 again if summary text was empty (field 2026-09-12:
-        # 10.7s text-only fallback succeeded, but empty summary triggered
-        # reinvoke with tool history → 400 → turn FAILED). Use stripped
-        # version for reinvoke as well.
-        _stripped_for_reinvoke = _drop_tool_pairs(messages)
-        result = _finalize_iteration_summary(
-            result,
-            lambda: _invoke_with_token_pump(
-                call_llm, _stripped_for_reinvoke, session_id, provider, model,
-                strip_tool_blocks=tools_bound, reasoning_config=reasoning_config,
-            ),
-        )
-
-    # Hermes refuses to dispatch tool arguments from a token-limited response.
-    # Preserve the assistant/tool pairing, but mark the message so SafeToolNode
-    # returns an explicit error observation instead of mutating the workspace.
-    # The next iteration can split the write or continue with a larger budget.
-    completion = provider_response_info(result)
-    incomplete_retries = int(state.get("incomplete_response_retries", 0))
-    if completion["incomplete"]:
-        incomplete_retries += 1
-        extra = dict(getattr(result, "additional_kwargs", {}) or {})
-        extra["crusor_incomplete_response"] = True
-        extra["crusor_incomplete_reason"] = completion["finish_reason"]
-        extra["crusor_raw_finish_reason"] = completion["raw_finish_reason"]
-        # hermes repetition_guard (agent/repetition_guard.py, issue #86581): a
-        # length-cut fragment dominated by verbatim repeats — or, Crusor's
-        # documented extension, one dominating word — is a degenerate loop.
-        # Discard the partial BEFORE the finish-gate continuation nudge can
-        # stitch more of it (hermes incident: a 60k-char turn delivered as 31
-        # Discord messages; Crusor field 2026-09-10: a multilingual salad turn
-        # streamed into the panel). History keeps the notice, never the slop.
-        if is_degenerate_output(str(getattr(result, "content", "") or "")):
-            extra["crusor_repetition_dominated"] = True
-            print(
-                f"[ai_node] repetition-dominated output (finish_reason={completion['finish_reason']}) "
-                "— partial discarded, turn ends",
-                flush=True,
-            )
-            try:
-                result = result.model_copy(
-                    update={"content": REPETITION_DOMINATED_NOTICE, "additional_kwargs": extra}
+            extra["crusor_incomplete_response"] = True
+            extra["crusor_incomplete_reason"] = completion["finish_reason"]
+            extra["crusor_raw_finish_reason"] = completion["raw_finish_reason"]
+            # hermes repetition_guard (agent/repetition_guard.py, issue #86581): a
+            # length-cut fragment dominated by verbatim repeats — or, Crusor's
+            # documented extension, one dominating word — is a degenerate loop.
+            # Discard the partial BEFORE the finish-gate continuation nudge can
+            # stitch more of it (hermes incident: a 60k-char turn delivered as 31
+            # Discord messages; Crusor field 2026-09-10: a multilingual salad turn
+            # streamed into the panel). History keeps the notice, never the slop.
+            if is_degenerate_output(str(getattr(result, "content", "") or "")):
+                extra["crusor_repetition_dominated"] = True
+                print(
+                    f"[ai_node] repetition-dominated output (finish_reason={completion['finish_reason']}) "
+                    "— partial discarded, turn ends",
+                    flush=True,
                 )
-            except AttributeError:
-                result.additional_kwargs = extra
-                result.content = REPETITION_DOMINATED_NOTICE
+                try:
+                    result = result.model_copy(
+                        update={"content": REPETITION_DOMINATED_NOTICE, "additional_kwargs": extra}
+                    )
+                except AttributeError:
+                    result.additional_kwargs = extra
+                    result.content = REPETITION_DOMINATED_NOTICE
+            else:
+                try:
+                    result = result.model_copy(update={"additional_kwargs": extra})
+                except AttributeError:
+                    result.additional_kwargs = extra
         else:
-            try:
-                result = result.model_copy(update={"additional_kwargs": extra})
-            except AttributeError:
-                result.additional_kwargs = extra
-    else:
-        incomplete_retries = 0
-        # Field instrument, no behavior change: hermes' guard scope is the
-        # length-truncated path. If a STOP-ended response trips the same
-        # predicate, the log says so — that is the datum which decides
-        # (owner-visible, never silently) whether the guard scope must grow.
-        _text = str(getattr(result, "content", "") or "")
-        if len(_text) >= 1500 and is_degenerate_output(_text):
+            incomplete_retries = 0
+            # Field instrument, no behavior change: hermes' guard scope is the
+            # length-truncated path. If a STOP-ended response trips the same
+            # predicate, the log says so — that is the datum which decides
+            # (owner-visible, never silently) whether the guard scope must grow.
+            _text = str(getattr(result, "content", "") or "")
+            if len(_text) >= 1500 and is_degenerate_output(_text):
+                print(
+                    "[ai_node] repetition-dominance observed on a stop-ended response (informational)",
+                    flush=True,
+                )
+
+        # =========================================================
+        # TRACK TOKEN USAGE
+        # =========================================================
+        call_usage = TokenTracker.record_call(messages, result, call_model)
+
+        # Cost Governance call accounting
+        try:
+            from src.agents.cost_governance import cost_governor
+            from src.agents.cost_router import cost_router
+            _tier = (getattr(cost_router, "_last_route", None) or {}).get("tier", "standard")
+            cost_governor.record_call(
+                session_id=session_id,
+                provider=provider,
+                model=call_model,
+                tier=_tier,
+                usage=call_usage,
+                duration_s=round(time.time() - t_llm_start, 3),
+                purpose="final_response" if (budget_exhausted or final_response_slot) else "work",
+                reservation_id=_res_id,
+            )
+            _reconciled = True
+        except Exception:
+            pass
+
+        # P3 (Hermes parity): feed the provider's ACTUAL usage back into the
+        # session context engine. The engine owns the compaction decision from
+        # real numbers (75% of the real window); Crusor's own counting is
+        # heuristic for unlisted models, so the provider's figure is the ground
+        # truth. Only the MAIN-agent call feeds the engine — the task_manager
+        # classifier request is a small planner call, not window pressure.
+        # Best-effort telemetry: never break the turn.
+        try:
+            get_context_engine(config).update_from_response(call_usage.to_dict())
+        except Exception:
+            pass
+
+        # D6 (2026-10-31): calibrate the token estimator against what the provider
+        # actually billed. The estimate below covers the MESSAGES we sent; the bill
+        # also covers the bound tool schemas, so the schema term must be added in
+        # or the ratio is inflated by however large the toolset is (~14k/call in
+        # measured runs) and we would "correct" the estimator in the wrong
+        # direction. If the schema term cannot be measured, skip the sample rather
+        # than learn from a mismatched pair. Best-effort: never breaks the turn.
+        try:
+            from src.context.token_budget import count_tokens as _count_tokens
+            from src.context.token_calibration import record_sample
+
+            _est_messages = _count_tokens(messages, call_model)
+            _est_tools = 0
+            if tools_bound:
+                _bound = _resolve_bound_tools(state, config)
+                _schema_json = _json.dumps(
+                    [getattr(t, "args_schema", None) or getattr(t, "description", "")
+                     for t in (_bound or [])],
+                    ensure_ascii=False, default=str,
+                )
+                _est_tools = _count_tokens(
+                    [SystemMessage(content=_schema_json)], call_model
+                )
+            record_sample(
+                call_model,
+                _est_messages + _est_tools,
+                int(call_usage.prompt_tokens or 0),
+            )
+        except Exception:
+            pass
+
+        # Law-1 visibility: when the provider reports prompt-cache hits, SAY so —
+        # a custom tier re-bills all bound tool schemas per call unless its
+        # automatic prefix caching engages; this line is how anyone can SEE
+        # whether it does. Silent when the provider reports no cache data.
+        if call_usage.cached_tokens > 0 and call_usage.prompt_tokens > 0:
+            pct = round(100 * call_usage.cached_tokens / call_usage.prompt_tokens)
             print(
-                "[ai_node] repetition-dominance observed on a stop-ended response (informational)",
+                f"[ai_node] prompt cache: {call_usage.cached_tokens:,} of "
+                f"{call_usage.prompt_tokens:,} prompt tokens served from cache ({pct}%)",
                 flush=True,
             )
 
-    # =========================================================
-    # TRACK TOKEN USAGE
-    # =========================================================
-    call_usage = TokenTracker.record_call(messages, result, call_model)
-
-    # Cost Governance call accounting
-    try:
-        from src.agents.cost_governance import cost_governor
-        from src.agents.cost_router import cost_router
-        _tier = (getattr(cost_router, "_last_route", None) or {}).get("tier", "standard")
-        cost_governor.record_call(
-            session_id=session_id,
-            provider=provider,
-            model=call_model,
-            tier=_tier,
-            usage=call_usage,
-            duration_s=round(time.time() - t_llm_start, 3),
-            purpose="final_response" if (budget_exhausted or final_response_slot) else "work",
-            reservation_id=_res_id,
-        )
-    except Exception:
-        pass
-
-    # P3 (Hermes parity): feed the provider's ACTUAL usage back into the
-    # session context engine. The engine owns the compaction decision from
-    # real numbers (75% of the real window); Crusor's own counting is
-    # heuristic for unlisted models, so the provider's figure is the ground
-    # truth. Only the MAIN-agent call feeds the engine — the task_manager
-    # classifier request is a small planner call, not window pressure.
-    # Best-effort telemetry: never break the turn.
-    try:
-        get_context_engine(config).update_from_response(call_usage.to_dict())
-    except Exception:
-        pass
-
-    # D6 (2026-10-31): calibrate the token estimator against what the provider
-    # actually billed. The estimate below covers the MESSAGES we sent; the bill
-    # also covers the bound tool schemas, so the schema term must be added in
-    # or the ratio is inflated by however large the toolset is (~14k/call in
-    # measured runs) and we would "correct" the estimator in the wrong
-    # direction. If the schema term cannot be measured, skip the sample rather
-    # than learn from a mismatched pair. Best-effort: never breaks the turn.
-    try:
-        from src.context.token_budget import count_tokens as _count_tokens
-        from src.context.token_calibration import record_sample
-
-        _est_messages = _count_tokens(messages, call_model)
-        _est_tools = 0
-        if tools_bound:
-            _bound = _resolve_bound_tools(state, config)
-            _schema_json = _json.dumps(
-                [getattr(t, "args_schema", None) or getattr(t, "description", "")
-                 for t in (_bound or [])],
-                ensure_ascii=False, default=str,
+        # Step Tracker: Record step metrics & diagnostics for local inspection
+        try:
+            from src.runtime.step_tracker import StepTracker
+            _tracker = StepTracker.get_tracker(
+                session_id,
+                workspace_root=str(configurable.get("workspace") or "."),
             )
-            _est_tools = _count_tokens(
-                [SystemMessage(content=_schema_json)], call_model
+            _tracker.start_step("ai", state)
+            _tracker.record_llm_metrics(
+                model=call_model,
+                provider=provider,
+                input_tokens=call_usage.prompt_tokens,
+                output_tokens=call_usage.completion_tokens,
+                cached_tokens=call_usage.cached_tokens,
+                duration_s=round(time.time() - t_llm_start, 3),
             )
-        record_sample(
-            call_model,
-            _est_messages + _est_tools,
-            int(call_usage.prompt_tokens or 0),
-        )
-    except Exception:
-        pass
+            for _tc in (getattr(result, "tool_calls", None) or []):
+                _tracker.record_tool_call(
+                    name=_tc.get("name", ""),
+                    args=_tc.get("args", {}),
+                    status="proposed",
+                )
+            _tracker.finish_step()
+        except Exception:
+            pass
 
-    # Law-1 visibility: when the provider reports prompt-cache hits, SAY so —
-    # a custom tier re-bills all bound tool schemas per call unless its
-    # automatic prefix caching engages; this line is how anyone can SEE
-    # whether it does. Silent when the provider reports no cache data.
-    if call_usage.cached_tokens > 0 and call_usage.prompt_tokens > 0:
-        pct = round(100 * call_usage.cached_tokens / call_usage.prompt_tokens)
-        print(
-            f"[ai_node] prompt cache: {call_usage.cached_tokens:,} of "
-            f"{call_usage.prompt_tokens:,} prompt tokens served from cache ({pct}%)",
-            flush=True,
+        token_usage = _merge_token_usage(
+            state.get("token_usage", {}),
+            [call_usage],
+        )
+        turn_token_usage = _merge_token_usage(
+            state.get("turn_token_usage", {}),
+            [call_usage],
         )
 
-    # Step Tracker: Record step metrics & diagnostics for local inspection
-    try:
-        from src.runtime.step_tracker import StepTracker
-        _tracker = StepTracker.get_tracker(
-            session_id,
-            workspace_root=str(configurable.get("workspace") or "."),
-        )
-        _tracker.start_step("ai", state)
-        _tracker.record_llm_metrics(
-            model=call_model,
-            provider=provider,
-            input_tokens=call_usage.prompt_tokens,
-            output_tokens=call_usage.completion_tokens,
-            cached_tokens=call_usage.cached_tokens,
-            duration_s=round(time.time() - t_llm_start, 3),
-        )
-        for _tc in (getattr(result, "tool_calls", None) or []):
-            _tracker.record_tool_call(
-                name=_tc.get("name", ""),
-                args=_tc.get("args", {}),
-                status="proposed",
+        # Every provider iteration counts. Hermes refunds execute_code-only turns,
+        # but it also runs a much larger default parent budget and a separate tool
+        # guardrail controller. Copying only the refund into Crusor's 20-call paid
+        # harness created an unbounded blind spot: Test5-6 issued four os.walk
+        # execute_code inspections without advancing the counter that activates
+        # forced delivery. PTC still saves round trips when it batches real work;
+        # it is not free when it consumes another provider request.
+        next_used = iteration_used + 1
+
+        # Carry dropped-toolcall retry count through state for the re-prompt loop.
+        _dtc_retries = int(
+            (getattr(result, "additional_kwargs", None) or {}).get(
+                "_dropped_toolcall_retries", 0
             )
-        _tracker.finish_step()
-    except Exception:
-        pass
-
-    token_usage = _merge_token_usage(
-        state.get("token_usage", {}),
-        [call_usage],
-    )
-    turn_token_usage = _merge_token_usage(
-        state.get("turn_token_usage", {}),
-        [call_usage],
-    )
-
-    # Every provider iteration counts. Hermes refunds execute_code-only turns,
-    # but it also runs a much larger default parent budget and a separate tool
-    # guardrail controller. Copying only the refund into Crusor's 20-call paid
-    # harness created an unbounded blind spot: Test5-6 issued four os.walk
-    # execute_code inspections without advancing the counter that activates
-    # forced delivery. PTC still saves round trips when it batches real work;
-    # it is not free when it consumes another provider request.
-    next_used = iteration_used + 1
-
-    # Carry dropped-toolcall retry count through state for the re-prompt loop.
-    _dtc_retries = int(
-        (getattr(result, "additional_kwargs", None) or {}).get(
-            "_dropped_toolcall_retries", 0
         )
-    )
 
-    # Doom-loop hand-off: if the permission rules would ask (or deny)
-    # about a repeated loop, the drop above must not eat the repeats.
-    _doom_defers = False
-    try:
-        from src.context.permission_config import effect_for, load_permission_rules
-        _agent = "build"
-        if session_id.startswith("sub-"):
-            try:
-                from src.runtime.subagent_store import get_store
-                _row = get_store().get_by_child(session_id)
-                _agent = str(getattr(_row, "mode", "") or "") if _row else ""
-            except Exception:
-                _agent = ""
-        _doom_defers = effect_for(
-            "doom_loop", ["*"],
-            load_permission_rules(str(configurable.get("workspace") or "."), _agent),
-        ) != "allow"
-    except Exception:
+        # Doom-loop hand-off: if the permission rules would ask (or deny)
+        # about a repeated loop, the drop above must not eat the repeats.
         _doom_defers = False
-    result = _drop_repeated_read_calls(result, state, doom_defers=_doom_defers)
-    # The kept attempt's held head paints now (answers under the hold cap
-    # arrive whole; longer ones already went live mid-generation).
-    _release_held_answer(session_id)
+        try:
+            from src.context.permission_config import effect_for, load_permission_rules
+            _agent = "build"
+            if session_id.startswith("sub-"):
+                try:
+                    from src.runtime.subagent_store import get_store
+                    _row = get_store().get_by_child(session_id)
+                    _agent = str(getattr(_row, "mode", "") or "") if _row else ""
+                except Exception:
+                    _agent = ""
+            _doom_defers = effect_for(
+                "doom_loop", ["*"],
+                load_permission_rules(str(configurable.get("workspace") or "."), _agent),
+            ) != "allow"
+        except Exception:
+            _doom_defers = False
+        result = _drop_repeated_read_calls(result, state, doom_defers=_doom_defers)
+        # The kept attempt's held head paints now (answers under the hold cap
+        # arrive whole; longer ones already went live mid-generation).
+        _release_held_answer(session_id)
 
-    return {
-        "messages": [result],
-        "token_usage": token_usage,
-        "turn_token_usage": turn_token_usage,
-        "iteration_used": next_used,
-        "incomplete_response_retries": incomplete_retries,
-        "grace_done": 1 if (budget_exhausted or final_response_slot) else grace_done,
-        "wrap_summary": 1 if (wrap_summary or completion_evidence_ready) else 0,
-        "budget_warning_done": 1 if budget_warning_fired else int(
-            state.get("budget_warning_done", 0) or 0
-        ),
-        "_dropped_toolcall_retries": _dtc_retries,
-    }
+        return {
+            "messages": [result],
+            "token_usage": token_usage,
+            "turn_token_usage": turn_token_usage,
+            "iteration_used": next_used,
+            "incomplete_response_retries": incomplete_retries,
+            "grace_done": 1 if (budget_exhausted or final_response_slot) else grace_done,
+            "wrap_summary": 1 if (wrap_summary or completion_evidence_ready) else 0,
+            "budget_warning_done": 1 if budget_warning_fired else int(
+                state.get("budget_warning_done", 0) or 0
+            ),
+            "_dropped_toolcall_retries": _dtc_retries,
+        }
+    finally:
+        if _res_id and not _reconciled:
+            try:
+                from src.agents.cost_governance import cost_governor
+                cost_governor.release_reservation(session_id, _res_id)
+            except Exception:
+                pass
 
 
 
@@ -5292,6 +5303,18 @@ For "unrelated", preserve the existing active task exactly.
     decision = _invoke_task_decision(llm, task_messages)
 
     call_usage = TokenTracker.record_call(task_messages, decision, model)
+    try:
+        from src.agents.cost_governance import cost_governor
+        cost_governor.record_call(
+            session_id=session_id_tm,
+            provider=provider,
+            model=model,
+            tier="cheap",
+            usage=call_usage,
+            purpose="task_classifier",
+        )
+    except Exception:
+        pass
 
     if decision.action == "new":
         token_usage = _merge_token_usage(

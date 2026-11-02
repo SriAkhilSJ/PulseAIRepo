@@ -72,8 +72,9 @@ def test_simple_task_routes_to_cheap_model_and_satisfies_target(monkeypatch):
         usage=usage,
     )
 
-    # Calculate INR spend at 86.0 rate
-    expected_inr = Decimal("0.0008") * Decimal("86.0")
+    # Calculate INR spend with canonical conversion: USD * 86.0 * 1.005 * 1.07
+    canonical_fx = Decimal("86.0") * Decimal("1.005") * Decimal("1.07")
+    expected_inr = Decimal("0.0008") * canonical_fx
     assert rec.cost_inr == expected_inr.quantize(Decimal("0.000001"))
     # Spend must be well below target simple task cost of ₹5
     assert rec.cost_inr < Decimal("5.00")
@@ -120,16 +121,16 @@ def test_monetary_budget_limits_inr_and_usd():
     gov = CostGovernor(cfg)
     sid = "test_monetary"
 
-    # USD spend of $0.10 = ₹8.60
+    # USD spend of $0.10 with canonical conversion (86.0 * 1.005 * 1.07 = 92.48010) = ₹9.248010
     gov.record_call(
         sid, "p", "m", "standard",
         TokenUsage(total_tokens=5000, estimated_cost_usd=0.10, cost_known=True)
     )
     tracker = gov._get_or_create_tracker(sid)
-    assert tracker.session_cost_inr == Decimal("8.600000")
+    assert tracker.session_cost_inr == Decimal("9.248010")
     assert not gov.is_exhausted(sid)
 
-    # USD spend of $0.15 = ₹12.90 (turn cost = 8.60 + 12.90 = ₹21.50 > ₹20.00 turn budget)
+    # USD spend of $0.15 = ₹13.872015 (turn cost = 9.248010 + 13.872015 = ₹23.120025 > ₹20.00 turn budget)
     gov.record_call(
         sid, "p", "m", "standard",
         TokenUsage(total_tokens=5000, estimated_cost_usd=0.15, cost_known=True)
@@ -298,7 +299,7 @@ def test_compact_summary_formatting():
 
     summary = gov.get_compact_summary(sid)
     assert "[Cost Governance]" in summary
-    assert "Session: ₹0.90 / ₹100.00" in summary
+    assert "Session: ₹0.97 / ₹100.00" in summary
     assert "Tokens: 5,000 / 500,000 (700 cached)" in summary
     assert "Calls: 2 (cheap: 1, standard: 1, premium: 0)" in summary
     assert "Status: HEALTHY" in summary

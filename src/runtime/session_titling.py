@@ -64,6 +64,18 @@ def generate_session_title(
             from src.llm.factory import get_auxiliary_llm
 
             raw = get_auxiliary_llm().invoke(prompt)
+            try:
+                from src.agents.cost_governance import cost_governor
+                cost_governor.track_auxiliary_call(
+                    session_id="session_titling",
+                    provider="aux",
+                    model=getattr(get_auxiliary_llm(), "model", "aux"),
+                    messages_or_prompt=prompt,
+                    response=raw,
+                    purpose="session_titling",
+                )
+            except Exception:
+                pass
         else:
             raw = invoke(prompt)
         content = getattr(raw, "content", raw)

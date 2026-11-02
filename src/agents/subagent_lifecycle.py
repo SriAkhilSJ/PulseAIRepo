@@ -146,6 +146,11 @@ class SubagentLifecycleService:
         )
         with self._lock:
             self._records[sid] = record
+        try:
+            from src.agents.cost_governance import cost_governor
+            cost_governor.register_parent_session(sid, parent_session_id)
+        except Exception:
+            pass
         # Persist to store (OpenCode parity: child session with parentID)
         try:
             from src.runtime.subagent_store import get_store, SubagentSessionRow
@@ -214,6 +219,11 @@ class SubagentLifecycleService:
         )
         with self._lock:
             self._records[child_id] = record
+        try:
+            from src.agents.cost_governance import cost_governor
+            cost_governor.register_parent_session(child_id, parent_session_id)
+        except Exception:
+            pass
         # Refresh the durable row so lists/cards show it running again.
         try:
             get_store().update(child_id, state=record.state.value, updated_at=record.updated_at)

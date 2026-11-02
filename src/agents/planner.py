@@ -30,6 +30,18 @@ def _invoke_and_track(
 
         usage = TokenTracker.record_call(messages, result, model)
         usage_list.append(usage)
+        try:
+            from src.agents.cost_governance import cost_governor
+            cost_governor.record_call(
+                session_id="planner",
+                provider=getattr(llm, "provider", "planner"),
+                model=model,
+                tier="cheap",
+                usage=usage,
+                purpose="planner",
+            )
+        except Exception:
+            pass
 
     return result
 
