@@ -43,7 +43,7 @@ from src.context.engine import ContextEngine as BaseContextEngine
 from src.context.engine import resolve_model_threshold, sanitize_memory_context, load_model_thresholds_from_env, load_proactive_prune_config_from_env
 from src.context.token_budget import count_tokens, trim_messages_to_budget
 from src.context.task_types import TaskType  # P9: re-exported for existing imports
-from src.context import layer_policy  # P9: scoring/dedup/placement/compression/budget
+from src.context.ranking import layer_policy  # P9: scoring/dedup/placement/compression/budget
 from src.context import ambiguity, plan_messages  # P10: detector + planner builders
 from src.context.usage_pressure import UsagePressure
 from src.context.user_interest import interest_from_state, render_user_interest

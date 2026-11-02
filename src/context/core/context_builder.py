@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from langchain_core.messages import BaseMessage, SystemMessage
 
-from src.context import layer_policy
+from src.context.ranking import layer_policy
 from src.context import plan_messages
 from src.context.task_types import TaskType
 
