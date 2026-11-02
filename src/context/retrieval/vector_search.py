@@ -18,7 +18,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 if TYPE_CHECKING:
-    from src.context.bounded_scan import ContextBudget
+    from src.context.budgeting.context_budget import ContextBudget
 
 # ---------------------------------------------------------------------
 # SQL queries for sqlite-vec
@@ -147,7 +147,7 @@ def search_vector(
     else:
         if embedder is None:
             return []
-        from src.context.embedding_cache import get_embedding_cache
+        from src.context.memory.embedding_cache import get_embedding_cache
         q_emb = get_embedding_cache().lookup(embedder, query)
         if q_emb is None:
             return []  # no cached query vector -> BM25 only, no inference

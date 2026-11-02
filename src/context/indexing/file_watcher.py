@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from src.context.bounded_scan import ContextBudget
+from src.context.budgeting.context_budget import ContextBudget
 from src.context.extraction.language_registry import source_extensions
 
 WATCH_BATCH_S = 2.0      # debounce window for queued events

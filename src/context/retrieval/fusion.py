@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Sequence, TypeVar
 
 if TYPE_CHECKING:
-    from src.context.chunk_index import ChunkResult
+    from src.context.types import ChunkResult
 
 T = TypeVar("T")
 
@@ -83,7 +83,7 @@ def hydrate_chunk_results(
      signature, docstring, body, modified_time)
     """
     if chunk_cls is None:
-        from src.context.chunk_index import ChunkResult
+        from src.context.types import ChunkResult
         target_cls: Any = ChunkResult
     else:
         target_cls = chunk_cls

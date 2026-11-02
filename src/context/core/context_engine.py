@@ -38,10 +38,10 @@ from langchain_core.messages import (
     AIMessage,
 )
 
-from src.context.bounded_scan import ContextBudget
+from src.context.budgeting.context_budget import ContextBudget
 from src.context.engine import ContextEngine as BaseContextEngine
 from src.context.engine import resolve_model_threshold, sanitize_memory_context, load_model_thresholds_from_env, load_proactive_prune_config_from_env
-from src.context.token_budget import count_tokens, trim_messages_to_budget
+from src.context.budgeting.token_budget import count_tokens, trim_messages_to_budget
 from src.context.task_types import TaskType  # P9: re-exported for existing imports
 from src.context.ranking import layer_policy  # P9: scoring/dedup/placement/compression/budget
 from src.context import ambiguity, plan_messages  # P10: detector + planner builders
@@ -57,7 +57,7 @@ from src.context.history_shaper import HistoryShaper
 from src.context.summarizer import SmartSummarizer
 from src.context.memory_manager import MemoryManager
 from src.context.repo_map import get_repo_map
-from src.context.embedding_cache import get_embedding_cache
+from src.context.memory.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
 from src.context.micro_compaction import MicroCompactionMixin
 from src.context.compression_fence import CompressionCommitFence, try_acquire_compression_lock, release_compression_lock
@@ -736,7 +736,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             # the IDE process never inherited them -- a silent env loss that
             # this line makes visible forever.
             try:
-                from src.context.bounded_scan import default_scan_limits, scan_budget_source
+                from src.context.budgeting.context_budget import default_scan_limits, scan_budget_source
                 from src.context.model_budgets import (
                     context_spend_cap, history_spend_cap, input_budget_source,
                 )
@@ -1448,7 +1448,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
                         break
                 # Best-effort index — never block turn
                 if last_user and len(str(last_user)) > 10:
-                    from src.context.chunk_index import get_chunk_index
+                    from src.context.indexing.chunk_index import get_chunk_index
                     idx = get_chunk_index()
                     # idx.index_text is internal — just touch it if available
                     if hasattr(idx, "index_turn"):
@@ -2244,7 +2244,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         Every failure path returns None — this layer must never break a build,
         including first-run (index still building) and no-embedder environments.
         """
-        from src.context.chunk_index import build_relevant_chunks_layer
+        from src.context.indexing.chunk_index import build_relevant_chunks_layer
         state = dict(state)
         if self._active_thread_id:
             state["thread_id"] = self._active_thread_id

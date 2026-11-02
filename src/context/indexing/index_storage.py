@@ -16,7 +16,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-from src.context.bounded_scan import ContextBudget
+from src.context.budgeting.context_budget import ContextBudget
 
 EMBED_DIM = 384  # all-MiniLM-L6-v2 output size
 SCHEMA_USER_VERSION = 3
@@ -143,7 +143,7 @@ def insert_chunks_no_commit(
         if embedder is None:
             embeddings = [None] * len(chunks)
         else:
-            from src.context.embedding_cache import get_embedding_cache
+            from src.context.memory.embedding_cache import get_embedding_cache
             try:
                 vecs = get_embedding_cache().encode(
                     embedder, [c["content"] for c in chunks]
@@ -152,7 +152,7 @@ def insert_chunks_no_commit(
             except Exception:
                 embeddings = [None] * len(chunks)
     elif embedder is not None:
-        from src.context.embedding_cache import get_embedding_cache
+        from src.context.memory.embedding_cache import get_embedding_cache
         cache = get_embedding_cache()
         embeddings = [
             cache.lookup(embedder, c["content"]) for c in chunks
@@ -265,7 +265,7 @@ def get_neighbors(
     """Retrieve surrounding-chunk context window for a chunk."""
     if chunk_cls is None:
         try:
-            from src.context.chunk_index import ChunkResult
+            from src.context.types import ChunkResult
             chunk_cls = ChunkResult
         except ImportError:
             chunk_cls = dict

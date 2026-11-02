@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from src.context.bounded_scan import ContextBudget
+from src.context.budgeting.context_budget import ContextBudget
+from src.context.types import ChunkResult
 from src.context.extraction.language_registry import (
     extract_source_chunks,
     source_extensions,
@@ -95,23 +96,9 @@ BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
 
 
 # ---------------------------------------------------------------------
-# DATA MODEL
+# DATA MODEL (canonical definition in src.context.types)
 # ---------------------------------------------------------------------
-
-
-@dataclass
-class ChunkResult:
-    id: str
-    file_path: str
-    symbol_name: str
-    symbol_type: str  # module | function | class
-    start_line: int
-    end_line: int
-    signature: str
-    docstring: Optional[str]
-    body: str          # display body for LLM context
-    score: float       # fused score
-    modified_time: float = 0.0  # file mtime at last sync (D13 hot feature)
+# ChunkResult is imported above from src.context.types and re-exported
 
 
 # One ChunkIndex per workspace, shared process-wide (constructing a fresh

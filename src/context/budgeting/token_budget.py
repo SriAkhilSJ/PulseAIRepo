@@ -56,10 +56,7 @@ def count_tokens(messages: list[BaseMessage], model: str | None = None) -> int:
     total += 2
 
     try:
-        try:
-            from src.context.budgeting.token_calibration import calibration_factor
-        except ImportError:
-            from src.context.token_calibration import calibration_factor
+        from src.context.budgeting.token_calibration import calibration_factor
         _factor = calibration_factor(model_name)
         if _factor != 1.0:
             total = max(1, int(round(total * _factor)))

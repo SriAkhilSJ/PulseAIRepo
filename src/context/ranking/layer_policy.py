@@ -26,7 +26,7 @@ from typing import Any, Optional
 from langchain_core.messages import SystemMessage
 
 from src.context.task_types import TaskType
-from src.context.token_budget import count_tokens
+from src.context.budgeting.token_budget import count_tokens
 from src.context.ranking.relevance import (
     LAYER_RELEVANCE_BASE,
     infer_layer_name,
@@ -152,7 +152,7 @@ def score_and_sort_layers(
             # turn — the old code re-encoded every layer EVERY turn, once
             # here and once again in dedup. One batch call computes misses
             # only; vectors are bit-identical to the old direct calls.
-            from src.context.embedding_cache import get_embedding_cache
+            from src.context.memory.embedding_cache import get_embedding_cache
             all_vecs = get_embedding_cache().encode(
                 embedder, [task] + [msg.content for msg in layers]
             )
@@ -202,7 +202,7 @@ def deduplicate_layers(
         texts = [msg.content for _, msg, _ in scored_layers]
         # D2: these are (mostly) the texts just encoded by scoring —
         # a warm cache turns dedup into a zero-compute lookup.
-        from src.context.embedding_cache import get_embedding_cache
+        from src.context.memory.embedding_cache import get_embedding_cache
         embs = get_embedding_cache().encode(embedder, texts)
     except Exception:
         return scored_layers
@@ -401,3 +401,4 @@ __all__ = [
     "assemble_hierarchical",
     "compress_layer",
 ]
+

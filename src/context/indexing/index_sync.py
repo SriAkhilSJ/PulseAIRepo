@@ -13,7 +13,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional, Sequence
 
-from src.context.bounded_scan import ContextBudget, bounded_read_text, scan_files
+from src.context.budgeting.context_budget import ContextBudget, bounded_read_text
+from src.context.bounded_scan import scan_files
 from src.context.extraction.language_registry import (
     _EXT_JS_FAMILY,
     extract_source_chunks,

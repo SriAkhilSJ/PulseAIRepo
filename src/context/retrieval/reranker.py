@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, Sequence, TypeVar
 
 if TYPE_CHECKING:
-    from src.context.chunk_index import ChunkResult
+    from src.context.types import ChunkResult
 
 T = TypeVar("T")
 
