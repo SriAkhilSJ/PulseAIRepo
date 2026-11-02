@@ -667,8 +667,9 @@ jobs:
           set -euo pipefail
           RUN_ID=$(python -c 'import os,re; m=re.search(r"\[collect-evidence:(\d+)\]", os.environ["HEAD_MESSAGE"]); assert m; print(m.group(1))')
           DEST="docs/benchmarks/continuous-evidence-$RUN_ID"
-          mkdir -p "$DEST"
-          gh run download "$RUN_ID" --name continuous-ecommerce-glm-evidence --dir "$DEST"
+          mkdir -p "$DEST" "$RUNNER_TEMP/collected-evidence"
+          gh run download "$RUN_ID" --name continuous-ecommerce-glm-evidence --dir "$RUNNER_TEMP/collected-evidence"
+          cp -R "$RUNNER_TEMP/collected-evidence/." "$DEST/"
           find "$DEST" -type f -printf '%P (%s bytes)\n' | sort
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
