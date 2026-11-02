@@ -31,7 +31,7 @@ jobs:
   e2e:
     # A targeted continuous benchmark uses the separate isolated job below;
     # never run both paid jobs for the same push.
-    if: ${{ !contains(github.event.head_commit.message, '[continuous-benchmark]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[continuous-benchmark]') && !contains(github.event.head_commit.message, '[collect-evidence:') }}
     name: Real GLM 5.3 turn -> verified report
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -648,3 +648,32 @@ jobs:
           name: continuous-ecommerce-glm-evidence
           path: ${{ runner.temp }}/continuous/evidence
           if-no-files-found: warn
+
+  collect-continuous-evidence:
+    name: Collect existing redacted benchmark evidence (no model calls)
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[collect-evidence:') && startsWith(github.ref, 'refs/heads/arena/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and persist evidence from the earlier run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          RUN_ID=$(python -c 'import os,re; m=re.search(r"\[collect-evidence:(\d+)\]", os.environ["HEAD_MESSAGE"]); assert m; print(m.group(1))')
+          DEST="docs/benchmarks/continuous-evidence-$RUN_ID"
+          mkdir -p "$DEST"
+          gh run download "$RUN_ID" --name continuous-ecommerce-glm-evidence --dir "$DEST"
+          find "$DEST" -type f -printf '%P (%s bytes)\n' | sort
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$DEST"
+          if ! git diff --cached --quiet; then
+            git commit -m "Capture redacted continuous benchmark evidence $RUN_ID [skip ci]"
+            git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          fi
