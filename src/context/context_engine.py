@@ -61,6 +61,13 @@ from src.context.embedding_cache import get_embedding_cache
 from src.config.settings import CONTEXT_MODEL
 from src.context.micro_compaction import MicroCompactionMixin
 from src.context.compression_fence import CompressionCommitFence, try_acquire_compression_lock, release_compression_lock
+from src.context.core.context_state import (
+    HASHED_STATE_KEYS,
+    ContextState,
+    hash_state as _core_hash_state,
+    wire_dicts_to_messages as _core_wire_dicts_to_messages,
+    workspace_exceeds_budget as _core_workspace_exceeds_budget,
+)
 
 
 # P9: TaskType lives in src/context/task_types.py (imported above and
@@ -1008,37 +1015,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         messages_from_dict speaks the CHECKPOINT serialization format
         ({type, data}), not the wire format — the two must not be
         conflated."""
-        role_map = {
-            "human": HumanMessage, "user": HumanMessage,
-            "ai": AIMessage, "assistant": AIMessage,
-            "system": SystemMessage,
-        }
-        out: list = []
-        for d in dicts:
-            role = str(d.get("type") or d.get("role") or "human").lower()
-            content = d.get("content", "")
-            if role == "tool":
-                out.append(ToolMessage(
-                    content=content,
-                    tool_call_id=str(d.get("tool_call_id") or d.get("id") or ""),
-                    name=str(d.get("name") or "tool"),
-                ))
-            else:
-                cls = role_map.get(role, HumanMessage)
-                msg = cls(content=content)
-                if role in ("ai", "assistant") and d.get("tool_calls"):
-                    try:
-                        msg.tool_calls = [
-                            (
-                                tc if isinstance(tc, dict)
-                                else tc.model_dump()
-                            )
-                            for tc in d["tool_calls"]
-                        ]
-                    except Exception:
-                        pass
-                out.append(msg)
-        return out
+        return _core_wire_dicts_to_messages(dicts)
 
     # P8: the history-shaping pipeline (summarize/compact/trim/telemetry)
     # lives in history_shaper.HistoryShaper; the engine keeps the documented
@@ -1568,11 +1545,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     def _hash_state(self, state: dict[str, Any]) -> str:
         """Hash ONLY the keys layers read (messages excluded by design;
         token_usage/execution_trace excluded as measured noise)."""
-        payload = json.dumps(
-            {k: str(state.get(k)) for k in sorted(self._HASHED_STATE_KEYS)},
-            sort_keys=True,
-        )
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+        return _core_hash_state(state, self._HASHED_STATE_KEYS)
 
     def _allocate_budget(self, task_type: TaskType) -> tuple[int, int]:
         """
@@ -1882,31 +1855,7 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         exceeds the budget, the bound is ACTIVELY protecting the turn and a
         receipt is owed even if skip rules pruned everything without a
         mid-walk truncation."""
-        import os as _os
-        from src.context.bounded_scan import SCAN_SKIP_DIRS
-        seen = 0
-        roots = 0
-        try:
-            if _os.path.isfile(workspace):
-                return False
-            for _root, dirs, files in _os.walk(workspace):
-                # Honesty fix (owner report): the probe used to count EVERY
-                # entry including .git object stores and node_modules -- trees
-                # the scan itself never considers -- so any fork with a big
-                # vendor tree "exceeded" a budget it had not actually touched.
-                # Prune the SAME directories the scanner skips so the probe
-                # counts candidates, not junk.
-                dirs[:] = [
-                    d for d in dirs
-                    if d not in SCAN_SKIP_DIRS and not d.startswith(".")
-                ]
-                seen += len(dirs) + len(files)
-                roots += 1
-                if seen > cap or roots > 2 * cap:
-                    break
-        except Exception:
-            return False
-        return seen > cap
+        return _core_workspace_exceeds_budget(workspace, cap)
 
     def _emit_build_receipt(self) -> None:
         """P1-fix: emit EXACTLY ONE turn/build-level ``runtime.degraded``
