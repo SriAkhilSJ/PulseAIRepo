@@ -518,15 +518,15 @@ def test_12_sqlite_transaction_rollback_on_failure(temp_db_path):
 def test_13_schema_versioning_and_migration_check(temp_db_path):
     """Requirement 13: Schema versioning: verify schema version is recorded and tracked."""
     store = FinancialStore(temp_db_path)
-    assert store.get_schema_version() == 1
+    assert store.get_schema_version() == 2
 
     # Verify schema version table in DB
     conn = sqlite3.connect(temp_db_path)
     cur = conn.cursor()
-    cur.execute("SELECT version FROM financial_schema_version ORDER BY installed_at DESC LIMIT 1")
+    cur.execute("SELECT version FROM financial_schema_version ORDER BY version DESC LIMIT 1")
     ver = cur.fetchone()[0]
     conn.close()
-    assert ver == 1
+    assert ver == 2
     store.close()
 
 
