@@ -32,6 +32,10 @@ class ToolExecutionRecord:
     state_mutated: bool = False
     new_information_provided: bool = True
     output_digest: str = ""
+    # Bounded hashed line observations for advisory overlap detection only.
+    observation_path: str = ""
+    observation_start: int = 0
+    observation_line_digests: tuple[str, ...] = ()
 
 
 @dataclass
@@ -55,6 +59,9 @@ class AgentRunState:
         new_info: bool = True,
         exit_code: Optional[int] = None,
         output_text: str = "",
+        observation_path: str = "",
+        observation_start: int = 0,
+        observation_line_digests: tuple[str, ...] = (),
     ) -> ToolExecutionRecord:
         """Record a tool execution and update revision & progress counters."""
         rev_before = self.current_revision
@@ -82,6 +89,9 @@ class AgentRunState:
             state_mutated=state_mutated,
             new_information_provided=new_info,
             output_digest=output_hash,
+            observation_path=observation_path,
+            observation_start=observation_start,
+            observation_line_digests=observation_line_digests,
         )
         self.execution_history.append(record)
         return record

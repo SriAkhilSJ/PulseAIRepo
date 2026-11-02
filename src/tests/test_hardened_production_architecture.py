@@ -253,3 +253,84 @@ def test_tool_middleware_run_state_integration():
     assert ledger.current_revision == 1
     assert len(ledger.execution_history) == 1
     assert ledger.execution_history[0].tool_name == 'write_file'
+
+
+def test_progress_observation_distinguishes_repeated_reads_and_changes():
+    from src.runtime.tool_middleware import _progress_observation
+    state = AgentRunState(session_id="progress-read")
+    command = "sed -n '1,20p' app.py"
+    for _ in range(3):
+        mutation, info = _progress_observation(state, "terminal", command, "same\nExit code: 0", "ok")
+        state.record_tool_call("terminal", command, state_mutated=mutation, new_info=info,
+                               output_text="same\nExit code: 0")
+    assert state.current_revision == 0
+    assert [r.new_information_provided for r in state.execution_history] == [True, False, False]
+    assert _progress_observation(state, "terminal", command, "changed\nExit code: 0", "ok") == (False, True)
+    state.record_tool_call("write_file", "app.py", state_mutated=True)
+    assert _progress_observation(state, "terminal", command, "same\nExit code: 0", "ok") == (False, True)
+
+
+def test_progress_command_classifier_is_conservative():
+    from src.runtime.tool_middleware import _progress_read_only_command
+    assert _progress_read_only_command("sed -n '1,20p' app.py")
+    assert _progress_read_only_command("cat app.py")
+    for command in ("cat app.py; rm app.py", "cat app.py > out", "sed -i 's/a/b/' app.py",
+                    "python inspect.py", "cat $(touch x)", "echo hello", "cat a | tee b"):
+        assert not _progress_read_only_command(command), command
+
+
+def test_middleware_repeated_terminal_reads_eventually_advise_without_blocking(tmp_path):
+    import uuid
+    from src.runtime.tool_middleware import execute_tool_transaction
+    session_id = "progress-" + uuid.uuid4().hex
+    config = {"configurable": {"thread_id": session_id, "workspace": str(tmp_path)}}
+    calls = []
+    for index in range(10):
+        outcome = execute_tool_transaction(
+            name="terminal", args={"command": "cat app.py"},
+            tool_call_id=f"read-{index}", config=config, project=False,
+            invoke=lambda: calls.append(1) or "same\nExit code: 0",
+        )
+    assert len(calls) == 10  # advisory never suppresses an execution
+    assert "PROGRESS GUARD ADVISORY" in outcome.content
+    state = get_run_state_ledger(session_id)
+    assert state.current_revision == 0
+    assert state.execution_history[-1].new_information_provided is False
+
+
+def test_overlapping_sed_ranges_are_advisory_and_only_when_fully_known(tmp_path):
+    import uuid
+    from src.runtime.tool_middleware import execute_tool_transaction
+    session_id = "overlap-" + uuid.uuid4().hex
+    config = {"configurable": {"thread_id": session_id, "workspace": str(tmp_path)}}
+    calls = []
+    def run(command, output):
+        return execute_tool_transaction(name="terminal", args={"command": command},
+            tool_call_id=str(len(calls)), config=config, project=False,
+            invoke=lambda: calls.append(command) or output)
+    run("sed -n '1,4p' app.py", "STDOUT:\na\nb\nc\nd\n\nExit code: 0")
+    run("sed -n '2,3p' app.py", "STDOUT:\nb\nc\n\nExit code: 0")
+    ledger = get_run_state_ledger(session_id)
+    assert [r.new_information_provided for r in ledger.execution_history] == [True, False]
+    run("sed -n '3,5p' app.py", "STDOUT:\nc\nd\ne\n\nExit code: 0")
+    assert ledger.execution_history[-1].new_information_provided  # one genuinely new line
+    run("sed -n '2,3p' app.py", "STDOUT:\nchanged\nc\n\nExit code: 0")
+    assert ledger.execution_history[-1].new_information_provided
+    run("sed -n '2,3p' other.py", "STDOUT:\nb\nc\n\nExit code: 0")
+    assert ledger.execution_history[-1].new_information_provided
+    # A successful write invalidates the local revision's old observations.
+    execute_tool_transaction(name="write_file", args={"path": "app.py"}, tool_call_id="w", config=config, project=False, invoke=lambda: "wrote")
+    run("sed -n '2,3p' app.py", "STDOUT:\nb\nc\n\nExit code: 0")
+    assert ledger.execution_history[-1].new_information_provided
+    assert len(calls) == 6  # never blocks a read
+
+
+def test_sed_overlap_declines_ambiguous_or_truncated_results():
+    from src.runtime.tool_middleware import _sed_line_observation
+    for command, result in [
+        ("sed -n '1,3p' app.py", "one\ntwo\nExit code: 0"),
+        ("sed -n '1,3p' *.py", "a\nb\nc\nExit code: 0"),
+        ("sed -n '1,3p' app.py; rm x", "a\nb\nc\nExit code: 0"),
+        ("sed -n '1,3p' app.py", "a\nb\nc\nExit code: 1"),
+    ]:
+        assert _sed_line_observation("terminal", command, result, "ok") == ("", 0, ())

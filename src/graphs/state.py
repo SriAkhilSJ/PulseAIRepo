@@ -65,6 +65,7 @@ class AgentState(CopilotKitState, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
 
     execution_mode: ExecutionMode
+    progressive_tool_surface: dict[str, Any] | None  # last provider bind, checkpointed for dispatch
 
     tool_failures: int
     recovery_mode: bool

@@ -81,6 +81,110 @@ def emit_tool_output(chunk: str) -> None:
         pass
 
 
+def _progress_read_only_command(command: str) -> bool:
+    """Recognize only simple inspection commands for advisory bookkeeping.
+
+    This is NOT a safety or authorization decision. Shell constructs, unknown
+    commands and potentially mutating options remain conservatively unknown.
+    """
+    import re
+    import shlex
+
+    if not command or re.search(r"[;&|<>`$\\\n\r]", command):
+        return False
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return False
+    if not words:
+        return False
+    name = words[0].lower()
+    # Limit options to those that cannot cause an output file or command exec.
+    if name in {"cat", "head", "tail", "wc", "pwd", "ls"}:
+        return not any(w.startswith(("--output", "--exec")) for w in words[1:])
+    if name == "sed" and len(words) >= 4 and words[1] == "-n":
+        return bool(re.fullmatch(r"[0-9]+(?:,[0-9]+)?p", words[2])) and all(
+            not w.startswith("-") for w in words[3:]
+        )
+    return False
+
+
+def _sed_line_observation(name: str, target: str, content: str, status: str) -> tuple[str, int, tuple[str, ...]]:
+    """Recognize one complete literal sed range, retaining hashes, not content.
+
+    Reject ambiguous/truncated output and shell syntax. This is solely an
+    advisory optimization: unknown ranges continue to count as new info.
+    """
+    import hashlib
+    import re
+    import shlex
+
+    if name not in {"terminal", "run_terminal"} or status != "ok" or not _progress_read_only_command(target):
+        return "", 0, ()
+    try:
+        words = shlex.split(target)
+    except ValueError:
+        return "", 0, ()
+    if len(words) != 4 or words[:2] != ["sed", "-n"]:
+        return "", 0, ()
+    match = re.fullmatch(r"([1-9][0-9]*),([1-9][0-9]*)p", words[2])
+    if not match or re.search(r"[?*\[\]~]", words[3]):
+        return "", 0, ()
+    start, end = map(int, match.groups())
+    if end < start or end - start >= 200:
+        return "", 0, ()
+    lines = content.splitlines()
+    if not lines or lines[-1].strip().lower() != "exit code: 0":
+        return "", 0, ()
+    output = lines[:-1]
+    # Foreground run_terminal wraps stdout in a fixed envelope. Reject stderr
+    # rather than accidentally mapping it to source line numbers.
+    if output and output[0] == "STDOUT:":
+        output = output[1:]
+    if "STDERR:" in output:
+        return "", 0, ()
+    # The terminal appends a separator newline even when stdout ends in one.
+    if output and output[-1] == "":
+        output.pop()
+    if len(output) != end - start + 1:
+        return "", 0, ()
+    digests = tuple(hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest()[:16] for line in output)
+    return words[3], start, digests
+
+
+def _progress_observation(run_state: Any, name: str, target: str, content: str, status: str) -> tuple[bool, bool]:
+    """Classify an observation for the advisory ledger, not for safety policy."""
+    import hashlib
+
+    success = status == "ok"
+    if name in {"write_file", "edit_file", "patch_file", "append_file"}:
+        mutation = success
+    elif name in {"terminal", "run_terminal"}:
+        mutation = success and not _progress_read_only_command(target)
+    else:
+        mutation = success and name == "execute_code"
+    new_info = success and bool(content)
+    if new_info and not mutation:
+        digest = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()[:12]
+        new_info = not any(
+            record.tool_name == name and record.target == target
+            and record.revision_after == run_state.current_revision
+            and record.output_digest == digest
+            for record in run_state.execution_history[-8:]
+        )
+    if new_info and not mutation:
+        path, start, lines = _sed_line_observation(name, target, content, status)
+        if path and lines:
+            seen: dict[int, str] = {}
+            for record in run_state.execution_history[-8:]:
+                if record.revision_after != run_state.current_revision or record.observation_path != path:
+                    continue
+                seen.update({record.observation_start + i: digest
+                             for i, digest in enumerate(record.observation_line_digests)})
+            if all(seen.get(start + i) == digest for i, digest in enumerate(lines)):
+                new_info = False
+    return mutation, new_info
+
 def execute_tool_transaction(
     *, name: str, args: dict[str, Any], tool_call_id: str, config,
     invoke: Callable[[], Any], project: bool = True,
@@ -267,6 +371,8 @@ def execute_tool_transaction(
     finally:
         _current_tool.reset(_tool_ctx_token)
 
+    # Keep ledger comparison independent of any advisory appended below.
+    observed_content = content
     if prog_warning:
         content += (
             f"\n\n[PROGRESS GUARD ADVISORY - {prog_warning['status'].upper()}]: "
@@ -275,16 +381,22 @@ def execute_tool_transaction(
 
     if run_state is not None:
         try:
-            is_mutation = name in {"write_file", "edit_file", "patch_file", "append_file"} or (
-                name in {"terminal", "execute_code"} and status == "ok"
+            is_mutation, new_info = _progress_observation(
+                run_state, name, target_str, observed_content, status
+            )
+            observed_path, observed_start, observed_lines = _sed_line_observation(
+                name, target_str, observed_content, status
             )
             run_state.record_tool_call(
+                observation_path=observed_path,
+                observation_start=observed_start,
+                observation_line_digests=observed_lines,
                 tool_name=name,
                 target=target_str,
                 state_mutated=is_mutation,
-                new_info=bool(content and not content.startswith("Error")),
+                new_info=new_info,
                 exit_code=1 if status == "error" else 0,
-                output_text=content[:200],
+                output_text=observed_content,
             )
         except Exception:
             pass

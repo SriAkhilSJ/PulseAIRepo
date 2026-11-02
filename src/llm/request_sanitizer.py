@@ -13,13 +13,11 @@ result dedup (context_compressor.py:3390):
   2. Drop later tool result messages that REUSE an already-seen
      tool_call_id. Duplicates arise from retries, crash/resume glitches, or
      a re-played compression window. Keeps every tool_call satisfied.
-  3. Byte-identical tool result dedup: when two DIFFERENT tool results carry
-     the exact same content, keep the NEWEST copy and drop the older one,
-     re-pointing the older assistant tool_call at the surviving id so no
-     tool_call is ever left without a result.
+  3. Preserve byte-identical results for distinct calls. Rewriting IDs or
+     dropping a result breaks provider call/result pairing; replacing content
+     with a reference is unsafe if later trimming removes its referent.
 
-The sanitizer is intentionally lossless: every remaining assistant tool_call
-still has a matching tool result, and no unique content is dropped. It must
+Distinct call/result pairs and their content remain intact. It must
 never raise — the pre-send path is hot, so any failure returns the input
 unchanged.
 """
@@ -92,61 +90,13 @@ def _drop_reused_result_ids(
 def _dedup_byte_identical_results(
     messages: list[BaseMessage],
 ) -> tuple[list[BaseMessage], int]:
-    """(3) Keep the NEWEST byte-identical tool result; drop older exact
-    duplicates and re-point the dropped ids at the surviving copy so every
-    assistant tool_call keeps a matching result. Returns (messages,
-    removed_count)."""
-    # Scan from the tail: first seen content wins (the newest copy).
-    hash_to_kept: dict[str, str] = {}          # content hash -> kept id
-    dropped_id_map: dict[str, str] = {}        # dropped id -> kept id
-    drop_indices: set[int] = set()
+    """(3) Preserve distinct tool results, even when their bodies match.
 
-    for i in range(len(messages) - 1, -1, -1):
-        msg = messages[i]
-        if not isinstance(msg, ToolMessage):
-            continue
-        cid = (msg.tool_call_id or "").strip()
-        if not cid:
-            continue
-        content = getattr(msg, "content", "")
-        if not isinstance(content, str):
-            continue
-        h = hash(content)
-        if h in hash_to_kept:
-            kept_id = hash_to_kept[h]
-            if kept_id != cid:
-                # Older exact duplicate of a newer result: drop it and
-                # re-point any assistant tool_call that referenced it.
-                dropped_id_map[cid] = kept_id
-                drop_indices.add(i)
-        else:
-            hash_to_kept[h] = cid
-
-    if not drop_indices:
-        return messages, 0
-
-    out: list[BaseMessage] = []
-    removed = 0
-    for i, msg in enumerate(messages):
-        if i in drop_indices:
-            removed += 1
-            continue
-        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            kept = [
-                {**tc, "id": dropped_id_map[tc.get("id", "")]}
-                if tc.get("id") in dropped_id_map
-                else tc
-                for tc in msg.tool_calls
-            ]
-            msg = AIMessage(
-                content=msg.content,
-                tool_calls=kept,
-                additional_kwargs={k: v for k, v in msg.additional_kwargs.items()
-                                   if k != "tool_calls"},
-                id=msg.id,
-            )
-        out.append(msg)
-    return out, removed
+    Request trimming can run after this sanitizer, so a cross-message reference
+    may outlive its full-content referent. Prefer protocol correctness and
+    evidence preservation to an unsafe token-saving rewrite.
+    """
+    return messages, 0
 
 
 def _ensure_nonempty_tool_content(messages: list[BaseMessage]) -> tuple[list[BaseMessage], int]:

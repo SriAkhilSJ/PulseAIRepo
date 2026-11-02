@@ -281,6 +281,14 @@ def build_request_snapshot(messages: Any, runnable: Any) -> dict[str, Any]:
         "tools": tools_payload,
         "message_chars": sum(len(str(m.get("content", ""))) for m in serialized_messages),
         "tool_schema_chars": len(json.dumps(tools_payload, sort_keys=True, default=str)),
+        # These are local snapshot JSON character counts, not provider tokens
+        # or a claim about the provider SDK's final wire serialization.
+        "serialized_messages_chars": len(json.dumps(serialized_messages, sort_keys=True, separators=(",", ":"), default=str)),
+        "tool_call_metadata_chars": sum(len(json.dumps(
+            {k: m[k] for k in ("tool_calls", "function_call", "tool_call_id", "name") if k in m},
+            sort_keys=True, separators=(",", ":"), default=str,
+        )) for m in serialized_messages if any(k in m for k in ("tool_calls", "function_call", "tool_call_id", "name"))),
+        "snapshot_json_chars": len(canonical),
         "tool_names": names,
         "sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
     }
@@ -576,9 +584,9 @@ class RetryLLMProxy:
 
             # ------------------------------------------------------------------
             # PRE-SEND SANITIZER (D36): lossless cleanup of the outgoing message
-            # list — collapse duplicate tool_calls within an assistant message,
-            # drop re-used tool_call_id results, dedup byte-identical tool
-            # results. Mirrors hermes' pre-call sanitizer. Never raises.
+            # list — collapse duplicate tool_calls within an assistant message
+            # and drop re-used result IDs. Distinct call/result pairs remain
+            # intact even if their result bodies match. Never raises.
             # ------------------------------------------------------------------
             sanitized = None
             messages_arg = None
@@ -698,6 +706,9 @@ class RetryLLMProxy:
                         "tool_count": len(request_snapshot["tools"]),
                         "tool_names": request_snapshot["tool_names"],
                         "tool_schema_chars": request_snapshot["tool_schema_chars"],
+                        "serialized_messages_chars": request_snapshot["serialized_messages_chars"],
+                        "tool_call_metadata_chars": request_snapshot["tool_call_metadata_chars"],
+                        "snapshot_json_chars": request_snapshot["snapshot_json_chars"],
                         "request_sha256": request_snapshot["sha256"],
                         **({"request_payload": request_snapshot} if capture_payload else {}),
                     })

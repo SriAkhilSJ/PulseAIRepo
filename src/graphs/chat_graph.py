@@ -611,6 +611,7 @@ from src.tools.target_tools import (
 from src.tools.toolchain_install import install_toolchain
 from src.tools.ui_verification import verify_ui_workspace, verify_ui_routes
 from src.tools.session_search_tool import session_search
+from src.tools.progressive_tools import discover_tools
 from src.tools.host_tools import HOST_TOOLS
 from src.prompts.claude_persona import system_persona  # D35 (§47)
 
@@ -1329,6 +1330,7 @@ tools = [
     plan_update,
     todo_list,
     clarify,
+    discover_tools,
     delegate_to_subagent,
     delegate_to_subagent_batch,
     display_crusor_task,
@@ -1601,7 +1603,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     # The registry snapshot, hermes-shaped: every registered tool is bound,
     # every turn, regardless of task wording (agent_init._load_tools loads
     # the registry once; per-message narrowing does not exist in hermes).
-    names = [t.name for t in tools]
+    names = [t.name for t in tools if t.name != "discover_tools"]
     hidden_receipts: list[str] = []
     # check_fn availability (hermes registration semantics): the browser
     # stack is bound only when the agent-browser CLI resolves. Resolution is
@@ -1638,7 +1640,7 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
     if hidden_receipts and not _TOOL_AVAILABILITY_REPORTED:
         _TOOL_AVAILABILITY_REPORTED = True
         print(
-            f"[tools] binding {len(names)} tools; unavailable this session: "
+            f"[tools] binding candidates: {len(names)} session-eligible registry tools; unavailable: "
             + "; ".join(hidden_receipts),
             flush=True,
         )
@@ -1659,11 +1661,12 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
             from src.tools.toolsets import resolve_runtime_tool_names
             _waist_profile = resolve_runtime_profile("", config)
             _waist = set(resolve_runtime_tool_names(_waist_profile, config))
-            _scoped = [n for n in resolved_names if n in _waist]
-            if _scoped:
-                resolved_names = _scoped
-    except Exception:
-        pass  # scoping must never break binding; worst case = today's surface
+            resolved_names = [n for n in resolved_names if n in _waist]
+    except Exception as exc:
+        # An explicit strict capability boundary must never silently expand to
+        # the full registry when profile resolution fails.
+        if (config.get("configurable") or {}).get("scope_capabilities_strict"):
+            raise RuntimeError("Unable to resolve strict child tool scope") from exc
 
     read_only_interest = _read_only_interest(state)
     no_change_action_interest = _no_change_action_interest(state)
@@ -1885,11 +1888,46 @@ def _resolve_bound_tools(state: AgentState, config: RunnableConfig) -> list:
         phase = type(phase)(
             phase_name, frozenset(verification_tools), guidance=guidance,
         )
+    # Progressive disclosure is enabled only for the continuous parent and
+    # only in the neutral phase. It never replaces stricter phase/child gates.
+    # Use the already availability-filtered surface, not task keyword guesses.
+    progressive = (
+        _continuous_execution()
+        and not bool((config.get("configurable") or {}).get("scope_capabilities_strict"))
+        and not str((config.get("configurable") or {}).get("thread_id") or "").startswith("sub-")
+        and _max_tools == 0  # never exceed an explicit operator cap
+        and phase.allowed is None
+        and os.environ.get("CRUSORAI_PROGRESSIVE_TOOLS", "").strip().lower()
+            not in {"0", "false", "off", "no"}
+    )
+    if progressive:
+        from src.tools.progressive_tools import CORE, activated_tools
+        eligible = list(names)
+        activated = activated_tools(list(state.get("messages") or []))
+        catalog = [
+            {"name": n, "description": " ".join(str(getattr(_TOOLS_BY_NAME[n], "description", "") or "").split())[:120]}
+            for n in eligible if n in _TOOLS_BY_NAME and n not in CORE
+        ]
+        names = [n for n in eligible if n in CORE or n in activated]
+        names.append("discover_tools")
+        configurable = config.setdefault("configurable", {})
+        configurable["progressive_tool_surface"] = {"allowed": list(names), "catalog": catalog}
+    elif phase.allowed is not None or bool((config.get("configurable") or {}).get("scope_capabilities_strict")) or _max_tools > 0:
+        # Preserve existing phase, child-scope and explicit-cap restrictions
+        # across the same model->tool checkpoint boundary too.
+        config.setdefault("configurable", {})["progressive_tool_surface"] = {
+            "allowed": list(names), "catalog": [],
+        }
+    else:
+        config.setdefault("configurable", {}).pop("progressive_tool_surface", None)
+
     # Persist the same allowlist into the tool-node config: textual tool-call
     # repair or a provider quirk must not bypass phase-specific binding.
     configurable = config.setdefault("configurable", {})
     configurable["execution_phase"] = phase.name
-    configurable["phase_allowed_tools"] = list(names) if phase.allowed is not None else None
+    configurable["phase_allowed_tools"] = (
+        list(names) if configurable.get("progressive_tool_surface") is not None else None
+    )
     # Retire the old mutation-count metadata: it was never consumed by the
     # executor and falsely advertised a limit. The enforceable policy is the
     # binding + execution-time allowlist above; batching within it stays legal.
@@ -2248,6 +2286,20 @@ def ai_node(
             f"=== RUNTIME EXECUTION PHASE: {configurable.get('execution_phase')} ===\n"
             + phase_guidance,
         )
+
+    # Keep a compact, structured startup failure visible when many later reads
+    # would otherwise bury it. This is advisory, not check debt or proof that
+    # the problem still exists. Never elevate raw tool output into a prompt.
+    if _continuous_execution() and execution_mode != "ask":
+        from src.graphs.transient_failure import recent_startup_failure
+        failure_hint = recent_startup_failure(list(state.get("messages") or []))
+        if failure_hint:
+            _insert_system_prefix(
+                messages,
+                "=== RECENT TRANSIENT FAILURE (unverified, not check debt) ===\n"
+                + failure_hint + " Inspect the original receipt and current workspace; "
+                "it may already be resolved. Do not claim verification without evidence.",
+            )
 
     # --- CopilotKit app context (agent-app-context) + refusal guard ---
     _copilotkit_ctx = state.get("copilotkit") if isinstance(state.get("copilotkit"), dict) else {}
@@ -2995,6 +3047,8 @@ def ai_node(
 
     return {
         "messages": [result],
+        # Bind/discovery authority is durable across the model->tool node edge.
+        "progressive_tool_surface": configurable.get("progressive_tool_surface"),
         "token_usage": token_usage,
         "turn_token_usage": turn_token_usage,
         "iteration_used": next_used,
@@ -6390,7 +6444,10 @@ class SafeToolNode:
             content = denial_content(tc, first_line)
             denials[tc["id"]] = self._durable_denial(tc, content, config)
             log_line(tc)
-        safe_tcs = [tc for tc, ok, _ in verdicts if ok]
+        # Permission rules can add a denial for a call that SafetyGuard
+        # independently considered safe. Never execute the earlier safe
+        # verdict for an ID that was denied by any later policy layer.
+        safe_tcs = [tc for tc, ok, _ in verdicts if ok and tc.get("id") not in denials]
         results: dict[str, ToolMessage] = dict(denials)
         if safe_tcs:
             filtered_ai = AIMessage(
@@ -6608,6 +6665,17 @@ class SafeToolNode:
                 tool_calls=tool_calls,
                 id=getattr(last_msg, "id", None),
             )
+
+        # The model node's config can be reconstructed by LangGraph at the
+        # next node. Restore its exact checkpointed disclosure surface rather
+        # than relying on mutation of the prior node's transient config.
+        surface = state.get("progressive_tool_surface")
+        if isinstance(surface, dict):
+            config = dict(config or {})
+            cfg = dict(config.get("configurable") or {})
+            cfg["phase_allowed_tools"] = list(surface.get("allowed") or [])
+            cfg["progressive_tool_catalog"] = list(surface.get("catalog") or [])
+            config["configurable"] = cfg
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.

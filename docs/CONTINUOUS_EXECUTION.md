@@ -104,3 +104,23 @@ this change. Existing blueprints and past benchmark evidence remain in
 - PulseAI's existing SQLite checkpoints, context compaction, finish/verification
   gates, safety policies and cancellation controls provide the actual local
   implementation. The reference projects do not guarantee this integration.
+
+## Progressive tool discovery (continuous parent)
+
+The neutral-phase continuous parent binds a task-neutral core and
+`discover_tools` instead of sending every tool schema on every request. The
+model can list/search the session-eligible catalog and activate exact tool
+names; activated tools are bound on the **next** model call. Tool receipts are
+read from checkpointed graph history, not from the compacted provider prompt.
+Availability is checked again on every bind. Activation does not grant
+permissions or bypass phase, safety, approval, budget or cancellation checks.
+
+This is on by default **only when continuous mode is on**. Set
+`CRUSORAI_PROGRESSIVE_TOOLS=off` to use the old complete parent registry.
+Explicit `CRUSORAI_MAX_TOOLS` settings, strict child scopes, sub-agent threads
+and non-neutral phase allowlists retain their existing binding rules instead.
+Discovery can require extra model calls and activated schemas then remain in
+the current turn; it may alter prompt-cache behavior. Offline schema-size
+measurements are not a live token, latency, cost or task-success benchmark.
+See `docs/CONTINUOUS_TOOL_DISCOVERY_FIX_2026-11-02.md` for measurements,
+verification, security findings and limitations.
