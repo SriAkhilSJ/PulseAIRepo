@@ -1,5 +1,10 @@
 """Indexing subsystem for CrusorAI Context Engine."""
 
+from src.context.indexing.file_watcher import (
+    WATCH_BATCH_S,
+    WATCH_POLL_S,
+    FileWatcher,
+)
 from src.context.indexing.index_storage import (
     EMBED_DIM,
     SCHEMA_USER_VERSION,
@@ -46,4 +51,8 @@ __all__ = [
     "sync_workspace",
     "index_workspace",
     "IndexSynchronizer",
+    # Watcher
+    "WATCH_BATCH_S",
+    "WATCH_POLL_S",
+    "FileWatcher",
 ]

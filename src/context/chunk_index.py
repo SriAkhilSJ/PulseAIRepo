@@ -102,6 +102,14 @@ from src.context.indexing.index_sync import (
     sync_workspace as _sync_sync_workspace,
 )
 # ---------------------------------------------------------------------
+# File watcher — extracted to src.context.indexing.file_watcher
+# ---------------------------------------------------------------------
+from src.context.indexing.file_watcher import (
+    WATCH_BATCH_S,
+    WATCH_POLL_S,
+    FileWatcher,
+)
+# ---------------------------------------------------------------------
 # Keyword search — extracted to src.context.retrieval.keyword_search
 # ---------------------------------------------------------------------
 from src.context.retrieval.keyword_search import (
@@ -249,14 +257,12 @@ class ChunkIndex:
             ensure_embedder_fn=self._ensure_embedder,
         )
 
-        # File-watcher state (started only when watch=True, i.e. via
-        # get_index() in production — tests construct with watch=False and
-        # drive the queue helpers directly).
-        self._watcher_thread: Optional[threading.Thread] = None
-        self._watcher_stop = threading.Event()
-        self._pending_syncs: set[str] = set()
-        self._pending_removes: set[str] = set()
-        self._sync_queue_lock = threading.Lock()
+        self.watcher = FileWatcher(
+            workspace=self.workspace,
+            sync_file_fn=self.sync_file,
+            remove_file_fn=self.remove_file,
+            sync_workspace_fn=self.sync_workspace,
+        )
 
         if watch:
             self.start_watcher()
@@ -342,136 +348,54 @@ class ChunkIndex:
     # ------------------------------------------------------------------
     # FILE WATCHER (optional, watchdog-backed with polling fallback)
     # ------------------------------------------------------------------
-    #
-    # Why both event-driven AND a cheap per-turn sync_workspace(): the
-    # watcher batch-drains every ~2s, so a save→ask round-trip faster than
-    # that would otherwise read stale chunks. The per-turn mtime sweep is
-    # milliseconds; the watcher exists to catch edits made BETWEEN turns.
 
-    _WATCH_BATCH_S = 2.0      # debounce window for queued events
-    _WATCH_POLL_S = 15.0      # fallback sweep when watchdog isn't installed
+    _WATCH_BATCH_S = WATCH_BATCH_S
+    _WATCH_POLL_S = WATCH_POLL_S
+
+    @property
+    def _pending_syncs(self) -> set[str]:
+        return self.watcher._pending_syncs
+
+    @property
+    def _pending_removes(self) -> set[str]:
+        return self.watcher._pending_removes
+
+    @property
+    def _sync_queue_lock(self) -> threading.Lock:
+        return self.watcher._sync_queue_lock
+
+    @property
+    def _watcher_thread(self) -> Optional[threading.Thread]:
+        return self.watcher._watcher_thread
+
+    @_watcher_thread.setter
+    def _watcher_thread(self, val: Optional[threading.Thread]) -> None:
+        self.watcher._watcher_thread = val
+
+    @property
+    def _watcher_stop(self) -> threading.Event:
+        return self.watcher._watcher_stop
 
     def start_watcher(self) -> None:
-        """Start the background watcher thread (idempotent)."""
-        if self._watcher_thread is not None and self._watcher_thread.is_alive():
-            return
-        self._watcher_stop.clear()
-        self._watcher_thread = threading.Thread(
-            target=self._watch_loop, daemon=True, name="chunk-index-watcher"
-        )
-        self._watcher_thread.start()
+        self.watcher.start()
 
     def stop_watcher(self) -> None:
-        """Signal the watcher to stop and wait briefly. Daemon thread, so
-        process exit also cleans up; this is for tests and clean shutdowns."""
-        self._watcher_stop.set()
-        if self._watcher_thread is not None:
-            self._watcher_thread.join(timeout=5.0)
-            self._watcher_thread = None
+        self.watcher.stop()
 
     def _enqueue_sync(self, path: str) -> None:
-        with self._sync_queue_lock:
-            self._pending_syncs.add(path)
+        self.watcher.enqueue_sync(path)
 
     def _enqueue_remove(self, path: str) -> None:
-        with self._sync_queue_lock:
-            # A delete after a modify in the same debounce window: remove wins.
-            self._pending_syncs.discard(path)
-            self._pending_removes.add(path)
+        self.watcher.enqueue_remove(path)
 
     def _drain_pending_syncs(self) -> tuple[list[str], list[str]]:
-        """Atomically take the queued paths; returns (to_sync, to_remove)."""
-        with self._sync_queue_lock:
-            to_sync = list(self._pending_syncs)
-            to_remove = list(self._pending_removes)
-            self._pending_syncs.clear()
-            self._pending_removes.clear()
-        return to_sync, to_remove
+        return self.watcher.drain_pending_syncs()
 
     def _apply_queued_changes(self) -> None:
-        to_sync, to_remove = self._drain_pending_syncs()
-        # ONE bounded budget per debounce batch: watcher event handling must
-        # enforce the per-file size cap and NEVER launch unbounded embedding
-        # inference (bounded budget => text/FTS + cached vectors only).
-        budget = ContextBudget()
-        for path in to_remove:
-            try:
-                p = Path(path)
-                if self.workspace in p.resolve().parents:
-                    self.remove_file(p)
-            except Exception as exc:
-                print(f"[ChunkIndex] watcher remove failed for {path}: {exc}")
-        for path in to_sync:
-            try:
-                p = Path(path)
-                if p.exists() and self.workspace in p.resolve().parents:
-                    self.sync_file(p, budget)
-            except Exception as exc:
-                print(f"[ChunkIndex] watcher sync failed for {path}: {exc}")
+        self.watcher.apply_queued_changes()
 
     def _watch_loop(self) -> None:
-        try:
-            from watchdog.events import FileSystemEventHandler
-            from watchdog.observers import Observer
-        except ImportError:
-            # watchdog not installed: degrade to a periodic mtime sweep.
-            # Same cost as the per-turn sync — a stat walk, no re-embedding
-            # unless something actually changed.
-            while not self._watcher_stop.wait(self._WATCH_POLL_S):
-                try:
-                    self.sync_workspace()
-                except Exception as exc:
-                    print(f"[ChunkIndex] watcher poll sync failed: {exc}")
-            return
-
-        index = self
-        source_exts = tuple(source_extensions())  # snapshot once per loop
-
-        def _is_source(path: str) -> bool:
-            return path.lower().endswith(source_exts)
-
-        class _SourceHandler(FileSystemEventHandler):
-            def on_modified(self, event):
-                if not event.is_directory and _is_source(event.src_path):
-                    index._enqueue_sync(event.src_path)
-
-            def on_created(self, event):
-                if not event.is_directory and _is_source(event.src_path):
-                    index._enqueue_sync(event.src_path)
-
-            def on_deleted(self, event):
-                if not event.is_directory and _is_source(event.src_path):
-                    index._enqueue_remove(event.src_path)
-
-            def on_moved(self, event):
-                if event.is_directory:
-                    return
-                if _is_source(event.src_path):
-                    index._enqueue_remove(event.src_path)
-                dest = getattr(event, "dest_path", "")
-                if _is_source(dest):
-                    index._enqueue_sync(dest)
-
-        observer = Observer()
-        observer.schedule(_SourceHandler(), str(self.workspace), recursive=True)
-        try:
-            observer.start()
-        except Exception as exc:
-            # Unsupported FS / perms: fall back to polling rather than dying.
-            print(f"[ChunkIndex] watcher unavailable ({exc}); polling instead")
-            while not self._watcher_stop.wait(self._WATCH_POLL_S):
-                try:
-                    self.sync_workspace()
-                except Exception as poll_exc:
-                    print(f"[ChunkIndex] watcher poll sync failed: {poll_exc}")
-            return
-
-        try:
-            while not self._watcher_stop.wait(self._WATCH_BATCH_S):
-                self._apply_queued_changes()
-        finally:
-            observer.stop()
-            observer.join(timeout=5.0)
+        self.watcher.watch_loop()
 
     # ------------------------------------------------------------------
     # INCREMENTAL SYNC
