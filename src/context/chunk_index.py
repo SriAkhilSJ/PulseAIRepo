@@ -173,17 +173,10 @@ from src.context.extraction.python_extractor import (
 )
 
 
-def extract_source_chunks(
-    file_path: Path, root: Path, source: str | None = None
-) -> list[dict[str, Any]]:
-    """Extension dispatch (D5): stdlib AST for Python — the richest path,
-    already verified for async/decorators — tree-sitter for the JS/TS
-    family. Unsupported suffixes extract to nothing (and are never yielded
-    by _iter_source_files anyway). ``source`` (P1): decoded text when the
-    caller already read the file once — never re-reads when provided."""
-    if file_path.suffix.lower() == ".py":
-        return extract_chunks(file_path, root, source)
-    return extract_chunks_treesitter(file_path, root, source)
+# ---------------------------------------------------------------------
+# Multi-Language Source Dispatch — extracted to src.context.extraction.language_registry
+# ---------------------------------------------------------------------
+from src.context.extraction.language_registry import extract_source_chunks
 
 
 # ---------------------------------------------------------------------
