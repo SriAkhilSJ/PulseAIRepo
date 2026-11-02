@@ -29,6 +29,9 @@ permissions:
 
 jobs:
   e2e:
+    # A targeted continuous benchmark uses the separate isolated job below;
+    # never run both paid jobs for the same push.
+    if: ${{ !contains(github.event.head_commit.message, '[continuous-benchmark]') }}
     name: Real GLM 5.3 turn -> verified report
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -500,4 +503,148 @@ jobs:
             # there is nothing to launch. Exclude bytecode caches.
             ${{ runner.temp }}/e2e/ws/mvp/**
             !${{ runner.temp }}/e2e/ws/mvp/**/__pycache__/**
+          if-no-files-found: warn
+
+  continuous-benchmark:
+    name: Continuous e-commerce benchmark (GLM 5.3)
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[continuous-benchmark]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      LLM_PROVIDER: custom
+      LLM_MODEL: z-ai/glm-5.3-flash
+      CONTEXT_MODEL: z-ai/glm-5.3-flash
+      AUX_LLM_PROVIDER: custom
+      AUX_LLM_MODEL: z-ai/glm-5.3-flash
+      CUSTOM_BASE_URL: https://velona.in/v1
+      CRUSORAI_DISABLE_LONG_TERM_MEMORY: '1'
+      CRUSORAI_MEMORY: 'off'
+      CRUSORAI_PREVIEW_AUTOSTART: '0'
+      CRUSORAI_SUBAGENT_DEPTH: '0'
+      CRUSORAI_LLM_STREAMING: '1'
+      CRUSORAI_LLM_TIMEOUT: '180'
+      CRUSORAI_LLM_STALL_TIMEOUT_S: '180'
+      CRUSORAI_DELIVERY_MAX_TOKENS: '8192'
+      AGENT_COST_BUDGET: '0.60'
+      CRUSORAI_HTTP_USER_AGENT: >-
+        Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+        (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install runtime and verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install langchain-core langgraph langgraph-checkpoint-sqlite langgraph-prebuilt \
+            langchain langchain-openai langchain-google-genai langchain-groq groq google-genai \
+            copilotkit ag-ui-langgraph aiosqlite sqlite-vec watchdog tree-sitter \
+            tree-sitter-javascript tree-sitter-typescript tree-sitter-go tree-sitter-rust \
+            tree-sitter-java httpx rich typer fastapi uvicorn flask flask-cors pillow mcp \
+            opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http \
+            ddgs tiktoken pydantic python-dotenv pytest
+      - name: Check prompt identity and create isolated workspace
+        run: |
+          echo '8e98b4886c4241f4f66e6f6a575c192bf917d07cf2adf2272e0dfa63046c315c  benchmark_ecommerce_prompt.txt' | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/continuous/ws" "$RUNNER_TEMP/continuous/results" "$RUNNER_TEMP/continuous/evidence"
+      - name: Seed and validate pricing before a paid turn
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          from src.telemetry import pricing
+          from src.telemetry.call_ledger import estimate_cost_usd
+          try:
+              rates, source = pricing.refresh()
+              print('rate_entries=', len(rates), 'source=', source)
+          except Exception as exc:
+              print('pricing refresh failed:', type(exc).__name__)
+          for direction, args in [('input', (1000000, 0)), ('output', (0, 1000000))]:
+              value = estimate_cost_usd('z-ai/glm-5.3-flash', *args)
+              print(direction, 'estimated USD/1M=', value)
+              if value is None:
+                  raise SystemExit('Cannot enforce cost budget without pricing; stopping before paid turn')
+          PY
+      - name: Run continuous benchmark
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          set -o pipefail
+          python scripts/run_bridge_turn.py \
+            --continuous \
+            --workspace "$RUNNER_TEMP/continuous/ws" \
+            --prompt-file benchmark_ecommerce_prompt.txt \
+            --run-id "continuous-glm-${{ github.run_id }}" \
+            --timeout-s 1100 \
+            --max-input-tokens 2500000 \
+            --results-root "$RUNNER_TEMP/continuous/results" \
+            2>&1 | tee "$RUNNER_TEMP/continuous/runner.log"
+      - name: Independent workspace checks
+        if: always()
+        run: |
+          set +e
+          WS="$RUNNER_TEMP/continuous/ws"
+          OUT="$RUNNER_TEMP/continuous/evidence/independent.txt"
+          mkdir -p "$(dirname "$OUT")" "$WS"
+          echo '=== workspace file list ===' | tee "$OUT"
+          find "$WS" -type f -not -path '*/diagnostics/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -printf '%P\n' | sort | head -120 | tee -a "$OUT"
+          echo '=== python compilation ===' | tee -a "$OUT"
+          python -m compileall -q "$WS" 2>&1 | tee -a "$OUT"
+          echo "compile_exit=${PIPESTATUS[0]}" | tee -a "$OUT"
+          echo '=== test files ===' | tee -a "$OUT"
+          find "$WS" -type f \( -name 'test_*.py' -o -name '*_test.py' \) -not -path '*/diagnostics/*' -not -path '*/node_modules/*' -print | tee -a "$OUT"
+          if find "$WS" -type f \( -name 'test_*.py' -o -name '*_test.py' \) -not -path '*/diagnostics/*' -not -path '*/node_modules/*' -print -quit | grep -q .; then
+            (cd "$WS" && timeout 120 python -m pytest -q --disable-warnings --ignore=diagnostics) 2>&1 | tee -a "$OUT"
+            echo "pytest_exit=${PIPESTATUS[0]}" | tee -a "$OUT"
+          else
+            echo 'pytest: NOT RUN (no Python test files)' | tee -a "$OUT"
+          fi
+      - name: Prepare redacted evidence
+        if: always()
+        env:
+          CUSTOM_API_KEY: ${{ secrets.CUSTOM_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'continuous'
+          out = root / 'evidence'
+          out.mkdir(parents=True, exist_ok=True)
+          key = (os.environ.get('CUSTOM_API_KEY') or '').strip()
+          for base, dest in ((root / 'results', out / 'results'), (root / 'ws', out / 'workspace')):
+              for p in base.rglob('*') if base.exists() else []:
+                  if not p.is_file() or p.is_symlink() or p.stat().st_size > 5_000_000:
+                      continue
+                  rel = p.relative_to(base)
+                  if any(x in {'.git', 'node_modules', '__pycache__', '.env'} for x in rel.parts):
+                      continue
+                  if base.name == 'ws' and p.suffix.lower() not in {'.py', '.js', '.ts', '.tsx', '.jsx', '.json', '.jsonl', '.html', '.css', '.md', '.txt', '.yaml', '.yml'}:
+                      continue
+                  try:
+                      text = p.read_text(encoding='utf-8')
+                  except (UnicodeError, OSError):
+                      continue
+                  if key:
+                      text = text.replace(key, '[REDACTED]')
+                  text = re.sub(r'key_live_[A-Za-z0-9_]+', '[REDACTED]', text)
+                  target = dest / rel
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_text(text, encoding='utf-8')
+          log = root / 'runner.log'
+          if log.exists():
+              text = log.read_text(encoding='utf-8', errors='replace')
+              if key:
+                  text = text.replace(key, '[REDACTED]')
+              text = re.sub(r'key_live_[A-Za-z0-9_]+', '[REDACTED]', text)
+              (out / 'runner.log').write_text(text, encoding='utf-8')
+          PY
+      - name: Upload redacted benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: continuous-ecommerce-glm-evidence
+          path: ${{ runner.temp }}/continuous/evidence
           if-no-files-found: warn
