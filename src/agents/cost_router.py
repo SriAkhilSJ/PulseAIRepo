@@ -153,15 +153,32 @@ class CostRouter:
 
         return "standard"
 
-    def route(self, task: str = "", current_plan: list | None = None) -> tuple[str, str]:
+    def route(self, task: str = "", current_plan: list | None = None, session_id: str | None = None) -> tuple[str, str]:
         """
         Return (provider, model) for the given task.
         Falls back to default if the target provider fails.
+        Enforces cost governance affordability and graceful demotion.
         """
         # Env getters read per call (standing rule): rebuild the tier table
         # so key/url/model rotation applies without a restart.
         self._build_tiers()
         tier = self.classify(task, current_plan)
+
+        # Cost Governance: check tier affordability, headroom, and call caps
+        demoted = False
+        demote_reason = ""
+        try:
+            from src.agents.cost_governance import cost_governor
+            if cost_governor.is_enabled():
+                can_afford, recommended_tier, reason = cost_governor.can_afford_tier(
+                    session_id or "default", tier
+                )
+                if not can_afford:
+                    tier = recommended_tier
+                    demoted = True
+                    demote_reason = reason
+        except Exception:
+            pass
         
         # Increment counters
         if tier == "cheap": self._cheap_count += 1
@@ -182,6 +199,7 @@ class CostRouter:
             "model": result[1],
             "task_preview": task[:60],
             **({"failed_over": True} if failed_over else {}),
+            **({"demoted": True, "demote_reason": demote_reason} if demoted else {}),
         }
         return result
 

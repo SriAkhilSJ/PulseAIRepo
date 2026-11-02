@@ -299,12 +299,26 @@ def _budget_trip_reason(state: AgentState) -> str:
         parts.append(
             f"spend ${spend:.4f}" if spend is not None else "spend unknown"
         )
+    gov_tripped = False
+    try:
+        from src.agents.cost_governance import cost_governor
+        session_id = str(state.get("thread_id") or state.get("session_id") or "default")
+        if cost_governor.is_enabled():
+            gov_reason = cost_governor.trip_reason(session_id)
+            if "tripped: none" not in gov_reason:
+                parts.append(f"governance [{gov_reason}]")
+                gov_tripped = True
+    except Exception:
+        pass
+
     if used >= budget:
         parts.append("tripped: iterations")
     elif cap is not None and total >= cap:
         parts.append("tripped: tokens")
     elif cost_cap is not None and spend is not None and spend >= cost_cap:
         parts.append("tripped: cost")
+    elif gov_tripped:
+        parts.append("tripped: governance")
     else:
         parts.append("tripped: unknown leg")
     return ", ".join(parts)
@@ -340,4 +354,15 @@ def _budget_exhausted(state: AgentState) -> bool:
                 flush=True,
             )
             return True
+
+    # Phase 9.1: Cost & Token Governance (per-turn and per-session INR/token limits)
+    try:
+        from src.agents.cost_governance import cost_governor
+        session_id = str(state.get("thread_id") or state.get("session_id") or "default")
+        if cost_governor.is_enabled() and cost_governor.is_exhausted(session_id):
+            print(f"[budget] exhausted: governance {cost_governor.trip_reason(session_id)}", flush=True)
+            return True
+    except Exception:
+        pass
+
     return False

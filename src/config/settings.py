@@ -179,3 +179,16 @@ BACKGROUND_SUBAGENTS_ENABLED: bool = os.getenv("CRUSORAI_EXPERIMENTAL_BACKGROUND
 # Cap for persisted subagent sessions (OpenCode: separate table, cap 1000)
 SUBAGENT_STORE_CAP: int = int(os.getenv("CRUSORAI_SUBAGENT_STORE_CAP", "1000") or "1000")
 
+
+# =========================================================
+# COST & TOKEN GOVERNANCE (Phase 9.1)
+# =========================================================
+CRUSORAI_COST_GOVERNANCE: bool = os.getenv("CRUSORAI_COST_GOVERNANCE", "on").strip().lower() not in {"off", "0", "false", "no"}
+CRUSORAI_TARGET_SIMPLE_COST_INR: float = float(os.getenv("CRUSORAI_TARGET_SIMPLE_COST_INR", "5.00"))
+CRUSORAI_USD_INR: float = float(os.getenv("CRUSORAI_USD_INR", "86.0"))
+CRUSORAI_TURN_TOKEN_BUDGET: int = int(os.getenv("CRUSORAI_TURN_TOKEN_BUDGET", "150000"))
+CRUSORAI_SESSION_TOKEN_BUDGET: int = int(os.getenv("CRUSORAI_SESSION_TOKEN_BUDGET", os.getenv("AGENT_TOKEN_BUDGET", "600000")))
+CRUSORAI_TURN_COST_BUDGET_INR: float = float(os.getenv("CRUSORAI_TURN_COST_BUDGET_INR", "25.00"))
+CRUSORAI_SESSION_COST_BUDGET_INR: float = float(os.getenv("CRUSORAI_SESSION_COST_BUDGET_INR", "86.00"))
+CRUSORAI_RESERVE_BUDGET_INR: float = float(os.getenv("CRUSORAI_RESERVE_BUDGET_INR", "2.00"))
+CRUSORAI_RESERVE_TOKENS: int = int(os.getenv("CRUSORAI_RESERVE_TOKENS", "20000"))

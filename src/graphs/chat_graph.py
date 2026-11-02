@@ -2131,11 +2131,8 @@ def ai_node(
     base_provider = _cfg(configurable, "provider", LLM_PROVIDER)
     base_model = _cfg(configurable, "model", LLM_MODEL)
 
-    # Hermes-style: always use the user's configured main model.
-    # No cost routing on the main conversation path — auxiliary tasks
-    # (compression, titling) use resolve_aux_llm() separately.
-    # Allow /model <model_id> command to override the model for this turn.
     routed_provider, routed_model = base_provider, base_model
+    has_model_override = False
     messages = state.get("messages", [])
     if messages:
         last_user_msg = None
@@ -2149,9 +2146,27 @@ def ai_node(
                 override_model = content[7:].strip()
                 if override_model:
                     routed_model = override_model
+                    has_model_override = True
                     # Extract provider from model id (e.g. "openai/gpt-4o" -> "openai")
                     if "/" in override_model:
                         routed_provider = override_model.split("/")[0]
+
+    if not has_model_override:
+        try:
+            from src.agents.cost_router import cost_router, CostRouter
+            # Check if router was monkeypatched or if cost routing/governance enabled
+            is_patched = getattr(cost_router.route, "__code__", None) != CostRouter.route.__code__
+            cost_routing_on = os.environ.get("CRUSORAI_COST_ROUTING", "").strip().lower() in {"1", "true", "on", "yes"}
+            if is_patched or cost_routing_on:
+                curr_task = str(state.get("current_task") or state.get("latest_instruction") or "")
+                try:
+                    rp, rm = cost_router.route(curr_task, state.get("plan"), session_id=session_id)
+                except TypeError:
+                    rp, rm = cost_router.route(curr_task, state.get("plan"))
+                if rp and rm:
+                    routed_provider, routed_model = rp, rm
+        except Exception:
+            routed_provider, routed_model = base_provider, base_model
 
     provider = routed_provider
     model = routed_model
@@ -2526,6 +2541,24 @@ def ai_node(
     # else a tools-bound callable.
     tools_bound = call_llm is not llm
     t_llm_start = time.time()
+    _res_id = None
+    try:
+        from src.agents.cost_governance import cost_governor
+        if cost_governor.is_enabled():
+            _purpose = "final_response" if (budget_exhausted or final_response_slot) else "work"
+            _est_tokens = max(1000, (_req_chars // 4) + 1000)
+            _est_usd, _est_inr, _, _ = cost_governor.estimate_tokens_cost(model, _est_tokens, 1000)
+            _ok, _rid, _reason = cost_governor.reserve(
+                session_id=session_id,
+                estimated_cost_inr=_est_inr if _est_inr is not None else 0.50,
+                estimated_tokens=_est_tokens,
+                purpose=_purpose,
+            )
+            if _ok:
+                _res_id = _rid
+    except Exception:
+        pass
+
     try:
         result = _invoke_with_token_pump(
             call_llm, messages, session_id, provider, model,
@@ -2837,6 +2870,24 @@ def ai_node(
     # TRACK TOKEN USAGE
     # =========================================================
     call_usage = TokenTracker.record_call(messages, result, call_model)
+
+    # Cost Governance call accounting
+    try:
+        from src.agents.cost_governance import cost_governor
+        from src.agents.cost_router import cost_router
+        _tier = (getattr(cost_router, "_last_route", None) or {}).get("tier", "standard")
+        cost_governor.record_call(
+            session_id=session_id,
+            provider=provider,
+            model=call_model,
+            tier=_tier,
+            usage=call_usage,
+            duration_s=round(time.time() - t_llm_start, 3),
+            purpose="final_response" if (budget_exhausted or final_response_slot) else "work",
+            reservation_id=_res_id,
+        )
+    except Exception:
+        pass
 
     # P3 (Hermes parity): feed the provider's ACTUAL usage back into the
     # session context engine. The engine owns the compaction decision from
