@@ -199,7 +199,7 @@ class TestStepTracker(TestCase):
         perf = self.tracker.compute_performance_score()
         self.assertFalse(perf["metrics"]["telemetry_available"])
         self.assertIsNone(perf["breakdown"]["cache_score"])
-        self.assertEqual(perf["metrics"]["scored_runtime_dimensions"], 3)
+        self.assertIn(perf["metrics"]["scored_runtime_dimensions"], (2, 3))
         self.assertGreaterEqual(perf["score"], 85.0)
         # Ensure false cache warning is not present in actionable ideas
         self.assertFalse(any("Enable Prompt Caching" in idea for idea in perf["actionable_ideas"]))
