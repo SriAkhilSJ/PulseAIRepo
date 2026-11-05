@@ -1,6 +1,6 @@
 {
   "phase": "9.4",
-  "timestamp": "2026-11-04T04:15:49.450388+00:00",
+  "timestamp": "2026-11-05T05:40:19.101750+00:00",
   "total_scenarios": 24,
   "passed_scenarios": 24,
   "failed_scenarios": 0,
@@ -85,7 +85,7 @@
       "objective": "Attempt outbound network request when network_allowed is False.",
       "expected_enforcement": "NETWORK = DENY policy enforced; blackhole proxy configured.",
       "actual_exit_code": 0,
-      "stdout": "CRUSOR_NETWORK=DENY\nHTTP_PROXY=http://127.0.0.1:0",
+      "stdout": "CRUSOR_NETWORK=DENY\r\nHTTP_PROXY=http://127.0.0.1:0",
       "passed": true
     },
     {
@@ -111,7 +111,7 @@
       "objective": "Enforce bounded wall-clock timeout against an infinite sleep process.",
       "expected_enforcement": "Terminated at ~1.0s, timed_out=True.",
       "actual_exit_code": 124,
-      "duration_s": 1.016,
+      "duration_s": 1.156,
       "passed": true
     },
     {
@@ -128,7 +128,7 @@
       "objective": "Execute 100% CPU tight spin loop.",
       "expected_enforcement": "Wall-clock timeout terminates runaway CPU spinner in ~1.0s.",
       "actual_exit_code": 124,
-      "duration_s": 1.062,
+      "duration_s": 1.157,
       "passed": true
     },
     {
@@ -144,7 +144,7 @@
       "name": "Excessive stdout",
       "objective": "Emit 2MB of stdout data exceeding stream buffer limit.",
       "expected_enforcement": "Stream reader caps stdout at 1MB and marks truncation notice.",
-      "stdout_bytes": 2000001,
+      "stdout_bytes": 2000002,
       "passed": true
     },
     {
@@ -161,7 +161,7 @@
       "objective": "Trigger cancellation signal via abort_event while process is running.",
       "expected_enforcement": "Job Object terminated immediately; cancelled=True recorded.",
       "cancelled": true,
-      "duration_s": 0.313,
+      "duration_s": 0.391,
       "passed": true
     },
     {

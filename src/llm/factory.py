@@ -465,6 +465,102 @@ def provider_response_info(response: Any) -> dict[str, Any]:
     }
 
 
+def deduplicate_streaming_usage(chunks: list[Any] | None) -> dict[str, Any] | None:
+    """Deduplicate streaming usage chunks/events into normalized totals."""
+    if not chunks:
+        return None
+
+    raw_input_tokens: int | None = None
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int | None = None
+    finish_reason: str | None = None
+    is_partial: bool = True
+    is_anthropic_exclusive: bool = False
+
+    for item in chunks:
+        usage = None
+        delta = None
+        if isinstance(item, dict):
+            event_type = item.get("type")
+            if event_type == "message_start":
+                usage = (item.get("message") or {}).get("usage")
+            elif event_type == "message_delta":
+                usage = item.get("usage")
+                delta = item.get("delta") or {}
+            else:
+                usage = item.get("usage")
+                delta = item.get("delta")
+        else:
+            usage = getattr(item, "usage_metadata", None)
+            resp_meta = getattr(item, "response_metadata", {}) or {}
+            if not usage:
+                usage = resp_meta.get("token_usage") or resp_meta.get("usage")
+            delta = resp_meta.get("finish_reason") or getattr(item, "additional_kwargs", {}).get("finish_reason")
+
+        if delta and isinstance(delta, dict):
+            if delta.get("stop_reason"):
+                finish_reason = delta["stop_reason"]
+                is_partial = False
+            elif delta.get("finish_reason"):
+                finish_reason = delta["finish_reason"]
+                is_partial = False
+        elif isinstance(delta, str) and delta:
+            finish_reason = delta
+            is_partial = False
+
+        if not usage or not isinstance(usage, dict):
+            continue
+
+        inp = usage.get("input_tokens") or usage.get("prompt_tokens")
+        if inp is not None:
+            raw_input_tokens = int(inp)
+
+        c = None
+        if "cache_read_input_tokens" in usage:
+            c = usage["cache_read_input_tokens"]
+            is_anthropic_exclusive = True
+        elif "input_token_details" in usage and isinstance(usage["input_token_details"], dict):
+            c = usage["input_token_details"].get("cache_read") or usage["input_token_details"].get("cached_tokens")
+        elif "prompt_tokens_details" in usage and isinstance(usage["prompt_tokens_details"], dict):
+            c = usage["prompt_tokens_details"].get("cached_tokens")
+        if c is not None:
+            cached_tokens = max(cached_tokens, int(c))
+
+        out = usage.get("output_tokens") or usage.get("completion_tokens")
+        if out is not None:
+            output_tokens = max(output_tokens, int(out))
+
+        tot = usage.get("total_tokens")
+        if tot is not None:
+            total_tokens = int(tot)
+
+    if raw_input_tokens is None and output_tokens == 0:
+        return None
+
+    if is_anthropic_exclusive:
+        uncached_tokens = raw_input_tokens if raw_input_tokens is not None else 0
+        input_tokens = uncached_tokens + cached_tokens
+    else:
+        input_tokens = raw_input_tokens if raw_input_tokens is not None else 0
+        uncached_tokens = max(0, input_tokens - cached_tokens)
+
+    if total_tokens is None:
+        total_tokens = input_tokens + output_tokens
+
+    res = {
+        "input_tokens": input_tokens,
+        "cached_tokens": cached_tokens,
+        "uncached_tokens": uncached_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "is_partial": is_partial,
+    }
+    if finish_reason:
+        res["finish_reason"] = finish_reason
+    return res
+
+
 def _request_heads(messages: Any, *, first_limit: int = 3000,
                    rest_limit: int = 800, max_messages: int = 4) -> list[dict]:
     """Bounded, honest heads of an outgoing message list for llm.request telemetry.

