@@ -157,9 +157,11 @@ class HistoryShaper:
         # else touches the list (hermes parity: their stale-replay prune and
         # image retirement are also pre-pipeline). Counted, not silent.
         from src.context.compaction import (
+            compact_assistant_tool_call_arguments,
             compact_file_mutation_arguments,
             prune_stale_reasoning_replay,
             retire_stale_tool_images,
+            transform_completed_tool_receipts,
         )
         self._stale_replay_pruned = getattr(self, "_stale_replay_pruned", 0) + (
             prune_stale_reasoning_replay(history)
@@ -167,6 +169,9 @@ class HistoryShaper:
         self._stale_images_retired = getattr(self, "_stale_images_retired", 0) + (
             retire_stale_tool_images(history)
         )
+        # Phase 9.2.2.5.1: Eager deterministic conversation history compaction
+        history = transform_completed_tool_receipts(history, keep_recent=3)
+        history = compact_assistant_tool_call_arguments(history, keep_recent=3)
         # Omit landed large file mutation payloads on the request-only copy:
         history = compact_file_mutation_arguments(history, keep_recent=2)
 

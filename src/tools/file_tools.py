@@ -1,4 +1,5 @@
 
+from typing import Optional, Any, Union, Dict, Tuple
 from pathlib import Path
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
@@ -159,6 +160,8 @@ def resolve_workspace_path(
     workspace: str,
     path: str
 ) -> Path:
+    if workspace is None or (isinstance(workspace, str) and not workspace.strip()):
+        raise ValueError("Missing workspace restriction: workspace path cannot be empty")
 
     workspace_path = Path(workspace).resolve()
 
@@ -216,23 +219,69 @@ def resolve_workspace_path(
 
 
 
+def _extract_workspace(config: Any = None) -> tuple[str, Optional[str]]:
+    """
+    Extract the workspace path from a RunnableConfig, dict, or runtime context.
+    Fail-closed security contract (Phase 9.3.1.2):
+    1. Missing workspace context must fail closed for workspace-scoped tools.
+    2. Explicitly empty workspace must be rejected.
+    3. Valid configured workspace must be accepted.
+    4. All paths must remain inside the configured workspace.
+    5. No tool may silently select the process working directory as an authorization fallback.
+    """
+    if config is None:
+        return "", "⛔ Tool execution refused: missing workspace restriction"
+
+    configurable = None
+    if isinstance(config, dict):
+        configurable = config.get("configurable", config)
+    else:
+        configurable = getattr(config, "configurable", None)
+
+    if not isinstance(configurable, dict):
+        return "", "⛔ Tool execution refused: missing workspace restriction"
+
+    ws = configurable.get("workspace")
+    if ws is None or not str(ws).strip():
+        return "", "⛔ Tool execution refused: missing workspace restriction"
+
+    return str(ws).strip(), None
+
+
 @tool
 def read_file(
     path: str,
-    config: RunnableConfig
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    offset: Optional[int] = None,
+    limit: Optional[int] = None,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
     Read a text file and return its contents. Use for known files where
     accuracy matters. For searching, use search_files; for directories, use
-    list_files. Respects line ranges when given.
+    list_files. Respects line ranges and byte offsets when given.
 
     PATHS: accepts Windows ("D:/proj/file.txt"), git-bash ("/d/proj/file.txt"),
     and workspace-relative ("src/app.py") forms. NEVER guess a path: if you
     have not seen the exact name in a listing or search result, call
     list_files / search_files first — a guessed name is a wasted call.
+
+    Args:
+        path: Path to the file to read.
+        start_line: Optional 1-indexed starting line number (inclusive).
+        end_line: Optional 1-indexed ending line number (inclusive).
+        offset: Optional 0-indexed byte offset to start reading from.
+        limit: Optional maximum number of bytes to read from offset.
     """
 
-    workspace = config["configurable"]["workspace"]
+    if isinstance(start_line, dict) and config is None:
+        config = start_line
+        start_line = None
+
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
 
     safe_path = resolve_workspace_path(
         workspace,
@@ -246,33 +295,14 @@ def read_file(
             return f"⛔ {block}"
     except Exception:
         pass
-    # Threat scan for file content injection (context scope) — warn only
-    try:
-        from src.context.threat_patterns import scan_for_threats
-        # scan happens after read below; placeholder
-        pass
-    except Exception:
-        pass
 
-    # Hermes read guards (tools/file_tools.py read_file_tool +
-    # file_operations.py::_suggest_similar_files): a DIRECTORY read is a
-    # tool-choice error with a named alternative (field 2026-09-06: the
-    # model read_file'd 'D:/TestCrusorAI' itself and burned a step), and a
-    # not-found returns up to 5 scored sibling suggestions so the next
-    # attempt is informed instead of a second blind guess.
     if safe_path.is_dir():
         return (
             f"Error: '{path}' is a DIRECTORY, not a file. "
             f"Use list_files on it to see its contents."
         )
-    try:
-        with open(
-            safe_path,
-            "r",
-            encoding="utf-8"
-        ) as file:
-            content = file.read()
-    except FileNotFoundError:
+
+    if not safe_path.exists():
         suggestion = _suggest_similar_files(safe_path)
         root_hint = (
             f" Workspace root: {workspace} — list_files it first when the "
@@ -285,19 +315,31 @@ def read_file(
             )
         return f"Error: File not found: '{path}'.{root_hint}"
 
-    # Hardened Read Cache (Pillar 1: Context-Residency Aware Caching)
+    # Single-pass read via HardenedReadCache (Pillar 1: Context-Residency Aware Caching)
     try:
         from src.runtime.run_state_ledger import get_run_state_ledger
         from src.tools.read_cache import HardenedReadCache
         configurable = (config or {}).get("configurable", {})
         session_id = str(configurable.get("thread_id", "default"))
-        ledger = get_run_state_ledger(session_id)
+        try:
+            ledger = get_run_state_ledger(session_id)
+        except Exception:
+            ledger = None
         cache = HardenedReadCache(ledger)
-        receipt, is_hit = cache.execute_read(safe_path)
+        content, is_hit = cache.execute_read(
+            safe_path,
+            start_line=start_line,
+            end_line=end_line,
+            offset=offset,
+            limit=limit,
+            display_path=path,
+        )
         if is_hit:
-            return receipt
-    except Exception:
-        pass
+            return content
+        if content.startswith("Error:"):
+            return content
+    except Exception as exc:
+        return f"Error reading '{path}': {exc}"
 
     # D32: stamp "this agent has seen the current content" — the file-state
     # guard's knowledge base for clobber detection (never raises).
@@ -345,7 +387,9 @@ def list_files(
             the workspace root. Never guess absolute paths outside it.
     """
 
-    workspace = str((config or {}).get("configurable", {}).get("workspace") or ".")
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
 
     safe_path = resolve_workspace_path(
         workspace,
@@ -369,7 +413,7 @@ def list_files(
 def write_file(
     path: str,
     content: str,
-    config: RunnableConfig
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
     Create a new file inside the current workspace.
@@ -391,7 +435,14 @@ def write_file(
     - Do not overwrite important existing files without inspecting them first.
     """
 
-    workspace = config["configurable"]["workspace"]
+    if not path or not isinstance(path, str) or not path.strip():
+        return "❌ Missing or invalid required parameter: 'path' must be a non-empty string."
+    if content is None or not isinstance(content, str):
+        return "❌ Missing or invalid required parameter: 'content' must be a string."
+
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
 
     # Empty-content guard: a model that can't fit a large file into a
     # structured tool-call sometimes emits content="" (or omits it). An empty
@@ -463,6 +514,11 @@ def write_file(
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
+    try:
+        from src.context.indexing.chunk_index import bump_index_generation
+        bump_index_generation(workspace)
+    except Exception:
+        pass
     _record_workspace_edit(config, workspace, [str(safe_path)])
 
     # Field 2026-09-10: the bare "File written: <path>" receipt left the
@@ -505,7 +561,7 @@ def write_file(
 def copy_file(
     src: str,
     dst: str,
-    config: RunnableConfig,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
     Copy a file VERBATIM within the workspace (byte-for-byte).
@@ -521,9 +577,19 @@ def copy_file(
     """
     import shutil
 
-    workspace = config["configurable"]["workspace"]
-    safe_src = resolve_workspace_path(workspace, src)
-    safe_dst = resolve_workspace_path(workspace, dst)
+    if not src or not isinstance(src, str) or not src.strip():
+        return "❌ Missing or invalid required parameter: 'src' must be a non-empty string."
+    if not dst or not isinstance(dst, str) or not dst.strip():
+        return "❌ Missing or invalid required parameter: 'dst' must be a non-empty string."
+
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
+    try:
+        safe_src = resolve_workspace_path(workspace, src)
+        safe_dst = resolve_workspace_path(workspace, dst)
+    except ValueError as exc:
+        return f"⛔ Security violation: {exc}"
 
     if not safe_src.exists() or not safe_src.is_file():
         return f"⛔ copy_file failed: source not found: {src}"
@@ -539,6 +605,11 @@ def copy_file(
         file_state.note_write(file_state.task_id_from_config(config), safe_dst)
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
+    try:
+        from src.context.indexing.chunk_index import bump_index_generation
+        bump_index_generation(workspace)
+    except Exception:
+        pass
     _record_workspace_edit(config, workspace, [str(safe_dst)])
     return f"Copied: {src} -> {dst} ({safe_dst.stat().st_size} bytes)"
 
@@ -546,7 +617,7 @@ def copy_file(
 def search_files(
     pattern: str,
     path: str,
-    config: RunnableConfig,
+    config: RunnableConfig = None,  # type: ignore[assignment]
     query: str = "",
 ) -> str:
     r"""
@@ -594,12 +665,17 @@ def search_files(
                 hint_candidates.append(candidate)
     hint_hits: dict[str, str] = {}
 
-    workspace = config["configurable"]["workspace"]
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
 
-    safe_path = resolve_workspace_path(
-        workspace,
-        path
-    )
+    try:
+        safe_path = resolve_workspace_path(
+            workspace,
+            path
+        )
+    except ValueError as exc:
+        return f"⛔ Security violation: {exc}"
 
     if not safe_path.exists():
         return f"Path does not exist: {path}"
@@ -700,7 +776,7 @@ def search_files(
 def search_code(
     query: str,
     path: str,
-    config: RunnableConfig
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
     Legacy crusor name of `search_files` (hermes tool-name parity,
@@ -1119,7 +1195,7 @@ def find_typecheck_project_root(workspace: str | Path) -> Path | None:
 
 
 @tool
-def typecheck_workspace(config: RunnableConfig) -> str:
+def typecheck_workspace(config: RunnableConfig = None) -> str:  # type: ignore[assignment]
     """Run the workspace's own TypeScript compiler (tsconfig-aware) in
     --noEmit mode and return type errors grouped by file.
 
@@ -1133,7 +1209,9 @@ def typecheck_workspace(config: RunnableConfig) -> str:
     typescript isn't installed in the workspace, or node is unavailable.
     """
 
-    workspace = config["configurable"]["workspace"]
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
     workspace_path = Path(workspace).resolve()
     session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
 
@@ -1284,7 +1362,7 @@ def edit_file(
     path: str,
     old_text: str,
     new_text: str,
-    config: RunnableConfig
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> str:
     """
     Apply a targeted surgical replacement (old_text -> new_text) to an existing file.
@@ -1293,12 +1371,27 @@ def edit_file(
     Emitting only the 5-10 lines that change is 10x faster, cheaper, and preserves surrounding code.
     """
 
-    workspace = config["configurable"]["workspace"]
+    if not path or not isinstance(path, str) or not path.strip():
+        return "❌ Missing or invalid required parameter: 'path' must be a non-empty string."
+    if old_text is None or not isinstance(old_text, str):
+        return "❌ Missing or invalid required parameter: 'old_text' must be a string."
+    if new_text is None or not isinstance(new_text, str):
+        return "❌ Missing or invalid required parameter: 'new_text' must be a string."
 
-    safe_path = resolve_workspace_path(
-        workspace,
-        path
-    )
+    workspace, ws_err = _extract_workspace(config)
+    if ws_err:
+        return ws_err
+
+    try:
+        safe_path = resolve_workspace_path(
+            workspace,
+            path
+        )
+    except ValueError as exc:
+        return f"⛔ Security violation: {exc}"
+
+    if safe_path.is_dir():
+        return f"❌ '{path}' is a DIRECTORY, not a file."
 
     if not safe_path.exists():
         return f"❌ File not found: {path}"
@@ -1333,7 +1426,7 @@ def edit_file(
         err_lower = error.lower()
         if "ambiguous" in err_lower or "multiple" in err_lower or "matches" in err_lower:
             guidance = "\n\n💡 Tip: Provide 3-5 lines of surrounding context in old_text to disambiguate, or use write_file to overwrite the entire file directly."
-        elif "not found" in err_lower:
+        elif "not found" in err_lower or "not find" in err_lower or "could not find" in err_lower:
             guidance = "\n\n💡 Tip: Read the file first using read_file to check exact current lines, or use write_file to replace the full file content."
         return f"❌ Text not found in {path}: {error}{guidance}"
     match_mode = "exact" if (strategy or "exact") == "exact" else "fuzzy"
@@ -1367,6 +1460,11 @@ def edit_file(
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
+    try:
+        from src.context.indexing.chunk_index import bump_index_generation
+        bump_index_generation(workspace)
+    except Exception:
+        pass
     _record_workspace_edit(config, workspace, [str(safe_path)])
 
     # Lazy import: chat_graph imports file_tools at module load time — a

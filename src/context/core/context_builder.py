@@ -51,6 +51,9 @@ class ContextBuilder:
         set_active_budget_cb: Optional[Callable[[Any], None]] = None,
         layer_relevance: Optional[dict[str, dict[TaskType, float]]] = None,
         volatile_layers: Optional[Set[str]] = None,
+        allowed_layers: Optional[Set[str] | frozenset[str]] = None,
+        layer_dep_hashes: Optional[dict[str, str]] = None,
+        current_layer_hashes: Optional[dict[str, str]] = None,
     ) -> list[SystemMessage]:
         """Execute registered layer builders, respecting cache, bounds, and autonomous skips."""
         walkers = walkers or []
@@ -82,13 +85,28 @@ class ContextBuilder:
         for name, builder in builders.items():
             if autonomous and name in autonomous_skip:
                 continue
+            if allowed_layers is not None and name not in allowed_layers:
+                continue
             relevance_map = relevance.get(name, {})
             score = relevance_map.get(task_type, 0.0)
             if score < 0.15:
                 continue
 
             cached = None if name in volatiles else layer_cache.get(name)
-            if cached and last_state_hash == current_hash:
+            is_hit = False
+            if cached:
+                if last_state_hash == current_hash and current_hash is not None:
+                    is_hit = True
+                elif (
+                    layer_dep_hashes is not None
+                    and current_layer_hashes is not None
+                    and name in layer_dep_hashes
+                    and name in current_layer_hashes
+                    and layer_dep_hashes[name] == current_layer_hashes[name]
+                ):
+                    is_hit = True
+
+            if is_hit:
                 layers.append(cached)
                 continue
 
@@ -105,6 +123,12 @@ class ContextBuilder:
                     layers.append(msg)
                     if name not in volatiles:
                         layer_cache[name] = msg
+                        if (
+                            layer_dep_hashes is not None
+                            and current_layer_hashes is not None
+                            and name in current_layer_hashes
+                        ):
+                            layer_dep_hashes[name] = current_layer_hashes[name]
             except Exception as exc:
                 print(f"[ContextEngine] layer '{name}' builder failed: {exc}")
                 continue

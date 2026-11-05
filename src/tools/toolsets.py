@@ -29,8 +29,16 @@ from src.agents.runtime_profile import (
 # check_todo_requirements -> True; clarify_tool.py check_clarify_requirements
 # -> True): the task list and the ask-the-user tool are never posture-gated.
 # session_search moved to workspace-read — not every turn needs it.
+# Phase 9.2.2.1: Pseudo-tools (think, verify) deprecated from active core toolset.
+# Preserved only if explicitly requested via CRUSORAI_ENABLE_PSEUDO_TOOLS=1.
+_PSEUDO_TOOLS_ENABLED: bool = (
+    os.environ.get("CRUSORAI_ENABLE_PSEUDO_TOOLS", "").strip().lower()
+    in {"1", "true", "yes"}
+)
 _CORE_TOOLS: tuple[str, ...] = (
-    "think", "verify", "todo_list", "clarify",
+    ("think", "verify", "todo_list", "clarify")
+    if _PSEUDO_TOOLS_ENABLED
+    else ("todo_list", "clarify")
 )
 
 _WORKSPACE_READ_TOOLS: tuple[str, ...] = (

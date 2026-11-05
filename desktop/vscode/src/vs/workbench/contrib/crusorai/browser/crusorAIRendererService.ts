@@ -38,6 +38,7 @@ import {
 	CrusorAITurnPart,
 	CrusorAISubAgentView,
 	CrusorAISyntaxColors,
+	CrusorAIContextChip,
 } from './crusorAIRenderer.js';
 
 function valueRecord(value: unknown): Readonly<Record<string, unknown>> | undefined {
@@ -384,6 +385,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	 * before any provider attempt is the legacy liveness dress-up. */
 	private hadProviderAttempt = false;
 	private history: CrusorAIRenderModel['history'] = [];
+	private contextChips: readonly CrusorAIContextChip[] = [];
 
 	/**
 	 * Explicit multi-root selection (P0): never silently pick folders[0].
@@ -406,7 +408,23 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.reasoningEffort = value;
 			this.render();
 		},
-		submitPrompt: text => { void this.submitPrompt(text); },
+		submitPrompt: (text, chips) => { void this.submitPrompt(text, chips); },
+		addContextChip: chip => {
+			if (!this.contextChips.some(c => c.id === chip.id || (c.type === chip.type && c.label === chip.label))) {
+				this.contextChips = [...this.contextChips, chip];
+				this.render();
+			}
+		},
+		removeContextChip: id => {
+			this.contextChips = this.contextChips.filter(c => c.id !== id);
+			this.render();
+		},
+		clearContextChips: () => {
+			if (this.contextChips.length > 0) {
+				this.contextChips = [];
+				this.render();
+			}
+		},
 		cancel: () => {
 			// One console line per click, forever (field 2026-10-19,
 			// twice: "cancel button not working" with no way to tell a
@@ -781,7 +799,10 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.assistantText = tail.assistantText;
 		this.parts = [...tail.parts];
 		this.reasoningParts = (tail.reasoningParts ?? []).map(part => ({ ...part }));
-		this.tools = new Map(tail.tools.map(entry => [entry.id, entry]));
+		this.tools.clear();
+		for (const entry of tail.tools) {
+			this.tools.set(entry.id, entry);
+		}
 		this.running = true;
 		this.turnOutcome = 'running';
 		this.childLiveAdopted = true;
@@ -970,6 +991,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				attempts: this.restartAttempts,
 			},
 			draft: this.draft,
+			contextChips: this.contextChips,
 			history: this.history,
 			sessions: this.sessionRows(),
 		};
@@ -1626,7 +1648,79 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 	}
 
-	private async submitPrompt(text: string): Promise<void> {
+	private async submitPrompt(text: string, chips?: readonly CrusorAIContextChip[]): Promise<void> {
+		const trimmed = text.trim();
+		if (trimmed === '/clear') {
+			this.draft = '';
+			this.contextChips = [];
+			this.newSession();
+			return;
+		}
+
+		let promptText = text;
+		if (trimmed.startsWith('/test')) {
+			const arg = trimmed.slice(5).trim();
+			promptText = arg
+				? `[Slash Command /test]: Run test suite for current workspace context and diagnose any failures: ${arg}`
+				: `[Slash Command /test]: Run test suite for current workspace context and diagnose any failures.`;
+		} else if (trimmed.startsWith('/review')) {
+			const arg = trimmed.slice(7).trim();
+			promptText = arg
+				? `[Slash Command /review]: Review the current code context for bugs, security risks, performance issues, and code smells: ${arg}`
+				: `[Slash Command /review]: Review the current code context for bugs, security risks, performance issues, and code smells.`;
+		} else if (trimmed.startsWith('/fix')) {
+			const arg = trimmed.slice(4).trim();
+			promptText = arg
+				? `[Slash Command /fix]: Identify and fix defects, errors, or diagnostics in the current context: ${arg}`
+				: `[Slash Command /fix]: Identify and fix defects, errors, or diagnostics in the current context.`;
+		}
+
+		const activeChips = chips ?? this.contextChips;
+		this.contextChips = [];
+
+		if (activeChips && activeChips.length > 0) {
+			const contextSections: string[] = [];
+			for (const chip of activeChips) {
+				if (chip.type === 'selection') {
+					try {
+						const editorCtx = await this.workbenchService.getActiveEditorContext(true);
+						if (editorCtx?.selectedText) {
+							contextSections.push(`[Active Selection in ${editorCtx.resource}${editorCtx.selection ? `:${editorCtx.selection.startLine}-${editorCtx.selection.endLine}` : ''}]:\n\`\`\`\n${editorCtx.selectedText}\n\`\`\``);
+						} else if (editorCtx?.visibleText) {
+							contextSections.push(`[Visible Editor Text in ${editorCtx.resource}]:\n\`\`\`\n${editorCtx.visibleText.slice(0, 2000)}\n\`\`\``);
+						} else {
+							contextSections.push(`[Active Selection]: ${chip.label}`);
+						}
+					} catch {
+						contextSections.push(`[Active Selection]: ${chip.label}`);
+					}
+				} else if (chip.type === 'diagnostics') {
+					try {
+						const diags = this.workbenchService.getDiagnostics();
+						if (diags && diags.length > 0) {
+							const formattedDiags = diags.slice(0, 15).map(d =>
+								`- [${d.severity.toUpperCase()}] ${d.resource}:${d.range.startLine}:${d.range.startColumn} - ${d.message}${d.code ? ` (${d.code})` : ''}`
+							).join('\n');
+							contextSections.push(`[Workspace Diagnostics (${diags.length} issue${diags.length > 1 ? 's' : ''})]:\n${formattedDiags}`);
+						} else {
+							contextSections.push(`[Workspace Diagnostics]: Clean (0 errors, 0 warnings).`);
+						}
+					} catch {
+						contextSections.push(`[Workspace Diagnostics]: None reported.`);
+					}
+				} else if (chip.type === 'file') {
+					contextSections.push(`[Referenced File]: ${chip.resource || chip.detail || chip.label}`);
+				} else if (chip.type === 'folder') {
+					contextSections.push(`[Referenced Folder]: ${chip.resource || chip.detail || chip.label}`);
+				} else if (chip.type === 'symbol') {
+					contextSections.push(`[Referenced Symbol]: ${chip.detail || chip.label}`);
+				}
+			}
+			if (contextSections.length > 0) {
+				promptText = `### Context References\n${contextSections.join('\n\n')}\n\n### User Prompt\n${promptText || '(No additional prompt text provided)'}`;
+			}
+		}
+
 		// A bounded wait, not an unbounded one: ensureEngine resolves when
 		// start() settles, but a wedged sidecar must not eat the user's
 		// click forever (field 2026-09-05: "send button not working" — the
@@ -1651,14 +1745,14 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		this.draft = '';
 		this.error = undefined;
-		this.lastSubmittedPrompt = text;
+		this.lastSubmittedPrompt = promptText;
 		if (!this.sessionId) {
-			this.pendingPrompt = text;
+			this.pendingPrompt = promptText;
 			this.send({ type: 'session_create', workspace: this.workspacePath });
 			this.render();
 			return;
 		}
-		this.startTurn(text);
+		this.startTurn(promptText);
 	}
 
 	/**

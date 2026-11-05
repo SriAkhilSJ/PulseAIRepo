@@ -78,9 +78,13 @@ VOLATILE_TAIL_PREAMBLE = (
 # Budget
 # ---------------------------------------------------------------------------
 
-def allocate_budget(max_tokens: int, task_type: TaskType) -> tuple[int, int]:
+def allocate_budget(
+    max_tokens: int,
+    task_type: TaskType,
+    complexity: Optional[Any] = None,
+) -> tuple[int, int]:
     """
-    Return (context_budget, history_budget) based on task type.
+    Return (context_budget, history_budget) based on task type and complexity tier.
     Ratios are tuned: debug needs history, explore needs context.
     """
     ratios = {
@@ -96,6 +100,17 @@ def allocate_budget(max_tokens: int, task_type: TaskType) -> tuple[int, int]:
     }
     ctx_ratio, hist_ratio = ratios.get(task_type, (0.40, 0.60))
     ctx = int(max_tokens * ctx_ratio)
+
+    if complexity is not None:
+        try:
+            from src.context.complexity import TaskComplexity, TIER_CONTEXT_BUDGET_CAPS
+            if isinstance(complexity, TaskComplexity):
+                cap = TIER_CONTEXT_BUDGET_CAPS.get(complexity)
+                if cap is not None:
+                    ctx = min(ctx, cap)
+        except Exception:
+            pass
+
     return ctx, max_tokens - ctx
 
 

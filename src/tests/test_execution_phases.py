@@ -86,7 +86,7 @@ def test_browser_task_with_build_step_binds_browser_and_planning_tools(tmp_path)
     }}
     bound = _resolve_bound_tools(state, config)
     names = {t.name for t in bound}
-    assert {"browser_navigate", "browser_screenshot", "todo_list", "think"} <= names
+    assert {"browser_navigate", "browser_screenshot", "todo_list"} <= names
     # no execution-time policy may deny them either
     assert config["configurable"]["execution_phase"] == "general"
     assert config["configurable"]["phase_allowed_tools"] is None

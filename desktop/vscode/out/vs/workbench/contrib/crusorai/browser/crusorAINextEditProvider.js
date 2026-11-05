@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- * CrusorAI Next Edit Suggestions (NES) — predicts where the user should edit next.
- * Shows lightbulb-style suggestions after the user makes a change.
+ * CrusorAI Next Edit Suggestions (NES) — predicts and previews subsequent structured edits.
+ * Distinct from inline ghost-text completion: reviewable, previewable via diff, safe.
  *--------------------------------------------------------------------------------------------*/
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
@@ -11,54 +11,142 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+import { Emitter } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { ICrusorAIEngineService } from '../common/crusorAIEngineService.js';
+import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
+export const ICrusorAINextEditProvider = createDecorator('crusorAINextEditProvider');
 let CrusorAINextEditProvider = class CrusorAINextEditProvider extends Disposable {
-    constructor(engineService) {
+    constructor(engineService, workbenchService, logService) {
         super();
         this.engineService = engineService;
-        this.suggestions = new Map();
+        this.workbenchService = workbenchService;
+        this.logService = logService;
+        this.edits = new Map();
         this.requestCounter = 0;
         this.enabled = true;
+        this._onDidChangeEdits = this._register(new Emitter());
+        this.onDidChangeEdits = this._onDidChangeEdits.event;
         this._register(this.engineService.onDidReceiveFrame(frame => this.handleFrame(frame)));
     }
-    setSuggestionHandler(handler) {
-        this.handler = handler;
-    }
-    /**
-     * Called after a file edit to request next edit predictions.
-     */
     requestNextEdits(resource, workspace) {
-        if (!this.enabled) {
+        if (!this.enabled || !workspace?.trim()) {
             return;
         }
-        const request_id = `nes-${++this.requestCounter}`;
-        this.engineService.send({
-            type: 'next_edit_suggestions',
-            request_id,
-            resource,
-            workspace,
-            max_suggestions: 5,
-        });
+        const requestId = `nes-${++this.requestCounter}-${Date.now()}`;
+        try {
+            this.engineService.send({
+                type: 'next_edit_suggestions',
+                request_id: requestId,
+                resource,
+                workspace,
+                max_suggestions: 5,
+            });
+        }
+        catch (err) {
+            this.logService.warn('[CrusorAI NextEdit] failed to request next edits', err);
+        }
     }
-    /**
-     * Called when a file change is recorded to update the predictor's context.
-     */
-    recordChange(resource, line, column, oldText, newText, workspace) {
-        // The Python-side predictor tracks changes via its own mechanism.
-        // This method is for the VSCode side to know something changed.
+    getPendingEdits(resource) {
+        const list = [...this.edits.values()].filter(e => e.state === 'pending' || e.state === 'previewing');
+        if (resource) {
+            return list.filter(e => e.resource === resource);
+        }
+        return list;
     }
-    /**
-     * Get cached suggestions for a resource.
-     */
-    getSuggestions(resource) {
-        return this.suggestions.get(resource) ?? [];
+    async previewEdit(editId) {
+        const edit = this.edits.get(editId);
+        if (!edit || edit.state === 'accepted' || edit.state === 'rejected') {
+            return false;
+        }
+        edit.state = 'previewing';
+        this._onDidChangeEdits.fire(this.getPendingEdits());
+        try {
+            await this.workbenchService.openInlineDiff({
+                toolId: edit.id,
+                label: edit.title || 'Crusor Next Edit',
+                resource: edit.resource,
+                original: edit.oldText,
+                modified: edit.newText,
+            });
+            return true;
+        }
+        catch (err) {
+            this.logService.error('[CrusorAI NextEdit] failed to open inline preview', err);
+            return false;
+        }
     }
-    /**
-     * Clear suggestions for a resource (after accepting one, for example).
-     */
+    async acceptEdit(editId) {
+        const edit = this.edits.get(editId);
+        if (!edit || edit.state === 'accepted' || edit.state === 'rejected') {
+            return false;
+        }
+        if (!this.workbenchService.isWorkspaceTrusted()) {
+            throw new Error('Crusor NextEdit cannot apply edits before workspace trust is granted');
+        }
+        try {
+            const outcome = await this.workbenchService.applyWorkspaceEdit({
+                label: edit.title || 'Crusor Next Edit',
+                approvalToolId: edit.id,
+                showPreview: false,
+                edits: [
+                    {
+                        resource: edit.resource,
+                        range: {
+                            startLine: edit.line,
+                            startColumn: edit.column,
+                            endLine: edit.endLine,
+                            endColumn: edit.endColumn,
+                        },
+                        text: edit.newText,
+                        expectedVersionId: edit.expectedVersionId,
+                    },
+                ],
+            });
+            if (outcome.applied) {
+                edit.state = 'accepted';
+                this.edits.delete(editId);
+                this._onDidChangeEdits.fire(this.getPendingEdits());
+                return true;
+            }
+            return false;
+        }
+        catch (err) {
+            this.logService.error('[CrusorAI NextEdit] failed to accept and apply edit', err);
+            return false;
+        }
+    }
+    rejectEdit(editId) {
+        const edit = this.edits.get(editId);
+        if (edit) {
+            edit.state = 'rejected';
+            this.edits.delete(editId);
+            this._onDidChangeEdits.fire(this.getPendingEdits());
+        }
+    }
     clearSuggestions(resource) {
-        this.suggestions.delete(resource);
+        if (resource) {
+            for (const [id, edit] of this.edits.entries()) {
+                if (edit.resource === resource) {
+                    this.edits.delete(id);
+                }
+            }
+        }
+        else {
+            this.edits.clear();
+        }
+        this._onDidChangeEdits.fire(this.getPendingEdits());
+    }
+    invalidateStale(resource, currentVersionId) {
+        for (const [id, edit] of this.edits.entries()) {
+            if (edit.resource === resource && edit.expectedVersionId !== undefined && edit.expectedVersionId !== currentVersionId) {
+                edit.state = 'stale';
+                this.edits.delete(id);
+            }
+        }
+        this._onDidChangeEdits.fire(this.getPendingEdits());
     }
     handleFrame(frame) {
         if (frame.type !== 'next_edit_result') {
@@ -66,24 +154,40 @@ let CrusorAINextEditProvider = class CrusorAINextEditProvider extends Disposable
         }
         const result = frame;
         const suggestions = (result.suggestions ?? []);
-        // Group by resource
-        const byResource = new Map();
-        for (const s of suggestions) {
-            const existing = byResource.get(s.resource) ?? [];
-            existing.push(s);
-            byResource.set(s.resource, existing);
-        }
-        // Update cached suggestions
-        for (const [resource, items] of byResource) {
-            this.suggestions.set(resource, items);
-            // Notify the handler of the first suggestion
-            if (this.handler && items.length > 0) {
-                this.handler(items[0]);
+        for (let i = 0; i < suggestions.length; i++) {
+            const s = suggestions[i];
+            if (!s.resource || typeof s.line !== 'number' || s.line < 1) {
+                continue;
             }
+            const id = s.id || `edit-${Date.now()}-${i}`;
+            const edit = {
+                id,
+                resource: s.resource,
+                line: s.line,
+                column: s.column ?? 1,
+                endLine: s.endLine ?? s.line,
+                endColumn: s.endColumn ?? s.column ?? 1,
+                title: s.title || 'Suggested edit',
+                description: s.description || '',
+                confidence: typeof s.confidence === 'number' ? s.confidence : 1.0,
+                category: s.category || 'refactor',
+                oldText: s.oldText ?? '',
+                newText: s.newText ?? '',
+                expectedVersionId: s.expectedVersionId,
+                state: 'pending',
+            };
+            this.edits.set(id, edit);
         }
+        this._onDidChangeEdits.fire(this.getPendingEdits());
+    }
+    dispose() {
+        this.edits.clear();
+        super.dispose();
     }
 };
 CrusorAINextEditProvider = __decorate([
-    __param(0, ICrusorAIEngineService)
+    __param(0, ICrusorAIEngineService),
+    __param(1, ICrusorAIWorkbenchService),
+    __param(2, ILogService)
 ], CrusorAINextEditProvider);
 export { CrusorAINextEditProvider };

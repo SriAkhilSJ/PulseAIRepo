@@ -224,3 +224,80 @@ def test_ledger_prices_calls_from_velona_catalog(tmp_path, monkeypatch):
     summary = _ledger.summarize(directory=str(tmp_path))
     # Desktop's live receipt for this exact call: $0.0000013.
     assert summary["cost"] == pytest.approx(37 * 0.018 / 1e6 + 5 * 0.121 / 1e6, abs=1e-9)
+
+
+def test_parse_cached_pricing_fields_and_write_rates():
+    """Verify that cached input and cache write rates are extracted from catalog pricing."""
+    payload = {
+        "data": {
+            "models": [
+                {
+                    "id": "qwen/qwen3.7-flash",
+                    "pricing": {
+                        "price_unit": "1m_tokens",
+                        "input_per_1m_usd": 0.03,
+                        "output_per_1m_usd": 0.13,
+                        "cached_input_per_1m_usd": 0.006,
+                        "cache_write_per_1m_usd": 0.038
+                    }
+                }
+            ]
+        }
+    }
+    rates = pricing.parse_catalog(payload)
+    qwen = rates["qwen/qwen3.7-flash"]
+    assert qwen["input_per_1m"] == pytest.approx(0.03)
+    assert qwen["output_per_1m"] == pytest.approx(0.13)
+    assert qwen["cached_input_per_1m"] == pytest.approx(0.006)
+    assert qwen["cache_write_per_1m"] == pytest.approx(0.038)
+    assert qwen["source"] == "provider-catalog"
+
+
+def test_safe_fallback_when_cached_pricing_is_unavailable():
+    """Verify that models without published cache discounts do not invent rates and fall back to standard input pricing."""
+    payload = {
+        "data": [
+            {
+                "id": "legacy/un-discounted-model",
+                "pricing": {
+                    "input_per_1m_usd": 0.5,
+                    "output_per_1m_usd": 1.5
+                }
+            }
+        ]
+    }
+    rates = pricing.parse_catalog(payload)
+    model = rates["legacy/un-discounted-model"]
+    assert "cached_input_per_1m" not in model
+    assert "cache_write_per_1m" not in model
+
+    cost_standard = call_ledger.estimate_cost_usd(
+        "legacy/un-discounted-model", 2000, 500, cached_tokens=0, cache_reported=False, rate_card=rates
+    )
+    cost_with_reported_cache = call_ledger.estimate_cost_usd(
+        "legacy/un-discounted-model", 2000, 500, cached_tokens=1500, cache_reported=True, rate_card=rates
+    )
+    # When no cached rate is published, cost must be identical (no invented discount)
+    assert cost_standard == pytest.approx(2000 * 0.5 / 1e6 + 500 * 1.5 / 1e6)
+    assert cost_with_reported_cache == pytest.approx(cost_standard)
+
+
+def test_ledger_applies_discount_when_cached_rate_present():
+    """Verify that call ledger bills cached tokens at discounted rate when published."""
+    rates = {
+        "qwen/qwen3.7-flash": {
+            "input_per_1m": 0.03,
+            "output_per_1m": 0.13,
+            "cached_input_per_1m": 0.006,
+            "currency": "USD",
+            "source": "provider-catalog"
+        }
+    }
+    # 1,771 input tokens (1,536 cached, 235 uncached), 1,452 output tokens
+    cost = call_ledger.estimate_cost_usd(
+        "qwen/qwen3.7-flash", 1771, 1452, cached_tokens=1536, cache_reported=True, rate_card=rates
+    )
+    expected_uncached_input = 235 * 0.03 / 1e6
+    expected_cached_input = 1536 * 0.006 / 1e6
+    expected_output = 1452 * 0.13 / 1e6
+    assert cost == pytest.approx(expected_uncached_input + expected_cached_input + expected_output)

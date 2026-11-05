@@ -769,7 +769,21 @@ def _always_blocked_url_error(url: str) -> Optional[Dict[str, Any]]:
 
 
 def _url_policy_error(url: str) -> Optional[Dict[str, Any]]:
-    return _secret_url_error(url) or _always_blocked_url_error(url)
+    secret_err = _secret_url_error(url)
+    if secret_err:
+        return secret_err
+    metadata_err = _always_blocked_url_error(url)
+    if metadata_err:
+        return metadata_err
+    try:
+        from src.security.browser.browser_security import BrowserSecurityController
+        allow_lb = os.environ.get("CRUSORAI_BROWSER_ALLOW_LOOPBACK", "").strip().lower() in ("1", "true", "yes")
+        res = BrowserSecurityController().validate_navigation_target(url, allow_loopback=allow_lb)
+        if not res.allowed:
+            return _err(f"Blocked by Browser Navigation Security Policy: {res.reason}")
+    except Exception:
+        pass
+    return None
 
 
 # hermes runs a normalize step on every navigate URL (url_safety.

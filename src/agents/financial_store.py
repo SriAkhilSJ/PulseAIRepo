@@ -49,9 +49,9 @@ class FinancialStore:
         self.db_path = Path(db_path or _default_db_path())
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA busy_timeout=5000")
+        self._conn.execute("PRAGMA busy_timeout=30000")
         sync_mode = self._get_configured_synchronous_mode()
         try:
             self._conn.execute("PRAGMA journal_mode=WAL")
@@ -82,6 +82,7 @@ class FinancialStore:
                     cumulative_input_tokens INTEGER DEFAULT 0,
                     cumulative_output_tokens INTEGER DEFAULT 0,
                     cumulative_cached_tokens INTEGER DEFAULT 0,
+                    cumulative_cache_write_tokens INTEGER DEFAULT 0,
                     cumulative_total_tokens INTEGER DEFAULT 0,
                     cumulative_cost_usd TEXT NOT NULL DEFAULT '0.000000',
                     cumulative_cost_inr TEXT NOT NULL DEFAULT '0.000000',
@@ -95,6 +96,7 @@ class FinancialStore:
                     current_turn_id INTEGER DEFAULT 1,
                     turn_tokens INTEGER DEFAULT 0,
                     turn_cached_tokens INTEGER DEFAULT 0,
+                    turn_cache_write_tokens INTEGER DEFAULT 0,
                     turn_cost_usd TEXT NOT NULL DEFAULT '0.000000',
                     turn_cost_inr TEXT NOT NULL DEFAULT '0.000000',
                     turn_calls_cheap INTEGER DEFAULT 0,
@@ -129,6 +131,7 @@ class FinancialStore:
                     input_tokens INTEGER DEFAULT 0,
                     output_tokens INTEGER DEFAULT 0,
                     cached_tokens INTEGER DEFAULT 0,
+                    cache_write_tokens INTEGER DEFAULT 0,
                     total_tokens INTEGER DEFAULT 0,
                     estimated_cost_usd TEXT,
                     estimated_cost_inr TEXT,
@@ -209,6 +212,25 @@ class FinancialStore:
             if "installed_at" not in cols:
                 try:
                     self._conn.execute("ALTER TABLE financial_schema_version ADD COLUMN installed_at REAL DEFAULT 0.0")
+                except Exception:
+                    pass
+
+            snap_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(financial_session_snapshots)").fetchall()}
+            if "cumulative_cache_write_tokens" not in snap_cols:
+                try:
+                    self._conn.execute("ALTER TABLE financial_session_snapshots ADD COLUMN cumulative_cache_write_tokens INTEGER DEFAULT 0")
+                except Exception:
+                    pass
+            if "turn_cache_write_tokens" not in snap_cols:
+                try:
+                    self._conn.execute("ALTER TABLE financial_session_snapshots ADD COLUMN turn_cache_write_tokens INTEGER DEFAULT 0")
+                except Exception:
+                    pass
+
+            ledger_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(financial_call_ledger)").fetchall()}
+            if "cache_write_tokens" not in ledger_cols:
+                try:
+                    self._conn.execute("ALTER TABLE financial_call_ledger ADD COLUMN cache_write_tokens INTEGER DEFAULT 0")
                 except Exception:
                     pass
 
@@ -358,21 +380,21 @@ class FinancialStore:
                     """
                     INSERT INTO financial_session_snapshots (
                         session_id, root_session_id, parent_session_id,
-                        cumulative_input_tokens, cumulative_output_tokens, cumulative_cached_tokens, cumulative_total_tokens,
+                        cumulative_input_tokens, cumulative_output_tokens, cumulative_cached_tokens, cumulative_cache_write_tokens, cumulative_total_tokens,
                         cumulative_cost_usd, cumulative_cost_inr, has_unknown_spend,
                         unrated_calls_count, unrated_tokens_count,
                         cheap_calls_count, standard_calls_count, premium_calls_count, total_calls_count,
-                        current_turn_id, turn_tokens, turn_cached_tokens,
+                        current_turn_id, turn_tokens, turn_cached_tokens, turn_cache_write_tokens,
                         turn_cost_usd, turn_cost_inr,
                         turn_calls_cheap, turn_calls_standard, turn_calls_premium,
                         budget_config_json, schema_version, created_at, updated_at
                     ) VALUES (
                         ?, ?, ?,
-                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
                         ?, ?, ?,
                         ?, ?,
                         ?, ?, ?, ?,
-                        ?, ?, ?,
+                        ?, ?, ?, ?,
                         ?, ?,
                         ?, ?, ?,
                         ?, ?, ?, ?
@@ -383,6 +405,7 @@ class FinancialStore:
                         cumulative_input_tokens=excluded.cumulative_input_tokens,
                         cumulative_output_tokens=excluded.cumulative_output_tokens,
                         cumulative_cached_tokens=excluded.cumulative_cached_tokens,
+                        cumulative_cache_write_tokens=excluded.cumulative_cache_write_tokens,
                         cumulative_total_tokens=excluded.cumulative_total_tokens,
                         cumulative_cost_usd=excluded.cumulative_cost_usd,
                         cumulative_cost_inr=excluded.cumulative_cost_inr,
@@ -396,6 +419,7 @@ class FinancialStore:
                         current_turn_id=excluded.current_turn_id,
                         turn_tokens=excluded.turn_tokens,
                         turn_cached_tokens=excluded.turn_cached_tokens,
+                        turn_cache_write_tokens=excluded.turn_cache_write_tokens,
                         turn_cost_usd=excluded.turn_cost_usd,
                         turn_cost_inr=excluded.turn_cost_inr,
                         turn_calls_cheap=excluded.turn_calls_cheap,
@@ -411,6 +435,7 @@ class FinancialStore:
                         int(tracker_data.get("cumulative_input_tokens", 0)),
                         int(tracker_data.get("cumulative_output_tokens", 0)),
                         int(tracker_data.get("session_cached_tokens", 0)),
+                        int(tracker_data.get("session_cache_write_tokens", 0)),
                         int(tracker_data.get("session_tokens", 0)),
                         str(tracker_data.get("session_cost_usd", "0.000000")),
                         str(tracker_data.get("session_cost_inr", "0.000000")),
@@ -424,6 +449,7 @@ class FinancialStore:
                         int(tracker_data.get("current_turn_id", 1)),
                         int(tracker_data.get("turn_tokens", 0)),
                         int(tracker_data.get("turn_cached_tokens", 0)),
+                        int(tracker_data.get("turn_cache_write_tokens", 0)),
                         str(tracker_data.get("turn_cost_usd", "0.000000")),
                         str(tracker_data.get("turn_cost_inr", "0.000000")),
                         int(tracker_data.get("turn_calls_cheap", 0)),
@@ -475,21 +501,21 @@ class FinancialStore:
             """
             INSERT INTO financial_session_snapshots (
                 session_id, root_session_id, parent_session_id,
-                cumulative_input_tokens, cumulative_output_tokens, cumulative_cached_tokens, cumulative_total_tokens,
+                cumulative_input_tokens, cumulative_output_tokens, cumulative_cached_tokens, cumulative_cache_write_tokens, cumulative_total_tokens,
                 cumulative_cost_usd, cumulative_cost_inr, has_unknown_spend,
                 unrated_calls_count, unrated_tokens_count,
                 cheap_calls_count, standard_calls_count, premium_calls_count, total_calls_count,
-                current_turn_id, turn_tokens, turn_cached_tokens,
+                current_turn_id, turn_tokens, turn_cached_tokens, turn_cache_write_tokens,
                 turn_cost_usd, turn_cost_inr,
                 turn_calls_cheap, turn_calls_standard, turn_calls_premium,
                 budget_config_json, schema_version, created_at, updated_at
             ) VALUES (
                 ?, ?, ?,
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, ?, ?,
                 ?, ?,
                 ?, ?, ?, ?,
-                ?, ?, ?,
+                ?, ?, ?, ?,
                 ?, ?,
                 ?, ?, ?,
                 ?, ?, ?, ?
@@ -500,6 +526,7 @@ class FinancialStore:
                 cumulative_input_tokens=excluded.cumulative_input_tokens,
                 cumulative_output_tokens=excluded.cumulative_output_tokens,
                 cumulative_cached_tokens=excluded.cumulative_cached_tokens,
+                cumulative_cache_write_tokens=excluded.cumulative_cache_write_tokens,
                 cumulative_total_tokens=excluded.cumulative_total_tokens,
                 cumulative_cost_usd=excluded.cumulative_cost_usd,
                 cumulative_cost_inr=excluded.cumulative_cost_inr,
@@ -513,6 +540,7 @@ class FinancialStore:
                 current_turn_id=excluded.current_turn_id,
                 turn_tokens=excluded.turn_tokens,
                 turn_cached_tokens=excluded.turn_cached_tokens,
+                turn_cache_write_tokens=excluded.turn_cache_write_tokens,
                 turn_cost_usd=excluded.turn_cost_usd,
                 turn_cost_inr=excluded.turn_cost_inr,
                 turn_calls_cheap=excluded.turn_calls_cheap,
@@ -529,6 +557,7 @@ class FinancialStore:
                 int(tracker_data.get("cumulative_input_tokens", 0)),
                 int(tracker_data.get("cumulative_output_tokens", 0)),
                 int(tracker_data.get("session_cached_tokens", 0)),
+                int(tracker_data.get("session_cache_write_tokens", 0)),
                 int(tracker_data.get("session_tokens", 0)),
                 str(tracker_data.get("session_cost_usd", "0.000000")),
                 str(tracker_data.get("session_cost_inr", "0.000000")),
@@ -542,6 +571,7 @@ class FinancialStore:
                 int(tracker_data.get("current_turn_id", 1)),
                 int(tracker_data.get("turn_tokens", 0)),
                 int(tracker_data.get("turn_cached_tokens", 0)),
+                int(tracker_data.get("turn_cache_write_tokens", 0)),
                 str(tracker_data.get("turn_cost_usd", "0.000000")),
                 str(tracker_data.get("turn_cost_inr", "0.000000")),
                 int(tracker_data.get("turn_calls_cheap", 0)),
@@ -600,7 +630,7 @@ class FinancialStore:
                     INSERT INTO financial_call_ledger (
                         event_id, root_session_id, child_session_id, turn_id,
                         provider, model, tier, purpose,
-                        input_tokens, output_tokens, cached_tokens, total_tokens,
+                        input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens,
                         estimated_cost_usd, estimated_cost_inr,
                         actual_cost_usd, actual_cost_inr,
                         cost_known, pricing_status, reservation_id,
@@ -608,7 +638,7 @@ class FinancialStore:
                     ) VALUES (
                         ?, ?, ?, ?,
                         ?, ?, ?, ?,
-                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
                         ?, ?,
                         ?, ?,
                         ?, ?, ?,
@@ -627,6 +657,7 @@ class FinancialStore:
                         int(event_dict.get("input_tokens", 0)),
                         int(event_dict.get("output_tokens", 0)),
                         int(event_dict.get("cached_tokens", 0)),
+                        int(event_dict.get("cache_write_tokens", 0)),
                         int(event_dict.get("total_tokens", 0)),
                         event_dict.get("estimated_cost_usd"),
                         event_dict.get("estimated_cost_inr"),
@@ -697,13 +728,13 @@ class FinancialStore:
                     INSERT OR IGNORE INTO financial_call_ledger (
                         event_id, root_session_id, child_session_id, turn_id,
                         provider, model, tier, purpose,
-                        input_tokens, output_tokens, cached_tokens, total_tokens,
+                        input_tokens, output_tokens, cached_tokens, cache_write_tokens, total_tokens,
                         estimated_cost_usd, estimated_cost_inr, actual_cost_usd, actual_cost_inr,
                         cost_known, pricing_status, reservation_id, call_outcome, created_at
                     ) VALUES (
                         ?, ?, ?, ?,
                         ?, ?, ?, ?,
-                        ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?,
                         ?, ?, ?, ?,
                         ?, ?, ?, ?, ?
                     )
@@ -720,6 +751,7 @@ class FinancialStore:
                         int(event.get("input_tokens", 0)),
                         int(event.get("output_tokens", 0)),
                         int(event.get("cached_tokens", 0)),
+                        int(event.get("cache_write_tokens", 0)),
                         int(event.get("total_tokens", 0)),
                         str(event["estimated_cost_usd"]) if event.get("estimated_cost_usd") is not None else None,
                         str(event["estimated_cost_inr"]) if event.get("estimated_cost_inr") is not None else None,

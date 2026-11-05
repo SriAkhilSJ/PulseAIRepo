@@ -446,8 +446,16 @@ class _InnerCallDispatcher:
         """Script-visible tool functions with friendly signatures."""
         return {
             # File tools
-            "read_file": lambda path: self._dispatch(
-                "read_file", read_file, {"path": path}, True),
+            "read_file": lambda path, start_line=None, end_line=None, offset=None, limit=None: self._dispatch(
+                "read_file", read_file,
+                {k: v for k, v in {
+                    "path": path,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "offset": offset,
+                    "limit": limit,
+                }.items() if v is not None},
+                True),
             "list_files": lambda path=".": self._dispatch(
                 "list_files", list_files, {"path": path}, True),
             "search_files": lambda pattern, path=".", query="": self._dispatch(

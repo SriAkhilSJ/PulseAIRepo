@@ -28,6 +28,10 @@ import { ICrusorAISessionStore, CrusorAISessionStore } from '../common/crusorAIS
 import { crusorSessionIdFromUri, crusorSessionRows } from '../common/crusorAISessionProjection.js';
 import { CrusorAIPreviewService, ICrusorAIPreviewService } from './crusorAIPreviewService.js';
 import { EditorPaneDescriptor, IEditorPaneRegistry } from '../../../browser/editor.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { ILanguageFeaturesService } from '../../../../editor/common/services/languageFeatures.js';
+import { CrusorAIInlineCompletionProvider } from './crusorAIInlineCompletionProvider.js';
+import { CrusorAINextEditProvider, ICrusorAINextEditProvider } from './crusorAINextEditProvider.js';
 import './crusorAISessionController.js';
 import './crusorAISkillsHub.js';
 import './crusorAIOneShot.js';
@@ -79,6 +83,21 @@ registerSingleton(ICrusorAISessionStore, CrusorAISessionStore, InstantiationType
 // Crusor Preview: availability from what the session actually built, the separate preview window, and
 // the reviewed-batch handoff back into the Agent (steps 1, 2 and 9 of the flow; 3-8 live in the window).
 registerSingleton(ICrusorAIPreviewService, CrusorAIPreviewService, InstantiationType.Delayed);
+registerSingleton(ICrusorAINextEditProvider, CrusorAINextEditProvider, InstantiationType.Delayed);
+
+class CrusorAIInlineCompletionContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = 'workbench.contrib.crusorai.inlineCompletion';
+	constructor(
+		@IInstantiationService instantiationService: IInstantiationService,
+		@ILanguageFeaturesService languageFeaturesService: ILanguageFeaturesService,
+	) {
+		super();
+		const provider = instantiationService.createInstance(CrusorAIInlineCompletionProvider);
+		this._register(provider);
+		this._register(languageFeaturesService.inlineCompletionsProvider.register('*', provider));
+	}
+}
+registerWorkbenchContribution2(CrusorAIInlineCompletionContribution.ID, CrusorAIInlineCompletionContribution, WorkbenchPhase.AfterRestored);
 
 // --- Crusor container (right-side auxiliary bar) ---------------------------
 // Lives on the right (secondary) sidebar — same default location as Cursor's

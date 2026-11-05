@@ -93,7 +93,7 @@ function setA2UIPointer(data: Record<string, unknown>, path: string, value: unkn
 	let current: Record<string, unknown> | unknown[] = data;
 	for (let i = 0; i < parts.length - 1; i++) {
 		const part = parts[i];
-		const next = Array.isArray(current) ? current[Number(part)] : current[part];
+		const next: unknown = Array.isArray(current) ? current[Number(part)] : current[part];
 		if (!isRecord(next) && !Array.isArray(next)) {
 			if (Array.isArray(current)) { current[Number(part)] = {}; }
 			else { current[part] = {}; }
@@ -148,39 +148,39 @@ export class CrusorA2UISurfaceStore {
 		for (const operation of operations.slice(0, MAX_A2UI_OPS)) {
 			try {
 				if (!isRecord(operation)) { this.drop('non-object operation'); continue; }
-				if (isRecord(operation['createSurface'])) {
-					const spec = operation['createSurface'];
-					const surfaceId = String(spec['surfaceId'] ?? '');
+				if ('createSurface' in operation && isRecord(operation.createSurface)) {
+					const spec = operation.createSurface;
+					const surfaceId = String(spec.surfaceId ?? '');
 					if (!surfaceId) { this.drop('createSurface without surfaceId'); continue; }
 					const surface = this.surface(surfaceId);
-					if (typeof spec['catalogId'] === 'string') { surface.catalogId = spec['catalogId']; }
-				} else if (isRecord(operation['updateComponents'])) {
-					const spec = operation['updateComponents'];
-					const surface = this.surface(String(spec['surfaceId'] ?? ''));
-					const components = Array.isArray(spec['components']) ? spec['components'] : [];
+					if (typeof spec.catalogId === 'string') { surface.catalogId = spec.catalogId; }
+				} else if ('updateComponents' in operation && isRecord(operation.updateComponents)) {
+					const spec = operation.updateComponents;
+					const surface = this.surface(String(spec.surfaceId ?? ''));
+					const components = Array.isArray(spec.components) ? spec.components : [];
 					for (const raw of components.slice(0, MAX_A2UI_COMPONENTS)) {
-						if (!isRecord(raw) || typeof raw['id'] !== 'string' || typeof raw['component'] !== 'string') {
+						if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.component !== 'string') {
 							this.drop('component without id/type');
 							continue;
 						}
-						if (!CRUSOR_A2UI_CATALOG_V1.includes(raw['component'] as string)) {
-							this.drop(`unknown component ${String(raw['component'])}`);
+						if (!CRUSOR_A2UI_CATALOG_V1.includes(raw.component as string)) {
+							this.drop(`unknown component ${String(raw.component)}`);
 							continue;
 						}
-						if (!surface.components.has(raw['id'] as string)) { surface.order.push(raw['id'] as string); }
-						surface.components.set(raw['id'] as string, raw as CrusorA2UIComponent);
+						if (!surface.components.has(raw.id as string)) { surface.order.push(raw.id as string); }
+						surface.components.set(raw.id as string, raw as CrusorA2UIComponent);
 					}
-				} else if (isRecord(operation['updateDataModel'])) {
-					const spec = operation['updateDataModel'];
-					const surface = this.surface(String(spec['surfaceId'] ?? ''));
-					const path = typeof spec['path'] === 'string' ? spec['path'] : '/';
+				} else if ('updateDataModel' in operation && isRecord(operation.updateDataModel)) {
+					const spec = operation.updateDataModel;
+					const surface = this.surface(String(spec.surfaceId ?? ''));
+					const path = typeof spec.path === 'string' ? spec.path : '/';
 					if (path === '/' || path === '') {
-						surface.data = isRecord(spec['value']) ? { ...spec['value'] } : {};
+						surface.data = isRecord(spec.value) ? { ...(spec.value as Record<string, unknown>) } : {};
 					} else {
-						setA2UIPointer(surface.data, path, spec['value']);
+						setA2UIPointer(surface.data, path, spec.value);
 					}
-				} else if (isRecord(operation['deleteSurface'])) {
-					this.surfaces.delete(String(operation['deleteSurface']['surfaceId'] ?? ''));
+				} else if ('deleteSurface' in operation && isRecord(operation.deleteSurface)) {
+					this.surfaces.delete(String(operation.deleteSurface.surfaceId ?? ''));
 				} else {
 					this.drop('unknown operation');
 				}

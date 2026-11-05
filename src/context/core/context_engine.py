@@ -586,6 +586,11 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # Frozen workspace snapshot — pin per thread_id + cwd for prompt-cache stability
         self._frozen_workspace_snapshot: Dict[str, str] = {}
         self._frozen_workspace_cwd: str = ""
+        self._layer_dep_hashes: dict[str, str] = {}
+        self._current_task_complexity = None
+        self._active_allowed_layers = None
+        self._active_current_layer_hashes = None
+
         self._builder = ContextBuilder(
             model=self.model,
             allow_embedding_compute=self._allow_embedding_compute,
@@ -1552,6 +1557,56 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         "thread_id",
     })
 
+    def _compute_layer_dep_hashes(self, state: dict[str, Any], task: str) -> dict[str, str]:
+        ws = str(state.get("workspace", "."))
+        task_hash = hashlib.sha256(task.strip().encode()).hexdigest()[:12]
+        plan_hash = hashlib.sha256((str(state.get("plan")) + str(state.get("plan_goal"))).encode()).hexdigest()[:12]
+        progress_hash = hashlib.sha256((str(state.get("steps_completed")) + str(state.get("failed_steps"))).encode()).hexdigest()[:12]
+        recovery_hash = hashlib.sha256((str(state.get("recovery_mode")) + str(state.get("recovery_attempts")) + str(state.get("recovery_command"))).encode()).hexdigest()[:12]
+        replan_hash = hashlib.sha256(str(state.get("replan_count", 0)).encode()).hexdigest()[:12]
+        attempt_hash = hashlib.sha256(str(state.get("prior_attempts", [])).encode()).hexdigest()[:12]
+
+        try:
+            from src.context.repo_map import get_repo_map_generation
+            repo_gen = get_repo_map_generation(ws)
+        except Exception:
+            repo_gen = 0
+
+        try:
+            from src.context.indexing.chunk_index import get_index_generation
+            idx_gen = get_index_generation(ws)
+        except Exception:
+            idx_gen = 0
+
+        git_sig = ""
+        try:
+            head_file = os.path.join(os.path.abspath(ws), ".git", "HEAD")
+            if os.path.exists(head_file):
+                st = os.stat(head_file)
+                git_sig = f"{st.st_mtime}:{st.st_size}"
+        except Exception:
+            git_sig = ""
+
+        return {
+            "quality": "const",
+            "task": task_hash,
+            "tone": task_hash,
+            "ambiguity": task_hash,
+            "long_term_memory": f"{task_hash}:{ws}",
+            "tool_memory": f"{task_hash}:{len(state.get('execution_trace', []))}",
+            "memory_validation": f"{task_hash}:{ws}",
+            "skills": f"{task_hash}:{state.get('execution_mode', '')}",
+            "repo_map": f"{ws}:{repo_gen}:{git_sig}",
+            "relevant_chunks": f"{ws}:{task_hash}:{idx_gen}:{git_sig}",
+            "conventions": f"{ws}:{repo_gen}",
+            "plan": plan_hash,
+            "progress": progress_hash,
+            "recovery": recovery_hash,
+            "replan": replan_hash,
+            "attempt_history": attempt_hash,
+            "git_context": f"volatile:{git_sig}",
+        }
+
     def _hash_state(self, state: dict[str, Any]) -> str:
         """Hash ONLY the keys layers read (messages excluded by design;
         token_usage/execution_trace excluded as measured noise)."""
@@ -1559,11 +1614,11 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
 
     def _allocate_budget(self, task_type: TaskType) -> tuple[int, int]:
         """
-        Return (context_budget, history_budget) based on task type.
+        Return (context_budget, history_budget) based on task type and complexity tier.
         Ratios are tuned: debug needs history, explore needs context.
         """
-        # P9: ratios + arithmetic live in layer_policy.allocate_budget.
-        return layer_policy.allocate_budget(self.max_tokens, task_type)
+        complexity = getattr(self, "_current_task_complexity", None)
+        return layer_policy.allocate_budget(self.max_tokens, task_type, complexity=complexity)
 
     # P9: the layer policy (D19 canonical emission order, D23 volatile
     # tail, the task-type relevance map) lives in
@@ -1607,6 +1662,9 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
     ) -> list[BaseMessage]:
         """Adaptive, hierarchical, deduplicated context assembly."""
 
+        if system_message is None or not str(getattr(system_message, "content", "") or "").strip():
+            raise ValueError("Mandatory security context missing: system_message cannot be None or empty")
+
         # 1. Resolve the user's active interest, then classify/retrieve against
         # that focus rather than a stale first-turn label.  This adds no model
         # call: the contract preserves the objective and latest steering while
@@ -1617,11 +1675,28 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         effective_state = dict(state)
         effective_state["user_interest"] = interest.to_state()
         effective_state["current_task"] = task
-        if self._classifier is None:
-            self._classifier = _get_shared_classifier(
-                allow_embedding_compute=self._allow_embedding_compute
-            )
-        task_type = self._classifier.classify(task)
+        if effective_state.get("recovery_mode"):
+            task_type = TaskType.RECOVERY
+        else:
+            if self._classifier is None:
+                self._classifier = _get_shared_classifier(
+                    allow_embedding_compute=self._allow_embedding_compute
+                )
+            task_type = self._classifier.classify(task)
+
+        from src.context.complexity import (
+            classify_task_complexity,
+            escalate_complexity,
+            get_active_layers_for_tier,
+        )
+        task_complexity = classify_task_complexity(task, effective_state)
+        task_complexity = escalate_complexity(task_complexity, effective_state)
+        self._current_task_complexity = task_complexity
+        allowed_layers = get_active_layers_for_tier(task_complexity)
+        self._active_allowed_layers = allowed_layers
+
+        current_dep_hashes = self._compute_layer_dep_hashes(effective_state, task)
+        self._active_current_layer_hashes = current_dep_hashes
 
         # 2. Differential state check — #10: the ONE hash computation of the
         # turn; _build_context_layers and the inner builder reuse the slot.
@@ -1629,10 +1704,16 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         current_hash = self._active_state_hash
         rebuild_all = current_hash != self._last_state_hash
 
-        # 3. Build layers (task-aware + differential cache)
+        # 3. Build layers (task-aware + granular differential cache)
         if rebuild_all:
-            self._layer_cache.clear()
+            for layer_name in list(self._layer_cache.keys()):
+                curr_h = current_dep_hashes.get(layer_name)
+                prev_h = self._layer_dep_hashes.get(layer_name)
+                if curr_h is None or curr_h != prev_h:
+                    self._layer_cache.pop(layer_name, None)
+
         raw_layers = self._build_context_layers(effective_state, task_type)
+        self._layer_dep_hashes.update(self._compute_layer_dep_hashes(effective_state, task))
 
         # 4. Score relevance
         scored = self._score_and_sort_layers(raw_layers, task, task_type)
@@ -1795,9 +1876,11 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         # the pipeline totals respect the caps and no single walker can
         # consume the whole pool and starve the others. All slices share the
         # same deadline and cancellation hook.
+        allowed = getattr(self, "_active_allowed_layers", None)
         walkers = [
             name for name in ("repo_map", "relevant_chunks", "conventions")
-            if self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
+            if (allowed is None or name in allowed)
+            and self.LAYER_RELEVANCE.get(name, {}).get(task_type, 0.0) >= 0.15
         ]
         try:
             from src.context.repo_map import repo_map_enabled
@@ -1989,6 +2072,9 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
         def _set_active_budget(b):
             self._active_budget = b
 
+        allowed = getattr(self, "_active_allowed_layers", None)
+        curr_hashes = getattr(self, "_active_current_layer_hashes", None)
+
         return self._builder.build_layers(
             builders=builders,
             state=state,
@@ -2001,6 +2087,9 @@ class ContextEngine(MicroCompactionMixin, BaseContextEngine):
             set_active_budget_cb=_set_active_budget,
             layer_relevance=self.LAYER_RELEVANCE,
             volatile_layers=self.VOLATILE_LAYERS,
+            allowed_layers=allowed,
+            layer_dep_hashes=self._layer_dep_hashes,
+            current_layer_hashes=curr_hashes,
         )
 
     def _score_and_sort_layers(

@@ -16,10 +16,11 @@ import { hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTail
 import { compactTarget, isCardTool, isFileEditTool, isSilentTool, splitActivityGroups, summarizeToolRun, toolPresentVerb } from './crusorAIRunSummary.js';
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
+import type { CrusorAIRange } from '../common/crusorAIWorkbenchService.js';
 import {
-	activityOrigin, activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName,
+	activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName,
 	elapsedFor, measuredDuration,
-	DRAFTING_REVEAL_MS, elapsedSeconds, formatElapsed, statusHintLabel, toolNarratesWait, TURN_QUIET_S,
+	DRAFTING_REVEAL_MS, statusHintLabel, toolNarratesWait, TURN_QUIET_S,
 	UNNAMED_WAIT_LABEL,
 } from './crusorAIActivity.js';
 
@@ -190,6 +191,7 @@ export interface CrusorAIRenderModel {
 	 */
 	readonly sessions?: readonly CrusorAISessionRow[];
 	readonly draft: string;
+	readonly contextChips?: readonly CrusorAIContextChip[];
 	readonly history: readonly {
 		readonly userMessage?: string;
 		readonly assistantText: string;
@@ -203,12 +205,49 @@ export interface CrusorAIRenderModel {
 	}[];
 }
 
+export interface CrusorAIContextChip {
+	readonly id: string;
+	readonly type: 'file' | 'folder' | 'symbol' | 'selection' | 'diagnostics';
+	readonly label: string;
+	readonly detail?: string;
+	readonly resource?: string;
+	readonly range?: CrusorAIRange;
+	readonly content?: string;
+}
+
+export interface CrusorAISuggestionItem {
+	readonly id: string;
+	readonly trigger: '@' | '/';
+	readonly label: string;
+	readonly description: string;
+	readonly glyph: string;
+	readonly kind: string;
+}
+
+export const SLASH_COMMAND_SUGGESTIONS: readonly CrusorAISuggestionItem[] = [
+	{ id: 'test', trigger: '/', label: '/test', description: 'Run test discovery or execute workspace test suite', glyph: 'beaker', kind: 'command' },
+	{ id: 'review', trigger: '/', label: '/review', description: 'Structured architectural code review of current changes', glyph: 'git-pull-request', kind: 'command' },
+	{ id: 'fix', trigger: '/', label: '/fix', description: 'Analyze active diagnostics and propose code corrections', glyph: 'tools', kind: 'command' },
+	{ id: 'clear', trigger: '/', label: '/clear', description: 'Clear conversation view and start a clean session', glyph: 'clear-all', kind: 'command' },
+];
+
+export const AT_CONTEXT_SUGGESTIONS: readonly CrusorAISuggestionItem[] = [
+	{ id: 'file', trigger: '@', label: '@file', description: 'Reference a workspace file', glyph: 'file', kind: 'file' },
+	{ id: 'folder', trigger: '@', label: '@folder', description: 'Reference current workspace directory', glyph: 'folder', kind: 'folder' },
+	{ id: 'symbol', trigger: '@', label: '@symbol', description: 'Reference active symbol or function', glyph: 'symbol-variable', kind: 'symbol' },
+	{ id: 'selection', trigger: '@', label: '@selection', description: 'Reference currently selected editor text', glyph: 'selection', kind: 'selection' },
+	{ id: 'diagnostics', trigger: '@', label: '@diagnostics', description: 'Reference active workspace problems and diagnostics', glyph: 'warning', kind: 'diagnostics' },
+];
+
 export interface CrusorAIRenderHost {
 	setDraft(value: string): void;
 	setMode(mode: CrusorExecutionMode): void;
 	/** Think level for the NEXT turns (hermes reasoning-effort scale). */
 	setReasoningEffort(value: CrusorReasoningEffortValue): void;
-	submitPrompt(text: string): void;
+	submitPrompt(text: string, contextChips?: readonly CrusorAIContextChip[]): void;
+	addContextChip?(chip: CrusorAIContextChip): void;
+	removeContextChip?(id: string): void;
+	clearContextChips?(): void;
 	cancel(): void;
 	steer(text: string): void;
 	replyToSafety(toolId: string, approved: boolean, alwaysAllow?: boolean): void;
@@ -497,7 +536,7 @@ function formatElapsedSeconds(seconds: number): string {
 
 let elapsedTicker: number | undefined;
 
-function elapsedSpan(originMs?: number): HTMLElement {
+export function elapsedSpan(originMs?: number): HTMLElement {
 	const span = element('span', 'crusorai-scaffold-meta crusorai-elapsed');
 	const origin = typeof originMs === 'number' && originMs > 0 ? originMs : Date.now();
 	datasetSet(span, 'origin', String(origin));
@@ -645,7 +684,7 @@ function resultOutput(tool: CrusorAIToolView): string {
 	return boundedText(parts.length ? parts.join(parts.length > 1 ? '\n' : '') : tool.result);
 }
 
-function stateLabel(state: CrusorAIToolState): string {
+export function stateLabel(state: CrusorAIToolState): string {
 	if (state === 'passed') { return 'Passed'; }
 	if (state === 'failed') { return 'Failed'; }
 	if (state === 'approval') { return 'Approval'; }
@@ -653,7 +692,7 @@ function stateLabel(state: CrusorAIToolState): string {
 	return 'Queued';
 }
 
-function statusGlyph(state: CrusorAIToolState): HTMLElement {
+export function statusGlyph(state: CrusorAIToolState): HTMLElement {
 	if (state === 'running') { return element('span', 'crusorai-mini-spinner'); }
 	const name = state === 'passed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'approval' ? 'shield' : 'circle-outline';
 	return icon(name);
@@ -2199,7 +2238,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		// The sub-agent card carries mode/type/description itself; the
 		// generic k=v chips would only repeat it (founder screenshot
 		// 2026-10-15: 'Delegate mode=research subagent_type=research').
-		...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)),
+		...toolArgsChips(tool),
 		headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
 		// Inline info (#L1-N, match count) hugs the filename on the same
 		// line — never pushed to the row's far edge (founder 2026-10-15).
@@ -3970,16 +4009,146 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	input.rows = manager ? 2 : 3;
 	input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled.' : manager ? 'Steer this agent or add context...' : 'Ask anything, / for commands, @ for context...';
 	input.value = model.draft;
-	input.addEventListener('input', () => host.setDraft(input.value));
+
+	// Context Chips Bar
+	const chipsContainer = element('div', 'crusorai-context-chips-bar');
+	if (model.contextChips && model.contextChips.length > 0) {
+		for (const chip of model.contextChips) {
+			const glyph = chip.type === 'diagnostics' ? 'warning' : chip.type === 'symbol' ? 'symbol-variable' : chip.type === 'folder' ? 'folder' : chip.type === 'selection' ? 'selection' : 'file';
+			const chipEl = element('span', 'crusorai-context-chip',
+				icon(glyph),
+				element('span', 'crusorai-chip-label', chip.label),
+			);
+			const removeBtn = element('button', 'crusorai-chip-remove') as HTMLButtonElement;
+			removeBtn.type = 'button';
+			removeBtn.setAttribute('aria-label', `Remove ${chip.label}`);
+			removeBtn.append(icon('close'));
+			removeBtn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				host.removeContextChip?.(chip.id);
+			});
+			chipEl.append(removeBtn);
+			chipsContainer.append(chipEl);
+		}
+	} else {
+		chipsContainer.style.display = 'none';
+	}
+
+	// Interactive Suggestions Popup
+	const suggestionsBox = element('div', 'crusorai-composer-suggestions');
+	suggestionsBox.style.display = 'none';
+	let activeSuggestionIndex = 0;
+	let currentFilteredSuggestions: CrusorAISuggestionItem[] = [];
+
+	const renderSuggestions = () => {
+		suggestionsBox.replaceChildren();
+		if (currentFilteredSuggestions.length === 0) {
+			suggestionsBox.style.display = 'none';
+			return;
+		}
+		suggestionsBox.style.display = 'flex';
+		for (let i = 0; i < currentFilteredSuggestions.length; i++) {
+			const item = currentFilteredSuggestions[i];
+			const isSelected = i === activeSuggestionIndex;
+			const opt = element('button', isSelected ? 'crusorai-suggestion-option is-selected' : 'crusorai-suggestion-option',
+				icon(item.glyph),
+				element('span', 'crusorai-suggestion-copy',
+					element('strong', undefined, item.label),
+					element('small', undefined, item.description),
+				),
+			) as HTMLButtonElement;
+			opt.type = 'button';
+			opt.addEventListener('mousedown', (e) => {
+				e.preventDefault();
+				selectSuggestion(item);
+			});
+			suggestionsBox.append(opt);
+		}
+	};
+
+	const selectSuggestion = (item: CrusorAISuggestionItem) => {
+		if (item.trigger === '@') {
+			host.addContextChip?.({
+				id: `${item.id}-${Date.now()}`,
+				type: item.id as any,
+				label: item.label,
+			});
+			input.value = input.value.replace(/@[a-zA-Z0-9_-]*$/, '').trim();
+			host.setDraft(input.value);
+		} else if (item.trigger === '/') {
+			input.value = `${item.label} `;
+			host.setDraft(input.value);
+		}
+		suggestionsBox.style.display = 'none';
+		input.focus();
+	};
+
+	const checkSuggestions = () => {
+		const val = input.value;
+		const cursor = input.selectionStart || val.length;
+		const textBeforeCursor = val.slice(0, cursor);
+
+		if (textBeforeCursor.startsWith('/')) {
+			const query = textBeforeCursor.slice(1).toLowerCase();
+			currentFilteredSuggestions = SLASH_COMMAND_SUGGESTIONS.filter(s => s.label.toLowerCase().includes(query) || s.id.includes(query));
+			activeSuggestionIndex = 0;
+			renderSuggestions();
+			return;
+		}
+
+		const atMatch = textBeforeCursor.match(/@([a-zA-Z0-9_-]*)$/);
+		if (atMatch) {
+			const query = atMatch[1].toLowerCase();
+			currentFilteredSuggestions = AT_CONTEXT_SUGGESTIONS.filter(s => s.label.toLowerCase().includes(query) || s.id.includes(query));
+			activeSuggestionIndex = 0;
+			renderSuggestions();
+			return;
+		}
+
+		suggestionsBox.style.display = 'none';
+	};
+
+	input.addEventListener('input', () => {
+		host.setDraft(input.value);
+		checkSuggestions();
+	});
+
 	const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;
 	if (inputBlocked) { input.disabled = true; }
+
 	const submit = () => {
 		const value = input.value.trim();
-		if (!value) { return; }
+		if (!value && (!model.contextChips || model.contextChips.length === 0)) { return; }
+		suggestionsBox.style.display = 'none';
 		if (manager && model.running) { host.steer(value); }
-		else { host.submitPrompt(value); }
+		else { host.submitPrompt(value, model.contextChips); }
 	};
+
 	input.addEventListener('keydown', event => {
+		if (suggestionsBox.style.display !== 'none' && currentFilteredSuggestions.length > 0) {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				activeSuggestionIndex = (activeSuggestionIndex + 1) % currentFilteredSuggestions.length;
+				renderSuggestions();
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				activeSuggestionIndex = (activeSuggestionIndex - 1 + currentFilteredSuggestions.length) % currentFilteredSuggestions.length;
+				renderSuggestions();
+				return;
+			}
+			if (event.key === 'Enter' || event.key === 'Tab') {
+				event.preventDefault();
+				selectSuggestion(currentFilteredSuggestions[activeSuggestionIndex]);
+				return;
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				suggestionsBox.style.display = 'none';
+				return;
+			}
+		}
 		if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); }
 	});
 
@@ -4067,7 +4236,7 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 	if (model.noWorkspace) {
 		hint.append(button('Open Folder', 'crusorai-link-button', host.openFolder, 'folder'));
 	}
-	return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
+	return element('footer', 'crusorai-composer', suggestionsBox, element('div', 'crusorai-composer-box', chipsContainer, input, toolbar), hint);
 }
 
 

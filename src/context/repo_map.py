@@ -103,6 +103,8 @@ class RepoMap:
         self._in_degree: dict[str, int] = {}
         self._last_scan_report = None
         self._last_budget: ContextBudget | None = None
+        self._dirty: bool = False
+        self._latest_seen_mtime: float = 0.0
         self.thread_id_hint: str | None = None
 
     # =========================================================
@@ -136,10 +138,13 @@ class RepoMap:
         """Force rebuild the map from disk."""
         budget = budget or ContextBudget()
         self._last_budget = budget
+        self._latest_seen_mtime = 0.0
         self._cache = self._build_map(budget)
-        self._cache_mtime = self._get_latest_mtime(budget)
+        self._cache_mtime = self._latest_seen_mtime or self._get_latest_mtime(budget)
         self._last_stale_check = time.time()  # the build was itself a walk
+        self._dirty = False
         self._emit_degraded_scan(budget)
+        bump_repo_map_generation(self.root)
         return self._cache
 
     def _emit_degraded_scan(self, budget: ContextBudget | None = None) -> None:
@@ -179,6 +184,8 @@ class RepoMap:
     def invalidate(self):
         """Clear cache. Next get_map() will rebuild."""
         self._cache = None
+        self._dirty = True
+        bump_repo_map_generation(self.root)
 
     # =========================================================
     # MAP BUILDER
@@ -295,7 +302,10 @@ class RepoMap:
             if full_path.name.endswith((".pyc", ".pyo", ".egg", ".whl")):
                 continue
             try:
-                size = full_path.stat().st_size
+                st = full_path.stat()
+                size = st.st_size
+                if st.st_mtime > self._latest_seen_mtime:
+                    self._latest_seen_mtime = st.st_mtime
             except OSError:
                 continue
 
@@ -733,6 +743,8 @@ class RepoMap:
         map is up to TTL seconds behind an EXTERNAL edit — far below one
         agent turn, while the walk itself used to cost ~30% of a big-repo
         turn (measured, §44)."""
+        if getattr(self, "_dirty", False):
+            return True
         ttl = stale_check_ttl()
         now = time.time()
         if ttl > 0 and (now - self._last_stale_check) < ttl:
@@ -745,6 +757,24 @@ class RepoMap:
 # =========================================================
 # GLOBAL INSTANCE
 # =========================================================
+
+_repo_map_generations: dict[str, int] = {}
+_repo_map_generations_lock = threading.Lock()
+
+
+def get_repo_map_generation(workspace: str | Path) -> int:
+    key = str(Path(workspace).resolve())
+    with _repo_map_generations_lock:
+        return _repo_map_generations.get(key, 0)
+
+
+def bump_repo_map_generation(workspace: str | Path) -> int:
+    key = str(Path(workspace).resolve())
+    with _repo_map_generations_lock:
+        gen = _repo_map_generations.get(key, 0) + 1
+        _repo_map_generations[key] = gen
+        return gen
+
 
 # Per-workspace registry (same D1 class as the engine singleton race): the
 # old single global flip-flopped whenever two dashboard sessions used
@@ -799,6 +829,7 @@ def invalidate_repo_map(workspace: str | Path) -> None:
     been built for the workspace yet."""
     try:
         workspace_path = Path(workspace).resolve()
+        bump_repo_map_generation(workspace_path)
         with _repo_maps_lock:
             instance = _repo_maps.get(str(workspace_path))
         if instance is not None:

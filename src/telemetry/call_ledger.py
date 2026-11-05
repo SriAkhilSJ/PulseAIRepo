@@ -88,6 +88,9 @@ def record_call(
     output_tokens: int | None = None,
     total_tokens: int | None = None,
     cached_tokens: int | None = None,
+    cache_write_tokens: int | None = None,
+    cache_write_5m_tokens: int | None = None,
+    cache_write_1h_tokens: int | None = None,
     reasoning_chars: int = 0,
     streamed: bool = False,
     error: str = "",
@@ -113,6 +116,9 @@ def record_call(
         "output_tokens": output_tokens,
         "total_tokens": total_tokens,
         "cached_tokens": int(cached_tokens) if cached_tokens is not None else None,
+        "cache_write_tokens": int(cache_write_tokens) if cache_write_tokens is not None else None,
+        "cache_write_5m_tokens": int(cache_write_5m_tokens) if cache_write_5m_tokens is not None else None,
+        "cache_write_1h_tokens": int(cache_write_1h_tokens) if cache_write_1h_tokens is not None else None,
         "reasoning_chars": int(reasoning_chars or 0),
         "wall_s": round(float(wall_s or 0.0), 3),
         "streamed": bool(streamed),
@@ -294,12 +300,18 @@ def estimate_cost_from_rate(
     *,
     cached_tokens: int = 0,
     cache_reported: bool = False,
+    cache_write_tokens: int = 0,
+    cache_write_reported: bool = False,
+    cache_write_5m_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
     rate_card: dict | None = None,
 ) -> tuple[float | None, str]:
     """Estimate cost and currency from the same provider/manual rate card as the ledger.
 
     No generic fallback price is invented. Cached input gets a discount only
     when the rate card explicitly publishes a cached-input rate.
+    Cache-write input is priced using cache-write rate if published, falling back to input rate.
+    Three-category input accounting: uncached, cached, cache_write.
     """
     card = rate_card if rate_card is not None else load_rate_card()
     manual = _load_manual_card() if rate_card is None else None
@@ -312,20 +324,75 @@ def estimate_cost_from_rate(
         output_per_1m = float(rate["output_per_1m"])
     except (KeyError, TypeError, ValueError):
         return None, currency
-    reported_cached = max(0, min(int(input_tokens or 0), int(cached_tokens or 0))) if cache_reported else 0
-    cached_rate = rate.get("cached_input_per_1m")
-    if reported_cached and cached_rate is not None:
-        try:
-            input_cost = (
-                (max(0, int(input_tokens) - reported_cached) * input_per_1m)
-                + (reported_cached * float(cached_rate))
-            ) / 1_000_000
-        except (TypeError, ValueError):
-            return None, currency
-    else:
-        input_cost = max(0, int(input_tokens or 0)) * input_per_1m / 1_000_000
-    output_cost = max(0, int(output_tokens or 0)) * output_per_1m / 1_000_000
-    return input_cost + output_cost, currency
+
+    total_in = max(0, int(input_tokens or 0))
+    total_out = max(0, int(output_tokens or 0))
+
+    # Bounded category validation to avoid negative counts or exceeding total input
+    rep_cached = max(0, min(total_in, int(cached_tokens or 0))) if (cache_reported or cached_tokens > 0) else 0
+    rem_after_cached = max(0, total_in - rep_cached)
+
+    # TTL-specific write tokens
+    rep_write_5m = max(0, min(rem_after_cached, int(cache_write_5m_tokens or 0)))
+    rem_after_5m = max(0, rem_after_cached - rep_write_5m)
+
+    rep_write_1h = max(0, min(rem_after_5m, int(cache_write_1h_tokens or 0)))
+    rem_after_1h = max(0, rem_after_5m - rep_write_1h)
+
+    # Generic cache write tokens
+    explicit_ttl_writes = rep_write_5m + rep_write_1h
+    total_write_req = int(cache_write_tokens or 0)
+    generic_write_req = max(0, total_write_req - explicit_ttl_writes) if total_write_req > explicit_ttl_writes else 0
+    if generic_write_req == 0 and explicit_ttl_writes == 0 and (cache_write_reported or total_write_req > 0):
+        generic_write_req = total_write_req
+
+    rep_generic_write = max(0, min(rem_after_1h, generic_write_req))
+    uncached = max(0, rem_after_1h - rep_generic_write)
+
+    # Resolve rates with fallback hierarchy:
+    # 5m/1h -> generic cache_write -> base input_per_1m
+    cached_rate_val = rate.get("cached_input_per_1m")
+    cached_per_1m = float(cached_rate_val) if cached_rate_val is not None else input_per_1m
+
+    write_rate_val = rate.get("cache_write_per_1m")
+    write_per_1m = float(write_rate_val) if write_rate_val is not None else input_per_1m
+
+    write_5m_rate_val = rate.get("cache_write_5m_per_1m")
+    write_5m_per_1m = float(write_5m_rate_val) if write_5m_rate_val is not None else write_per_1m
+
+    write_1h_rate_val = rate.get("cache_write_1h_per_1m")
+    write_1h_per_1m = float(write_1h_rate_val) if write_1h_rate_val is not None else write_per_1m
+
+    from decimal import Decimal
+
+    uncached_d = Decimal(str(uncached))
+    rep_cached_d = Decimal(str(rep_cached))
+    rep_write_5m_d = Decimal(str(rep_write_5m))
+    rep_write_1h_d = Decimal(str(rep_write_1h))
+    rep_generic_write_d = Decimal(str(rep_generic_write))
+    total_out_d = Decimal(str(total_out))
+
+    input_per_1m_d = Decimal(str(input_per_1m))
+    output_per_1m_d = Decimal(str(output_per_1m))
+    cached_per_1m_d = Decimal(str(cached_per_1m))
+    write_5m_per_1m_d = Decimal(str(write_5m_per_1m))
+    write_1h_per_1m_d = Decimal(str(write_1h_per_1m))
+    write_per_1m_d = Decimal(str(write_per_1m))
+
+    one_million = Decimal("1000000")
+
+    input_cost_d = (
+        (uncached_d * input_per_1m_d)
+        + (rep_cached_d * cached_per_1m_d)
+        + (rep_write_5m_d * write_5m_per_1m_d)
+        + (rep_write_1h_d * write_1h_per_1m_d)
+        + (rep_generic_write_d * write_per_1m_d)
+    ) / one_million
+
+    output_cost_d = (total_out_d * output_per_1m_d) / one_million
+    total_cost_d = input_cost_d + output_cost_d
+
+    return float(total_cost_d), currency
 
 
 def estimate_cost_usd(
@@ -335,12 +402,18 @@ def estimate_cost_usd(
     *,
     cached_tokens: int = 0,
     cache_reported: bool = False,
+    cache_write_tokens: int = 0,
+    cache_write_reported: bool = False,
+    cache_write_5m_tokens: int = 0,
+    cache_write_1h_tokens: int = 0,
     rate_card: dict | None = None,
 ) -> float | None:
     """Estimate USD only; return unknown rather than converting another currency."""
     cost, currency = estimate_cost_from_rate(
         model, input_tokens, output_tokens,
         cached_tokens=cached_tokens, cache_reported=cache_reported,
+        cache_write_tokens=cache_write_tokens, cache_write_reported=cache_write_reported,
+        cache_write_5m_tokens=cache_write_5m_tokens, cache_write_1h_tokens=cache_write_1h_tokens,
         rate_card=rate_card,
     )
     return cost if cost is not None and currency == "USD" else None
@@ -358,6 +431,12 @@ def _call_cost(record: dict, card: dict, manual: dict | None = None) -> float | 
         model,
         int(record.get("input_tokens") or 0),
         int(record.get("output_tokens") or 0),
+        cached_tokens=int(record.get("cached_tokens") or 0),
+        cache_reported=record.get("cached_tokens") is not None,
+        cache_write_tokens=int(record.get("cache_write_tokens") or 0),
+        cache_write_reported=record.get("cache_write_tokens") is not None,
+        cache_write_5m_tokens=int(record.get("cache_write_5m_tokens") or 0),
+        cache_write_1h_tokens=int(record.get("cache_write_1h_tokens") or 0),
         rate_card={model: rate},
     )
     return cost

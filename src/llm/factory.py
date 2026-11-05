@@ -6,6 +6,13 @@ import time
 from typing import Any
 
 from langchain_openai import ChatOpenAI
+import os
+import re
+import threading
+import time
+from typing import Any
+
+from langchain_openai import ChatOpenAI
 
 # Field 2026-11-01 (agent-core body checkup): the Google and Groq SDKs used to
 # be imported at module scope here, so the ENTIRE agent core -- chat_graph,

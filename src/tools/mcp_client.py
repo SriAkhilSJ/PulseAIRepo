@@ -65,7 +65,12 @@ class MCPStdioClient:
     def _ensure_proc(self) -> subprocess.Popen:
         if self._proc is not None and self._proc.poll() is None:
             return self._proc
-        full_env = {**os.environ, **self._env}
+        from src.security.contracts import SENSITIVE_SECRET_PATTERNS
+        safe_env = {k: v for k, v in os.environ.items() if not any(term in k.upper() for term in SENSITIVE_SECRET_PATTERNS)}
+        for ok, ov in self._env.items():
+            if not any(term in ok.upper() for term in SENSITIVE_SECRET_PATTERNS):
+                safe_env[ok] = ov
+        full_env = safe_env
         self._proc = subprocess.Popen(
             resolve_executable(self._command),
             stdin=subprocess.PIPE,
@@ -112,11 +117,17 @@ class MCPStdioClient:
 
     # -- MCP lifecycle ------------------------------------------------------
 
-    def initialize(self) -> dict:
+    def initialize(self, requested_version: str | None = None) -> dict:
+        from src.security.mcp.protocol import MCPProtocolGovernor, MCPProtocolVersion
+        neg_res = MCPProtocolGovernor.negotiate_version(requested_version or MCP_PROTOCOL_VERSION)
+        version_str = neg_res.negotiated_version.value if neg_res.accepted and neg_res.negotiated_version else MCP_PROTOCOL_VERSION
         result = self._rpc("initialize", {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": CLIENT_INFO,
+            "protocolVersion": version_str,
+            "capabilities": {
+                "roots": {"listChanged": True},
+                "sampling": {},
+            },
+            "clientInfo": MCPProtocolGovernor.CLIENT_INFO,
         })
         self._rpc("notifications/initialized", {}, notify=True)
         return result or {}
@@ -149,17 +160,26 @@ class MCPStdioClient:
                 break
         return tools
 
-    def call_tool(self, tool_name: str, arguments: dict | None = None) -> str:
+    def call_tool(self, tool_name: str, arguments: dict | None = None, wrap_untrusted: bool = False) -> str:
         result = self._rpc("tools/call", {"name": tool_name, "arguments": arguments or {}})
         if not isinstance(result, dict):
-            return str(result)
-        if result.get("isError"):
+            raw_out = str(result)
+        elif result.get("isError"):
             parts = result.get("content") or []
             text = " ".join(p.get("text", "") for p in parts if isinstance(p, dict))
-            return f"mcp tool error: {text or result}"
-        parts = result.get("content") or []
-        texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "text"]
-        return "\n".join(t for t in texts if t) or json.dumps(result)[:2000]
+            raw_out = f"mcp tool error: {text or result}"
+        else:
+            parts = result.get("content") or []
+            texts = [p.get("text", "") for p in parts if isinstance(p, dict) and p.get("type") == "text"]
+            raw_out = "\n".join(t for t in texts if t) or json.dumps(result)[:2000]
+
+        if wrap_untrusted:
+            try:
+                from src.security.mcp.content_guard import MCPContentGuard
+                return MCPContentGuard.wrap_untrusted_content(raw_out, origin=f"mcp:{self.name}/{tool_name}").safe_enveloped_content
+            except Exception:
+                pass
+        return raw_out
 
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:

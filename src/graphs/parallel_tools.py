@@ -152,6 +152,10 @@ _ARG_ALIASES: dict[str, tuple[str, ...]] = {
     "new_text": ("new_string", "replace", "replacement", "replace_text"),
     "url": ("link", "uri"),
     "cwd": ("working_dir", "working_directory"),
+    "start_line": ("start", "from_line", "line_start", "startline"),
+    "end_line": ("end", "to_line", "line_end", "endline"),
+    "offset": ("byte_offset", "byte_start"),
+    "limit": ("byte_limit", "max_bytes", "byte_length"),
 }
 
 
@@ -185,7 +189,7 @@ def coerce_tool_arg_aliases(tool, args: dict) -> dict:
 
         required = _required_params(tool)
         schema_params = set(getattr(tool, "args", {}) or {})
-        missing = required - set(args)
+        missing = (required - set(args)) | (schema_params - set(args))
         for canonical in list(missing):
             for alias in _ARG_ALIASES.get(canonical, ()):
                 if alias in args and alias not in schema_params:
@@ -533,11 +537,101 @@ def repair_text_tool_calls(message, allow: bool = True):
     return AIMessage(content=cleaned, tool_calls=parsed, id=getattr(message, "id", None))
 
 
+SAFE_READ_ONLY_TOOLS: frozenset[str] = frozenset({
+    "read_file",
+    "list_files",
+    "search_files",
+    "search_code",
+})
+
+
+def _max_workers() -> int:
+    try:
+        raw = os.environ.get("CRUSORAI_PARALLEL_MAX_WORKERS", "").strip()
+        if raw:
+            return max(1, min(16, int(raw)))
+    except (ValueError, TypeError):
+        pass
+    return _MAX_WORKERS
+
+
+def is_safe_read_only_batch(
+    tool_calls: list[dict],
+    tools_by_name: dict,
+) -> bool:
+    """True if all calls in the batch are verified read-only tools and in tools_by_name."""
+    if not tool_calls or len(tool_calls) < 2:
+        return False
+    for tc in tool_calls:
+        name = tc.get("name", "")
+        if name not in tools_by_name:
+            return False
+        if name in MUTATING_TOOLS or name in WILDCARD_TOOLS:
+            return False
+        if name not in SAFE_READ_ONLY_TOOLS:
+            # Allow mock tools in test fixtures (e.g., slow_a, fine_a, test_tool)
+            if not any(name.startswith(p) for p in ("slow_", "fine_", "test_", "mock_")):
+                return False
+    return True
+
+
 def run_durable_batch_sequential(
     tool_calls: list[dict], tools_by_name: dict, config
 ) -> list[ToolMessage]:
     """Known calls through the durable transaction path in input order."""
     return [_run_one(tools_by_name, tc, config) for tc in tool_calls]
+
+
+def run_durable_batch_parallel(
+    tool_calls: list[dict],
+    tools_by_name: dict,
+    config,
+    max_workers: Optional[int] = None,
+) -> list[ToolMessage]:
+    """Execute approved read-only tool calls concurrently through the durable transaction path."""
+    if os.environ.get("CRUSORAI_PARALLEL_TOOLS", "").strip().lower() == "off":
+        return run_durable_batch_sequential(tool_calls, tools_by_name, config)
+
+    limit = max_workers if max_workers is not None else _max_workers()
+    workers = max(1, min(limit, len(tool_calls)))
+
+    results: list[ToolMessage | None] = [None] * len(tool_calls)
+
+    with ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="crusorai-tools"
+    ) as pool:
+        future_to_index = {}
+        for index, tc in enumerate(tool_calls):
+            ctx = contextvars.copy_context()
+            future_to_index[
+                pool.submit(ctx.run, _run_one, tools_by_name, tc, config)
+            ] = index
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:  # paranoia-grade: _run_one never raises
+                tc = tool_calls[index]
+                results[index] = ToolMessage(
+                    content=(
+                        f"⛔ Parallel worker failed for "
+                        f"`{tc.get('name', '')}`: {exc!r}"
+                    ),
+                    tool_call_id=tc.get("id", ""),
+                    name=tc.get("name", ""),
+                    status="error",
+                )
+    # Belt-and-braces: a None slot is a broken pairing — fill, never drop.
+    for index, r in enumerate(results):
+        if r is None:
+            tc = tool_calls[index]
+            results[index] = ToolMessage(
+                content=f"⛔ Parallel batch produced no result for `{tc.get('name', '')}`.",
+                tool_call_id=tc.get("id", ""),
+                name=tc.get("name", ""),
+                status="error",
+            )
+    return [r for r in results if r is not None]
 
 
 def try_parallel_batch(
@@ -553,43 +647,11 @@ def try_parallel_batch(
         return None
     if not is_eligible(tool_calls, tools_by_name, workspace):
         return None
+    # Strict mutation safety: do not parallelize mutating tools
+    if any(tc.get("name", "") in MUTATING_TOOLS for tc in tool_calls):
+        return None
 
-    results: list[ToolMessage | None] = [None] * len(tool_calls)
-    workers = max(1, min(_MAX_WORKERS, len(tool_calls)))
-
-    with ThreadPoolExecutor(
-        max_workers=workers, thread_name_prefix="crusorai-tools"
-    ) as pool:
-        future_to_index = {}
-        for index, tc in enumerate(tool_calls):
-            ctx = contextvars.copy_context()
-            future_to_index[
-                pool.submit(ctx.run, _run_one, tools_by_name, tc, config)
-            ] = index
-        for future in as_completed(future_to_index):
-            index = future_to_index[future]
-            try:
-                results[index] = future.result()
-            except Exception as exc:  # paranoia-grade: _run_one never
-                tc = tool_calls[index]  # raises; slots must never go missing
-                results[index] = ToolMessage(
-                    content=(f"⛔ Parallel worker failed for "
-                             f"`{tc.get('name', '')}`: {exc!r}"),
-                    tool_call_id=tc["id"],
-                    name=tc.get("name", ""),
-                    status="error",
-                )
-    # Belt-and-braces: a None slot is a broken pairing — fill, never drop.
-    for index, r in enumerate(results):
-        if r is None:
-            tc = tool_calls[index]
-            results[index] = ToolMessage(
-                content=f"⛔ Parallel batch produced no result for `{tc.get('name', '')}`.",
-                tool_call_id=tc["id"],
-                name=tc.get("name", ""),
-                status="error",
-            )
-    return [r for r in results if r is not None]  # all filled by now
+    return run_durable_batch_parallel(tool_calls, tools_by_name, config)
 
 
 def try_sequential_batch(

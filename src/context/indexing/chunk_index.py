@@ -107,6 +107,32 @@ BODY_HARD_CAP_CHARS = 800       # per-chunk cap for LLM context
 _INDEX_CACHE: dict[str, "ChunkIndex"] = {}
 _INDEX_CACHE_LOCK = threading.Lock()
 
+_index_generations: dict[str, int] = {}
+_index_generations_lock = threading.Lock()
+
+_RETRIEVAL_CACHE: dict[tuple[str, str, int], Any] = {}
+_RETRIEVAL_CACHE_MAX = 64
+_RETRIEVAL_CACHE_LOCK = threading.Lock()
+
+
+def get_index_generation(workspace: str | Path) -> int:
+    key = str(Path(workspace).resolve())
+    with _index_generations_lock:
+        return _index_generations.get(key, 0)
+
+
+def bump_index_generation(workspace: str | Path) -> int:
+    key = str(Path(workspace).resolve())
+    with _index_generations_lock:
+        gen = _index_generations.get(key, 0) + 1
+        _index_generations[key] = gen
+        try:
+            from src.context.repo_map import invalidate_repo_map
+            invalidate_repo_map(key)
+        except Exception:
+            pass
+        return gen
+
 
 # ---------------------------------------------------------------------
 # INDEX
@@ -311,13 +337,16 @@ class ChunkIndex:
     # ------------------------------------------------------------------
 
     def remove_file(self, file_path: Path) -> int:
-        return self.storage.remove_file(self.workspace, file_path)
+        res = self.storage.remove_file(self.workspace, file_path)
+        bump_index_generation(self.workspace)
+        return res
 
     def _read_source(self, file_path: Path, budget: ContextBudget | None = None) -> str | None:
         return self.synchronizer.read_source(file_path, budget)
 
     def sync_file(self, file_path: Path, budget: ContextBudget | None = None) -> None:
         self.synchronizer.sync_file(file_path, budget)
+        bump_index_generation(self.workspace)
 
     def _edges_for(
         self,
@@ -336,6 +365,8 @@ class ChunkIndex:
             self._full_sync_count += 1
             self._last_sync_time = time.time()
             self._is_initialized = True
+            if changed:
+                bump_index_generation(self.workspace)
             return changed
         except Exception as exc:
             self._last_sync_error = str(exc)
@@ -595,6 +626,14 @@ def build_relevant_chunks_layer(state: dict[str, Any], budget: ContextBudget | N
         elif hasattr(index, "watcher") and hasattr(index.watcher, "apply_queued_changes"):
             index.watcher.apply_queued_changes()
 
+        ws_resolved = str(Path(state.get("workspace", ".")).resolve())
+        idx_gen = get_index_generation(ws_resolved)
+        cache_key = (ws_resolved, task.strip(), idx_gen)
+        with _RETRIEVAL_CACHE_LOCK:
+            cached = _RETRIEVAL_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+
         chunks = index.search(task, top_k=3, budget=budget)
         if not chunks:
             return None
@@ -632,7 +671,12 @@ def build_relevant_chunks_layer(state: dict[str, Any], budget: ContextBudget | N
     related = _related_files_lines(index, used_files)
     if related:
         lines.extend(related)
-    return SystemMessage(content="\n".join(lines))
+    result_msg = SystemMessage(content="\n".join(lines))
+    with _RETRIEVAL_CACHE_LOCK:
+        if len(_RETRIEVAL_CACHE) >= _RETRIEVAL_CACHE_MAX:
+            _RETRIEVAL_CACHE.pop(next(iter(_RETRIEVAL_CACHE)))
+        _RETRIEVAL_CACHE[cache_key] = result_msg
+    return result_msg
 
 
 _MAX_RELATED_FILES = 4

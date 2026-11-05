@@ -149,50 +149,50 @@ export class CrusorA2UISurfaceStore {
                     this.drop('non-object operation');
                     continue;
                 }
-                if (isRecord(operation['createSurface'])) {
-                    const spec = operation['createSurface'];
-                    const surfaceId = String(spec['surfaceId'] ?? '');
+                if ('createSurface' in operation && isRecord(operation.createSurface)) {
+                    const spec = operation.createSurface;
+                    const surfaceId = String(spec.surfaceId ?? '');
                     if (!surfaceId) {
                         this.drop('createSurface without surfaceId');
                         continue;
                     }
                     const surface = this.surface(surfaceId);
-                    if (typeof spec['catalogId'] === 'string') {
-                        surface.catalogId = spec['catalogId'];
+                    if (typeof spec.catalogId === 'string') {
+                        surface.catalogId = spec.catalogId;
                     }
                 }
-                else if (isRecord(operation['updateComponents'])) {
-                    const spec = operation['updateComponents'];
-                    const surface = this.surface(String(spec['surfaceId'] ?? ''));
-                    const components = Array.isArray(spec['components']) ? spec['components'] : [];
+                else if ('updateComponents' in operation && isRecord(operation.updateComponents)) {
+                    const spec = operation.updateComponents;
+                    const surface = this.surface(String(spec.surfaceId ?? ''));
+                    const components = Array.isArray(spec.components) ? spec.components : [];
                     for (const raw of components.slice(0, MAX_A2UI_COMPONENTS)) {
-                        if (!isRecord(raw) || typeof raw['id'] !== 'string' || typeof raw['component'] !== 'string') {
+                        if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.component !== 'string') {
                             this.drop('component without id/type');
                             continue;
                         }
-                        if (!CRUSOR_A2UI_CATALOG_V1.includes(raw['component'])) {
-                            this.drop(`unknown component ${String(raw['component'])}`);
+                        if (!CRUSOR_A2UI_CATALOG_V1.includes(raw.component)) {
+                            this.drop(`unknown component ${String(raw.component)}`);
                             continue;
                         }
-                        if (!surface.components.has(raw['id'])) {
-                            surface.order.push(raw['id']);
+                        if (!surface.components.has(raw.id)) {
+                            surface.order.push(raw.id);
                         }
-                        surface.components.set(raw['id'], raw);
+                        surface.components.set(raw.id, raw);
                     }
                 }
-                else if (isRecord(operation['updateDataModel'])) {
-                    const spec = operation['updateDataModel'];
-                    const surface = this.surface(String(spec['surfaceId'] ?? ''));
-                    const path = typeof spec['path'] === 'string' ? spec['path'] : '/';
+                else if ('updateDataModel' in operation && isRecord(operation.updateDataModel)) {
+                    const spec = operation.updateDataModel;
+                    const surface = this.surface(String(spec.surfaceId ?? ''));
+                    const path = typeof spec.path === 'string' ? spec.path : '/';
                     if (path === '/' || path === '') {
-                        surface.data = isRecord(spec['value']) ? { ...spec['value'] } : {};
+                        surface.data = isRecord(spec.value) ? { ...spec.value } : {};
                     }
                     else {
-                        setA2UIPointer(surface.data, path, spec['value']);
+                        setA2UIPointer(surface.data, path, spec.value);
                     }
                 }
-                else if (isRecord(operation['deleteSurface'])) {
-                    this.surfaces.delete(String(operation['deleteSurface']['surfaceId'] ?? ''));
+                else if ('deleteSurface' in operation && isRecord(operation.deleteSurface)) {
+                    this.surfaces.delete(String(operation.deleteSurface.surfaceId ?? ''));
                 }
                 else {
                     this.drop('unknown operation');

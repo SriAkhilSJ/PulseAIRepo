@@ -573,6 +573,8 @@ def _receipt_name(tool_name: str) -> tuple[str, ...]:
         names.append("__file_mutation__")
     if tool_name in {"terminal", "run_terminal"}:
         names.append("__install__")
+    if tool_name in {"terminal", "run_terminal", "typecheck_workspace", "verify_ui_workspace", "verify_target_app"}:
+        names.append("verify")
     return tuple(names)
 
 

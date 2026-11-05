@@ -9,6 +9,8 @@ from src.context.indexing.chunk_index import (
     _related_files_lines,
     build_relevant_chunks_layer,
     get_index,
+    get_index_generation,
+    bump_index_generation,
 )
 from src.context.indexing.file_watcher import (
     WATCH_BATCH_S,
@@ -49,6 +51,8 @@ __all__ = [
     "_related_files_lines",
     "_INDEX_CACHE",
     "_INDEX_CACHE_LOCK",
+    "get_index_generation",
+    "bump_index_generation",
     # Storage
     "EMBED_DIM",
     "SCHEMA_USER_VERSION",

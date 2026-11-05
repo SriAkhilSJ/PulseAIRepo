@@ -171,6 +171,7 @@ class ModelCallRecord:
     cost_usd: Decimal | None
     cost_inr: Decimal | None
     cost_known: bool
+    cache_write_tokens: int = 0
     duration_s: float = 0.0
     purpose: str = "work"
 
@@ -186,6 +187,7 @@ class ModelCallRecord:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cached_tokens": self.cached_tokens,
+            "cache_write_tokens": self.cache_write_tokens,
             "total_tokens": self.total_tokens,
             "cost_usd": float(self.cost_usd) if self.cost_usd is not None else None,
             "cost_inr": float(self.cost_inr) if self.cost_inr is not None else None,
@@ -217,6 +219,7 @@ class SessionSpendTracker:
     # Session cumulative
     session_tokens: int = 0
     session_cached_tokens: int = 0
+    session_cache_write_tokens: int = 0
     session_cost_inr: Decimal = field(default_factory=lambda: Decimal("0.000000"))
     session_cost_usd: Decimal = field(default_factory=lambda: Decimal("0.000000"))
     session_has_unknown_spend: bool = False
@@ -231,6 +234,7 @@ class SessionSpendTracker:
     # Current turn cumulative
     turn_tokens: int = 0
     turn_cached_tokens: int = 0
+    turn_cache_write_tokens: int = 0
     turn_cost_inr: Decimal = field(default_factory=lambda: Decimal("0.000000"))
     turn_cost_usd: Decimal = field(default_factory=lambda: Decimal("0.000000"))
     turn_has_unknown_spend: bool = False
@@ -268,6 +272,7 @@ class SessionSpendTracker:
         self.current_turn_id += 1
         self.turn_tokens = 0
         self.turn_cached_tokens = 0
+        self.turn_cache_write_tokens = 0
         self.turn_cost_inr = Decimal("0.000000")
         self.turn_cost_usd = Decimal("0.000000")
         self.turn_has_unknown_spend = False
@@ -382,8 +387,9 @@ class CostGovernor:
         Rule: An application restart must never silently grant an existing session extra budget.
         Tighter limits between persisted snapshot and current configuration always bind.
         """
-        root_id = self.get_root_session_id(session_id)
-        tracker = self._get_or_create_tracker(root_id)
+        with self._lock:
+            root_id = self.get_root_session_id(session_id)
+            tracker = self._get_or_create_tracker(root_id)
         snap = tracker.budget_config_snapshot
         current = self._config
         if not snap:
@@ -494,6 +500,7 @@ class CostGovernor:
             current_turn_id=int(snapshot.get("current_turn_id", 1)),
             session_tokens=int(snapshot.get("cumulative_total_tokens", 0)),
             session_cached_tokens=int(snapshot.get("cumulative_cached_tokens", 0)),
+            session_cache_write_tokens=int(snapshot.get("cumulative_cache_write_tokens", 0)),
             session_cost_inr=Decimal(str(snapshot.get("cumulative_cost_inr", "0.000000"))),
             session_cost_usd=Decimal(str(snapshot.get("cumulative_cost_usd", "0.000000"))),
             session_has_unknown_spend=bool(snapshot.get("has_unknown_spend", 0)),
@@ -505,6 +512,7 @@ class CostGovernor:
             total_calls_count=int(snapshot.get("total_calls_count", 0)),
             turn_tokens=int(snapshot.get("turn_tokens", 0)),
             turn_cached_tokens=int(snapshot.get("turn_cached_tokens", 0)),
+            turn_cache_write_tokens=int(snapshot.get("turn_cache_write_tokens", 0)),
             turn_cost_inr=Decimal(str(snapshot.get("turn_cost_inr", "0.000000"))),
             turn_cost_usd=Decimal(str(snapshot.get("turn_cost_usd", "0.000000"))),
             turn_has_unknown_spend=bool(snapshot.get("has_unknown_spend", 0)),
@@ -545,6 +553,8 @@ class CostGovernor:
             "cumulative_input_tokens": tracker.cumulative_input_tokens,
             "cumulative_output_tokens": tracker.cumulative_output_tokens,
             "session_cached_tokens": tracker.session_cached_tokens,
+            "session_cache_write_tokens": tracker.session_cache_write_tokens,
+            "turn_cache_write_tokens": tracker.turn_cache_write_tokens,
             "session_tokens": tracker.session_tokens,
             "session_cost_usd": tracker.session_cost_usd,
             "session_cost_inr": tracker.session_cost_inr,
@@ -588,46 +598,47 @@ class CostGovernor:
             tracker.persistence_failed = True
 
     def _get_or_create_tracker(self, session_id: str) -> SessionSpendTracker:
-        sid = session_id or "default"
-        if sid in self._sessions:
-            return self._sessions[sid]
+        with self._lock:
+            sid = session_id or "default"
+            if sid in self._sessions:
+                return self._sessions[sid]
 
-        store = self._get_store()
-        tracker = None
-        if store:
-            try:
-                snapshot = store.load_session_snapshot(sid)
-                if snapshot:
-                    tracker = self._hydrate_tracker_from_snapshot(sid, snapshot)
-            except Exception as exc:
-                log.error("Failed hydrating session %s: %s", sid, exc)
-
-        if tracker is None:
-            tracker = SessionSpendTracker(session_id=sid)
+            store = self._get_store()
+            tracker = None
             if store:
                 try:
-                    stored_parent = store.get_parent_session(sid)
-                    if stored_parent:
-                        self._parent_sessions[sid] = stored_parent
-                    root_id = self.get_root_session_id(sid)
-                    unresolved = store.recover_interrupted_reservations_on_startup(root_id)
-                    for res in unresolved:
-                        if res.get("session_id") == sid or sid == root_id:
-                            rid = res["reservation_id"]
-                            tracker.reservations[rid] = BudgetReservation(
-                                reservation_id=rid,
-                                session_id=res["session_id"],
-                                estimated_cost_inr=Decimal(str(res["estimated_cost_inr"])),
-                                estimated_tokens=int(res["estimated_tokens"]),
-                                purpose=res.get("purpose", "work"),
-                                active=True,
-                                status=res.get("status", "uncertain"),
-                            )
+                    snapshot = store.load_session_snapshot(sid)
+                    if snapshot:
+                        tracker = self._hydrate_tracker_from_snapshot(sid, snapshot)
                 except Exception as exc:
-                    log.error("Failed loading unresolved reservations on fresh tracker: %s", exc)
+                    log.error("Failed hydrating session %s: %s", sid, exc)
 
-        self._sessions[sid] = tracker
-        return tracker
+            if tracker is None:
+                tracker = SessionSpendTracker(session_id=sid)
+                if store:
+                    try:
+                        stored_parent = store.get_parent_session(sid)
+                        if stored_parent:
+                            self._parent_sessions[sid] = stored_parent
+                        root_id = self.get_root_session_id(sid)
+                        unresolved = store.recover_interrupted_reservations_on_startup(root_id)
+                        for res in unresolved:
+                            if res.get("session_id") == sid or sid == root_id:
+                                rid = res["reservation_id"]
+                                tracker.reservations[rid] = BudgetReservation(
+                                    reservation_id=rid,
+                                    session_id=res["session_id"],
+                                    estimated_cost_inr=Decimal(str(res["estimated_cost_inr"])),
+                                    estimated_tokens=int(res["estimated_tokens"]),
+                                    purpose=res.get("purpose", "work"),
+                                    active=True,
+                                    status=res.get("status", "uncertain"),
+                                )
+                    except Exception as exc:
+                        log.error("Failed loading unresolved reservations on fresh tracker: %s", exc)
+
+            self._sessions[sid] = tracker
+            return tracker
 
     def reset_session(self, session_id: str) -> None:
         with self._lock:
@@ -687,6 +698,7 @@ class CostGovernor:
         input_tokens: int,
         output_tokens: int,
         cached_tokens: int = 0,
+        cache_write_tokens: int = 0,
         rate_card: dict | None = None,
     ) -> tuple[Decimal | None, Decimal | None, str, bool]:
         """
@@ -701,6 +713,8 @@ class CostGovernor:
                 output_tokens=output_tokens,
                 cached_tokens=cached_tokens,
                 cache_reported=cached_tokens > 0,
+                cache_write_tokens=cache_write_tokens,
+                cache_write_reported=cache_write_tokens > 0,
                 rate_card=rate_card,
             )
             if cost is None:
@@ -882,6 +896,7 @@ class CostGovernor:
                     timestamp=time.time(), provider=provider, model=model, tier=tier,
                     input_tokens=u.prompt_tokens, output_tokens=u.completion_tokens,
                     cached_tokens=u.cached_tokens, total_tokens=u.total_tokens,
+                    cache_write_tokens=getattr(u, "cache_write_tokens", 0),
                     cost_usd=None, cost_inr=None, cost_known=True,
                 )
 
@@ -908,6 +923,7 @@ class CostGovernor:
                 input_tokens=u.prompt_tokens,
                 output_tokens=u.completion_tokens,
                 cached_tokens=u.cached_tokens,
+                cache_write_tokens=getattr(u, "cache_write_tokens", 0),
                 total_tokens=u.total_tokens,
                 cost_usd=dec_usd,
                 cost_inr=dec_inr,
@@ -919,8 +935,10 @@ class CostGovernor:
             def _apply_spend(tracker: SessionSpendTracker):
                 tracker.session_tokens += u.total_tokens
                 tracker.session_cached_tokens += u.cached_tokens
+                tracker.session_cache_write_tokens += getattr(u, "cache_write_tokens", 0)
                 tracker.turn_tokens += u.total_tokens
                 tracker.turn_cached_tokens += u.cached_tokens
+                tracker.turn_cache_write_tokens += getattr(u, "cache_write_tokens", 0)
                 tracker.cumulative_input_tokens += u.prompt_tokens
                 tracker.cumulative_output_tokens += u.completion_tokens
                 tracker.total_calls_count += 1
@@ -968,6 +986,7 @@ class CostGovernor:
                     "input_tokens": u.prompt_tokens,
                     "output_tokens": u.completion_tokens,
                     "cached_tokens": u.cached_tokens,
+                    "cache_write_tokens": getattr(u, "cache_write_tokens", 0),
                     "total_tokens": u.total_tokens,
                     "estimated_cost_usd": str(dec_usd) if dec_usd is not None else None,
                     "estimated_cost_inr": str(dec_inr) if dec_inr is not None else None,

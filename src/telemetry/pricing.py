@@ -81,6 +81,27 @@ _INPUT_KEYS = ("input_per_1m_usd", "input_per_1m_inr", "input_per_1m", "input_pr
                "input_price_per_million", "prompt_price_per_million", "input", "prompt", "input_price", "prompt_price")
 _OUTPUT_KEYS = ("output_per_1m_usd", "output_per_1m_inr", "output_per_1m", "output_price_per_1m", "completion_per_1m", "completion_price_per_1m",
                 "output_price_per_million", "completion_price_per_million", "output", "completion", "output_price", "completion_price")
+_CACHED_INPUT_KEYS = (
+    "cached_input_per_1m_usd", "cached_input_per_1m_inr", "cached_input_per_1m",
+    "cached_input_price_per_1m", "cache_read_per_1m", "cache_read_price_per_1m",
+    "prompt_cached_per_1m", "cached_prompt_per_1m", "cached_input_price_per_million",
+    "cache_read_price_per_million", "cached_input", "cache_read", "cached_prompt", "cached_price"
+)
+_CACHE_WRITE_KEYS = (
+    "cache_write_per_1m_usd", "cache_write_per_1m_inr", "cache_write_per_1m",
+    "cache_write_price_per_1m", "cache_creation_per_1m", "cache_write_price_per_million",
+    "cache_write", "cache_creation"
+)
+_CACHE_WRITE_5M_KEYS = (
+    "cache_write_5m_per_1m_usd", "cache_write_5m_per_1m_inr", "cache_write_5m_per_1m",
+    "cache_write_5m_price_per_1m", "cache_creation_5m_per_1m", "cache_write_5m_price_per_million",
+    "cache_write_5m", "cache_creation_5m", "ephemeral_5m_per_1m", "cache_write_ephemeral_5m"
+)
+_CACHE_WRITE_1H_KEYS = (
+    "cache_write_1h_per_1m_usd", "cache_write_1h_per_1m_inr", "cache_write_1h_per_1m",
+    "cache_write_1h_price_per_1m", "cache_creation_1h_per_1m", "cache_write_1h_price_per_million",
+    "cache_write_1h", "cache_creation_1h", "ephemeral_1h_per_1m", "cache_write_ephemeral_1h"
+)
 
 
 def _as_float(value) -> float | None:
@@ -116,6 +137,10 @@ def _parse_entry(entry: dict, default_currency: str) -> tuple[str, dict] | None:
     pricing = pricing if isinstance(pricing, dict) else entry
     input_price, input_1m, input_key = _pick(pricing, _INPUT_KEYS)
     output_price, output_1m, _output_key = _pick(pricing, _OUTPUT_KEYS)
+    cached_price, cached_1m, _ = _pick(pricing, _CACHED_INPUT_KEYS)
+    write_price, write_1m, _ = _pick(pricing, _CACHE_WRITE_KEYS)
+    write_5m_price, write_5m_1m, _ = _pick(pricing, _CACHE_WRITE_5M_KEYS)
+    write_1h_price, write_1h_1m, _ = _pick(pricing, _CACHE_WRITE_1H_KEYS)
     if input_price is None or output_price is None:
         return None
     # Scale: explicit per-1M keys are taken as-is. Bare prompt/completion
@@ -141,12 +166,21 @@ def _parse_entry(entry: dict, default_currency: str) -> tuple[str, dict] | None:
         or suffix_currency
         or default_currency
     )
-    return model_id, {
+    rate_dict = {
         "input_per_1m": round(_to_per_1m(input_price, input_1m), 6),
         "output_per_1m": round(_to_per_1m(output_price, output_1m), 6),
         "currency": currency,
         "source": "provider-catalog",
     }
+    if cached_price is not None:
+        rate_dict["cached_input_per_1m"] = round(_to_per_1m(cached_price, cached_1m), 6)
+    if write_price is not None:
+        rate_dict["cache_write_per_1m"] = round(_to_per_1m(write_price, write_1m), 6)
+    if write_5m_price is not None:
+        rate_dict["cache_write_5m_per_1m"] = round(_to_per_1m(write_5m_price, write_5m_1m), 6)
+    if write_1h_price is not None:
+        rate_dict["cache_write_1h_per_1m"] = round(_to_per_1m(write_1h_price, write_1h_1m), 6)
+    return model_id, rate_dict
 
 
 def parse_catalog(payload, default_currency: str = "") -> dict[str, dict]:
@@ -205,6 +239,14 @@ def _maybe_convert_to_inr(rates: dict[str, dict]) -> dict[str, dict]:
         if str(rate.get("currency") or "").upper() == "USD":
             rate["input_per_1m"] = round(float(rate["input_per_1m"]) * multiplier, 6)
             rate["output_per_1m"] = round(float(rate["output_per_1m"]) * multiplier, 6)
+            if "cached_input_per_1m" in rate:
+                rate["cached_input_per_1m"] = round(float(rate["cached_input_per_1m"]) * multiplier, 6)
+            if "cache_write_per_1m" in rate:
+                rate["cache_write_per_1m"] = round(float(rate["cache_write_per_1m"]) * multiplier, 6)
+            if "cache_write_5m_per_1m" in rate:
+                rate["cache_write_5m_per_1m"] = round(float(rate["cache_write_5m_per_1m"]) * multiplier, 6)
+            if "cache_write_1h_per_1m" in rate:
+                rate["cache_write_1h_per_1m"] = round(float(rate["cache_write_1h_per_1m"]) * multiplier, 6)
             rate["currency"] = "INR"
         converted[model_id] = rate
     return converted
@@ -440,3 +482,53 @@ def resolve_rate(model: str, rates: dict[str, dict]) -> dict | None:
         if wanted in key or key in wanted:
             return rate
     return None
+
+# --------------------------------------------------------------------------
+# Account credits / balance inspection
+# --------------------------------------------------------------------------
+
+def fetch_account_credits(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = 5.0,
+) -> dict[str, Any] | None:
+    """Query provider credits / account balance endpoint (e.g. Velona GET /gateway/v1/account/credits).
+    Returns dict with balance_usd, balance_inr, usage_usd or None if unsupported/failed. Never raises.
+    """
+    try:
+        base = base_url or os.environ.get("CUSTOM_BASE_URL", "")
+        key = api_key or os.environ.get("CUSTOM_API_KEY", "")
+        if not base or not key:
+            return None
+        cleaned_base = base.rstrip("/")
+        if cleaned_base.endswith("/v1"):
+            gateway_root = cleaned_base[:-3]
+        else:
+            gateway_root = cleaned_base
+
+        candidates = [
+            f"{gateway_root}/gateway/v1/account/credits",
+            f"{cleaned_base}/account/credits",
+            f"{cleaned_base}/credits",
+        ]
+        for url in candidates:
+            try:
+                payload = _http_get_json(url, key, timeout=timeout)
+                if isinstance(payload, dict):
+                    data = payload.get("data")
+                    if isinstance(data, dict) and (
+                        "balance_usd" in data or "balance_inr" in data or "usage_usd" in data
+                    ):
+                        return data
+                    if (
+                        "balance_usd" in payload
+                        or "balance_inr" in payload
+                        or "usage_usd" in payload
+                    ):
+                        return payload
+            except Exception:
+                continue
+        return None
+    except Exception:
+        return None
+

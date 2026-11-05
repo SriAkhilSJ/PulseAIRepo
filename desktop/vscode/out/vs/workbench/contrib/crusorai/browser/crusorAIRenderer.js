@@ -12,6 +12,19 @@ import { compactTarget, isCardTool, isFileEditTool, isSilentTool, splitActivityG
 import { renderA2UIToolBody } from './crusorA2UISurface.js';
 import { renderToolIcon } from './crusorAIIcons.js';
 import { activityParts, activityRowMode, activitySignature, closeMeasurement, draftingToolName, elapsedFor, measuredDuration, DRAFTING_REVEAL_MS, statusHintLabel, toolNarratesWait, TURN_QUIET_S, UNNAMED_WAIT_LABEL, } from './crusorAIActivity.js';
+export const SLASH_COMMAND_SUGGESTIONS = [
+    { id: 'test', trigger: '/', label: '/test', description: 'Run test discovery or execute workspace test suite', glyph: 'beaker', kind: 'command' },
+    { id: 'review', trigger: '/', label: '/review', description: 'Structured architectural code review of current changes', glyph: 'git-pull-request', kind: 'command' },
+    { id: 'fix', trigger: '/', label: '/fix', description: 'Analyze active diagnostics and propose code corrections', glyph: 'tools', kind: 'command' },
+    { id: 'clear', trigger: '/', label: '/clear', description: 'Clear conversation view and start a clean session', glyph: 'clear-all', kind: 'command' },
+];
+export const AT_CONTEXT_SUGGESTIONS = [
+    { id: 'file', trigger: '@', label: '@file', description: 'Reference a workspace file', glyph: 'file', kind: 'file' },
+    { id: 'folder', trigger: '@', label: '@folder', description: 'Reference current workspace directory', glyph: 'folder', kind: 'folder' },
+    { id: 'symbol', trigger: '@', label: '@symbol', description: 'Reference active symbol or function', glyph: 'symbol-variable', kind: 'symbol' },
+    { id: 'selection', trigger: '@', label: '@selection', description: 'Reference currently selected editor text', glyph: 'selection', kind: 'selection' },
+    { id: 'diagnostics', trigger: '@', label: '@diagnostics', description: 'Reference active workspace problems and diagnostics', glyph: 'warning', kind: 'diagnostics' },
+];
 function element(tag, className, ...children) {
     const node = document.createElement(tag);
     if (className) {
@@ -265,7 +278,7 @@ function formatElapsedSeconds(seconds) {
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 let elapsedTicker;
-function elapsedSpan(originMs) {
+export function elapsedSpan(originMs) {
     const span = element('span', 'crusorai-scaffold-meta crusorai-elapsed');
     const origin = typeof originMs === 'number' && originMs > 0 ? originMs : Date.now();
     datasetSet(span, 'origin', String(origin));
@@ -428,7 +441,7 @@ function resultOutput(tool) {
     const parts = [value?.output, value?.stdout, value?.stderr].filter(part => typeof part === 'string' && part.length > 0);
     return boundedText(parts.length ? parts.join(parts.length > 1 ? '\n' : '') : tool.result);
 }
-function stateLabel(state) {
+export function stateLabel(state) {
     if (state === 'passed') {
         return 'Passed';
     }
@@ -443,7 +456,7 @@ function stateLabel(state) {
     }
     return 'Queued';
 }
-function statusGlyph(state) {
+export function statusGlyph(state) {
     if (state === 'running') {
         return element('span', 'crusorai-mini-spinner');
     }
@@ -2071,11 +2084,11 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // counted +a −r next to the filename — earned from the result, so it
     // appears when the edit lands, never while running.
     const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
-    const titleMain = element('span', undefined, titleSpan, subtitle,
+    const titleMain = element('span', undefined, titleSpan, subtitle, 
     // The sub-agent card carries mode/type/description itself; the
     // generic k=v chips would only repeat it (founder screenshot
     // 2026-10-15: 'Delegate mode=research subagent_type=research').
-    ...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
+    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -2283,7 +2296,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
-        const summary = element('summary', 'crusorai-tool-run-summary',
+        const summary = element('summary', 'crusorai-tool-run-summary', 
         // The disclosure arrow LEADS the header (founder
         // 2026-10-17: arrow marks at the start — "⌄ Terminal
         // 3", not "Terminal 3 ⌄"); the global collapsible-arrow
@@ -3924,24 +3937,135 @@ function composer(model, host, manager) {
     input.rows = manager ? 2 : 3;
     input.placeholder = model.isChild ? 'Sub-agent session — prompt disabled.' : manager ? 'Steer this agent or add context...' : 'Ask anything, / for commands, @ for context...';
     input.value = model.draft;
-    input.addEventListener('input', () => host.setDraft(input.value));
+    // Context Chips Bar
+    const chipsContainer = element('div', 'crusorai-context-chips-bar');
+    if (model.contextChips && model.contextChips.length > 0) {
+        for (const chip of model.contextChips) {
+            const glyph = chip.type === 'diagnostics' ? 'warning' : chip.type === 'symbol' ? 'symbol-variable' : chip.type === 'folder' ? 'folder' : chip.type === 'selection' ? 'selection' : 'file';
+            const chipEl = element('span', 'crusorai-context-chip', icon(glyph), element('span', 'crusorai-chip-label', chip.label));
+            const removeBtn = element('button', 'crusorai-chip-remove');
+            removeBtn.type = 'button';
+            removeBtn.setAttribute('aria-label', `Remove ${chip.label}`);
+            removeBtn.append(icon('close'));
+            removeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                host.removeContextChip?.(chip.id);
+            });
+            chipEl.append(removeBtn);
+            chipsContainer.append(chipEl);
+        }
+    }
+    else {
+        chipsContainer.style.display = 'none';
+    }
+    // Interactive Suggestions Popup
+    const suggestionsBox = element('div', 'crusorai-composer-suggestions');
+    suggestionsBox.style.display = 'none';
+    let activeSuggestionIndex = 0;
+    let currentFilteredSuggestions = [];
+    const renderSuggestions = () => {
+        suggestionsBox.replaceChildren();
+        if (currentFilteredSuggestions.length === 0) {
+            suggestionsBox.style.display = 'none';
+            return;
+        }
+        suggestionsBox.style.display = 'flex';
+        for (let i = 0; i < currentFilteredSuggestions.length; i++) {
+            const item = currentFilteredSuggestions[i];
+            const isSelected = i === activeSuggestionIndex;
+            const opt = element('button', isSelected ? 'crusorai-suggestion-option is-selected' : 'crusorai-suggestion-option', icon(item.glyph), element('span', 'crusorai-suggestion-copy', element('strong', undefined, item.label), element('small', undefined, item.description)));
+            opt.type = 'button';
+            opt.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                selectSuggestion(item);
+            });
+            suggestionsBox.append(opt);
+        }
+    };
+    const selectSuggestion = (item) => {
+        if (item.trigger === '@') {
+            host.addContextChip?.({
+                id: `${item.id}-${Date.now()}`,
+                type: item.id,
+                label: item.label,
+            });
+            input.value = input.value.replace(/@[a-zA-Z0-9_-]*$/, '').trim();
+            host.setDraft(input.value);
+        }
+        else if (item.trigger === '/') {
+            input.value = `${item.label} `;
+            host.setDraft(input.value);
+        }
+        suggestionsBox.style.display = 'none';
+        input.focus();
+    };
+    const checkSuggestions = () => {
+        const val = input.value;
+        const cursor = input.selectionStart || val.length;
+        const textBeforeCursor = val.slice(0, cursor);
+        if (textBeforeCursor.startsWith('/')) {
+            const query = textBeforeCursor.slice(1).toLowerCase();
+            currentFilteredSuggestions = SLASH_COMMAND_SUGGESTIONS.filter(s => s.label.toLowerCase().includes(query) || s.id.includes(query));
+            activeSuggestionIndex = 0;
+            renderSuggestions();
+            return;
+        }
+        const atMatch = textBeforeCursor.match(/@([a-zA-Z0-9_-]*)$/);
+        if (atMatch) {
+            const query = atMatch[1].toLowerCase();
+            currentFilteredSuggestions = AT_CONTEXT_SUGGESTIONS.filter(s => s.label.toLowerCase().includes(query) || s.id.includes(query));
+            activeSuggestionIndex = 0;
+            renderSuggestions();
+            return;
+        }
+        suggestionsBox.style.display = 'none';
+    };
+    input.addEventListener('input', () => {
+        host.setDraft(input.value);
+        checkSuggestions();
+    });
     const inputBlocked = model.noWorkspace || model.workspaceSelectionRequired || !!model.isChild;
     if (inputBlocked) {
         input.disabled = true;
     }
     const submit = () => {
         const value = input.value.trim();
-        if (!value) {
+        if (!value && (!model.contextChips || model.contextChips.length === 0)) {
             return;
         }
+        suggestionsBox.style.display = 'none';
         if (manager && model.running) {
             host.steer(value);
         }
         else {
-            host.submitPrompt(value);
+            host.submitPrompt(value, model.contextChips);
         }
     };
     input.addEventListener('keydown', event => {
+        if (suggestionsBox.style.display !== 'none' && currentFilteredSuggestions.length > 0) {
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                activeSuggestionIndex = (activeSuggestionIndex + 1) % currentFilteredSuggestions.length;
+                renderSuggestions();
+                return;
+            }
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                activeSuggestionIndex = (activeSuggestionIndex - 1 + currentFilteredSuggestions.length) % currentFilteredSuggestions.length;
+                renderSuggestions();
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                selectSuggestion(currentFilteredSuggestions[activeSuggestionIndex]);
+                return;
+            }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                suggestionsBox.style.display = 'none';
+                return;
+            }
+        }
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             submit();
@@ -4025,7 +4149,7 @@ function composer(model, host, manager) {
     if (model.noWorkspace) {
         hint.append(button('Open Folder', 'crusorai-link-button', host.openFolder, 'folder'));
     }
-    return element('footer', 'crusorai-composer', element('div', 'crusorai-composer-box', input, toolbar), hint);
+    return element('footer', 'crusorai-composer', suggestionsBox, element('div', 'crusorai-composer-box', chipsContainer, input, toolbar), hint);
 }
 /**
  * Child-session navigation: the LAST element at the END of the

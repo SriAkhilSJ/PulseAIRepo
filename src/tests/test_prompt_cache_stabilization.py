@@ -313,6 +313,7 @@ def test_response_usage_extraction_anthropic():
             "token_usage": {
                 "input_tokens": 2000,
                 "output_tokens": 150,
+                "total_tokens": 2150,
                 "cache_read_input_tokens": 1800,
             }
         },

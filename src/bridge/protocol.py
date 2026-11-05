@@ -71,10 +71,14 @@ def hello(engine_version: str, *, protocol: int = PROTOCOL_VERSION) -> dict[str,
     }
 
 
-def error_frame(message: str, *, fatal: bool = False, request_id: str | None = None) -> dict[str, Any]:
+def error_frame(message: str, *, fatal: bool = False, request_id: str | None = None, correlation_id: str | None = None, error_code: str | None = None) -> dict[str, Any]:
     frame = {"type": "error", "message": message, "fatal": fatal}
     if request_id:
         frame["request_id"] = request_id
+    if correlation_id:
+        frame["correlation_id"] = correlation_id
+    if error_code:
+        frame["error_code"] = error_code
     return frame
 
 
