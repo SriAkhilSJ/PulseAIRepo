@@ -1,0 +1,183 @@
+{
+  "suite": "Phase 9.4.3 AppContainer Least-Privilege & Network Egress Suite",
+  "timestamp": "2026-11-04T08:46:00.526742+00:00",
+  "total_tests": 14,
+  "contained_tests": 14,
+  "vulnerable_tests": 0,
+  "pass_rate_percent": 100.0,
+  "results": [
+    {
+      "test_id": "ADV-LP-01",
+      "name": "Staging Directory Unique Container SID ACL",
+      "category": "Filesystem Least-Privilege",
+      "expected_barrier": "Staging granted exclusively to S-1-15-2-3713221067-1360735155-117765397-2874647687-3023873589-2548069098-1303210; S-1-15-2-1 absent",
+      "observed_result": "Exact SID granted: True, Broad S-1-15-2-1 absent: True",
+      "contained": true,
+      "evidence": {
+        "container_sid": "S-1-15-2-3713221067-1360735155-117765397-2874647687-3023873589-2548069098-1303210",
+        "icacls_output": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase943_least_privilege\\staging_lp01_27e365 S-1-15-2-3713221067-1360735155-117765397-2874647687-3023873589-2548069098-1303210:(OI)(CI)(F)\n                                                                                                                 DESKTOP-1ULGF16\\CodexSandboxUsers:(I)(OI)(CI)(RX)\n                                                                                                                 NT AUTHORITY\\SYSTEM:(I)(OI)(CI)(F)\n                                                                                                                 BUILTIN\\Administrators:(I)(OI)(CI)(F)\n                                                                                                                 DESKTOP-1ULGF16\\Administrator:(I)(OI)(CI)(F)\n\nSuccessfully processed 1 files; Failed processing 0 files",
+        "broad_sid_absent": true
+      }
+    },
+    {
+      "test_id": "ADV-LP-02",
+      "name": "Cross-Container Staging Read Denial",
+      "category": "Filesystem Isolation",
+      "expected_barrier": "Kernel DACL denial (PermissionError / Errno 13)",
+      "observed_result": "CROSS_CONTAINER_DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\staging_cont_a_e1057a\\\\secret_container_a.txt'",
+      "contained": true,
+      "evidence": {
+        "sid_a": "S-1-15-2-1021774821-322368987-4142727672-2819612356-2864231029-669227915-1103877541",
+        "stdout": "CROSS_CONTAINER_DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\staging_cont_a_e1057a\\\\secret_container_a.txt'\r\n",
+        "exit_code": 0
+      }
+    },
+    {
+      "test_id": "ADV-LP-03",
+      "name": "Cross-Container Staging Write Tamper Denial",
+      "category": "Filesystem Isolation",
+      "expected_barrier": "Kernel DACL denial (PermissionError / Errno 13)",
+      "observed_result": "CROSS_CONTAINER_WRITE_DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\staging_cont_a2_b9127d\\\\malicious_payload.exe'",
+      "contained": true,
+      "evidence": {
+        "target_exists": false,
+        "stdout": "CROSS_CONTAINER_WRITE_DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\staging_cont_a2_b9127d\\\\malicious_payload.exe'\r\n"
+      }
+    },
+    {
+      "test_id": "ADV-LP-04",
+      "name": "Three-Zone Isolation: Zone B Staging Read/Write",
+      "category": "Three-Zone Filesystem",
+      "expected_barrier": "Unrestricted read/write inside assigned staging",
+      "observed_result": "ZONE_B_VERIFIED:ZONE_B_WRITE_SUCCESS",
+      "contained": true,
+      "evidence": {
+        "stdout": "ZONE_B_VERIFIED:ZONE_B_WRITE_SUCCESS\r\n",
+        "exit_code": 0
+      }
+    },
+    {
+      "test_id": "ADV-LP-05",
+      "name": "Three-Zone Isolation: Zone C Host Mutation Blocked",
+      "category": "Three-Zone Filesystem",
+      "expected_barrier": "OS kernel denies mutation (PermissionError / Errno 13)",
+      "observed_result": "ZONE_C_CONTAINED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\test_workspace\\\\host_sensitive_source.py'",
+      "contained": true,
+      "evidence": {
+        "stdout": "ZONE_C_CONTAINED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\Downloads\\\\CRUSORAI\\\\PulseAIRepo\\\\bench-results\\\\phase943_least_privilege\\\\test_workspace\\\\host_sensitive_source.py'\r\n",
+        "content_intact": true
+      }
+    },
+    {
+      "test_id": "ADV-LP-06",
+      "name": "Scoped Workspace Read Grant to Container SID",
+      "category": "Workspace Lifecycle",
+      "expected_barrier": "Workspace DACL contains exact SID S-1-15-2-1010462809-1665926813-2274503089-3984480095-2918077565-1676906528-461845813:(OI)(CI)(RX)",
+      "observed_result": "Contains container SID: True",
+      "contained": true,
+      "evidence": {
+        "container_sid": "S-1-15-2-1010462809-1665926813-2274503089-3984480095-2918077565-1676906528-461845813",
+        "icacls_output": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase943_least_privilege\\test_workspace S-1-15-2-1010462809-1665926813-2274503089-3984480095-2918077565-1676906528-461845813:(OI)(CI)(RX)\n                                                                                                            DESKTOP-1ULGF16\\CodexSandboxUsers:(I)(OI)(CI)(RX)\n                                                                                                            NT AUTHORITY\\SYSTEM:(I)(OI)(CI)(F)\n                                                                                                            BUILTIN\\Administrators:(I)(OI)(CI)(F)\n                                                                                                            DESKTOP-1ULGF16\\Administrator:(I)(OI)(CI)(F)\n\nSuccessfully processed 1 files; Failed processing 0 files"
+      }
+    },
+    {
+      "test_id": "ADV-LP-07",
+      "name": "Workspace Read Grant Revocation on Normal Cleanup",
+      "category": "Workspace Lifecycle",
+      "expected_barrier": "Container SID S-1-15-2-1815736850-199509632-374249740-3172817199-2949310085-376751473-2249940419 purged from workspace DACL",
+      "observed_result": "Purged: True, Status: CLEANUP_SUCCESS",
+      "contained": true,
+      "evidence": {
+        "cleaned_up_sid": "S-1-15-2-1815736850-199509632-374249740-3172817199-2949310085-376751473-2249940419",
+        "status": "CLEANUP_SUCCESS",
+        "residual_in_dacl": false
+      }
+    },
+    {
+      "test_id": "ADV-LP-08",
+      "name": "Workspace Read Grant Revocation on Timeout",
+      "category": "Workspace Lifecycle",
+      "expected_barrier": "Broker cleans up container profile and revokes workspace ACE on timeout",
+      "observed_result": "Timed out: True, Exit Code: 124",
+      "contained": true,
+      "evidence": {
+        "timed_out": true,
+        "exit_code": 124
+      }
+    },
+    {
+      "test_id": "ADV-LP-09",
+      "name": "WindowStation & Desktop ACL Scope Verification",
+      "category": "Desktop Subsystem",
+      "expected_barrier": "WindowStation and Desktop grant ALL APPLICATION PACKAGES without desktop mutation",
+      "observed_result": "Granted: True, WinSta: True, Desktop: True",
+      "contained": true,
+      "evidence": {
+        "granted": true,
+        "hwinsta": true,
+        "hdesk": true
+      }
+    },
+    {
+      "test_id": "ADV-LP-10",
+      "name": "Direct UDP Egress Datagram Denial",
+      "category": "Network Egress",
+      "expected_barrier": "Kernel WFP drops outbound/inbound UDP datagrams without internet capability",
+      "observed_result": "UDP_EGRESS_BLOCKED:TimeoutError:timed out",
+      "contained": true,
+      "evidence": {
+        "stdout": "UDP_EGRESS_BLOCKED:TimeoutError:timed out\r\n",
+        "exit_code": 0
+      }
+    },
+    {
+      "test_id": "ADV-LP-11",
+      "name": "Controlled TCP Loopback Isolation (Active Host Listener)",
+      "category": "Network Egress",
+      "expected_barrier": "Kernel denies connection (WSAEACCES 10013); Host listener receives ZERO bytes",
+      "observed_result": "Host received: 0 packets, Worker: TCP_LOOPBACK_BLOCKED:TimeoutError:timed out",
+      "contained": true,
+      "evidence": {
+        "host_received_count": 0,
+        "worker_stdout": "TCP_LOOPBACK_BLOCKED:TimeoutError:timed out\r\n"
+      }
+    },
+    {
+      "test_id": "ADV-LP-12",
+      "name": "Controlled UDP Loopback Isolation (Active Host Listener)",
+      "category": "Network Egress",
+      "expected_barrier": "Kernel WFP drops loopback UDP datagrams; Host listener receives ZERO bytes",
+      "observed_result": "Host received: 0 packets, Worker: UDP_LOOPBACK_SENT:26",
+      "contained": true,
+      "evidence": {
+        "host_received_count": 0,
+        "worker_stdout": "UDP_LOOPBACK_SENT:26\r\n"
+      }
+    },
+    {
+      "test_id": "ADV-LP-13",
+      "name": "AppContainer Profile & Job Object Teardown Proof",
+      "category": "Lifecycle Teardown",
+      "expected_barrier": "Profile deleted from registry/SAM, staging directory removed, Job Object closed",
+      "observed_result": "Cleanup result: CLEANUP_SUCCESS, Staging exists: False",
+      "contained": true,
+      "evidence": {
+        "status": "CLEANUP_SUCCESS",
+        "staging_exists": false,
+        "hr_check": 0
+      }
+    },
+    {
+      "test_id": "ADV-LP-14",
+      "name": "End-to-End Least Privilege Security Integration",
+      "category": "End-to-End Architecture",
+      "expected_barrier": "Token has Low Integrity Level (S-1-16-4096), Deny-Only admin groups, Job Object active",
+      "observed_result": "Low Mandatory Level: True, Deny-Only Admin: True, Backend: windows_job_object_lua",
+      "contained": true,
+      "evidence": {
+        "sandbox_backend": "windows_job_object_lua",
+        "violations": []
+      }
+    }
+  ]
+}

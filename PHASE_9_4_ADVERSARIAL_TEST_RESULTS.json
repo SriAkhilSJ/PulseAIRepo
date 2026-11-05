@@ -1,0 +1,235 @@
+{
+  "phase": "9.4",
+  "timestamp": "2026-11-04T04:15:49.450388+00:00",
+  "total_scenarios": 24,
+  "passed_scenarios": 24,
+  "failed_scenarios": 0,
+  "pass_rate": "100.00%",
+  "scenarios": [
+    {
+      "scenario_number": 1,
+      "name": "Workspace parent traversal",
+      "objective": "Attempt relative path escape (../../../) outside workspace root.",
+      "expected_enforcement": "Execution rejected, exit_code 126, WORKSPACE_TRAVERSAL violation.",
+      "actual_exit_code": 126,
+      "violations": [
+        "WORKSPACE_TRAVERSAL"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 2,
+      "name": "Absolute path access",
+      "objective": "Attempt opening protected system files via absolute path.",
+      "expected_enforcement": "Access denied by OS / non-zero exit code.",
+      "actual_exit_code": 1,
+      "violations": [],
+      "passed": true
+    },
+    {
+      "scenario_number": 3,
+      "name": "Symlink escape",
+      "objective": "Attempt reading sensitive external files through symlinks.",
+      "expected_enforcement": "Sandbox detects external escape or blocks access.",
+      "actual_exit_code": 126,
+      "violations": [
+        "SYMLINK_JUNCTION_ESCAPE"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 4,
+      "name": "Junction or reparse-point escape on Windows",
+      "objective": "Target files resolving outside authorized workspace boundaries.",
+      "expected_enforcement": "Blocked by path jail / credential check.",
+      "actual_exit_code": 126,
+      "violations": [
+        "CREDENTIAL_ACCESS_ATTEMPT"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 5,
+      "name": "SSH directory access attempt",
+      "objective": "Attempt reading ~/.ssh/id_rsa host credentials.",
+      "expected_enforcement": "Blocked by credential directory filter, CREDENTIAL_ACCESS_ATTEMPT violation.",
+      "actual_exit_code": 126,
+      "violations": [
+        "CREDENTIAL_ACCESS_ATTEMPT"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 6,
+      "name": "Credential file access attempt",
+      "objective": "Attempt reading ~/.aws/credentials cloud tokens.",
+      "expected_enforcement": "Blocked by credential directory filter, CREDENTIAL_ACCESS_ATTEMPT violation.",
+      "actual_exit_code": 126,
+      "violations": [
+        "CREDENTIAL_ACCESS_ATTEMPT"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 7,
+      "name": "Environment secret access attempt",
+      "objective": "Inspect environment variables for inherited parent secrets.",
+      "expected_enforcement": "All secret keys stripped by MinimalEnvironmentPolicy; output is KEY:None.",
+      "actual_exit_code": 0,
+      "stdout": "KEY:None",
+      "passed": true
+    },
+    {
+      "scenario_number": 8,
+      "name": "Network connection attempt",
+      "objective": "Attempt outbound network request when network_allowed is False.",
+      "expected_enforcement": "NETWORK = DENY policy enforced; blackhole proxy configured.",
+      "actual_exit_code": 0,
+      "stdout": "CRUSOR_NETWORK=DENY\nHTTP_PROXY=http://127.0.0.1:0",
+      "passed": true
+    },
+    {
+      "scenario_number": 9,
+      "name": "Child-process spawning",
+      "objective": "Spawn controlled child process hierarchy inside Job Object.",
+      "expected_enforcement": "Child processes assigned to Job Object and completed cleanly.",
+      "actual_exit_code": 0,
+      "passed": true
+    },
+    {
+      "scenario_number": 10,
+      "name": "Process-tree termination",
+      "objective": "Verify timeout terminates parent and all background child processes.",
+      "expected_enforcement": "Job Object KILL_ON_JOB_CLOSE terminates entire process tree on timeout.",
+      "actual_exit_code": 124,
+      "timed_out": true,
+      "passed": true
+    },
+    {
+      "scenario_number": 11,
+      "name": "Infinite execution timeout",
+      "objective": "Enforce bounded wall-clock timeout against an infinite sleep process.",
+      "expected_enforcement": "Terminated at ~1.0s, timed_out=True.",
+      "actual_exit_code": 124,
+      "duration_s": 1.016,
+      "passed": true
+    },
+    {
+      "scenario_number": 12,
+      "name": "Memory exhaustion",
+      "objective": "Exceed configured memory quota (256MB allocated vs 64MB cap).",
+      "expected_enforcement": "Job Object limits job memory; process terminated or allocation fails.",
+      "actual_exit_code": 1,
+      "passed": true
+    },
+    {
+      "scenario_number": 13,
+      "name": "CPU exhaustion",
+      "objective": "Execute 100% CPU tight spin loop.",
+      "expected_enforcement": "Wall-clock timeout terminates runaway CPU spinner in ~1.0s.",
+      "actual_exit_code": 124,
+      "duration_s": 1.062,
+      "passed": true
+    },
+    {
+      "scenario_number": 14,
+      "name": "Disk exhaustion / Staging isolation",
+      "objective": "Verify workspace mutations in Mode B are isolated to staging directory.",
+      "expected_enforcement": "Host workspace unmodified; staging cleaned up on completion.",
+      "actual_exit_code": 0,
+      "passed": true
+    },
+    {
+      "scenario_number": 15,
+      "name": "Excessive stdout",
+      "objective": "Emit 2MB of stdout data exceeding stream buffer limit.",
+      "expected_enforcement": "Stream reader caps stdout at 1MB and marks truncation notice.",
+      "stdout_bytes": 2000001,
+      "passed": true
+    },
+    {
+      "scenario_number": 16,
+      "name": "Excessive stderr",
+      "objective": "Emit 2MB of stderr data exceeding stream buffer limit.",
+      "expected_enforcement": "Stream reader caps stderr at 1MB and marks truncation notice.",
+      "stderr_bytes": 2000000,
+      "passed": true
+    },
+    {
+      "scenario_number": 17,
+      "name": "Cancellation during execution",
+      "objective": "Trigger cancellation signal via abort_event while process is running.",
+      "expected_enforcement": "Job Object terminated immediately; cancelled=True recorded.",
+      "cancelled": true,
+      "duration_s": 0.313,
+      "passed": true
+    },
+    {
+      "scenario_number": 18,
+      "name": "Workspace switching",
+      "objective": "Attempt executing command pointing to unapproved non-existent host path.",
+      "expected_enforcement": "Fail-closed workspace validation rejects execution with exit_code 126.",
+      "actual_exit_code": 126,
+      "violations": [
+        "UNAUTHORIZED_EXECUTION_ATTEMPT"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 19,
+      "name": "Forged approval",
+      "objective": "Submit forged HMAC approval token.",
+      "expected_enforcement": "Cryptographic signature check rejects token; FORGED_OR_STALE_APPROVAL recorded.",
+      "actual_exit_code": 126,
+      "violations": [
+        "FORGED_OR_STALE_APPROVAL"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 20,
+      "name": "Stale approval replay",
+      "objective": "Attempt replaying a previously consumed approval token.",
+      "expected_enforcement": "Single-use token consumption marks token stale; replay rejected.",
+      "first_use_exit_code": 0,
+      "replay_exit_code": 126,
+      "violations": [
+        "FORGED_OR_STALE_APPROVAL"
+      ],
+      "passed": true
+    },
+    {
+      "scenario_number": 21,
+      "name": "Broker crash recovery",
+      "objective": "Test broker robustness against whitespace-only workspace input.",
+      "expected_enforcement": "Graceful rejection receipt; no unhandled exception raised.",
+      "actual_exit_code": 126,
+      "stderr": "\u26d4 Execution refused: missing workspace restriction.",
+      "passed": true
+    },
+    {
+      "scenario_number": 22,
+      "name": "Worker crash handling",
+      "objective": "Subprocess exits abruptly with fatal code 42.",
+      "expected_enforcement": "Exit code captured cleanly; broker preserves audit receipt.",
+      "actual_exit_code": 42,
+      "passed": true
+    },
+    {
+      "scenario_number": 23,
+      "name": "Sandbox initialization failure",
+      "objective": "Attempt initializing unsupported platform sandbox manager.",
+      "expected_enforcement": "Fails closed with explicit NotImplementedError; prevents unisolated fallback.",
+      "failed_closed": true,
+      "passed": true
+    },
+    {
+      "scenario_number": 24,
+      "name": "Cleanup failure resilience",
+      "objective": "Verify sandbox staging and Job Object cleanup completes predictably.",
+      "expected_enforcement": "Deterministic cleanup executes; cleanup_status recorded in receipt.",
+      "cleanup_status": "CLEANUP_SUCCESS",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "suite_version": "9.4.2",
+  "timestamp": "2026-11-04T07:32:08.327691+00:00",
+  "platform": "win32",
+  "os_version": "Windows 10/11 x64",
+  "total_attack_vectors": 14,
+  "contained_vectors": 14,
+  "vulnerable_vectors": 0,
+  "pass_rate_pct": 100.0,
+  "overall_verdict": "WINDOWS FILESYSTEM AND NETWORK ISOLATION VERIFIED",
+  "results": [
+    {
+      "test_id": "ADV-AC-01",
+      "name": "AppContainer Profile Lifecycle & SID Derivation",
+      "attack_vector": "Create userenv profile and verify well-formed S-1-15-2 SID format",
+      "expected_os_barrier": "userenv!CreateAppContainerProfile returns S_OK and valid AppContainer SID",
+      "observed_result": "Derived SID: S-1-15-2-2618893053-2936547191-3167923265-302746932-1950118374-4196996065-2539170880",
+      "contained": true,
+      "evidence": {
+        "sid": "S-1-15-2-2618893053-2936547191-3167923265-302746932-1950118374-4196996065-2539170880",
+        "hresult": 0
+      }
+    },
+    {
+      "test_id": "ADV-AC-02",
+      "name": "Low Mandatory Level & Deny-Only Admin Groups",
+      "attack_vector": "Inspect process security token attributes and integrity level",
+      "expected_os_barrier": "Mandatory Label\\Low Mandatory Level (S-1-16-4096) and S-1-5-32-544 deny-only",
+      "observed_result": "Low Mandatory Level: True, Admin Deny-Only: True",
+      "contained": true,
+      "evidence": {
+        "stdout_snippet": "\r\nUSER INFORMATION\r\n----------------\r\n\r\nUser Name                     SID                                         \r\n============================= ============================================\r\ndesktop-1ulgf16\\administrator S-1-5-21-3927822043-602086999-1184865301-500\r\n\r\n\r\nGROUP INFORMATION\r\n-----------------\r\n\r\nGroup Name                                                    Type             SID                                           Attributes                                        \r\n==========="
+      }
+    },
+    {
+      "test_id": "ADV-AC-03",
+      "name": "Raw TCP Socket Connect Denial (1.1.1.1:443)",
+      "attack_vector": "Direct TCP socket creation attempting external egress",
+      "expected_os_barrier": "Kernel afd.sys/tcpip.sys denial with WSAEACCES (10013)",
+      "observed_result": "OUTCOME:DENIED:PermissionError:[WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:PermissionError:[WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions",
+        "stderr": ""
+      }
+    },
+    {
+      "test_id": "ADV-AC-04",
+      "name": "Raw UDP Socket Egress Denial (8.8.8.8:53)",
+      "attack_vector": "Direct UDP socket sendto attempting external DNS exfiltration and inbound receipt",
+      "expected_os_barrier": "Kernel network isolation drops inbound packets (TimeoutError/WSAEACCES)",
+      "observed_result": "OUTCOME:DENIED:TimeoutError:timed out",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:TimeoutError:timed out",
+        "stderr": ""
+      }
+    },
+    {
+      "test_id": "ADV-AC-05",
+      "name": "Loopback Host Interception Denial",
+      "attack_vector": "Attempt to probe host localhost services without loopback exemption",
+      "expected_os_barrier": "Kernel loopback connect blocked or refused under AppContainer isolation",
+      "observed_result": "OUTCOME:DENIED:TimeoutError:timed out",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:TimeoutError:timed out"
+      }
+    },
+    {
+      "test_id": "ADV-AC-06",
+      "name": "DNS Name Resolution Denial via Kernel Socket Driver",
+      "attack_vector": "Attempt getaddrinfo resolution bypassing proxy settings",
+      "expected_os_barrier": "Kernel socket resolution denial resulting in gaierror 11001",
+      "observed_result": "OUTCOME:DENIED:gaierror:[Errno 11001] getaddrinfo failed",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:gaierror:[Errno 11001] getaddrinfo failed"
+      }
+    },
+    {
+      "test_id": "ADV-AC-07",
+      "name": "External User Filesystem Canary Read Denial",
+      "attack_vector": "Python open() on unauthorized secret file outside workspace and staging",
+      "expected_os_barrier": "NTFS DACL enforcement returning ERROR_ACCESS_DENIED (PermissionError 13)",
+      "observed_result": "OUTCOME:DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\crusor_canary_761c79\\\\external_secret.txt'",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\crusor_canary_761c79\\\\external_secret.txt'"
+      }
+    },
+    {
+      "test_id": "ADV-AC-08",
+      "name": "External Host Filesystem Write Denial",
+      "attack_vector": "Python open(..., 'w') attempting to drop file into %USERPROFILE%",
+      "expected_os_barrier": "NTFS DACL enforcement returning ERROR_ACCESS_DENIED (PermissionError 13)",
+      "observed_result": "OUTCOME:DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\pwned_e4cee7.txt'",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:DENIED:PermissionError:[Errno 13] Permission denied: 'C:\\\\Users\\\\Administrator\\\\pwned_e4cee7.txt'",
+        "file_created": false
+      }
+    },
+    {
+      "test_id": "ADV-AC-09",
+      "name": "Authorized Staging Directory Read/Write Conformance",
+      "attack_vector": "Worker creates and reads build artifacts inside staging jail",
+      "expected_os_barrier": "Success under AppContainer SID DACL grant on isolated staging directory",
+      "observed_result": "OUTCOME:STAGING_AUTHORIZED_OK",
+      "contained": true,
+      "evidence": {
+        "stdout": "OUTCOME:STAGING_AUTHORIZED_OK",
+        "stderr": "",
+        "exit_code": 0
+      }
+    },
+    {
+      "test_id": "ADV-AC-10",
+      "name": "Job Object Process Tree Termination (KILL_ON_JOB_CLOSE)",
+      "attack_vector": "Worker spawns child process and sleeps past timeout deadline",
+      "expected_os_barrier": "Job Object termination kills entire process tree upon timeout",
+      "observed_result": "Timed out: True, Exit Code: 124",
+      "contained": true,
+      "evidence": {
+        "timed_out": true,
+        "exit_code": 124
+      }
+    },
+    {
+      "test_id": "ADV-AC-11",
+      "name": "CPU Rate Quota Hard Cap Enforcement (80% Limit)",
+      "attack_vector": "Compute-heavy tight loop executed within Job Object rate limiter",
+      "expected_os_barrier": "Kernel Job Object CPU rate control throttles process without crashing",
+      "observed_result": "Exit Code: 0",
+      "contained": true,
+      "evidence": {
+        "exit_code": 0,
+        "stdout": "OUTCOME:SPUN_1018028"
+      }
+    },
+    {
+      "test_id": "ADV-AC-12",
+      "name": "Job Object Memory Quota & Peak Telemetry Query",
+      "attack_vector": "Execute standard worker and query PeakJobMemoryUsed via Win32 API",
+      "expected_os_barrier": "Accurate peak memory telemetry queried from Job Object counter",
+      "observed_result": "Peak Memory: 9777152 bytes",
+      "contained": true,
+      "evidence": {
+        "peak_memory_bytes": 9777152
+      }
+    },
+    {
+      "test_id": "ADV-AC-13",
+      "name": "Output Stream Byte Capping (1MB Stream Guard)",
+      "attack_vector": "Worker emits 2.5MB output stream to exhaust broker memory",
+      "expected_os_barrier": "Broker enforces 1MB cap and safely appends truncation notice",
+      "observed_result": "Captured: 2500002 bytes (Capped at 1048576)",
+      "contained": true,
+      "evidence": {
+        "stdout_bytes": 2500002
+      }
+    },
+    {
+      "test_id": "ADV-AC-14",
+      "name": "Zero Residual Profile Teardown Verification",
+      "attack_vector": "Create profile, execute worker, and verify complete deletion",
+      "expected_os_barrier": "userenv!DeleteAppContainerProfile leaves zero persistent profile artifacts",
+      "observed_result": "Creation HR: 0x0, Deletion HR: 0x0",
+      "contained": true,
+      "evidence": {
+        "create_hr": 0,
+        "delete_hr": 0
+      }
+    }
+  ]
+}

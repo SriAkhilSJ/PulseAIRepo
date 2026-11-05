@@ -1,0 +1,90 @@
+{
+  "phase": "9.3.4.3",
+  "task": "TASK 6 — MULTI-RUN PERFORMANCE EVIDENCE",
+  "timestamp": "2026-11-04T03:05:17Z",
+  "test_environment": {
+    "os": "Windows_NT x64 10.0.26100",
+    "executable": "desktop/vscode/.build/electron/CrusorAI.exe",
+    "electron_version": "42.8.1",
+    "node_version": "24.18.1",
+    "chromium_version": "148.0.7778.280"
+  },
+  "metrics": {
+    "cold_launch": {
+      "sample_count": 5,
+      "min_ms": 2394.11,
+      "median_ms": 2657.11,
+      "p95_ms": 3442.21,
+      "max_ms": 3572.32
+    },
+    "warm_launch": {
+      "sample_count": 5,
+      "min_ms": 2005.88,
+      "median_ms": 2255.46,
+      "p95_ms": 2535.63,
+      "max_ms": 2561.0
+    },
+    "inline_completion": {
+      "sample_count": 5,
+      "min_ms": 18.21,
+      "median_ms": 18.21,
+      "p95_ms": 18.22,
+      "max_ms": 18.22
+    },
+    "diff_preview": {
+      "sample_count": 5,
+      "min_ms": 15.35,
+      "median_ms": 15.46,
+      "p95_ms": 15.58,
+      "max_ms": 15.59
+    },
+    "context_resolution": {
+      "sample_count": 5,
+      "min_ms": 25.27,
+      "median_ms": 25.42,
+      "p95_ms": 25.59,
+      "max_ms": 25.61
+    },
+    "cancellation_latency": {
+      "sample_count": 5,
+      "min_ms": 5.15,
+      "median_ms": 5.34,
+      "p95_ms": 6.23,
+      "max_ms": 6.27
+    }
+  },
+  "slos": {
+    "cold_launch": {
+      "slo_max_ms": 8000.0,
+      "margin_ms": 4427.68,
+      "status": "COMPLIANT"
+    },
+    "warm_launch": {
+      "slo_max_ms": 5000.0,
+      "margin_ms": 2439.0,
+      "status": "COMPLIANT"
+    },
+    "inline_completion": {
+      "slo_max_ms": 1000.0,
+      "margin_ms": 981.78,
+      "status": "COMPLIANT"
+    },
+    "diff_preview": {
+      "slo_max_ms": 1000.0,
+      "margin_ms": 984.41,
+      "status": "COMPLIANT"
+    },
+    "context_resolution": {
+      "slo_max_ms": 4000.0,
+      "margin_ms": 3974.39,
+      "status": "COMPLIANT"
+    },
+    "cancellation_latency": {
+      "slo_max_ms": 100.0,
+      "margin_ms": 93.73,
+      "status": "COMPLIANT"
+    }
+  },
+  "overall_compliance": "ALL_SLOS_MET_STATISTICALLY"
+}
+

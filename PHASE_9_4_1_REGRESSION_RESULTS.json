@@ -1,0 +1,12 @@
+{
+  "phase": "9.4.1",
+  "timestamp": "2026-11-04T04:15:49.457660+00:00",
+  "adversarial_scenarios_total": 24,
+  "os_enforced_scenarios": 6,
+  "application_only_scenarios": 18,
+  "crash_recovery_scenarios_passed": "10/10",
+  "network_isolation_verdict": "PARTIAL \u2014 Direct TCP/UDP socket networking allowed at OS level",
+  "filesystem_isolation_verdict": "PARTIAL \u2014 Broker path jailing verified; OS DACL permits Medium-Integrity access",
+  "job_object_containment_verdict": "FULL \u2014 Memory ceiling (512MB), CPU quota (80%), Active Process Cap (10), Tree Termination (KILL_ON_JOB_CLOSE)",
+  "overall_verdict": "WINDOWS PROCESS CONTAINMENT VERIFIED \u2014 FILESYSTEM OR NETWORK GAPS REMAIN"
+}

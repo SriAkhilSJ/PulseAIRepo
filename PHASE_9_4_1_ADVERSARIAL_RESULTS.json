@@ -1,0 +1,154 @@
+{
+  "phase": "9.4.1",
+  "timestamp": "2026-11-04T04:15:49.457660+00:00",
+  "total_scenarios": 24,
+  "os_enforced_count": 6,
+  "application_only_count": 18,
+  "fail_count": 0,
+  "scenarios": [
+    {
+      "scenario_number": 1,
+      "name": "Workspace parent traversal",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 2,
+      "name": "Absolute path access",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 OS denied the operation"
+    },
+    {
+      "scenario_number": 3,
+      "name": "Symlink escape",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 4,
+      "name": "Junction or reparse-point escape on Windows",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 5,
+      "name": "SSH directory access attempt",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 6,
+      "name": "Credential file access attempt",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 7,
+      "name": "Environment secret access attempt",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 8,
+      "name": "Network connection attempt",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 9,
+      "name": "Child-process spawning",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 10,
+      "name": "Process-tree termination",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 process termination enforced by OS"
+    },
+    {
+      "scenario_number": 11,
+      "name": "Infinite execution timeout",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 process termination enforced by OS"
+    },
+    {
+      "scenario_number": 12,
+      "name": "Memory exhaustion",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 process termination enforced by OS"
+    },
+    {
+      "scenario_number": 13,
+      "name": "CPU exhaustion",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 process termination enforced by OS"
+    },
+    {
+      "scenario_number": 14,
+      "name": "Disk exhaustion / Staging isolation",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 15,
+      "name": "Excessive stdout",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 16,
+      "name": "Excessive stderr",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 17,
+      "name": "Cancellation during execution",
+      "raw_passed": true,
+      "formal_classification": "PASS \u2014 process termination enforced by OS"
+    },
+    {
+      "scenario_number": 18,
+      "name": "Workspace switching",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 19,
+      "name": "Forged approval",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 20,
+      "name": "Stale approval replay",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 21,
+      "name": "Broker crash recovery",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 22,
+      "name": "Worker crash handling",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 23,
+      "name": "Sandbox initialization failure",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    },
+    {
+      "scenario_number": 24,
+      "name": "Cleanup failure resilience",
+      "raw_passed": true,
+      "formal_classification": "PARTIAL \u2014 application-level rejection only"
+    }
+  ]
+}

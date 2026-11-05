@@ -1,0 +1,85 @@
+{
+  "phase": "9.3.4.3",
+  "task": "TASK 1 — UPSTREAM INVARIANT 7 RECONCILIATION",
+  "timestamp": "2026-11-04T03:07:00Z",
+  "manifest_path": "desktop/SELECTIVE_MANIFEST.json",
+  "upstream_repository": "https://github.com/microsoft/vscode",
+  "upstream_commit": "6c27443ce6fdf6ac798c64025d45175e2e23c4b4",
+  "custom_root": "src/vs/workbench/contrib/crusorai/",
+  "invariant_7_status": "STRICTLY_PRESERVED_ZERO_DRIFT",
+  "modified_upstream_files": [
+    {
+      "path": "build/buildfile.ts",
+      "upstream_sha256": "aa6bba8088e65560583c8426c609cc4b76f8910b1f52e210fed48d77220de9bc",
+      "overlay_sha256": "bca01aa1b2942cfdb2b79298812131f32f37525c1ccf530816e22e82bae15a47",
+      "role": "Build system bundle declaration for CrusorAI workbench contributions"
+    },
+    {
+      "path": "build/next/index.ts",
+      "upstream_sha256": "4e2b3a122788f4dd5dbd6b90ad764882e43caf78a927d136dcaf05836bfb27ea",
+      "overlay_sha256": "6ea3a4875fed3e361520143800c2a34d447741ca23dc2f6d422b3af7dceb9cd8",
+      "role": "Next-gen incremental build pipeline orchestrator"
+    },
+    {
+      "path": "product.json",
+      "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
+      "overlay_sha256": "c13255bd2b02e9f629632c576f5681d62c20f8d07a8b1586c31d7791f99af0f5",
+      "role": "Product branding, Open VSX marketplace gallery configuration, Copilot endpoint neutralization"
+    },
+    {
+      "path": "src/vs/workbench/workbench.common.main.ts",
+      "upstream_sha256": "d11142346b159434f4914d56e83b825917689f394089147a5182b8a70dbf1093",
+      "overlay_sha256": "9179afdb335cac1dcc1b8ab8dc2c5afa24b74eb506736099c33a2b43eebedd86",
+      "role": "First-party CrusorAI common workbench contribution registration point"
+    },
+    {
+      "path": "src/vs/workbench/workbench.desktop.main.ts",
+      "upstream_sha256": "712e88e07b41b8f515e58a76ed8268df1575acbbd1aea18ff84653fb6089bc17",
+      "overlay_sha256": "7a59061b567f71565f82def944bbe99f4d5aa60bf991330ccc3481f97d87fcf2",
+      "role": "First-party CrusorAI desktop workbench contribution registration point"
+    }
+  ],
+  "first_party_crusor_contribution_files": [
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAISessionController.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIAccount.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIToolCatalog.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIWorkbenchCapabilities.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIWorkbenchService.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.ts",
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.ts"
+  ],
+  "generated_files": [
+    "desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.ts",
+    "desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.js",
+    "desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json",
+    "desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH",
+    "desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json"
+  ],
+  "build_artifacts": [
+    "desktop/vscode/out/**/*.js",
+    "desktop/vscode/out/**/*.css",
+    "desktop/vscode/.build/electron/**/*"
+  ],
+  "discrepancy_resolution": {
+    "observation": "Phase 9.3.4.2 narrative text listed product.json and 4 contrib files (crusorAI.contribution.ts, crusorAIInlineCompletionProvider.ts, crusorAINextEditProvider.ts, crusorAIRenderer.ts) as the 5 upstream files.",
+    "root_cause": "The reporting author conflated the 5 TypeScript source files currently modified in the working tree with the 5 upstream files governed by Invariant 7.",
+    "reconciliation": "The 4 contrib files reside entirely inside custom_root (src/vs/workbench/contrib/crusorai/) and are first-party contribution files, not upstream modifications. The 5 true upstream files governed by SELECTIVE_MANIFEST.json are build/buildfile.ts, build/next/index.ts, product.json, src/vs/workbench/workbench.common.main.ts, and src/vs/workbench/workbench.desktop.main.ts. Upstream Invariant 7 has zero drift (verified by refresh_selective_manifest.py)."
+  }
+}
+

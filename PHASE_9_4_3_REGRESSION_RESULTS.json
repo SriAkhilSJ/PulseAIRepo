@@ -1,0 +1,295 @@
+{
+  "suite_version": "9.4.3",
+  "timestamp": "2026-11-04T08:47:07.094472+00:00",
+  "total_modules": 7,
+  "modules_passed": 7,
+  "total_tests": 53,
+  "total_passed": 53,
+  "total_failed": 0,
+  "total_skipped": 0,
+  "pass_rate_pct": 100.0,
+  "modules": [
+    {
+      "module": "src/tests/test_phase_9_3_4_2_workflows.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 3.562577,
+      "test_count": 12,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_inline_completion_sensitive_file_filtering",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_inline_completion_concurrency_and_timeout_bounds",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_inline_completion_stale_response_and_cancellation",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_inline_completion_deterministic_mock_backend",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_next_edit_state_machine_and_diff_pipeline",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_next_edit_predictor_heuristics",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_context_references_advertised_and_resolved",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_slash_commands_structured_dispatch_and_reset",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_reverse_rpc_security_allowlist_and_trust",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_safetyguard_fail_closed_contract",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_open_vsx_marketplace_configuration",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_2_workflows.py::test_copilot_network_endpoints_neutralized",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_3_4_3_security.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 3.343566,
+      "test_count": 9,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_approval_binding_session_and_request_id",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_approval_forged_booleans_rejected",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_approval_replay_rejected",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_approval_stale_timeout_fails_closed",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_approval_cancellation_fails_closed",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_workspace_identity_and_switching_refusal",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_mutating_tools_require_explicit_approval",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_safetyguard_fail_closed_on_errors",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_4_3_security.py::test_reverse_rpc_allowlist_completeness",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_3_5_reliability.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 6.440817,
+      "test_count": 9,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_task_completion_receipt_rejects_unverified_completed_claim",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_task_completion_receipt_marks_completed_only_when_validated",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_task_completion_receipt_handles_cancellation_and_blocked",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_validator_repository_lookup_pass_and_fail",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_validator_code_explanation_pass_and_fail",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_validator_refactoring_detects_test_breakage",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_validator_configuration_change",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_all_14_failure_classes_classified_accurately",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_3_5_reliability.py::test_decorated_langchain_tool_invocation_with_runnable_config",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_4_execution_sandbox.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 4.114915,
+      "test_count": 8,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_approval_token_cryptography_and_tamper_resistance",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_broker_rejects_missing_or_invalid_workspace",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_broker_stale_approval_token_replay_rejected",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_environment_sanitization_strips_secrets",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_path_containment_blocks_traversal_and_credentials",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_output_stream_byte_capping",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_timeout_and_cancellation",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_execution_sandbox.py::test_unsupported_platform_adapters_fail_closed",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_4_1_windows_boundary.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 2.98677,
+      "test_count": 5,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_4_1_windows_boundary.py::test_job_object_limits_queried_accurately",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_1_windows_boundary.py::test_security_identity_tokens_and_integrity",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_1_windows_boundary.py::test_filesystem_canary_distinction",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_1_windows_boundary.py::test_direct_socket_networking_proves_partial_verdict",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_1_windows_boundary.py::test_crash_recovery_and_cancellation",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_4_2_windows_isolation.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 3.719055,
+      "test_count": 5,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_4_2_windows_isolation.py::test_appcontainer_profile_lifecycle_and_sid_derivation",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_2_windows_isolation.py::test_appcontainer_process_token_and_integrity_level",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_2_windows_isolation.py::test_kernel_enforced_filesystem_denial_outside_staging",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_2_windows_isolation.py::test_kernel_enforced_network_denial_tcp_and_dns",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_2_windows_isolation.py::test_concurrent_job_object_and_appcontainer_containment",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    },
+    {
+      "module": "src/tests/test_phase_9_4_3_least_privilege.py",
+      "exit_code": 0,
+      "passed": true,
+      "duration_s": 7.621911,
+      "test_count": 5,
+      "test_cases": [
+        {
+          "nodeid": "src/tests/test_phase_9_4_3_least_privilege.py::test_per_container_staging_directory_isolation",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_3_least_privilege.py::test_three_zone_filesystem_model",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_3_least_privilege.py::test_workspace_acl_lifecycle_and_cleanup",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_3_least_privilege.py::test_direct_udp_egress_denial",
+          "outcome": "PASSED"
+        },
+        {
+          "nodeid": "src/tests/test_phase_9_4_3_least_privilege.py::test_controlled_loopback_isolation_against_active_listeners",
+          "outcome": "PASSED"
+        }
+      ],
+      "stderr_snippet": ""
+    }
+  ]
+}

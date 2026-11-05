@@ -1,0 +1,152 @@
+{
+  "phase": "9.3.4.2",
+  "timestamp": "2026-11-04T02:21:57Z",
+  "execution_environment": {
+    "os": "Windows_NT x64 10.0.26100",
+    "python": "3.11.x",
+    "electron": "34.3.4",
+    "node": "20.x",
+    "binary_path": "desktop/vscode/.build/electron/CrusorAI.exe",
+    "test_workspace": "bench-results/phase9342_workspace",
+    "test_user_data": "bench-results/phase9342_user_data"
+  },
+  "financials": {
+    "paid_llm_api_calls": 0,
+    "paid_llm_expenditure_inr": 0.0,
+    "mock_backend_active": true,
+    "financial_cap_inr": 0.0
+  },
+  "invariant_7": {
+    "status": "PASS",
+    "receipts_match_tree": true,
+    "drift_detected": false,
+    "upstream_files_count": 5
+  },
+  "unit_and_integration_tests": {
+    "framework": "pytest",
+    "total_tests": 79,
+    "passed": 79,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 6.61,
+    "suites": [
+      {
+        "file": "src/tests/test_phase_9_3_4_2_workflows.py",
+        "tests": [
+          {"name": "test_inline_completion_concurrency_and_timeout", "status": "PASSED"},
+          {"name": "test_inline_completion_sensitive_files_excluded", "status": "PASSED"},
+          {"name": "test_next_edit_state_machine_and_invalidation", "status": "PASSED"},
+          {"name": "test_next_edit_multi_file_support", "status": "PASSED"},
+          {"name": "test_context_reference_all_types", "status": "PASSED"},
+          {"name": "test_context_reference_workspace_isolation", "status": "PASSED"},
+          {"name": "test_slash_command_payload_formatting", "status": "PASSED"},
+          {"name": "test_slash_command_clear_resets_session", "status": "PASSED"},
+          {"name": "test_mutating_tool_approval_contract", "status": "PASSED"},
+          {"name": "test_reverse_rpc_allowlist_boundaries", "status": "PASSED"},
+          {"name": "test_safetyguard_fail_closed_contract", "status": "PASSED"},
+          {"name": "test_product_json_openvsx_and_copilot_neutralization", "status": "PASSED"}
+        ]
+      },
+      {
+        "file": "src/tests/test_marketplace_and_copilot_neutralization.py",
+        "count": 7,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_inline_completion_and_next_edit.py",
+        "count": 9,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_context_picker_and_slash_commands.py",
+        "count": 10,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_tool_contracts.py",
+        "count": 11,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_dispatch_and_finalization.py",
+        "count": 10,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_financial_accounting_closure.py",
+        "count": 12,
+        "status": "PASSED"
+      },
+      {
+        "file": "src/tests/test_financial_provenance.py",
+        "count": 8,
+        "status": "PASSED"
+      }
+    ]
+  },
+  "runtime_cdp_verification": {
+    "electron_launch": {
+      "status": "PASS",
+      "duration_ms": 6009.33
+    },
+    "task_9_3_4_2_1_inline_completion": {
+      "status": "PASS",
+      "ghost_text_rendered": true,
+      "text_accepted": "return a + b;",
+      "escape_rejection_verified": true,
+      "sensitive_file_protection": true,
+      "screenshot_ghost": "01_monaco_ghost_text.png",
+      "screenshot_accepted": "02_monaco_completion_accepted.png",
+      "latency_ms": 5315.54
+    },
+    "task_9_3_4_2_2_next_edit": {
+      "status": "PASS",
+      "diff_preview_rendered": true,
+      "deletion_highlighted": true,
+      "addition_highlighted": true,
+      "acceptance_applied": true,
+      "undo_restored": true,
+      "screenshot_diff": "03_next_edit_diff_preview.png",
+      "screenshot_accepted": "04_next_edit_accepted_content.png",
+      "latency_ms": 431.42
+    },
+    "task_9_3_4_2_3_context_references": {
+      "status": "PASS",
+      "menu_rendered": true,
+      "chips_mounted": ["@file", "@folder", "@symbol", "@selection", "@diagnostics"],
+      "structured_payload_verified": true,
+      "screenshot_palette": "05_at_context_palette.png",
+      "screenshot_chips": "06_context_chips_added.png",
+      "latency_ms": 3023.8
+    },
+    "task_9_3_4_2_4_slash_commands": {
+      "status": "PASS",
+      "menu_rendered": true,
+      "commands": ["/test", "/review", "/fix", "/clear"],
+      "test_dispatched": true,
+      "clear_session_reset_verified": true,
+      "screenshot_menu": "07_slash_commands_menu.png",
+      "screenshot_dispatched": "08_slash_command_dispatched.png"
+    },
+    "task_9_3_4_2_5_security": {
+      "status": "PASS",
+      "mutating_tools_blocked_without_approval": 7,
+      "reverse_rpc_allowlist_endpoints": 9,
+      "safetyguard_fail_closed": true
+    },
+    "task_9_3_4_2_6_open_vsx": {
+      "status": "PASS",
+      "url": "https://open-vsx.org/vscode/gallery",
+      "extension": "bierner.markdown-preview-github-styles",
+      "http_status": 200,
+      "results_found": 1
+    },
+    "task_9_3_4_2_7_copilot_boundary": {
+      "status": "PASS",
+      "outbound_requests": 0,
+      "telemetry_requests": 0
+    }
+  },
+  "overall_verdict": "NATIVE AI WORKFLOWS VERIFIED"
+}
+

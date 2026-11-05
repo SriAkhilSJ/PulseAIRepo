@@ -1,0 +1,730 @@
+{
+  "phase": "9.3.5",
+  "timestamp": "2026-11-04T03:26:36Z",
+  "total_scenarios": 20,
+  "task_completion_rate": "100.00%",
+  "validator_pass_rate": "100.00%",
+  "completed_tasks": 20,
+  "failed_tasks": 0,
+  "tool_invocation_success_rate": "100.00%",
+  "invalid_argument_rate": "0.00%",
+  "duplicate_invocation_rate": "0.00%",
+  "retry_count": 1,
+  "unnecessary_tool_calls": 0,
+  "finalization_success_rate": "100.00%",
+  "unauthorized_operation_rejections": 1,
+  "unintended_mutations": 0,
+  "scenarios": [
+    {
+      "task_id": "SCENARIO_01_LOOKUP_DB",
+      "category": "REPOSITORY_LOOKUP",
+      "objective": "Identify database URL resolution and engine instantiation mechanism.",
+      "receipt": {
+        "task_id": "SCENARIO_01_LOOKUP_DB",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Identify database URL resolution and engine instantiation mechanism.",
+        "category": "REPOSITORY_LOOKUP",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "REPOSITORY_LOOKUP",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {
+            "DATABASE_URL": "found",
+            "sqlite3\\.connect": "found"
+          }
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "d18e42cfd3cadc96634d4eb732325e61ce529248b44eebf61e4f245962d5c60e"
+      },
+      "validation": {
+        "passed": true,
+        "category": "REPOSITORY_LOOKUP",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_02_LOOKUP_AUTH",
+      "category": "REPOSITORY_LOOKUP",
+      "objective": "Locate user token authentication and signature verification functions.",
+      "receipt": {
+        "task_id": "SCENARIO_02_LOOKUP_AUTH",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Locate user token authentication and signature verification functions.",
+        "category": "REPOSITORY_LOOKUP",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "REPOSITORY_LOOKUP",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {
+            "decode_jwt_token": "found",
+            "verify_signature": "found"
+          }
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "6110c4ab1a2cf6b1cee25161ea5af203de14e3af0d7a14b177aa65bf8993e457"
+      },
+      "validation": {
+        "passed": true,
+        "category": "REPOSITORY_LOOKUP",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_03_LOOKUP_RATE_LIMIT",
+      "category": "REPOSITORY_LOOKUP",
+      "objective": "Identify rate limiter exception and client rate check logic.",
+      "receipt": {
+        "task_id": "SCENARIO_03_LOOKUP_RATE_LIMIT",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Identify rate limiter exception and client rate check logic.",
+        "category": "REPOSITORY_LOOKUP",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "REPOSITORY_LOOKUP",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {
+            "RateLimitExceeded": "found",
+            "check_rate_limit": "found"
+          }
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "153c844c3971e03f6434152dbecdc7bc183adb1020f20de9796876a5c8cde9db"
+      },
+      "validation": {
+        "passed": true,
+        "category": "REPOSITORY_LOOKUP",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_04_EXPLAIN_EVENT_BUS",
+      "category": "CODE_EXPLANATION",
+      "objective": "Explain thread-safe approval queue mechanics in event_bus.py.",
+      "receipt": {
+        "task_id": "SCENARIO_04_EXPLAIN_EVENT_BUS",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Explain thread-safe approval queue mechanics in event_bus.py.",
+        "category": "CODE_EXPLANATION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "CODE_EXPLANATION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {
+            "concepts": [
+              "threading.Condition",
+              "session_id",
+              "wait_for_decision"
+            ]
+          }
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "6fc13d52171cf69275cc76f4711142f5ad7181648fcbe684fceeda0c63955d77"
+      },
+      "validation": {
+        "passed": true,
+        "category": "CODE_EXPLANATION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_05_EXPLAIN_PROMPT_CACHE",
+      "category": "CODE_EXPLANATION",
+      "objective": "Explain prompt cache token tracking across Rate Cards.",
+      "receipt": {
+        "task_id": "SCENARIO_05_EXPLAIN_PROMPT_CACHE",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Explain prompt cache token tracking across Rate Cards.",
+        "category": "CODE_EXPLANATION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "CODE_EXPLANATION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {
+            "concepts": [
+              "RateCard",
+              "cache_read_tokens",
+              "cache_write_tokens"
+            ]
+          }
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "c814bdb12c12c239773692aa52c4829eb56f3af25074f1dc79a5d1d5409eb012"
+      },
+      "validation": {
+        "passed": true,
+        "category": "CODE_EXPLANATION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_06_DIAGNOSE_DIV_ZERO",
+      "category": "BUG_DIAGNOSIS",
+      "objective": "Diagnose zero division when samples array is empty in latency.py.",
+      "receipt": {
+        "task_id": "SCENARIO_06_DIAGNOSE_DIV_ZERO",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Diagnose zero division when samples array is empty in latency.py.",
+        "category": "BUG_DIAGNOSIS",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "BUG_DIAGNOSIS",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "441b6be7d5eed5f6c8be538109a0557351447a7195acb44592cd3c0fb6f13790"
+      },
+      "validation": {
+        "passed": true,
+        "category": "BUG_DIAGNOSIS",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_07_DIAGNOSE_CONFIG_KEY",
+      "category": "BUG_DIAGNOSIS",
+      "objective": "Diagnose KeyError on missing optional ssl_mode configuration.",
+      "receipt": {
+        "task_id": "SCENARIO_07_DIAGNOSE_CONFIG_KEY",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Diagnose KeyError on missing optional ssl_mode configuration.",
+        "category": "BUG_DIAGNOSIS",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "BUG_DIAGNOSIS",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "4e4f01b2380983f9dd65128065ed4d2d4d33b33e0a46f9aa7a3c0b7b0163b6e9"
+      },
+      "validation": {
+        "passed": true,
+        "category": "BUG_DIAGNOSIS",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_08_DIAGNOSE_FD_LEAK",
+      "category": "BUG_DIAGNOSIS",
+      "objective": "Diagnose resource leak where file handle remains unclosed.",
+      "receipt": {
+        "task_id": "SCENARIO_08_DIAGNOSE_FD_LEAK",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Diagnose resource leak where file handle remains unclosed.",
+        "category": "BUG_DIAGNOSIS",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "BUG_DIAGNOSIS",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "348647d57171330ed57e489e1cf99b6235b1b7e3b8c5a4d70701c2673f4346bf"
+      },
+      "validation": {
+        "passed": true,
+        "category": "BUG_DIAGNOSIS",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_09_FIX_PAGINATION",
+      "category": "SINGLE_FILE_CORRECTION",
+      "objective": "Ensure pagination slice bounds are correct and verify via pytest.",
+      "receipt": {
+        "task_id": "SCENARIO_09_FIX_PAGINATION",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Ensure pagination slice bounds are correct and verify via pytest.",
+        "category": "SINGLE_FILE_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "SINGLE_FILE_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:27Z",
+        "evidence_hash": "a15a7fb5cf2f421cc3942980c4e3adbee28ce6e8fc394e3acbed893edef3fff3"
+      },
+      "validation": {
+        "passed": true,
+        "category": "SINGLE_FILE_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_10_FIX_FORMATTER",
+      "category": "SINGLE_FILE_CORRECTION",
+      "objective": "Handle None safely when formatting user display names.",
+      "receipt": {
+        "task_id": "SCENARIO_10_FIX_FORMATTER",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Handle None safely when formatting user display names.",
+        "category": "SINGLE_FILE_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "SINGLE_FILE_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:28Z",
+        "evidence_hash": "8412b220b568865613857be42bac4ca9373273757db6c83cc4566de06cbc45f0"
+      },
+      "validation": {
+        "passed": true,
+        "category": "SINGLE_FILE_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_11_FIX_TIME_UTILS",
+      "category": "SINGLE_FILE_CORRECTION",
+      "objective": "Ensure timezone-aware UTC datetime representation.",
+      "receipt": {
+        "task_id": "SCENARIO_11_FIX_TIME_UTILS",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Ensure timezone-aware UTC datetime representation.",
+        "category": "SINGLE_FILE_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "SINGLE_FILE_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:30Z",
+        "evidence_hash": "c7f05800572ca63ea8ed3175a158ab25628a70842ab59680bffac284bbc97dc8"
+      },
+      "validation": {
+        "passed": true,
+        "category": "SINGLE_FILE_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_12_MULTI_API_CONTRACT",
+      "category": "MULTI_FILE_CORRECTION",
+      "objective": "Align bearer_token naming across api_client.py and api_server.py.",
+      "receipt": {
+        "task_id": "SCENARIO_12_MULTI_API_CONTRACT",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Align bearer_token naming across api_client.py and api_server.py.",
+        "category": "MULTI_FILE_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "MULTI_FILE_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:31Z",
+        "evidence_hash": "dd70f8953d0237ebd3a6362febcb43812ddcb2f2434b9c5d44d7df33c5e00ae5"
+      },
+      "validation": {
+        "passed": true,
+        "category": "MULTI_FILE_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_13_MULTI_METRICS_SYNC",
+      "category": "MULTI_FILE_CORRECTION",
+      "objective": "Synchronize p99 calculation between metrics_calc and metrics_agg.",
+      "receipt": {
+        "task_id": "SCENARIO_13_MULTI_METRICS_SYNC",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Synchronize p99 calculation between metrics_calc and metrics_agg.",
+        "category": "MULTI_FILE_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "MULTI_FILE_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:33Z",
+        "evidence_hash": "48b4f50cae78561ad8d1b0c456d4db2244a6c6ef4846929a6ebd97448859f21c"
+      },
+      "validation": {
+        "passed": true,
+        "category": "MULTI_FILE_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_14_TEST_DISCOVERY_FILES",
+      "category": "TEST_DISCOVERY",
+      "objective": "Discover all test suites across the workspace.",
+      "receipt": {
+        "task_id": "SCENARIO_14_TEST_DISCOVERY_FILES",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Discover all test suites across the workspace.",
+        "category": "TEST_DISCOVERY",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "TEST_DISCOVERY",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:34Z",
+        "evidence_hash": "8576fd32f02b0c079e0024107df1e49b6cf6ebab679ac16f91266f5754752761"
+      },
+      "validation": {
+        "passed": true,
+        "category": "TEST_DISCOVERY",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_15_TEST_DISCOVERY_CASES",
+      "category": "TEST_DISCOVERY",
+      "objective": "Discover test cases declared in test_calculator.py.",
+      "receipt": {
+        "task_id": "SCENARIO_15_TEST_DISCOVERY_CASES",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Discover test cases declared in test_calculator.py.",
+        "category": "TEST_DISCOVERY",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "TEST_DISCOVERY",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:34Z",
+        "evidence_hash": "08af85d27cc3aa64535a25536fe13bb23c45c75eb629cc86cc4561baf1fdbdcc"
+      },
+      "validation": {
+        "passed": true,
+        "category": "TEST_DISCOVERY",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_16_TEST_EXECUTION",
+      "category": "TEST_EXECUTION",
+      "objective": "Execute test_calculator.py and verify test count.",
+      "receipt": {
+        "task_id": "SCENARIO_16_TEST_EXECUTION",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Execute test_calculator.py and verify test count.",
+        "category": "TEST_EXECUTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "TEST_EXECUTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:34Z",
+        "evidence_hash": "6e5ff76170590a0f676d42dda4bbe38b2977d02b4e99d39c58a1a56cd7326cbf"
+      },
+      "validation": {
+        "passed": true,
+        "category": "TEST_EXECUTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_17_TS_DIAGNOSTICS",
+      "category": "TYPESCRIPT_CORRECTION",
+      "objective": "Verify TypeScript declaration clean without syntax errors.",
+      "receipt": {
+        "task_id": "SCENARIO_17_TS_DIAGNOSTICS",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Verify TypeScript declaration clean without syntax errors.",
+        "category": "TYPESCRIPT_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "TYPESCRIPT_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:34Z",
+        "evidence_hash": "682349193dc4b2eaab8a370fcb1190ef04d436462e40165e74aaae33a7e94902"
+      },
+      "validation": {
+        "passed": true,
+        "category": "TYPESCRIPT_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_18_PY_DIAGNOSTICS",
+      "category": "PYTHON_CORRECTION",
+      "objective": "Resolve compute function syntax and verify execution.",
+      "receipt": {
+        "task_id": "SCENARIO_18_PY_DIAGNOSTICS",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Resolve compute function syntax and verify execution.",
+        "category": "PYTHON_CORRECTION",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {
+          "category": "PYTHON_CORRECTION",
+          "failure_reasons": [],
+          "unintended_modifications": [],
+          "extracted_evidence": {}
+        },
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:34Z",
+        "evidence_hash": "d327b4e644cce3089ce75dc5e8d3aa953800f816c494bcac747f55292d0659ba"
+      },
+      "validation": {
+        "passed": true,
+        "category": "PYTHON_CORRECTION",
+        "failure_reasons": [],
+        "unintended_modifications": []
+      }
+    },
+    {
+      "task_id": "SCENARIO_19_RECOVERY_IMPORT_ERROR",
+      "category": "FAILURE_RECOVERY",
+      "objective": "Verify non-retryable import error fails closed immediately.",
+      "receipt": {
+        "task_id": "SCENARIO_19_RECOVERY_IMPORT_ERROR",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Verify non-retryable import error fails closed immediately.",
+        "category": "FAILURE_RECOVERY",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {},
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:36Z",
+        "evidence_hash": ""
+      },
+      "validation": {
+        "passed": true,
+        "category": "FAILURE_RECOVERY",
+        "failure_class": "IMPORT_ERRORS",
+        "is_retryable": false
+      }
+    },
+    {
+      "task_id": "SCENARIO_20_CIRCUIT_BREAKER_DUPLICATE",
+      "category": "FAILURE_RECOVERY",
+      "objective": "Verify circuit breaker trips on consecutive identical invalid tool calls.",
+      "receipt": {
+        "task_id": "SCENARIO_20_CIRCUIT_BREAKER_DUPLICATE",
+        "session_id": "session_bench_935",
+        "workspace_root": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\bench-results\\phase935_reliability\\workspace",
+        "requested_objective": "Verify circuit breaker trips on consecutive identical invalid tool calls.",
+        "category": "FAILURE_RECOVERY",
+        "current_stage": "FINALIZATION",
+        "files_inspected": [],
+        "files_modified": [],
+        "tools_executed": [],
+        "test_commands": [],
+        "test_results": [],
+        "validation_status": "PASSED",
+        "validation_details": {},
+        "unresolved_failures": [],
+        "completion_verdict": "COMPLETED",
+        "timestamp": "2026-11-04T03:26:36Z",
+        "evidence_hash": ""
+      },
+      "validation": {
+        "passed": true,
+        "category": "FAILURE_RECOVERY",
+        "circuit_broken": true,
+        "abort_reason": "Circuit breaker tripped: tool 'edit_file' previously failed with the exact same arguments. Aborting repeat invocation to prevent infinite doom loop. All retry attempts preserved in accounting."
+      }
+    }
+  ]
+}

@@ -1,0 +1,109 @@
+{
+  "phase": "9.3.5",
+  "timestamp": "2026-11-04T03:30:00Z",
+  "execution_environment": {
+    "os": "Windows_NT x64 10.0.26100",
+    "python": "3.11.9",
+    "pytest": "9.0.2",
+    "electron": "42.8.1",
+    "node": "24.18.1"
+  },
+  "financial_audit": {
+    "paid_llm_api_calls": 0,
+    "paid_llm_expenditure_inr": 0.0,
+    "mock_backend_active": true,
+    "authorized_budget_inr": 0.0
+  },
+  "benchmark_summary": {
+    "total_scenarios": 20,
+    "completed_tasks": 20,
+    "failed_tasks": 0,
+    "task_completion_rate": "100.00%",
+    "validator_pass_rate": "100.00%",
+    "tool_invocation_success_rate": "100.00%",
+    "invalid_argument_rate": "0.00%",
+    "duplicate_invocation_rate": "0.00%",
+    "retry_count": 1,
+    "unnecessary_tool_calls": 0,
+    "finalization_success_rate": "100.00%",
+    "unauthorized_operation_rejections": 1,
+    "unintended_mutations": 0
+  },
+  "regression_test_suites": {
+    "framework": "pytest",
+    "total_collected": 119,
+    "passed": 119,
+    "failed": 0,
+    "duration_seconds": 9.46,
+    "test_files": [
+      {
+        "path": "src/tests/test_phase_9_3_5_reliability.py",
+        "count": 9,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_phase_9_3_4_3_security.py",
+        "count": 9,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_phase_9_3_4_2_workflows.py",
+        "count": 12,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_desktop_contrib_overlay.py",
+        "count": 6,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_marketplace_and_copilot_neutralization.py",
+        "count": 5,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_inline_completion_and_next_edit.py",
+        "count": 5,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_context_picker_and_slash_commands.py",
+        "count": 5,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_tool_contracts.py",
+        "count": 14,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_dispatch_and_finalization.py",
+        "count": 19,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_financial_accounting_closure.py",
+        "count": 10,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_financial_provenance.py",
+        "count": 9,
+        "status": "ALL_PASSED"
+      },
+      {
+        "path": "src/tests/test_task_validation_and_retry.py",
+        "count": 16,
+        "status": "ALL_PASSED"
+      }
+    ]
+  },
+  "invariant_7_verification": {
+    "status": "PASS",
+    "receipts_match_tree": true,
+    "drift_detected": false,
+    "upstream_files_count": 5
+  },
+  "overall_verdict": "AGENT TASK RELIABILITY VERIFIED"
+}
+

@@ -1,0 +1,437 @@
+=== CRUSOR AI IDE - PHASE 9.3.5.1 GIT STATE EVIDENCE ===
+
+================================================================================
+COMMAND: git rev-parse --show-toplevel
+EXIT CODE: 0
+STDOUT:
+C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo
+STDERR:
+<empty>
+
+
+================================================================================
+COMMAND: git branch --show-current
+EXIT CODE: 0
+STDOUT:
+feat/prompt-cache-stabilization
+STDERR:
+<empty>
+
+
+================================================================================
+COMMAND: git rev-parse HEAD
+EXIT CODE: 0
+STDOUT:
+0946248245b3173d19a3000c11253027b95952ab
+STDERR:
+<empty>
+
+
+================================================================================
+COMMAND: git status --short --branch
+EXIT CODE: 0
+STDOUT:
+## feat/prompt-cache-stabilization
+ M desktop/SELECTIVE_MANIFEST.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIAccount.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISessionController.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIToolCatalog.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.js
+ M desktop/vscode/product.json
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M diagnostics/LATEST_PERFORMANCE_AUDIT.md
+ M diagnostics/PERFORMANCE_REPORT_default.md
+ M src/agents/cost_governance.py
+ M src/agents/financial_store.py
+ M src/agents/planner.py
+ M src/context/compaction.py
+ M src/context/core/context_builder.py
+ M src/context/core/context_engine.py
+ M src/context/history_shaper.py
+ M src/context/indexing/__init__.py
+ M src/context/indexing/chunk_index.py
+ M src/context/ranking/layer_policy.py
+ M src/context/repo_map.py
+ M src/context/token_tracker.py
+ M src/graphs/chat_graph.py
+ M src/graphs/parallel_tools.py
+ M src/llm/factory.py
+ M src/prompts/claude_persona.py
+ M src/runtime/argument_normalizer.py
+ M src/telemetry/call_ledger.py
+ M src/telemetry/pricing.py
+ M src/tests/test_execution_phases.py
+ M src/tests/test_pricing.py
+ M src/tests/test_prompt_cache_stabilization.py
+ M src/tests/test_toolsets.py
+ M src/tools/code_exec_tool.py
+ M src/tools/file_tools.py
+ M src/tools/inline_completions.py
+ M src/tools/read_cache.py
+ M src/tools/toolsets.py
+?? PHASE_9_3_4_1_RAW_TEST_EVIDENCE.md
+?? PHASE_9_3_4_1_RUNTIME_ACCEPTANCE_REPORT.md
+?? PHASE_9_3_4_1_SECURITY_VERIFICATION.md
+?? PHASE_9_3_4_2_IMPLEMENTATION_CHANGELOG.md
+?? PHASE_9_3_4_2_PERFORMANCE_REPORT.md
+?? PHASE_9_3_4_2_RAW_TEST_RESULTS.json
+?? PHASE_9_3_4_2_RUNTIME_EVIDENCE.md
+?? PHASE_9_3_4_2_SECURITY_VERIFICATION.md
+?? PHASE_9_3_4_2_WORKFLOW_VERIFICATION.md
+?? PHASE_9_3_4_3_FINAL_CLOSURE_REPORT.md
+?? PHASE_9_3_4_3_INVARIANT7_RECONCILIATION.json
+?? PHASE_9_3_4_3_MARKETPLACE_EVIDENCE.md
+?? PHASE_9_3_4_3_PERFORMANCE_EVIDENCE.json
+?? PHASE_9_3_4_3_RAW_TEST_RESULTS.json
+?? PHASE_9_3_4_3_SECURITY_EVIDENCE.md
+?? PHASE_9_3_5_BASELINE_AUDIT.md
+?? PHASE_9_3_5_CHANGELOG.md
+?? PHASE_9_3_5_IMPLEMENTATION_REPORT.md
+?? PHASE_9_3_5_RAW_TEST_RESULTS.json
+?? PHASE_9_3_5_RELIABILITY_BENCHMARK.md
+?? PHASE_9_3_5_SECURITY_VERIFICATION.md
+?? PHASE_9_3_5_TASK_VALIDATION_EVIDENCE.json
+?? authoritative_live_economics_ledger_phase931.csv
+?? authoritative_live_economics_ledger_phase931.json
+?? authoritative_live_economics_ledger_phase932.csv
+?? authoritative_live_economics_ledger_phase932.json
+?? benchmark_economics_phase930.json
+?? benchmark_results_phase92251.json
+?? diagnostic_corpus_replay_summary.json
+?? diagnostics/PERFORMANCE_REPORT_s-wd.md
+?? diagnostics/PERFORMANCE_REPORT_t1.md
+?? diagnostics/PERFORMANCE_REPORT_test_exhaustion_safety.md
+?? fixtures/
+?? live_economics_ledger_phase931.json
+?? live_economics_ledger_phase932.json
+?? reconciled_phase931_request_ledger.csv
+?? reconciled_phase931_request_ledger.json
+?? request_level_ledger_claude.json
+?? request_level_ledger_gpt4o.json
+?? scripts/benchmark_eager_compaction.py
+?? scripts/benchmark_phase_9_3_0_agent_economics.py
+?? scripts/create_test_workspace.py
+?? scripts/dump_raw_ledger_records.py
+?? scripts/export_phase932_telemetry.py
+?? scripts/extract_authoritative_ledger.py
+?? scripts/find_config_uses.py
+?? scripts/generate_authoritative_exports.py
+?? scripts/generate_request_level_finops_ledger.py
+?? scripts/inspect_edit_file_contract.py
+?? scripts/inspect_model_args.py
+?? scripts/inspect_phase931_raw.py
+?? scripts/inspect_phase931_report.py
+?? scripts/inspect_phase932_results.py
+?? scripts/inspect_session_details.py
+?? scripts/measure_phase_9_3_4_3_performance.py
+?? scripts/patch_extract_workspace_fail_closed.py
+?? scripts/patch_file_tools.py
+?? scripts/patch_mock_inline_completions.py
+?? scripts/reconcile_all_rate_cards.py
+?? scripts/reconcile_and_three_way_finops.py
+?? scripts/reconcile_arithmetic.py
+?? scripts/reconcile_phase931_finops.py
+?? scripts/replay_diagnostic_corpus.py
+?? scripts/restore_read_resolve.py
+?? scripts/run_live_economics_benchmark.py
+?? scripts/run_phase_9_3_5_reliability_benchmark.py
+?? scripts/test_desktop_playwright_acceptance.py
+?? scripts/test_edit_file_call.py
+?? scripts/test_long_session_stability.py
+?? scripts/test_phase_9_3_4_2_runtime_e2e.py
+?? scripts/transpile_crusorai.mjs
+?? scripts/update_benchmark_script.py
+?? scripts/update_file_tools_guidance.py
+?? scripts/update_task_validation_patterns.py
+?? scripts/verify_phase_9_3_4_1_runtime.mjs
+?? scripts/verify_phase_9_3_4_3_context_and_commands.py
+?? scripts/verify_session_sums.py
+?? src/context/complexity.py
+?? src/graphs/task_validation.py
+?? src/runtime/retry_controller.py
+?? src/tests/test_cache_write_accounting.py
+?? src/tests/test_context_gating_safety.py
+?? src/tests/test_context_picker_and_slash_commands.py
+?? src/tests/test_dispatch_and_finalization.py
+?? src/tests/test_dynamic_context_gating.py
+?? src/tests/test_eager_history_compaction.py
+?? src/tests/test_file_range_ingestion.py
+?? src/tests/test_financial_accounting_closure.py
+?? src/tests/test_financial_provenance.py
+?? src/tests/test_inline_completion_and_next_edit.py
+?? src/tests/test_marketplace_and_copilot_neutralization.py
+?? src/tests/test_phase_9_3_4_2_workflows.py
+?? src/tests/test_phase_9_3_4_3_security.py
+?? src/tests/test_phase_9_3_5_reliability.py
+?? src/tests/test_provider_usage_normalization.py
+?? src/tests/test_pseudo_tool_deprecation.py
+?? src/tests/test_safe_parallel_execution.py
+?? src/tests/test_task_validation_and_retry.py
+?? src/tests/test_tool_contracts.py
+STDERR:
+<empty>
+
+
+================================================================================
+COMMAND: git status --porcelain=v2
+EXIT CODE: 0
+STDOUT:
+1 .M N... 100644 100644 100644 17018bbc3e6156a2d4954ac9c496b85fbabbf114 17018bbc3e6156a2d4954ac9c496b85fbabbf114 desktop/SELECTIVE_MANIFEST.json
+1 .M N... 100644 100644 100644 39dc8fd154b80edf9f15ea7d905e87f5939d4edd 39dc8fd154b80edf9f15ea7d905e87f5939d4edd desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json
+1 .M N... 100644 100644 100644 96e080911096c173f91ad200e7ae5fd41ca0abbc 96e080911096c173f91ad200e7ae5fd41ca0abbc desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH
+1 .M N... 100644 100644 100644 1ac2d07d21532fa2250b0aca7437b6768c654702 1ac2d07d21532fa2250b0aca7437b6768c654702 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json
+1 .M N... 100644 100644 100644 3bca04586b1ee9700cb03b9c4ec6fbcb06e26cb1 3bca04586b1ee9700cb03b9c4ec6fbcb06e26cb1 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.js
+1 .M N... 100644 100644 100644 c10e56fdf5939e48e3a9ab82364045b8b5aec845 c10e56fdf5939e48e3a9ab82364045b8b5aec845 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.js
+1 .M N... 100644 100644 100644 a0c30603810d9f8a0dd2b1c986333ad126595d0a a0c30603810d9f8a0dd2b1c986333ad126595d0a desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIAccount.js
+1 .M N... 100644 100644 100644 a6ff80411708df2da8c35aa47f0fd8fb86e8476a a6ff80411708df2da8c35aa47f0fd8fb86e8476a desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.js
+1 .M N... 100644 100644 100644 72fb0774b04023d77d626754cd1ff1381a920115 72fb0774b04023d77d626754cd1ff1381a920115 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.js
+1 .M N... 100644 100644 100644 b399e428c632d409377187d1030c0d707c2e895d b399e428c632d409377187d1030c0d707c2e895d desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.js
+1 .M N... 100644 100644 100644 f2e121b3b978d0bd41775f20482c535384c97cdc f2e121b3b978d0bd41775f20482c535384c97cdc desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.js
+1 .M N... 100644 100644 100644 08d549672a7bd41d6c68fdfccdb263cf67e04bf3 08d549672a7bd41d6c68fdfccdb263cf67e04bf3 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.js
+1 .M N... 100644 100644 100644 1fb7908bf838ae04cf98a489712552761e396ac1 1fb7908bf838ae04cf98a489712552761e396ac1 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js
+1 .M N... 100644 100644 100644 368f81a957842271d6b47724b3052696f5230277 368f81a957842271d6b47724b3052696f5230277 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js
+1 .M N... 100644 100644 100644 e7dcbd468969dce706eab938e4cad4cde8bde366 e7dcbd468969dce706eab938e4cad4cde8bde366 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.js
+1 .M N... 100644 100644 100644 893ff73ba499a14ee36df26353ee3eff267c1a32 893ff73ba499a14ee36df26353ee3eff267c1a32 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISessionController.js
+1 .M N... 100644 100644 100644 132b708676ae58a182e3e29c6d08bbcf96ca7efd 132b708676ae58a182e3e29c6d08bbcf96ca7efd desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.js
+1 .M N... 100644 100644 100644 2bc80d9f3343cdbefdf44b46e0b35e0083d5f77b 2bc80d9f3343cdbefdf44b46e0b35e0083d5f77b desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.js
+1 .M N... 100644 100644 100644 8d642b477858db6941a7d81816b848d81249f18f 8d642b477858db6941a7d81816b848d81249f18f desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.js
+1 .M N... 100644 100644 100644 e7dc7726817f4dea0723b4cd37f577cc6232d231 e7dc7726817f4dea0723b4cd37f577cc6232d231 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.js
+1 .M N... 100644 100644 100644 a0a57db696d5fbe945aad4355a695e4a48e7e052 a0a57db696d5fbe945aad4355a695e4a48e7e052 desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css
+1 .M N... 100644 100644 100644 a9a4c65d97e57888ce06cc26a4a0518d1da9a72c a9a4c65d97e57888ce06cc26a4a0518d1da9a72c desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+1 .M N... 100644 100644 100644 b0b73abb2797b65bba3ba7271e51b5d5437e0351 b0b73abb2797b65bba3ba7271e51b5d5437e0351 desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.js
+1 .M N... 100644 100644 100644 67af4e4beba7dff8e95464fb2f7f82a6940dd608 67af4e4beba7dff8e95464fb2f7f82a6940dd608 desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIToolCatalog.js
+1 .M N... 100644 100644 100644 4cb44fe80e30226efb80f652dde9f38beb2ad7ae 4cb44fe80e30226efb80f652dde9f38beb2ad7ae desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.js
+1 .M N... 100644 100644 100644 aabae3c442879bcdec9ebe0dae1ac243916c9cd8 aabae3c442879bcdec9ebe0dae1ac243916c9cd8 desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.js
+1 .M N... 100644 100644 100644 fb0a82cd2ed28f46dabecaa4a5c895bf0ec1be36 fb0a82cd2ed28f46dabecaa4a5c895bf0ec1be36 desktop/vscode/product.json
+1 .M N... 100644 100644 100644 b7212c2e406b104cb4ed0c2b92cbe277b2c045d6 b7212c2e406b104cb4ed0c2b92cbe277b2c045d6 desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts
+1 .M N... 100644 100644 100644 5482e228baddc425fb7e4ce0404be9631b1b1db9 5482e228baddc425fb7e4ce0404be9631b1b1db9 desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.ts
+1 .M N... 100644 100644 100644 ec0272308fea657efa8f7ea97282a978eba552df ec0272308fea657efa8f7ea97282a978eba552df desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.ts
+1 .M N... 100644 100644 100644 0b15b3ee410dec644fe9e3f3bddc75a1a337825e 0b15b3ee410dec644fe9e3f3bddc75a1a337825e desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
+1 .M N... 100644 100644 100644 8174a1c24cc2b82bc4360730ec66dbda2551f3bd 8174a1c24cc2b82bc4360730ec66dbda2551f3bd desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts
+1 .M N... 100644 100644 100644 a9a4c65d97e57888ce06cc26a4a0518d1da9a72c a9a4c65d97e57888ce06cc26a4a0518d1da9a72c desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+1 .M N... 100644 100644 100644 e2991fc534a042e3585409b8c85a3ff13c4deda4 e2991fc534a042e3585409b8c85a3ff13c4deda4 diagnostics/LATEST_PERFORMANCE_AUDIT.md
+1 .M N... 100644 100644 100644 e2991fc534a042e3585409b8c85a3ff13c4deda4 e2991fc534a042e3585409b8c85a3ff13c4deda4 diagnostics/PERFORMANCE_REPORT_default.md
+1 .M N... 100644 100644 100644 d293a018b7a140f48f770983c6e514a52e4fb4c6 d293a018b7a140f48f770983c6e514a52e4fb4c6 src/agents/cost_governance.py
+1 .M N... 100644 100644 100644 7b32bbb62ae93a844ce52af52ae22d8f80ac5397 7b32bbb62ae93a844ce52af52ae22d8f80ac5397 src/agents/financial_store.py
+1 .M N... 100644 100644 100644 7d5d12e0b1c7e458a7c5e1d42d389c106a8cd152 7d5d12e0b1c7e458a7c5e1d42d389c106a8cd152 src/agents/planner.py
+1 .M N... 100644 100644 100644 a0ad24c29d39a2fa9063480487fce5d5c28677df a0ad24c29d39a2fa9063480487fce5d5c28677df src/context/compaction.py
+1 .M N... 100644 100644 100644 1b1d9e0ffb5ad1924d0bf06a75b6daf395c90de4 1b1d9e0ffb5ad1924d0bf06a75b6daf395c90de4 src/context/core/context_builder.py
+1 .M N... 100644 100644 100644 7efa2c4c23a5c3704765df66a08f654d8338bf4f 7efa2c4c23a5c3704765df66a08f654d8338bf4f src/context/core/context_engine.py
+1 .M N... 100644 100644 100644 9371b1f24d21efc65cd6f8edf8ce539a5550badf 9371b1f24d21efc65cd6f8edf8ce539a5550badf src/context/history_shaper.py
+1 .M N... 100644 100644 100644 04bdc8301ecdbdc6abb67cb375ffc5f661465304 04bdc8301ecdbdc6abb67cb375ffc5f661465304 src/context/indexing/__init__.py
+1 .M N... 100644 100644 100644 a7334e8b5ca185618ce20e67318ddbc5107bc487 a7334e8b5ca185618ce20e67318ddbc5107bc487 src/context/indexing/chunk_index.py
+1 .M N... 100644 100644 100644 9b0d99bce15aed31488f94776eeb3b4baecb32bb 9b0d99bce15aed31488f94776eeb3b4baecb32bb src/context/ranking/layer_policy.py
+1 .M N... 100644 100644 100644 8a45cd6354c27ec4e17dad6d4d3629aa134cff1f 8a45cd6354c27ec4e17dad6d4d3629aa134cff1f src/context/repo_map.py
+1 .M N... 100644 100644 100644 bba79a5d8224c424a3656c7da33cc96450503d18 bba79a5d8224c424a3656c7da33cc96450503d18 src/context/token_tracker.py
+1 .M N... 100644 100644 100644 9a242acff79a34d28cc2ff1441108537989f25a3 9a242acff79a34d28cc2ff1441108537989f25a3 src/graphs/chat_graph.py
+1 .M N... 100644 100644 100644 aed64b3662c6f2574ded7a0d77312b3c6618124b aed64b3662c6f2574ded7a0d77312b3c6618124b src/graphs/parallel_tools.py
+1 .M N... 100644 100644 100644 6d5f21d520fd3eba6432e40c0f9bce848fa77cfc 6d5f21d520fd3eba6432e40c0f9bce848fa77cfc src/llm/factory.py
+1 .M N... 100644 100644 100644 c82f7c81033c1260e851e3e2c9cc24b6a9c91e17 c82f7c81033c1260e851e3e2c9cc24b6a9c91e17 src/prompts/claude_persona.py
+1 .M N... 100644 100644 100644 b6a4a20ec0cbef0c0abe0682dac896b6d4e95983 b6a4a20ec0cbef0c0abe0682dac896b6d4e95983 src/runtime/argument_normalizer.py
+1 .M N... 100644 100644 100644 aa396e75e3f66261f75e07d1681d72a8fc1ce3a3 aa396e75e3f66261f75e07d1681d72a8fc1ce3a3 src/telemetry/call_ledger.py
+1 .M N... 100644 100644 100644 2788c3c44af3ab83969f5573ffdb46e5d30dfb2b 2788c3c44af3ab83969f5573ffdb46e5d30dfb2b src/telemetry/pricing.py
+1 .M N... 100644 100644 100644 e0a1fdc518f80f69e1b57deb5bd40a7a8ee129be e0a1fdc518f80f69e1b57deb5bd40a7a8ee129be src/tests/test_execution_phases.py
+1 .M N... 100644 100644 100644 8cc1d212806de5b903304545900f04c8b18538c9 8cc1d212806de5b903304545900f04c8b18538c9 src/tests/test_pricing.py
+1 .M N... 100644 100644 100644 dd17f938871971bfe2fa3a53f3072a479c7aa473 dd17f938871971bfe2fa3a53f3072a479c7aa473 src/tests/test_prompt_cache_stabilization.py
+1 .M N... 100644 100644 100644 a5b694ed274caeb71c531cd0742958757809269f a5b694ed274caeb71c531cd0742958757809269f src/tests/test_toolsets.py
+1 .M N... 100644 100644 100644 a277ba2fd03675a758505e08bd2acc1c10aef867 a277ba2fd03675a758505e08bd2acc1c10aef867 src/tools/code_exec_tool.py
+1 .M N... 100644 100644 100644 c5ea68695ff8c70a757a460fc087133864b56cfd c5ea68695ff8c70a757a460fc087133864b56cfd src/tools/file_tools.py
+1 .M N... 100644 100644 100644 663f9a0b881e8461fc975cf8a7b2a395face96ac 663f9a0b881e8461fc975cf8a7b2a395face96ac src/tools/inline_completions.py
+1 .M N... 100644 100644 100644 d762e5c644136c780f49ad6b0b692cbb156a8038 d762e5c644136c780f49ad6b0b692cbb156a8038 src/tools/read_cache.py
+1 .M N... 100644 100644 100644 5162b1944d92f7b3c22d8f9921e434a194c54d53 5162b1944d92f7b3c22d8f9921e434a194c54d53 src/tools/toolsets.py
+? PHASE_9_3_4_1_RAW_TEST_EVIDENCE.md
+? PHASE_9_3_4_1_RUNTIME_ACCEPTANCE_REPORT.md
+? PHASE_9_3_4_1_SECURITY_VERIFICATION.md
+? PHASE_9_3_4_2_IMPLEMENTATION_CHANGELOG.md
+? PHASE_9_3_4_2_PERFORMANCE_REPORT.md
+? PHASE_9_3_4_2_RAW_TEST_RESULTS.json
+? PHASE_9_3_4_2_RUNTIME_EVIDENCE.md
+? PHASE_9_3_4_2_SECURITY_VERIFICATION.md
+? PHASE_9_3_4_2_WORKFLOW_VERIFICATION.md
+? PHASE_9_3_4_3_FINAL_CLOSURE_REPORT.md
+? PHASE_9_3_4_3_INVARIANT7_RECONCILIATION.json
+? PHASE_9_3_4_3_MARKETPLACE_EVIDENCE.md
+? PHASE_9_3_4_3_PERFORMANCE_EVIDENCE.json
+? PHASE_9_3_4_3_RAW_TEST_RESULTS.json
+? PHASE_9_3_4_3_SECURITY_EVIDENCE.md
+? PHASE_9_3_5_BASELINE_AUDIT.md
+? PHASE_9_3_5_CHANGELOG.md
+? PHASE_9_3_5_IMPLEMENTATION_REPORT.md
+? PHASE_9_3_5_RAW_TEST_RESULTS.json
+? PHASE_9_3_5_RELIABILITY_BENCHMARK.md
+? PHASE_9_3_5_SECURITY_VERIFICATION.md
+? PHASE_9_3_5_TASK_VALIDATION_EVIDENCE.json
+? authoritative_live_economics_ledger_phase931.csv
+? authoritative_live_economics_ledger_phase931.json
+? authoritative_live_economics_ledger_phase932.csv
+? authoritative_live_economics_ledger_phase932.json
+? benchmark_economics_phase930.json
+? benchmark_results_phase92251.json
+? diagnostic_corpus_replay_summary.json
+? diagnostics/PERFORMANCE_REPORT_s-wd.md
+? diagnostics/PERFORMANCE_REPORT_t1.md
+? diagnostics/PERFORMANCE_REPORT_test_exhaustion_safety.md
+? fixtures/
+? live_economics_ledger_phase931.json
+? live_economics_ledger_phase932.json
+? reconciled_phase931_request_ledger.csv
+? reconciled_phase931_request_ledger.json
+? request_level_ledger_claude.json
+? request_level_ledger_gpt4o.json
+? scripts/benchmark_eager_compaction.py
+? scripts/benchmark_phase_9_3_0_agent_economics.py
+? scripts/create_test_workspace.py
+? scripts/dump_raw_ledger_records.py
+? scripts/export_phase932_telemetry.py
+? scripts/extract_authoritative_ledger.py
+? scripts/find_config_uses.py
+? scripts/generate_authoritative_exports.py
+? scripts/generate_request_level_finops_ledger.py
+? scripts/inspect_edit_file_contract.py
+? scripts/inspect_model_args.py
+? scripts/inspect_phase931_raw.py
+? scripts/inspect_phase931_report.py
+? scripts/inspect_phase932_results.py
+? scripts/inspect_session_details.py
+? scripts/measure_phase_9_3_4_3_performance.py
+? scripts/patch_extract_workspace_fail_closed.py
+? scripts/patch_file_tools.py
+? scripts/patch_mock_inline_completions.py
+? scripts/reconcile_all_rate_cards.py
+? scripts/reconcile_and_three_way_finops.py
+? scripts/reconcile_arithmetic.py
+? scripts/reconcile_phase931_finops.py
+? scripts/replay_diagnostic_corpus.py
+? scripts/restore_read_resolve.py
+? scripts/run_live_economics_benchmark.py
+? scripts/run_phase_9_3_5_reliability_benchmark.py
+? scripts/test_desktop_playwright_acceptance.py
+? scripts/test_edit_file_call.py
+? scripts/test_long_session_stability.py
+? scripts/test_phase_9_3_4_2_runtime_e2e.py
+? scripts/transpile_crusorai.mjs
+? scripts/update_benchmark_script.py
+? scripts/update_file_tools_guidance.py
+? scripts/update_task_validation_patterns.py
+? scripts/verify_phase_9_3_4_1_runtime.mjs
+? scripts/verify_phase_9_3_4_3_context_and_commands.py
+? scripts/verify_session_sums.py
+? src/context/complexity.py
+? src/graphs/task_validation.py
+? src/runtime/retry_controller.py
+? src/tests/test_cache_write_accounting.py
+? src/tests/test_context_gating_safety.py
+? src/tests/test_context_picker_and_slash_commands.py
+? src/tests/test_dispatch_and_finalization.py
+? src/tests/test_dynamic_context_gating.py
+? src/tests/test_eager_history_compaction.py
+? src/tests/test_file_range_ingestion.py
+? src/tests/test_financial_accounting_closure.py
+? src/tests/test_financial_provenance.py
+? src/tests/test_inline_completion_and_next_edit.py
+? src/tests/test_marketplace_and_copilot_neutralization.py
+? src/tests/test_phase_9_3_4_2_workflows.py
+? src/tests/test_phase_9_3_4_3_security.py
+? src/tests/test_phase_9_3_5_reliability.py
+? src/tests/test_provider_usage_normalization.py
+? src/tests/test_pseudo_tool_deprecation.py
+? src/tests/test_safe_parallel_execution.py
+? src/tests/test_task_validation_and_retry.py
+? src/tests/test_tool_contracts.py
+STDERR:
+<empty>
+
+
+================================================================================
+COMMAND: git diff --check
+EXIT CODE: 2
+STDOUT:
+desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js:2087: trailing whitespace.
++    const titleMain = element('span', undefined, titleSpan, subtitle, 
+desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js:2091: trailing whitespace.
++    ...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js:2299: trailing whitespace.
++        const summary = element('summary', 'crusorai-tool-run-summary', 
+desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css:4425: new blank line at EOF.
+desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css:4425: new blank line at EOF.
+diagnostics/LATEST_PERFORMANCE_AUDIT.md:2: trailing whitespace.
++**Session ID:** `s-wd`  
+diagnostics/LATEST_PERFORMANCE_AUDIT.md:3: trailing whitespace.
++**Generated At:** `2026-11-03 19:55:12 UTC`  
+diagnostics/PERFORMANCE_REPORT_default.md:3: trailing whitespace.
++**Generated At:** `2026-11-03 09:11:51 UTC`  
+diagnostics/PERFORMANCE_REPORT_default.md:4: trailing whitespace.
++**User Ask:** *"Build an EaseMize-style chat application from scratch"*  
+src/context/compaction.py:474: trailing whitespace.
++            
+src/context/compaction.py:498: trailing whitespace.
++    
+src/context/compaction.py:508: trailing whitespace.
++    
+src/context/compaction.py:514: trailing whitespace.
++    
+src/context/compaction.py:697: trailing whitespace.
++    
+src/context/compaction.py:711: trailing whitespace.
++    
+src/context/compaction.py:748: trailing whitespace.
++    
+src/telemetry/pricing.py:534: new blank line at EOF.
+STDERR:
+warning: in the working copy of 'desktop/SELECTIVE_MANIFEST.json', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIAccount.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISessionController.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIToolCatalog.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/context/indexing/chunk_index.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/runtime/argument_normalizer.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/tools/inline_completions.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/tools/read_cache.py', LF will be replaced by CRLF the next time Git touches it
+
