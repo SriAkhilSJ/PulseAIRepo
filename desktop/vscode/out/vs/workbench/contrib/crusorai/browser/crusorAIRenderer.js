@@ -2088,7 +2088,7 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // The sub-agent card carries mode/type/description itself; the
     // generic k=v chips would only repeat it (founder screenshot
     // 2026-10-15: 'Delegate mode=research subagent_type=research').
-    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+    ...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -4037,8 +4037,11 @@ function composer(model, host, manager) {
         if (manager && model.running) {
             host.steer(value);
         }
-        else {
+        else if (model.contextChips && model.contextChips.length > 0) {
             host.submitPrompt(value, model.contextChips);
+        }
+        else {
+            host.submitPrompt(value);
         }
     };
     input.addEventListener('keydown', event => {

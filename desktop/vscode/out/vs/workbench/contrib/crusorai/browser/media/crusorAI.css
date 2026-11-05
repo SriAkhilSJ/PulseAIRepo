@@ -1029,7 +1029,7 @@
 	border-radius: 4px;
 	background: var(--vscode-badge-background);
 	color: var(--vscode-badge-foreground);
-	font-size: 11px;
+	font-size: var(--crusorai-text-meta);
 }
 .crusorai-chip-label {
 	max-width: 140px;
@@ -1046,7 +1046,7 @@
 	color: inherit;
 	cursor: pointer;
 	padding: 0 2px;
-	font-size: 10px;
+	font-size: var(--crusorai-text-micro);
 }
 .crusorai-composer-suggestions {
 	display: flex;
@@ -1083,11 +1083,11 @@
 	min-width: 0;
 }
 .crusorai-suggestion-copy strong {
-	font-size: 12px;
+	font-size: var(--crusorai-text-body);
 }
 .crusorai-suggestion-copy small {
 	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	font-size: var(--crusorai-text-micro);
 }
 .crusorai-composer-box {
 	border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));

@@ -2238,7 +2238,7 @@ function toolRow(tool: CrusorAIToolView, host: CrusorAIRenderHost, openTools: Se
 		// The sub-agent card carries mode/type/description itself; the
 		// generic k=v chips would only repeat it (founder screenshot
 		// 2026-10-15: 'Delegate mode=research subagent_type=research').
-		...toolArgsChips(tool),
+		...(presentation.family === 'subagent' ? [] : toolArgsChips(tool)),
 		headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
 		// Inline info (#L1-N, match count) hugs the filename on the same
 		// line — never pushed to the row's far edge (founder 2026-10-15).
@@ -4121,7 +4121,8 @@ function composer(model: CrusorAIRenderModel, host: CrusorAIRenderHost, manager:
 		if (!value && (!model.contextChips || model.contextChips.length === 0)) { return; }
 		suggestionsBox.style.display = 'none';
 		if (manager && model.running) { host.steer(value); }
-		else { host.submitPrompt(value, model.contextChips); }
+		else if (model.contextChips && model.contextChips.length > 0) { host.submitPrompt(value, model.contextChips); }
+		else { host.submitPrompt(value); }
 	};
 
 	input.addEventListener('keydown', event => {

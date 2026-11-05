@@ -23,6 +23,13 @@ from pathlib import Path
 
 import pytest
 
+if sys.platform != "win32":
+    pytest.skip(
+        "Windows-specific security tests require Windows",
+        allow_module_level=True,
+    )
+
+
 from src.security import (
     ExecutionBroker,
     ExecutionMode,

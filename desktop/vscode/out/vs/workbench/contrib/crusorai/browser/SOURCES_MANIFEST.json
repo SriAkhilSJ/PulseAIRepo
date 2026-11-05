@@ -1,5 +1,5 @@
 {
-	"sourcesHash": "e7f9f650588cfa04ce8598e401c291baa6949c29daf04a0b94e5fa1d624b0bad",
+	"sourcesHash": "9e8c46abe6c9a75a6a5f97b7aada59cd4ed7af42c5a26fa6ee7e116a9679b2f6",
 	"files": {
 		"src/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.ts": "b1f8579bb3516d24e4c64cb71582404586a08ee5412b0c3791e7732fbd729a7f",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts": "281a917f489e8fda8d3458f2239b261ae9027c21955b44c05ef1110624ce85f7",
@@ -17,7 +17,7 @@
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.ts": "f521b8a365d879aff3ea3d4269bdbba566f492a3be2c7002d2c0ad6b819337cd",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.ts": "82f041b12c9e333ee546c7856c05ea7d4713d8873a7e7752b7e89ad4f84b3082",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIReasoningBlocks.ts": "c491f62dd6d76d63ba8b4f1e83fe125ce7ccc763b77797d5440df4e2ca538ba0",
-		"src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts": "6cd8dfbf5ba1e1db4f0b2b1dcb9ae925220bc3ca34ad8857d3b4458c59becbbe",
+		"src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts": "60906ddb54c524755c6d7e9d82f208273f1d3b09b089513b85c9e90ef541263b",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts": "48de6b7c6da3d136c66e21f15beeea15291eac011bd655aa85161d9404b75d39",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.ts": "806cbf28e54aa657788adb7953649b3d22770872e21fb82e455e51dc56768ca7",
 		"src/vs/workbench/contrib/crusorai/browser/crusorAISessionController.ts": "722c45ef55e792b8f65aad04c388517db793c6c08fb8e39f3bc6258ee4aba448",
@@ -31,7 +31,7 @@
 		"src/vs/workbench/contrib/crusorai/browser/media/crusor-preview/preview.css": "d9c0c70ff042352262ce28a6201cf91f96a5a6da94c2119f7a32a71cc5e7692c",
 		"src/vs/workbench/contrib/crusorai/browser/media/crusor-preview/preview.js": "8e0735bbb7732da2cbebcd87222499eefe91e8997df025114211f6bc33556e05",
 		"src/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css": "39b5fe21002adfb76efd9a260afd5aa714d028566da4c219653a796254468887",
-		"src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css": "e08a4eee2d09b4fc6f1d353a9cdbfc08c9bd7f0e11c69953c551041503b49cb9",
+		"src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css": "640b90a50ba651ec7b75b9456adb0bc10f3674780c7602351cc64a8e729a6eda",
 		"src/vs/workbench/contrib/crusorai/common/crusorAI.ts": "f622009b9fdfb4048a5f0426ae1f2873b66515a209ba6323583523a7fa7c1927",
 		"src/vs/workbench/contrib/crusorai/common/crusorAIEngineService.ts": "b4fa3fc2a86215b2fd0be5479bc96d274ec5f77b0068b147d83fbf5b5b68da64",
 		"src/vs/workbench/contrib/crusorai/common/crusorAIPreview.ts": "b623649addcfca12a7281a8b5c393a7f28f97ed3308ad04aa3a0308fff7ec14f",
