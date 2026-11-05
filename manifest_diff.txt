@@ -1,0 +1,13 @@
+diff --git a/desktop/SELECTIVE_MANIFEST.json b/desktop/SELECTIVE_MANIFEST.json
+index 17018bbc..545ad625 100644
+--- a/desktop/SELECTIVE_MANIFEST.json
++++ b/desktop/SELECTIVE_MANIFEST.json
+@@ -14,7 +14,7 @@
+   },
+   "product.json": {
+    "upstream_sha256": "d7a5ed67fe83f7b52726e2cd62d14baf87849dd0d5263bc63814570ac8ac537f",
+-   "overlay_sha256": "6c2eb121fc04ee0d888e213ae1846dd821080beab60db4f3b5912b2e5ca697c3",
++   "overlay_sha256": "c13255bd2b02e9f629632c576f5681d62c20f8d07a8b1586c31d7791f99af0f5",
+    "modified": true
+   },
+   "src/vs/workbench/workbench.common.main.ts": {

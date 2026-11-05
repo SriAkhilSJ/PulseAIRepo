@@ -1,0 +1,320 @@
+ M desktop/SELECTIVE_MANIFEST.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorA2UISurface.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIAccount.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRunSummary.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISessionController.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIViewPane.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI-tokens.css
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIProtocol.generated.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAIToolCatalog.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.js
+ M desktop/vscode/product.json
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAINextEditProvider.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M diagnostics/LATEST_PERFORMANCE_AUDIT.md
+ M diagnostics/PERFORMANCE_REPORT_default.md
+ M scripts/agent_core_checkup.py
+ M src/agents/cost_governance.py
+ M src/agents/financial_store.py
+ M src/agents/planner.py
+ M src/bridge/protocol.py
+ M src/context/compaction.py
+ M src/context/context_engine.py
+ M src/context/core/context_builder.py
+ M src/context/core/context_engine.py
+ M src/context/engine.py
+ M src/context/history_shaper.py
+ M src/context/indexing/__init__.py
+ M src/context/indexing/chunk_index.py
+ M src/context/ranking/layer_policy.py
+ M src/context/repo_map.py
+ M src/context/summarizer.py
+ M src/context/token_tracker.py
+ M src/context/vector_memory.py
+ M src/graphs/chat_graph.py
+ M src/graphs/parallel_tools.py
+ M src/llm/__init__.py
+ M src/llm/factory.py
+ M src/prompts/claude_persona.py
+ M src/runtime/argument_normalizer.py
+ M src/runtime/status_contract.py
+ M src/telemetry/call_ledger.py
+ M src/telemetry/pricing.py
+ M src/tests/test_execution_phases.py
+ M src/tests/test_pricing.py
+ M src/tests/test_prompt_cache_stabilization.py
+ M src/tests/test_toolsets.py
+ M src/tools/browser_tools.py
+ M src/tools/code_exec_tool.py
+ M src/tools/file_tools.py
+ M src/tools/inline_completions.py
+ M src/tools/mcp_client.py
+ M src/tools/read_cache.py
+ M src/tools/toolsets.py
+?? PHASE_10_0_ADMIN_AUDIT_LOGGING.md
+?? PHASE_10_0_ADVERSARIAL_SECURITY_TEST_RESULTS.md
+?? PHASE_10_0_AUTHENTICATION_IMPLEMENTATION.md
+?? PHASE_10_0_CENTRALIZED_AUTHORIZATION.md
+?? PHASE_10_0_EXECUTION_AUTHORIZATION.md
+?? PHASE_10_0_FINAL_VERDICT.md
+?? PHASE_10_0_FINOPS_OWNERSHIP_INTEGRATION.md
+?? PHASE_10_0_FULL_REGRESSION_RESULTS.md
+?? PHASE_10_0_IDENTITY_ARCHITECTURE_AUDIT.md
+?? PHASE_10_0_IDENTITY_DATA_MODEL.md
+?? PHASE_10_0_INVARIANT7_VERIFICATION.md
+?? PHASE_10_0_KNOWN_LIMITATIONS.md
+?? PHASE_10_0_MCP_BROWSER_INTEGRATION.md
+?? PHASE_10_0_RBAC_ROLE_PERMISSION_MATRIX.md
+?? PHASE_10_0_RESOURCE_LEVEL_ACCESS_CONTROL.md
+?? PHASE_10_0_SESSION_MANAGEMENT.md
+?? PHASE_10_0_WORKSPACE_INTEGRITY.md
+?? PHASE_11_0_AGENT_INTEGRATION.md
+?? PHASE_11_0_ARCHITECTURE_AUDIT.md
+?? PHASE_11_0_ARCHITECTURE_MAPPING.md
+?? PHASE_11_0_CRUSOR_REPO_SCAN_RESULTS.md
+?? PHASE_11_0_FILES_CREATED_MODIFIED.md
+?? PHASE_11_0_FINAL_VERDICT.md
+?? PHASE_11_0_GIT_STATUS_INVARIANT7.md
+?? PHASE_11_0_IMPLEMENTATION_SUMMARY.md
+?? PHASE_11_0_PERSISTENT_KNOWLEDGE_MODEL.md
+?? PHASE_11_0_REMAINING_LIMITATIONS.md
+?? PHASE_11_0_REPOSITORY_DISCOVERY.md
+?? PHASE_11_0_SECURITY_WORKSPACE_SAFETY.md
+?? PHASE_11_0_TEST_RESULTS.md
+?? PHASE_9_3_4_1_RAW_TEST_EVIDENCE.md
+?? PHASE_9_3_4_1_RUNTIME_ACCEPTANCE_REPORT.md
+?? PHASE_9_3_4_1_SECURITY_VERIFICATION.md
+?? PHASE_9_3_4_2_IMPLEMENTATION_CHANGELOG.md
+?? PHASE_9_3_4_2_PERFORMANCE_REPORT.md
+?? PHASE_9_3_4_2_RAW_TEST_RESULTS.json
+?? PHASE_9_3_4_2_RUNTIME_EVIDENCE.md
+?? PHASE_9_3_4_2_SECURITY_VERIFICATION.md
+?? PHASE_9_3_4_2_WORKFLOW_VERIFICATION.md
+?? PHASE_9_3_4_3_FINAL_CLOSURE_REPORT.md
+?? PHASE_9_3_4_3_INVARIANT7_RECONCILIATION.json
+?? PHASE_9_3_4_3_MARKETPLACE_EVIDENCE.md
+?? PHASE_9_3_4_3_PERFORMANCE_EVIDENCE.json
+?? PHASE_9_3_4_3_RAW_TEST_RESULTS.json
+?? PHASE_9_3_4_3_SECURITY_EVIDENCE.md
+?? PHASE_9_3_5_1_BENCHMARK_RECONCILIATION.json
+?? PHASE_9_3_5_1_FINAL_INTEGRITY_REPORT.md
+?? PHASE_9_3_5_1_GIT_STATE_EVIDENCE.txt
+?? PHASE_9_3_5_BASELINE_AUDIT.md
+?? PHASE_9_3_5_CHANGELOG.md
+?? PHASE_9_3_5_IMPLEMENTATION_REPORT.md
+?? PHASE_9_3_5_RAW_TEST_RESULTS.json
+?? PHASE_9_3_5_RELIABILITY_BENCHMARK.md
+?? PHASE_9_3_5_SECURITY_VERIFICATION.md
+?? PHASE_9_3_5_TASK_VALIDATION_EVIDENCE.json
+?? PHASE_9_4_1_ADVERSARIAL_RESULTS.json
+?? PHASE_9_4_1_CRASH_RECOVERY_EVIDENCE.md
+?? PHASE_9_4_1_FILESYSTEM_ISOLATION_EVIDENCE.md
+?? PHASE_9_4_1_FINAL_SECURITY_VERDICT.md
+?? PHASE_9_4_1_JOB_OBJECT_EVIDENCE.md
+?? PHASE_9_4_1_NETWORK_ISOLATION_EVIDENCE.md
+?? PHASE_9_4_1_REGRESSION_RESULTS.json
+?? PHASE_9_4_1_SECURITY_IDENTITY_EVIDENCE.md
+?? PHASE_9_4_1_WINDOWS_BOUNDARY_BASELINE.md
+?? PHASE_9_4_2_ADVERSARIAL_RESULTS.json
+?? PHASE_9_4_2_APPCONTAINER_IMPLEMENTATION.md
+?? PHASE_9_4_2_FILESYSTEM_BOUNDARY_EVIDENCE.md
+?? PHASE_9_4_2_FINAL_SECURITY_VERDICT.md
+?? PHASE_9_4_2_IPC_SECURITY_REPORT.md
+?? PHASE_9_4_2_NETWORK_BOUNDARY_EVIDENCE.md
+?? PHASE_9_4_2_PROCESS_CONTAINMENT_EVIDENCE.md
+?? PHASE_9_4_2_REGRESSION_RESULTS.json
+?? PHASE_9_4_2_WINDOWS_ISOLATION_BASELINE.md
+?? PHASE_9_4_3_ADVERSARIAL_RESULTS.json
+?? PHASE_9_4_3_FINAL_SECURITY_VERDICT.md
+?? PHASE_9_4_3_LOOPBACK_ISOLATION_EVIDENCE.md
+?? PHASE_9_4_3_PROFILE_CLEANUP_EVIDENCE.md
+?? PHASE_9_4_3_REGRESSION_RESULTS.json
+?? PHASE_9_4_3_STAGING_ACL_AUDIT.md
+?? PHASE_9_4_3_UDP_EGRESS_EVIDENCE.md
+?? PHASE_9_4_3_WINDOWSTATION_ACL_EVIDENCE.md
+?? PHASE_9_4_3_WORKSPACE_PERMISSION_EVIDENCE.md
+?? PHASE_9_4_ADVERSARIAL_TEST_RESULTS.json
+?? PHASE_9_4_BASELINE_SECURITY_AUDIT.md
+?? PHASE_9_4_CHANGELOG.md
+?? PHASE_9_4_EXECUTION_BROKER_ARCHITECTURE.md
+?? PHASE_9_4_IMPLEMENTATION_REPORT.md
+?? PHASE_9_4_PLATFORM_SUPPORT_MATRIX.md
+?? PHASE_9_4_RAW_TEST_RESULTS.json
+?? PHASE_9_4_SECURITY_VERIFICATION.md
+?? PHASE_9_4_THREAT_MODEL.md
+?? PHASE_9_4_WINDOWS_SANDBOX_EVIDENCE.md
+?? PHASE_9_5_BASELINE_SECURITY_AUDIT.md
+?? PHASE_9_5_BROWSER_SANDBOX_SECURITY.md
+?? PHASE_9_5_DOWNLOAD_UPLOAD_SECURITY.md
+?? PHASE_9_5_FINAL_SECURITY_VERDICT.md
+?? PHASE_9_5_LOCAL_MCP_ISOLATION.md
+?? PHASE_9_5_MCP_PROTOCOL_COMPATIBILITY.md
+?? PHASE_9_5_OAUTH_SECURITY.md
+?? PHASE_9_5_PROMPT_INJECTION_DEFENSE.md
+?? PHASE_9_5_REMOTE_MCP_SECURITY.md
+?? PHASE_9_5_TOOL_AUTHORIZATION.md
+?? PHASE_9_6_ARCHITECTURE_BOTTLENECK_AUDIT.md
+?? PHASE_9_6_BASELINE_PERFORMANCE_AUDIT.md
+?? PHASE_9_6_BEFORE_AFTER_BENCHMARK.md
+?? PHASE_9_6_FINAL_VERDICT.md
+?? PHASE_9_6_INVARIANT7_VERIFICATION.md
+?? PHASE_9_6_IPC_BRIDGE_RELIABILITY.md
+?? PHASE_9_6_KNOWN_LIMITATIONS.md
+?? PHASE_9_6_LONG_SESSION_STABILITY.md
+?? PHASE_9_6_OBSERVABILITY_ARCHITECTURE.md
+?? PHASE_9_6_OPTIMIZATION_IMPLEMENTATION.md
+?? PHASE_9_6_RESOURCE_CONSUMPTION.md
+?? PHASE_9_6_WORKSPACE_INTEGRITY.md
+?? PHASE_9_7_ARCHITECTURE_AUDIT.md
+?? PHASE_9_7_BUDGET_ENFORCEMENT.md
+?? PHASE_9_7_CAPABILITY_MATRIX.md
+?? PHASE_9_7_CONTEXT_OPTIMIZATION.md
+?? PHASE_9_7_COST_ATTRIBUTION.md
+?? PHASE_9_7_CREDIT_ACCOUNTING.md
+?? PHASE_9_7_FINAL_VERDICT.md
+?? PHASE_9_7_FINOPS_OBSERVABILITY.md
+?? PHASE_9_7_INTELLIGENT_ROUTING.md
+?? PHASE_9_7_INVARIANT7_VERIFICATION.md
+?? PHASE_9_7_KNOWN_LIMITATIONS.md
+?? PHASE_9_7_PRICING_REGISTRY.md
+?? PHASE_9_7_TOKEN_ACCOUNTING.md
+?? PHASE_9_7_WORKSPACE_INTEGRITY.md
+?? authoritative_live_economics_ledger_phase931.csv
+?? authoritative_live_economics_ledger_phase931.json
+?? authoritative_live_economics_ledger_phase932.csv
+?? authoritative_live_economics_ledger_phase932.json
+?? benchmark_economics_phase930.json
+?? benchmark_results_phase92251.json
+?? diagnostic_corpus_replay_summary.json
+?? diagnostics/PERFORMANCE_REPORT_s-wd.md
+?? diagnostics/PERFORMANCE_REPORT_t1.md
+?? diagnostics/PERFORMANCE_REPORT_test_exhaustion_safety.md
+?? fixtures/
+?? git_status_check.txt
+?? live_economics_ledger_phase931.json
+?? live_economics_ledger_phase932.json
+?? reconciled_phase931_request_ledger.csv
+?? reconciled_phase931_request_ledger.json
+?? request_level_ledger_claude.json
+?? request_level_ledger_gpt4o.json
+?? scripts/benchmark_eager_compaction.py
+?? scripts/benchmark_phase_9_3_0_agent_economics.py
+?? scripts/check_git_status.py
+?? scripts/create_test_workspace.py
+?? scripts/dump_raw_ledger_records.py
+?? scripts/export_phase932_telemetry.py
+?? scripts/extract_authoritative_ledger.py
+?? scripts/find_config_uses.py
+?? scripts/generate_authoritative_exports.py
+?? scripts/generate_phase_10_0_markdown_reports.py
+?? scripts/generate_phase_10_0_regression_report.py
+?? scripts/generate_phase_11_0_markdown_reports.py
+?? scripts/generate_phase_11_0_regression_report.py
+?? scripts/generate_phase_9_4_2_regression_report.py
+?? scripts/generate_phase_9_4_3_regression_report.py
+?? scripts/generate_phase_9_5_markdown_reports.py
+?? scripts/generate_phase_9_5_regression_report.py
+?? scripts/generate_phase_9_6_markdown_reports.py
+?? scripts/generate_phase_9_6_regression_report.py
+?? scripts/generate_phase_9_7_markdown_reports.py
+?? scripts/generate_phase_9_7_regression_report.py
+?? scripts/generate_request_level_finops_ledger.py
+?? scripts/inspect_edit_file_contract.py
+?? scripts/inspect_model_args.py
+?? scripts/inspect_phase931_raw.py
+?? scripts/inspect_phase931_report.py
+?? scripts/inspect_phase932_results.py
+?? scripts/inspect_session_details.py
+?? scripts/measure_phase_9_3_4_3_performance.py
+?? scripts/patch_extract_workspace_fail_closed.py
+?? scripts/patch_file_tools.py
+?? scripts/patch_mock_inline_completions.py
+?? scripts/reconcile_all_rate_cards.py
+?? scripts/reconcile_and_three_way_finops.py
+?? scripts/reconcile_arithmetic.py
+?? scripts/reconcile_phase931_finops.py
+?? scripts/repair_winsta.ps1
+?? scripts/repair_winsta.py
+?? scripts/replay_diagnostic_corpus.py
+?? scripts/restore_read_resolve.py
+?? scripts/run_live_economics_benchmark.py
+?? scripts/run_phase_10_0_identity_suite.py
+?? scripts/run_phase_11_0_intelligence_suite.py
+?? scripts/run_phase_9_3_5_reliability_benchmark.py
+?? scripts/run_phase_9_4_1_boundary_audit.py
+?? scripts/run_phase_9_4_2_isolation_suite.py
+?? scripts/run_phase_9_4_3_least_privilege_suite.py
+?? scripts/run_phase_9_4_adversarial_suite.py
+?? scripts/run_phase_9_5_mcp_browser_suite.py
+?? scripts/run_phase_9_6_performance_suite.py
+?? scripts/run_phase_9_7_finops_suite.py
+?? scripts/scan_crusor_repository.py
+?? scripts/test_desktop_playwright_acceptance.py
+?? scripts/test_edit_file_call.py
+?? scripts/test_long_session_stability.py
+?? scripts/test_net_empirically.py
+?? scripts/test_net_fixtures.py
+?? scripts/test_phase_9_3_4_2_runtime_e2e.py
+?? scripts/transpile_crusorai.mjs
+?? scripts/update_benchmark_script.py
+?? scripts/update_file_tools_guidance.py
+?? scripts/update_task_validation_patterns.py
+?? scripts/verify_phase_9_3_4_1_runtime.mjs
+?? scripts/verify_phase_9_3_4_3_context_and_commands.py
+?? scripts/verify_session_sums.py
+?? src/context/complexity.py
+?? src/finops/
+?? src/graphs/task_validation.py
+?? src/identity/
+?? src/intelligence/
+?? src/observability/
+?? src/runtime/retry_controller.py
+?? src/security/
+?? src/tests/test_cache_write_accounting.py
+?? src/tests/test_context_gating_safety.py
+?? src/tests/test_context_picker_and_slash_commands.py
+?? src/tests/test_dispatch_and_finalization.py
+?? src/tests/test_dynamic_context_gating.py
+?? src/tests/test_eager_history_compaction.py
+?? src/tests/test_file_range_ingestion.py
+?? src/tests/test_financial_accounting_closure.py
+?? src/tests/test_financial_provenance.py
+?? src/tests/test_inline_completion_and_next_edit.py
+?? src/tests/test_marketplace_and_copilot_neutralization.py
+?? src/tests/test_phase_10_0_enterprise_identity_rbac.py
+?? src/tests/test_phase_11_0_project_intelligence.py
+?? src/tests/test_phase_9_3_4_2_workflows.py
+?? src/tests/test_phase_9_3_4_3_security.py
+?? src/tests/test_phase_9_3_5_reliability.py
+?? src/tests/test_phase_9_4_1_windows_boundary.py
+?? src/tests/test_phase_9_4_2_windows_isolation.py
+?? src/tests/test_phase_9_4_3_least_privilege.py
+?? src/tests/test_phase_9_4_execution_sandbox.py
+?? src/tests/test_phase_9_5_mcp_browser_security.py
+?? src/tests/test_phase_9_6_desktop_performance.py
+?? src/tests/test_phase_9_7_enterprise_finops.py
+?? src/tests/test_provider_usage_normalization.py
+?? src/tests/test_pseudo_tool_deprecation.py
+?? src/tests/test_safe_parallel_execution.py
+?? src/tests/test_task_validation_and_retry.py
+?? src/tests/test_tool_contracts.py
