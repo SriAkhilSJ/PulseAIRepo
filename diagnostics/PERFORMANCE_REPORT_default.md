@@ -1,6 +1,6 @@
 # 📊 Agent Performance & Diagnostics Audit (Task Quality & Execution)
 **Session ID:** `default`  
-**Generated At:** `2026-10-31 16:41:41 UTC`  
+**Generated At:** `2026-11-04 10:26:18 UTC`  
 **User Ask:** *"run task"*  
 
 ---
@@ -44,17 +44,18 @@
 
 | Metric | Result | Target |
 | :--- | :--- | :--- |
-| **Runtime Health Score** | **0.0 / 100** (`D (Needs Optimization)`; provisional; 0/4 dimensions scored; duration 0/0 operation rows) | $\ge 85$ (Grade A) |
-| **Total Steps & Duration** | 102 steps; N/A (no measured provider/tool duration) | $<5.0$s / measured step |
+| **Runtime Health Score** | **0.0 / 100** (`D (Needs Optimization)`; provisional; 0/5 dimensions scored; duration 0/0 operation rows) | $\ge 85$ (Grade A) |
+| **Total Steps & Duration** | 276 steps; N/A (no measured provider/tool duration) | $<5.0$s / measured step |
 | **Total Token Usage** | 0 input / 0 output | Dynamic Bounded |
 | **Prompt Cache Hit Rate** | **N/A** (Provider Velona/Gateway omits `input_token_details`) | $\ge 70\%$ |
-| **Estimated Cost** | **Unknown** (0/0 token-bearing calls priced in USD) | $< $0.05 / task |
+| **Estimated Cost** | **Unknown** (0/0 token-bearing calls priced in USD) | $< $0.0500 / task |
 
 ### Runtime Sub-Scores
 - **Latency Efficiency:** `N/A (duration telemetry unavailable)`
 - **Prompt Cache Stability:** `N/A (provider cache telemetry unavailable)`
 - **Tool Correctness & Safety:** `N/A (no executed tool outcomes)`
 - **Batching & Concurrency:** `N/A (no AI tool-proposal rows)`
+- **Cost Efficiency:** `N/A (cost not metered)`
 
 ---
 ## 💡 Actionable Improvement Ideas (How to Compete with Sharks)
@@ -171,3 +172,177 @@
 | **100** | `finalize` | N/A | - | - | *None* |
 | **101** | `finalize` | N/A | - | - | *None* |
 | **102** | `finalize` | N/A | - | - | *None* |
+| **103** | `finalize` | N/A | - | - | *None* |
+| **104** | `finalize` | N/A | - | - | *None* |
+| **105** | `finalize` | N/A | - | - | *None* |
+| **106** | `finalize` | N/A | - | - | *None* |
+| **107** | `finalize` | N/A | - | - | *None* |
+| **108** | `finalize` | N/A | - | - | *None* |
+| **109** | `finalize` | N/A | - | - | *None* |
+| **110** | `finalize` | N/A | - | - | *None* |
+| **111** | `finalize` | N/A | - | - | *None* |
+| **112** | `finalize` | N/A | - | - | *None* |
+| **113** | `finalize` | N/A | - | - | *None* |
+| **114** | `finalize` | N/A | - | - | *None* |
+| **115** | `finalize` | N/A | - | - | *None* |
+| **116** | `finalize` | N/A | - | - | *None* |
+| **117** | `finalize` | N/A | - | - | *None* |
+| **118** | `finalize` | N/A | - | - | *None* |
+| **119** | `finalize` | N/A | - | - | *None* |
+| **120** | `finalize` | N/A | - | - | *None* |
+| **121** | `finalize` | N/A | - | - | *None* |
+| **122** | `finalize` | N/A | - | - | *None* |
+| **123** | `finalize` | N/A | - | - | *None* |
+| **124** | `finalize` | N/A | - | - | *None* |
+| **125** | `finalize` | N/A | - | - | *None* |
+| **126** | `finalize` | N/A | - | - | *None* |
+| **127** | `finalize` | N/A | - | - | *None* |
+| **128** | `finalize` | N/A | - | - | *None* |
+| **129** | `finalize` | N/A | - | - | *None* |
+| **130** | `finalize` | N/A | - | - | *None* |
+| **131** | `finalize` | N/A | - | - | *None* |
+| **132** | `finalize` | N/A | - | - | *None* |
+| **133** | `finalize` | N/A | - | - | *None* |
+| **134** | `finalize` | N/A | - | - | *None* |
+| **135** | `finalize` | N/A | - | - | *None* |
+| **136** | `finalize` | N/A | - | - | *None* |
+| **137** | `finalize` | N/A | - | - | *None* |
+| **138** | `finalize` | N/A | - | - | *None* |
+| **139** | `finalize` | N/A | - | - | *None* |
+| **140** | `finalize` | N/A | - | - | *None* |
+| **141** | `finalize` | N/A | - | - | *None* |
+| **142** | `finalize` | N/A | - | - | *None* |
+| **143** | `finalize` | N/A | - | - | *None* |
+| **144** | `finalize` | N/A | - | - | *None* |
+| **145** | `finalize` | N/A | - | - | *None* |
+| **146** | `finalize` | N/A | - | - | *None* |
+| **147** | `finalize` | N/A | - | - | *None* |
+| **148** | `finalize` | N/A | - | - | *None* |
+| **149** | `finalize` | N/A | - | - | *None* |
+| **150** | `finalize` | N/A | - | - | *None* |
+| **151** | `finalize` | N/A | - | - | *None* |
+| **152** | `finalize` | N/A | - | - | *None* |
+| **153** | `finalize` | N/A | - | - | *None* |
+| **154** | `finalize` | N/A | - | - | *None* |
+| **155** | `finalize` | N/A | - | - | *None* |
+| **156** | `finalize` | N/A | - | - | *None* |
+| **157** | `finalize` | N/A | - | - | *None* |
+| **158** | `finalize` | N/A | - | - | *None* |
+| **159** | `finalize` | N/A | - | - | *None* |
+| **160** | `finalize` | N/A | - | - | *None* |
+| **161** | `finalize` | N/A | - | - | *None* |
+| **162** | `finalize` | N/A | - | - | *None* |
+| **163** | `finalize` | N/A | - | - | *None* |
+| **164** | `finalize` | N/A | - | - | *None* |
+| **165** | `finalize` | N/A | - | - | *None* |
+| **166** | `finalize` | N/A | - | - | *None* |
+| **167** | `finalize` | N/A | - | - | *None* |
+| **168** | `finalize` | N/A | - | - | *None* |
+| **169** | `finalize` | N/A | - | - | *None* |
+| **170** | `finalize` | N/A | - | - | *None* |
+| **171** | `finalize` | N/A | - | - | *None* |
+| **172** | `finalize` | N/A | - | - | *None* |
+| **173** | `finalize` | N/A | - | - | *None* |
+| **174** | `finalize` | N/A | - | - | *None* |
+| **175** | `finalize` | N/A | - | - | *None* |
+| **176** | `finalize` | N/A | - | - | *None* |
+| **177** | `finalize` | N/A | - | - | *None* |
+| **178** | `finalize` | N/A | - | - | *None* |
+| **179** | `finalize` | N/A | - | - | *None* |
+| **180** | `finalize` | N/A | - | - | *None* |
+| **181** | `finalize` | N/A | - | - | *None* |
+| **182** | `finalize` | N/A | - | - | *None* |
+| **183** | `finalize` | N/A | - | - | *None* |
+| **184** | `finalize` | N/A | - | - | *None* |
+| **185** | `finalize` | N/A | - | - | *None* |
+| **186** | `finalize` | N/A | - | - | *None* |
+| **187** | `finalize` | N/A | - | - | *None* |
+| **188** | `finalize` | N/A | - | - | *None* |
+| **189** | `finalize` | N/A | - | - | *None* |
+| **190** | `finalize` | N/A | - | - | *None* |
+| **191** | `finalize` | N/A | - | - | *None* |
+| **192** | `finalize` | N/A | - | - | *None* |
+| **193** | `finalize` | N/A | - | - | *None* |
+| **194** | `finalize` | N/A | - | - | *None* |
+| **195** | `finalize` | N/A | - | - | *None* |
+| **196** | `finalize` | N/A | - | - | *None* |
+| **197** | `finalize` | N/A | - | - | *None* |
+| **198** | `finalize` | N/A | - | - | *None* |
+| **199** | `finalize` | N/A | - | - | *None* |
+| **200** | `finalize` | N/A | - | - | *None* |
+| **201** | `finalize` | N/A | - | - | *None* |
+| **202** | `finalize` | N/A | - | - | *None* |
+| **203** | `finalize` | N/A | - | - | *None* |
+| **204** | `finalize` | N/A | - | - | *None* |
+| **205** | `finalize` | N/A | - | - | *None* |
+| **206** | `finalize` | N/A | - | - | *None* |
+| **207** | `finalize` | N/A | - | - | *None* |
+| **208** | `finalize` | N/A | - | - | *None* |
+| **209** | `finalize` | N/A | - | - | *None* |
+| **210** | `finalize` | N/A | - | - | *None* |
+| **211** | `finalize` | N/A | - | - | *None* |
+| **212** | `finalize` | N/A | - | - | *None* |
+| **213** | `finalize` | N/A | - | - | *None* |
+| **214** | `finalize` | N/A | - | - | *None* |
+| **215** | `finalize` | N/A | - | - | *None* |
+| **216** | `finalize` | N/A | - | - | *None* |
+| **217** | `finalize` | N/A | - | - | *None* |
+| **218** | `finalize` | N/A | - | - | *None* |
+| **219** | `finalize` | N/A | - | - | *None* |
+| **220** | `finalize` | N/A | - | - | *None* |
+| **221** | `finalize` | N/A | - | - | *None* |
+| **222** | `finalize` | N/A | - | - | *None* |
+| **223** | `finalize` | N/A | - | - | *None* |
+| **224** | `finalize` | N/A | - | - | *None* |
+| **225** | `finalize` | N/A | - | - | *None* |
+| **226** | `finalize` | N/A | - | - | *None* |
+| **227** | `finalize` | N/A | - | - | *None* |
+| **228** | `finalize` | N/A | - | - | *None* |
+| **229** | `finalize` | N/A | - | - | *None* |
+| **230** | `finalize` | N/A | - | - | *None* |
+| **231** | `finalize` | N/A | - | - | *None* |
+| **232** | `finalize` | N/A | - | - | *None* |
+| **233** | `finalize` | N/A | - | - | *None* |
+| **234** | `finalize` | N/A | - | - | *None* |
+| **235** | `finalize` | N/A | - | - | *None* |
+| **236** | `finalize` | N/A | - | - | *None* |
+| **237** | `finalize` | N/A | - | - | *None* |
+| **238** | `finalize` | N/A | - | - | *None* |
+| **239** | `finalize` | N/A | - | - | *None* |
+| **240** | `finalize` | N/A | - | - | *None* |
+| **241** | `finalize` | N/A | - | - | *None* |
+| **242** | `finalize` | N/A | - | - | *None* |
+| **243** | `finalize` | N/A | - | - | *None* |
+| **244** | `finalize` | N/A | - | - | *None* |
+| **245** | `finalize` | N/A | - | - | *None* |
+| **246** | `finalize` | N/A | - | - | *None* |
+| **247** | `finalize` | N/A | - | - | *None* |
+| **248** | `finalize` | N/A | - | - | *None* |
+| **249** | `finalize` | N/A | - | - | *None* |
+| **250** | `finalize` | N/A | - | - | *None* |
+| **251** | `finalize` | N/A | - | - | *None* |
+| **252** | `finalize` | N/A | - | - | *None* |
+| **253** | `finalize` | N/A | - | - | *None* |
+| **254** | `finalize` | N/A | - | - | *None* |
+| **255** | `finalize` | N/A | - | - | *None* |
+| **256** | `finalize` | N/A | - | - | *None* |
+| **257** | `finalize` | N/A | - | - | *None* |
+| **258** | `finalize` | N/A | - | - | *None* |
+| **259** | `finalize` | N/A | - | - | *None* |
+| **260** | `finalize` | N/A | - | - | *None* |
+| **261** | `finalize` | N/A | - | - | *None* |
+| **262** | `finalize` | N/A | - | - | *None* |
+| **263** | `finalize` | N/A | - | - | *None* |
+| **264** | `finalize` | N/A | - | - | *None* |
+| **265** | `finalize` | N/A | - | - | *None* |
+| **266** | `finalize` | N/A | - | - | *None* |
+| **267** | `finalize` | N/A | - | - | *None* |
+| **268** | `finalize` | N/A | - | - | *None* |
+| **269** | `finalize` | N/A | - | - | *None* |
+| **270** | `finalize` | N/A | - | - | *None* |
+| **271** | `finalize` | N/A | - | - | *None* |
+| **272** | `finalize` | N/A | - | - | *None* |
+| **273** | `finalize` | N/A | - | - | *None* |
+| **274** | `finalize` | N/A | - | - | *None* |
+| **275** | `finalize` | N/A | - | - | *None* |
+| **276** | `finalize` | N/A | - | - | *None* |

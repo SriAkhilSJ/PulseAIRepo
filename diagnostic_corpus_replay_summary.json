@@ -1,0 +1,14 @@
+{
+  "usable_count": 26,
+  "incomplete_count": 44,
+  "total_orig_tokens": 238539,
+  "total_comp_tokens": 177149,
+  "total_reduction_pct": 25.73583355342313,
+  "mean_pct": 12.955663732693976,
+  "median_pct": 1.998185844691292,
+  "p95_pct": 47.87318578794747,
+  "increased_count": 0,
+  "unresolved_protected_count": 15,
+  "pairing_pass": true,
+  "immutability_pass": true
+}

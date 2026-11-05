@@ -153,14 +153,14 @@ def check_session(cu: Checkup) -> None:
 
     @cu.probe(P, "thread_id == session_id (resume actually continues)")
     def _(_):
-        src = (ROOT / "src/bridge/__main__.py").read_text()
+        src = (ROOT / "src/bridge/__main__.py").read_text(encoding="utf-8", errors="replace")
         if '"thread_id": sid' in src or "'thread_id': sid" in src:
             return "one id is used for both, so a second prompt continues the graph"
         return (FAIL, "the graph thread id is not the session id — resume cannot work")
 
     @cu.probe(P, "a turn is refused when the workspace moved out from under it")
     def _(_):
-        src = (ROOT / "src/bridge/__main__.py").read_text()
+        src = (ROOT / "src/bridge/__main__.py").read_text(encoding="utf-8", errors="replace")
         if "WorkspaceSwitchError" in src:
             return "WorkspaceSwitchError is raised rather than writing to the wrong tree"
         return (WARN, "no workspace re-bind guard")
@@ -340,7 +340,7 @@ def check_compaction(cu: Checkup) -> None:
 
     @cu.probe(P, "the engine's own compaction trigger is reachable from chat_graph")
     def _(_):
-        src = (ROOT / "src/graphs/chat_graph.py").read_text()
+        src = (ROOT / "src/graphs/chat_graph.py").read_text(encoding="utf-8", errors="replace")
         hits = src.count("compact") + src.count("compress")
         if hits == 0:
             return (FAIL, "chat_graph never mentions compaction")
@@ -503,7 +503,7 @@ def check_failure(cu: Checkup) -> None:
 
     @cu.probe(P, "one billing predicate (no copy-pasted pattern lists left)")
     def _(_):
-        src = (ROOT / "src/llm/error_classifier.py").read_text()
+        src = (ROOT / "src/llm/error_classifier.py").read_text(encoding="utf-8", errors="replace")
         n = src.count("any(p in error_msg for p in _BILLING_PATTERNS)")
         if n != 1:
             return (FAIL, f"{n} inline copies of the billing predicate (expected 1)")
@@ -571,7 +571,7 @@ def check_tools(cu: Checkup) -> None:
 
     @cu.probe(P, "parallel tool calls preserve result order")
     def _(_):
-        src = (ROOT / "src/graphs/parallel_tools.py").read_text()
+        src = (ROOT / "src/graphs/parallel_tools.py").read_text(encoding="utf-8", errors="replace")
         if "index" not in src and "order" not in src:
             return (WARN, "no ordering key visible in parallel_tools")
         return "ordering key present in parallel_tools"
@@ -790,14 +790,14 @@ def check_finalize(cu: Checkup) -> None:
 
     @cu.probe(P, "a terminal frame always carries an outcome")
     def _(_):
-        src = (ROOT / "src/bridge/__main__.py").read_text()
+        src = (ROOT / "src/bridge/__main__.py").read_text(encoding="utf-8", errors="replace")
         if '"run_outcome"' in src or "'run_outcome'" in src:
             return "terminal frames carry run_outcome"
         return (FAIL, "terminal frames carry no run_outcome")
 
     @cu.probe(P, "a budget cut still reports a reason a client can act on")
     def _(_):
-        src = (ROOT / "src/bridge/__main__.py").read_text()
+        src = (ROOT / "src/bridge/__main__.py").read_text(encoding="utf-8", errors="replace")
         if "budget" in src.lower() and "reason" in src.lower():
             return "budget termination path mentions a reason"
         return (WARN, "budget termination has no reason field")
@@ -1035,7 +1035,7 @@ def check_economics(cu: Checkup) -> None:
 
     @cu.probe(P, "a compaction invalidates the prompt cache (measurable, and unmitigated)")
     def _(_):
-        src = (ROOT / "src/context/compaction.py").read_text()
+        src = (ROOT / "src/context/compaction.py").read_text(encoding="utf-8", errors="replace")
         marks = sum(src.count(k) for k in ("cache_control", "stable_prefix", "prompt_cache_plan"))
         if marks == 0:
             return (
