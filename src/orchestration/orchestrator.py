@@ -41,6 +41,7 @@ from src.orchestration.implementation_engine import ControlledImplementationEngi
 from src.orchestration.journal import DurableOrchestrationJournal
 from src.orchestration.lifecycle import LifecycleManager
 from src.orchestration.loop import BoundedAutonomousReasoningLoop
+from src.orchestration.model_adapter import ModelExecutionAdapter
 from src.orchestration.models import (
     DeliveryContract,
     EngineeringPlanDAG,
@@ -55,6 +56,7 @@ from src.orchestration.scheduler import DependencyAwareScheduler
 from src.orchestration.state_machine import TaskStateMachine
 from src.orchestration.supervision import HumanSupervisionGate
 from src.orchestration.visibility import DesktopVisibilityReporter
+from src.production.engine import ProductionReadinessEngine
 from src.regression.engine import RegressionPreventionEngine
 from src.regression.models import RegressionReport, RegressionStatus
 from src.verification.engine import IndependentVerificationEngine
@@ -75,6 +77,10 @@ class EngineeringExecutionOrchestrator:
         tenant_id: str = "default_tenant",
         limits: Optional[ExecutionLimits] = None,
         storage_dir: Optional[str] = None,
+        model_adapter: Optional[ModelExecutionAdapter] = None,
+        mock_mode: Optional[bool] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
@@ -97,6 +103,16 @@ class EngineeringExecutionOrchestrator:
         self.supervision_gate = HumanSupervisionGate(str(self.workspace_root), tenant_id=tenant_id)
         self.verification_engine = IndependentVerificationEngine(str(self.workspace_root), tenant_id=tenant_id, storage_dir=storage_dir)
 
+        # Model execution adapter & production readiness engine
+        self.model_adapter = model_adapter or ModelExecutionAdapter(
+            str(self.workspace_root),
+            tenant_id=tenant_id,
+            mock_mode=mock_mode,
+            provider=provider,
+            model=model,
+        )
+        self.production_engine = ProductionReadinessEngine(str(self.workspace_root), tenant_id=tenant_id, storage_dir=storage_dir)
+
     def run_task(
         self,
         task_prompt: str,
@@ -104,12 +120,32 @@ class EngineeringExecutionOrchestrator:
         explicit_constraints: Optional[List[str]] = None,
         on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
         custom_executor: Optional[Callable[[EngineeringTaskNode], bool]] = None,
+        cancellation_checker: Optional[Callable[[], bool]] = None,
     ) -> DeliveryContract:
         """
         Executes an end-to-end autonomous engineering task through all 15 lifecycle stages.
         """
         tid = task_id or f"task_{uuid.uuid4().hex[:8]}"
         t_start = time.time()
+
+        if cancellation_checker and cancellation_checker():
+            return DeliveryContract(
+                task_id=tid,
+                original_request=task_prompt,
+                verdict=TaskVerdict.CANCELLED,
+                what_was_requested=task_prompt,
+                what_was_implemented=[],
+                files_changed=[],
+                tests_executed=[],
+                tests_passed=[],
+                tests_failed=[],
+                independently_verified=False,
+                remaining_limitations=["Execution cancelled by user."],
+                user_action_required=None,
+                cost_inr=0.0,
+                token_usage={},
+                duration_seconds=round(time.time() - t_start, 3),
+            )
 
         # Initialize orchestration governance components
         state_machine = TaskStateMachine(tid, str(self.workspace_root), tenant_id=self.tenant_id, storage_dir=self.storage_dir)
@@ -271,19 +307,17 @@ class EngineeringExecutionOrchestrator:
         emit_progress("IMPLEMENTATION")
 
         def default_executor(node: EngineeringTaskNode) -> bool:
-            if node.node_id == "task_verification":
-                return True
-            for target_file in node.target_files:
-                code_content = f"# Autonomous implementation for {node.node_id}\n# Requirement: {', '.join(node.related_requirement_ids)}\n\ndef {node.node_id}_handler():\n    return 'OK'\n"
-                self.impl_engine.execute_node_mutation(
-                    task_id=tid,
-                    node=node,
-                    rel_path=target_file,
-                    content=code_content,
-                )
-                reasoning_loop.record_action(files_modified=1, tokens_used=150)
-            context_mgr.record_task_completion(node.node_id)
-            return True
+            return self.model_adapter.execute_node(
+                task_id=tid,
+                node=node,
+                specification=analysis_result.specification,
+                blueprint=arch_result.blueprint,
+                project_knowledge=knowledge,
+                impl_engine=self.impl_engine,
+                finops=finops,
+                reasoning_loop=reasoning_loop,
+                cancellation_checker=cancellation_checker,
+            )
 
         exec_func = custom_executor or default_executor
         exec_success = self.scheduler.execute_plan(
@@ -292,8 +326,50 @@ class EngineeringExecutionOrchestrator:
             on_progress=lambda n: emit_progress(f"TASK_NODE_{n.node_id}"),
         )
         if not exec_success:
+            if cancellation_checker and cancellation_checker():
+                state_machine.transition_to(TaskExecutionState.CANCELLED, "Task cancelled during implementation")
+                journal.record_event("TASK_CANCELLED", {"stage": "IMPLEMENTATION"})
+                return DeliveryContract(
+                    task_id=tid,
+                    original_request=task_prompt,
+                    verdict=TaskVerdict.CANCELLED,
+                    what_was_requested=task_prompt,
+                    what_was_implemented=[],
+                    files_changed=sorted(list(self.impl_engine.mutated_files)),
+                    tests_executed=[],
+                    tests_passed=[],
+                    tests_failed=[],
+                    independently_verified=False,
+                    remaining_limitations=["Execution cancelled during implementation."],
+                    user_action_required=None,
+                    cost_inr=finops.accounting.spent_inr,
+                    token_usage={"tokens": finops.accounting.tokens_consumed},
+                    duration_seconds=round(time.time() - t_start, 3),
+                )
+            # Check if any failure was due to specific FinOps, accounting, or security errors
+            for node in plan_dag.nodes.values():
+                if node.status == "FAILED" and node.error_message:
+                    err_msg = node.error_message
+                    err_lower = err_msg.lower()
+                    from src.orchestration.finops_governor import BudgetExhaustedError
+                    from src.orchestration.model_adapter import MissingUsageReceiptError, UnknownModelPricingError
+
+                    if "budget" in err_lower or "budgetexhaustederror" in err_lower:
+                        state_machine.transition_to(TaskExecutionState.FAILED, f"Budget exhausted: {err_msg}")
+                        raise BudgetExhaustedError(err_msg)
+                    if "missing authentic token usage receipt" in err_lower or "missingusagereceipterror" in err_lower:
+                        state_machine.transition_to(TaskExecutionState.FAILED, f"Usage receipt missing: {err_msg}")
+                        raise MissingUsageReceiptError(err_msg)
+                    if "cannot establish verified or catalog pricing" in err_lower or "pricing calculation failed" in err_lower or "unknownmodelpricingerror" in err_lower:
+                        state_machine.transition_to(TaskExecutionState.FAILED, f"Unknown pricing: {err_msg}")
+                        raise UnknownModelPricingError(err_msg)
+                    if "placeholder handler" in err_lower:
+                        state_machine.transition_to(TaskExecutionState.FAILED, f"Placeholder rejected: {err_msg}")
+                        raise ValueError(err_msg)
+
             state_machine.transition_to(TaskExecutionState.FAILED, "Implementation wave execution failed")
-            raise RuntimeError("Implementation task node execution failed")
+            first_fail = next((n.error_message for n in plan_dag.nodes.values() if n.status == "FAILED" and n.error_message), "Implementation task node execution failed")
+            raise RuntimeError(f"Implementation task node execution failed: {first_fail}")
 
         journal.record_event("IMPLEMENTATION_DONE", {"mutated_files": list(self.impl_engine.mutated_files)})
         lifecycle.complete_stage({"files": list(self.impl_engine.mutated_files)})
@@ -382,6 +458,26 @@ class EngineeringExecutionOrchestrator:
             "evidence_digest": verification_report.evidence_digest,
         })
 
+        # STAGE 14.5: PRODUCTION_READINESS_EVALUATION (Phase 11.8)
+        emit_progress("PRODUCTION_READINESS")
+        prod_report = None
+        try:
+            prod_report = self.production_engine.evaluate_readiness(
+                task_id=tid,
+                application_id=knowledge.project_name or "application",
+                task_prompt=task_prompt,
+                specification=analysis_result.specification,
+                blueprint=arch_result.blueprint,
+                verification_report=verification_report,
+            )
+            journal.record_event("PRODUCTION_READINESS_EVALUATED", {
+                "verdict": prod_report.verdict.value,
+                "findings_count": len(prod_report.open_findings),
+            })
+            context_mgr.context.production_readiness_report = prod_report
+        except Exception as exc:
+            log.warning("Production readiness advisory evaluation: %s", exc)
+
         # STAGE 15: FINAL_DELIVERY
         lifecycle.begin_stage(TaskLifecycleStage.FINAL_DELIVERY, {})
         emit_progress("FINAL_DELIVERY")
@@ -391,6 +487,12 @@ class EngineeringExecutionOrchestrator:
             TaskExecutionState.COMPLETED if is_clean else TaskExecutionState.FAILED,
             "Task finalized",
         )
+
+        prod_limitations = []
+        if prod_report and prod_report.open_findings:
+            high_findings = [f.title for f in prod_report.open_findings if getattr(f, "severity", None) and f.severity.value in ("CRITICAL", "HIGH")]
+            if high_findings:
+                prod_limitations.append(f"Production readiness warnings: {'; '.join(high_findings[:3])}")
 
         delivery = DeliveryContract(
             task_id=tid,
@@ -403,12 +505,15 @@ class EngineeringExecutionOrchestrator:
             tests_passed=[f"passed_{t}" for t in range(reg_report.post_change_summary.get("passed", 0))],
             tests_failed=[r.test_name for r in reg_report.new_regressions],
             independently_verified=is_clean,
-            remaining_limitations=verification_report.accepted_limitations,
+            remaining_limitations=(verification_report.accepted_limitations or []) + prod_limitations,
             user_action_required=None,
             cost_inr=finops.accounting.spent_inr,
+            cost_usd=finops.accounting.spent_usd,
             token_usage={"tokens": finops.accounting.tokens_consumed},
             duration_seconds=round(time.time() - t_start, 3),
             evidence_references=[reg_report.task_id, verification_report.evidence_digest],
+            production_readiness_verdict=prod_report.verdict.value if prod_report else None,
+            production_readiness_findings=[f.to_dict() for f in prod_report.open_findings] if prod_report else [],
         )
 
         journal.record_event("TASK_DELIVERED", delivery.to_dict())

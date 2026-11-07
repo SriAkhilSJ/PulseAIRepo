@@ -322,3 +322,9 @@ def get_pricing_registry() -> ModelPricingRegistry:
             _GLOBAL_REGISTRY = ModelPricingRegistry()
         return _GLOBAL_REGISTRY
 
+
+# Canonical aliases for backwards-compatibility and orchestration imports
+PricingRegistry = ModelPricingRegistry
+ModelPricingRegistry.get_pricing_registry = staticmethod(get_pricing_registry)  # type: ignore
+
+

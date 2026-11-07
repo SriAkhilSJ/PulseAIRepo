@@ -131,6 +131,7 @@ class ModelExecutionAdapter:
         is_test_env = (
             bool(os.environ.get("PYTEST_CURRENT_TEST"))
             or os.environ.get("CRUSORAI_TEST_MODE", "").lower() in {"1", "true", "yes"}
+            or os.environ.get("CRUSORAI_OFFLINE_MODE", "").lower() in {"1", "true", "yes"}
         )
         if mock_mode is not None:
             self.mock_mode = mock_mode
@@ -199,7 +200,7 @@ class ModelExecutionAdapter:
             if custom_code_generator:
                 code_content = custom_code_generator(node, target_file)
                 finops.record_usage(input_tokens=150, output_tokens=250, cost_inr=0.0)
-            elif self.mock_mode or not self._has_active_provider():
+            elif self.mock_mode:
                 code_content = self._generate_deterministic_implementation(
                     node=node,
                     target_file=target_file,
@@ -217,6 +218,12 @@ class ModelExecutionAdapter:
                     blueprint=blueprint,
                     project_knowledge=project_knowledge,
                     finops=finops,
+                )
+
+            # Prevent placeholder 'return OK' handlers from being accepted in any execution mode
+            if "Production implementation placeholder" in code_content or re.search(r"def handle_\w+\(\):\s*return ['\"]OK['\"]", code_content):
+                raise ValueError(
+                    f"Placeholder handler generation is strictly prohibited in orchestration execution for node '{node.node_id}'."
                 )
 
             # 5. Apply mutation through ControlledImplementationEngine -> WorkspaceMutationBroker

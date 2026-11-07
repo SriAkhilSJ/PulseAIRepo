@@ -8,6 +8,7 @@ from src.finops.pricing_registry import (
     CalculatedCost,
     ModelPricingMetadata,
     ModelPricingRegistry,
+    PricingRegistry,
     VerificationStatus,
     get_pricing_registry,
     quantize_currency,
