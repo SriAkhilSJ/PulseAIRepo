@@ -14,15 +14,16 @@ Replaces synthetic handler stubs with real, model-powered software engineering:
 from __future__ import annotations
 
 import ast
-import asyncio
 import inspect
+import json
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from src.finops.pricing_registry import PricingRegistry, VerificationStatus
+from src.finops.pricing_registry import CalculatedCost, PricingRegistry, VerificationStatus
 from src.identity.models import Permission, RoleTemplate, User
 from src.identity.tool_authorizer import get_tool_authorizer
 from src.llm.factory import TurnCancelledError, get_llm
@@ -157,6 +158,158 @@ def build_output_token_kwargs(provider: Optional[str], max_output_tokens: Option
     return {param: limit}
 
 
+# ---------------------------------------------------------------------------
+# P0.4.2: defensible input-token upper bound
+# ---------------------------------------------------------------------------
+# Why the serialized byte length is an upper bound on content tokens:
+#
+#   * The request is a single chat message whose content is the exact prompt
+#     string. We serialise that envelope with ``ensure_ascii=True`` so every
+#     non-ASCII code point expands to at least its raw UTF-8 byte length:
+#       - a BMP code point (e.g. CJK: 3 UTF-8 bytes) becomes ``\uXXXX`` = 6
+#         ASCII bytes;
+#       - an astral code point (e.g. an emoji: 4 UTF-8 bytes) becomes two
+#         ``\uXXXX`` escapes = 12 ASCII bytes.
+#     A JSON string also escapes ``"`` and ``\`` and adds a little framing, so
+#     the serialized UTF-8 length is >= the raw UTF-8 length of the prompt.
+#   * Every tokenizer we can target (tiktoken byte-level BPE, Llama/Qwen/
+#     DeepSeek byte-level BPE, SentencePiece unigram) builds tokens from
+#     non-empty byte sequences, so a string can never require more tokens than
+#     it has bytes. ``tokens(text) <= utf8_bytes(text) <= serialized_bytes``.
+#
+# The provider chat template adds role/separator/special tokens that are not
+# part of the content bytes, so we add explicit, deliberately generous
+# per-message and per-request overhead. These are upper-bound constants, not
+# estimates: they only ever make the reservation larger.
+PROMPT_OVERHEAD_TOKENS_PER_MESSAGE = 16
+PROMPT_OVERHEAD_TOKENS_PER_REQUEST = 16
+
+# Minimum bound even for an empty prompt: the request still carries a role,
+# separators and provider chat-template control tokens.
+_MIN_PROMPT_BOUND_TOKENS = (
+    PROMPT_OVERHEAD_TOKENS_PER_MESSAGE + PROMPT_OVERHEAD_TOKENS_PER_REQUEST
+)
+
+
+@dataclass(frozen=True)
+class PromptTokenBound:
+    """Documented upper bound for the exact prompt sent to a provider."""
+
+    upper_bound_tokens: int
+    exact_local_tokens: Optional[int]
+    serialized_bytes: int
+    method: str
+
+
+def _tiktoken_exact_count(text: str, model: Optional[str]) -> Optional[int]:
+    """Return an exact local tiktoken count when the model is natively known.
+
+    Returns ``None`` when tiktoken is unavailable, the BPE file is not cached,
+    or the model has no native encoding. Unknown models deliberately do NOT
+    fall back to ``cl100k_base``: that is an approximation, while the caller's
+    byte bound is a genuine upper bound.
+    """
+    if not model:
+        return None
+    try:
+        import tiktoken  # local, optional dependency
+    except Exception:
+        return None
+    try:
+        encoder = tiktoken.encoding_for_model(str(model))
+    except Exception:
+        return None
+    try:
+        return len(encoder.encode(text))
+    except Exception:
+        return None
+
+
+def estimate_prompt_token_upper_bound(
+    prompt: str,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> PromptTokenBound:
+    """Compute a conservative upper bound on the provider-side input tokens.
+
+    The result is ``max(exact local count, serialized UTF-8 bytes)`` plus
+    documented chat-template overhead. Exact local tokenization is used only
+    when it is actually available; otherwise the byte bound is used without
+    any optimistic character-ratio fallback.
+    """
+    if not isinstance(prompt, str):
+        raise TypeError("prompt must be a string")
+
+    serialized = json.dumps(
+        {
+            "model": model or "",
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    serialized_bytes = len(serialized.encode("utf-8"))
+
+    exact_local = _tiktoken_exact_count(prompt, model)
+    overhead = PROMPT_OVERHEAD_TOKENS_PER_MESSAGE + PROMPT_OVERHEAD_TOKENS_PER_REQUEST
+
+    byte_bound = serialized_bytes + overhead
+    exact_bound = (exact_local + overhead) if exact_local is not None else 0
+    upper_bound = max(_MIN_PROMPT_BOUND_TOKENS, byte_bound, exact_bound)
+
+    method = "serialized_utf8_bytes+chat_template_overhead"
+    if exact_local is not None:
+        method = "max(tiktoken_exact, serialized_utf8_bytes)+chat_template_overhead"
+
+    return PromptTokenBound(
+        upper_bound_tokens=upper_bound,
+        exact_local_tokens=exact_local,
+        serialized_bytes=serialized_bytes,
+        method=method,
+    )
+
+
+def calculate_max_request_cost(
+    pricing_reg: PricingRegistry,
+    model: str,
+    provider: Optional[str],
+    input_tokens: int,
+    max_output_tokens: int,
+) -> CalculatedCost:
+    """Maximum possible request cost for the bound and output ceiling.
+
+    Uses the full (uncached) input rate for every input token and the larger of
+    the output and reasoning rates for every output token, so the reservation
+    cannot be under-cut by a model that bills reasoning tokens above its
+    visible-output rate.
+    """
+    standard = pricing_reg.calculate_cost(
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=max_output_tokens,
+        provider=provider,
+    )
+    pricing = pricing_reg.get_model_pricing(model, provider=provider)
+    if (
+        standard.cost_inr is not None
+        and standard.cost_usd is not None
+        and pricing is not None
+        and pricing.reasoning_price_per_1m is not None
+        and pricing.reasoning_price_per_1m > pricing.output_price_per_1m
+    ):
+        reasoning = pricing_reg.calculate_cost(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=0,
+            reasoning_tokens=max_output_tokens,
+            provider=provider,
+        )
+        if reasoning.cost_inr is not None and reasoning.cost_inr > standard.cost_inr:
+            return reasoning
+    return standard
+
+
 def _unwrap_llm(target: Any) -> Any:
     """Walk RetryLLMProxy / RunnableBinding wrappers down to the provider client."""
     current = target
@@ -213,71 +366,65 @@ def can_enforce_token_limit(
 
 
 def _provider_status_code(exc: Exception) -> Optional[int]:
-    """Best-effort HTTP status extraction from provider/SDK exceptions."""
-    for attr in ("status_code", "http_status", "status", "code"):
-        value = getattr(exc, attr, None)
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
+    """Extract an HTTP status code from structured provider/SDK evidence only.
+
+    Only attributes that providers/SDKs document as status carriers are
+    consulted (``status_code`` / ``http_status`` / ``status`` and
+    ``response.status_code``). Free text is intentionally ignored: a message
+    such as ``"expected 400 but got 500"`` is not proof that the provider
+    returned a 400, and must not be used to release a financial hold.
+    """
     response = getattr(exc, "response", None)
-    if response is not None:
-        value = getattr(response, "status_code", None)
-        if isinstance(value, int) and not isinstance(value, bool):
+    candidates = [
+        getattr(exc, "status_code", None),
+        getattr(exc, "http_status", None),
+        getattr(exc, "status", None),
+        getattr(response, "status_code", None) if response is not None else None,
+        getattr(response, "status", None) if response is not None else None,
+        # Some SDKs expose the HTTP status via ``code``. Only a plain int in
+        # the HTTP range is accepted; string error codes are not evidence.
+        getattr(exc, "code", None),
+    ]
+    for value in candidates:
+        if isinstance(value, int) and not isinstance(value, bool) and 100 <= value <= 599:
             return value
-    match = re.search(r"\b([45]\d{2})\b", str(exc))
-    if match:
-        return int(match.group(1))
     return None
 
 
+# Documented provider rejection evidence: an HTTP 4xx response means the
+# provider refused the request before generating tokens, and these responses
+# are not billed. 408 (request timeout) is excluded because the request may
+# have been processed before the timeout surfaced.
+_CONFIRMED_UNBILLED_HTTP_STATUSES = frozenset({400, 401, 402, 403, 404, 405, 406, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451})
+
+
 def is_uncertain_post_dispatch_error(exc: Exception) -> bool:
-    """Distinguish pre-dispatch failures from post-dispatch billing ambiguity.
+    """Classify an error raised *by the provider invocation*.
 
-    Pre-dispatch programming/config failures and definitive provider
-    rejections are safe to release. Timeouts, connection loss, cancellation,
-    5xx responses, and unknown transport failures may have been billed and
-    must retain their financial hold as ``uncertain``.
+    This helper is only consulted for exceptions raised inside
+    ``llm.invoke(...)``. Errors that the adapter detects before dispatch
+    (client construction, unsupported token ceiling, canonical denial,
+    persistence failure) are released directly by the caller and never reach
+    this function.
+
+    A post-invocation error keeps the financial hold (returns ``True``) unless
+    there is documented provider evidence that the request was rejected
+    without being billed: a structured HTTP 4xx response other than 408.
+    In particular, a ``TypeError`` raised inside ``invoke`` is NOT proof that
+    no request reached the provider, and text-only status numbers are not
+    evidence (see :func:`_provider_status_code`).
     """
-    # Client-side/config failure raised before any wire request can be billed.
-    if isinstance(exc, (TypeError, ValueError, KeyError, AttributeError, ImportError, NotImplementedError, AssertionError)):
-        return False
-
-    # User cancellation and transport interruption after dispatch.
-    if isinstance(exc, (TurnCancelledError, TimeoutError, asyncio.TimeoutError, ConnectionError)):
-        return True
-
-    cls_name = type(exc).__name__.lower()
-    msg = str(exc).lower()
-
-    if any(
-        token in cls_name
-        for token in (
-            "timeout", "cancel", "connection", "disconnect", "remotedisconnected",
-            "brokenpipe", "apiconnection", "serviceunavailable", "internalserver",
-        )
-    ):
-        return True
-
     status = _provider_status_code(exc)
-    if status is not None:
-        # 5xx and request-timeout responses may be billed or unknown; retain.
-        if status == 408 or status >= 500:
-            return True
-        # Definitive rejections (bad request/auth/not-found/rate-limit) are unbilled.
-        if 400 <= status < 500:
-            return False
+    if status is None:
+        # No documented rejection evidence. Timeouts, cancellation, connection
+        # loss, local programming errors raised inside invoke, 5xx, and
+        # unknown transport failures may all have been billed.
+        return True
 
-    # Definitive pre-generation / edge rejection wording (no response generated).
-    if any(
-        token in msg
-        for token in (
-            "invalid api key", "invalid_api_key", "unauthorized", "authentication",
-            "permission denied", "model not found", "bad request", "invalid_request",
-            "unsupported model", "rate limit", "rate_limit", "429",
-        )
-    ):
+    if status in _CONFIRMED_UNBILLED_HTTP_STATUSES:
         return False
 
-    # Unknown failure during invocation: assume billing is possible.
+    # 408 request timeout, 5xx, and any non-rejection status are ambiguous.
     return True
 
 
@@ -534,18 +681,31 @@ class ModelExecutionAdapter:
             f"Return ONLY the code block, with no conversational preamble."
         )
 
-        # 2. FinOps reserve-before-call (P0.4 / P0.4.1)
-        # Calculate conservative maximum input tokens (3 chars/token) and strict max output allowance
-        prompt_chars = len(prompt)
-        est_in = max(100, prompt_chars // 3)
+        # 2. FinOps reserve-before-call (P0.4 / P0.4.1 / P0.4.2)
+        # Bound the EXACT prompt sent to the provider. The bound is the larger
+        # of the exact local tokenizer count (when available) and a serialized
+        # UTF-8 byte bound, plus documented chat-template overhead. The previous
+        # ``chars // 3`` heuristic was optimistic and could under-reserve for
+        # code, Unicode, emoji, and JSON-escaped text.
+        input_bound = estimate_prompt_token_upper_bound(prompt, provider=prov, model=mod)
         max_output_tokens = getattr(node, "max_tokens", None) or 2048
+        est_in = input_bound.upper_bound_tokens
         max_total_tokens = est_in + max_output_tokens
+        log.info(
+            "P0.4.2 input-token upper bound for node %s: %d tokens (%s; exact=%s; serialized_bytes=%d)",
+            node.node_id,
+            est_in,
+            input_bound.method,
+            input_bound.exact_local_tokens,
+            input_bound.serialized_bytes,
+        )
 
-        max_cost = pricing_reg.calculate_cost(
+        max_cost = calculate_max_request_cost(
+            pricing_reg,
             model=mod,
-            input_tokens=est_in,
-            output_tokens=max_output_tokens,
             provider=prov,
+            input_tokens=est_in,
+            max_output_tokens=max_output_tokens,
         )
         if max_cost.cost_inr is None or max_cost.cost_usd is None or max_cost.verification_status == VerificationStatus.UNKNOWN:
             raise UnknownModelPricingError(

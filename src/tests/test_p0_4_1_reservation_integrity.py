@@ -9,7 +9,8 @@ Covers:
 1.  Exact provider output-token ceiling reaches the invocation kwargs.
 2.  OpenAI-compatible wire payload carries the ceiling (max_completion_tokens).
 3.  A client that cannot enforce the ceiling is blocked BEFORE dispatch.
-4.  No unbounded retry after TypeError; one metered dispatch == one request.
+4.  No unbounded retry after TypeError; one metered dispatch == one request,
+    and an in-invocation TypeError retains an uncertain hold.
 5.  Canonical reservation denial blocks provider invocation.
 6.  The exact canonical reservation ID is used for commit and release.
 7.  Durable persistence failure blocks provider invocation.
@@ -201,7 +202,12 @@ class TestP041ReservationIntegrity(unittest.TestCase):
 
         self.assertEqual(proxy._max_attempts, 1, "Adapter must force a single metered dispatch")
         self.assertEqual(proxy.calls, 1, "TypeError must not trigger a retry without the token limit")
-        self.assertEqual(self.finops.accounting.reserved_inr, 0.0, "Pre-dispatch rejection releases the hold")
+        self.assertGreater(
+            self.finops.accounting.reserved_inr,
+            0.0,
+            "A TypeError raised inside invoke is ambiguous and must retain the hold",
+        )
+        self.assertEqual(len(self.finops._uncertain_reservations), 1)
 
     # ------------------------------------------------------------------
     # 5-7. Canonical reservation + persistence fail closed before dispatch
@@ -294,7 +300,10 @@ class TestP041ReservationIntegrity(unittest.TestCase):
         ma.get_llm = lambda provider=None, model=None: TimingOutLLM()
         self.assertTrue(is_uncertain_post_dispatch_error(TimeoutError("t")))
         self.assertTrue(is_uncertain_post_dispatch_error(TurnCancelledError("cancelled")))
-        self.assertFalse(is_uncertain_post_dispatch_error(TypeError("bad signature")))
+        self.assertTrue(
+            is_uncertain_post_dispatch_error(TypeError("bad signature")),
+            "A TypeError raised inside invoke does not prove the request was never billed",
+        )
 
         with self.assertRaises(TimeoutError):
             self._run_node(adapter, self._make_node())
