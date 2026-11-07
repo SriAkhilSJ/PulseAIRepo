@@ -121,12 +121,25 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
         """Verify the production desktop bridge entry point (_run_turn) reaches ModelExecutionAdapter."""
         server = BridgeServer()
         sid = "desktop_session_p0_3"
+
+        # Explicitly configure ModelExecutionAdapter with mock_mode=False
+        adapter = ModelExecutionAdapter(
+            workspace_root=str(self.ws),
+            tenant_id="desktop_tenant",
+            mock_mode=False,
+            provider="groq",
+            model="qwen/qwen3.6-27b",
+        )
+
         server._sessions[sid] = {
             "session_id": sid,
             "workspace": str(self.ws),
             "tenant_id": "desktop_tenant",
             "mode": "agent",
+            "model_adapter": adapter,
+            "mock_mode": False,
         }
+        server.model_adapter = adapter
 
         emitted_frames: List[Dict[str, Any]] = []
 
@@ -135,8 +148,11 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
 
         server.emit = capture_emit  # type: ignore
 
+        invoke_prompts: List[str] = []
+
         class FakeBridgeLLM:
             def invoke(self, prompt: str):
+                invoke_prompts.append(prompt)
                 return type(
                     "Resp",
                     (),
@@ -169,18 +185,41 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
                     mode="agent",
                 )
 
-                # Assert protocol frames emitted
+                # 1. Assert protocol frames emitted
                 types = [f.get("type") for f in emitted_frames]
                 self.assertIn("turn_lifecycle", types)
                 self.assertIn("plan_updated", types)
                 self.assertIn("verification_updated", types)
                 self.assertIn("turn_done", types)
 
-                # Assert target file was created with model generated content
+                # 2. Assert FakeBridgeLLM was demonstrably called (fails if deterministic mock is used)
+                self.assertGreater(len(invoke_prompts), 0, "Fake provider invoke() must be demonstrably called")
+                self.assertIn("Task Node:", invoke_prompts[0])
+
+                # 3. Assert target file was created with model generated content
                 py_files = [f for f in self.ws.rglob("*.py") if f.name != "index.py"]
                 self.assertGreater(len(py_files), 0, "Model generated files must land on disk")
                 found_code = any("PaymentGateway" in f.read_text(encoding="utf-8") for f in py_files)
                 self.assertTrue(found_code, "Generated file must contain PaymentGateway class")
+
+                # 4. Assert mutations were written through WorkspaceMutationBroker
+                orch = getattr(server, "_last_orchestrator", None)
+                self.assertIsNotNone(orch, "Bridge must execute through EngineeringExecutionOrchestrator")
+                all_records = [r for t_records in orch.broker.ledger._records.values() for r in t_records]
+                self.assertGreater(len(all_records), 0, "WorkspaceMutationBroker ledger must record file mutations")
+                for r in all_records:
+                    self.assertTrue((self.ws / r.file_path).exists(), f"File {r.file_path} from broker must exist on disk")
+
+                # 5. Assert non-zero FinOps accounting and token usage
+                delivery = getattr(server, "_last_delivery", None)
+                self.assertIsNotNone(delivery, "Bridge execution must produce a DeliveryContract")
+                self.assertGreater(delivery.cost_inr, 0.0, "Cost in INR must be non-zero for real model execution")
+                self.assertGreater(delivery.cost_usd, 0.0, "Cost in USD must be non-zero for real model execution")
+                self.assertEqual(delivery.token_usage.get("tokens"), 255, "Actual token usage from provider must be recorded")
+
+                # 6. Assert independent verification passed
+                self.assertTrue(delivery.independently_verified, "Delivery must pass independent verification")
+                self.assertEqual(delivery.verdict, TaskVerdict.COMPLETED)
 
             finally:
                 ma.get_llm = orig_get_llm

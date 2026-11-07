@@ -1172,13 +1172,24 @@ class BridgeServer:
                     from src.orchestration.models import TaskVerdict, ExecutionLimits
                     task_budget_inr = float(os.environ.get("CRUSORAI_TASK_BUDGET_INR", "5.0") or "5.0")
                     session_info = self._sessions.get(sid, {})
+                    adapter = (
+                        session_info.get("model_adapter")
+                        or getattr(self, "model_adapter", None)
+                    )
+                    mock_mode = session_info.get("mock_mode")
+                    if mock_mode is None and getattr(self, "mock_mode", None) is not None:
+                        mock_mode = getattr(self, "mock_mode")
+
                     orch = EngineeringExecutionOrchestrator(
                         workspace_root=workspace,
                         tenant_id=session_info.get("tenant_id", "default_tenant"),
                         limits=ExecutionLimits(max_cost_inr=task_budget_inr),
                         provider=session_info.get("provider") or os.environ.get("LLM_PROVIDER"),
                         model=session_info.get("model") or os.environ.get("LLM_MODEL"),
+                        mock_mode=mock_mode,
+                        model_adapter=adapter,
                     )
+                    self._last_orchestrator = orch
 
                     def on_orch_progress(view: dict) -> None:
                         _liveness.touch()
@@ -1228,6 +1239,7 @@ class BridgeServer:
                         on_progress=on_orch_progress,
                         cancellation_checker=lambda: turn_controls.cancelled(sid),
                     )
+                    self._last_delivery = delivery
 
                     cancelled = turn_controls.cancelled(sid)
                     task_completed = (delivery.verdict == TaskVerdict.COMPLETED)

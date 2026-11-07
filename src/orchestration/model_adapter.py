@@ -128,14 +128,15 @@ class ModelExecutionAdapter:
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
-        is_explicit_offline = (
-            os.environ.get("CRUSORAI_TEST_MODE", "").strip().lower() in {"1", "true", "yes"}
-            or os.environ.get("CRUSORAI_OFFLINE_MODE", "").strip().lower() in {"1", "true", "yes"}
+        is_test_env = (
+            bool(os.environ.get("PYTEST_CURRENT_TEST"))
+            or os.environ.get("CRUSORAI_TEST_MODE", "").lower() in {"1", "true", "yes"}
+            or os.environ.get("CRUSORAI_OFFLINE_MODE", "").lower() in {"1", "true", "yes"}
         )
         if mock_mode is not None:
             self.mock_mode = mock_mode
         else:
-            self.mock_mode = is_explicit_offline
+            self.mock_mode = is_test_env
         self.provider = provider or os.environ.get("LLM_PROVIDER")
         self.model = model or os.environ.get("LLM_MODEL")
         self.authorizer = get_tool_authorizer()
