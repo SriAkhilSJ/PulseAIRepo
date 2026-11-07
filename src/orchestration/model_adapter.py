@@ -128,17 +128,16 @@ class ModelExecutionAdapter:
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
-        is_test_env = (
-            bool(os.environ.get("PYTEST_CURRENT_TEST"))
-            or os.environ.get("CRUSORAI_TEST_MODE", "").lower() in {"1", "true", "yes"}
-            or os.environ.get("CRUSORAI_OFFLINE_MODE", "").lower() in {"1", "true", "yes"}
+        is_explicit_offline = (
+            os.environ.get("CRUSORAI_TEST_MODE", "").strip().lower() in {"1", "true", "yes"}
+            or os.environ.get("CRUSORAI_OFFLINE_MODE", "").strip().lower() in {"1", "true", "yes"}
         )
         if mock_mode is not None:
             self.mock_mode = mock_mode
         else:
-            self.mock_mode = is_test_env
-        self.provider = provider
-        self.model = model
+            self.mock_mode = is_explicit_offline
+        self.provider = provider or os.environ.get("LLM_PROVIDER")
+        self.model = model or os.environ.get("LLM_MODEL")
         self.authorizer = get_tool_authorizer()
 
     def execute_node(
@@ -337,8 +336,8 @@ class ModelExecutionAdapter:
     ) -> str:
         """Invokes the configured LLM provider to author real code with verified FinOps accounting."""
         from src.config.settings import LLM_PROVIDER, LLM_MODEL
-        prov = self.provider or LLM_PROVIDER or "custom"
-        mod = self.model or LLM_MODEL or "default"
+        prov = self.provider or os.environ.get("LLM_PROVIDER") or LLM_PROVIDER or "custom"
+        mod = self.model or os.environ.get("LLM_MODEL") or LLM_MODEL or "default"
 
         # 1. Enforce verified pricing exists before dispatching call (fail-closed)
         pricing_reg = PricingRegistry.get_pricing_registry()
