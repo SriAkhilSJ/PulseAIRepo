@@ -215,7 +215,19 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
                 self.assertIsNotNone(delivery, "Bridge execution must produce a DeliveryContract")
                 self.assertGreater(delivery.cost_inr, 0.0, "Cost in INR must be non-zero for real model execution")
                 self.assertGreater(delivery.cost_usd, 0.0, "Cost in USD must be non-zero for real model execution")
-                self.assertEqual(delivery.token_usage.get("tokens"), 255, "Actual token usage from provider must be recorded")
+                # The planner creates one implementation node per approved
+                # requirement, so a task can dispatch the model more than once
+                # (all three requirements here target the same file). The
+                # recording must equal the provider receipt for every actual
+                # dispatch, not a number that assumes a single node.
+                per_call_tokens = 180 + 75  # FakeBridgeLLM usage_metadata
+                self.assertGreater(len(invoke_prompts), 0)
+                self.assertEqual(
+                    delivery.token_usage.get("tokens"),
+                    per_call_tokens * len(invoke_prompts),
+                    "Recorded tokens must equal the provider receipt for every dispatched call",
+                )
+                self.assertGreaterEqual(delivery.token_usage.get("tokens", 0), per_call_tokens)
 
                 # 6. Assert independent verification passed
                 self.assertTrue(delivery.independently_verified, "Delivery must pass independent verification")
