@@ -26,7 +26,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from src.finops.pricing_registry import CalculatedCost, PricingRegistry, VerificationStatus
 from src.identity.models import Permission, RoleTemplate, User
 from src.identity.tool_authorizer import get_tool_authorizer
-from src.llm.factory import TurnCancelledError, get_llm
+from src.llm.factory import (
+    TurnCancelledError,
+    get_llm,
+    normalize_finish_reason,
+    provider_response_info,
+)
 from src.orchestration.finops_governor import (
     BudgetExhaustedError,
     OrchestrationFinOpsGovernor,
@@ -51,6 +56,244 @@ class MissingUsageReceiptError(ModelAccountingError):
 class UnknownModelPricingError(ModelAccountingError):
     """Raised when a model or provider rate card cannot be established in the pricing registry."""
     pass
+
+
+class ModelOutputIntegrityError(ValueError):
+    """Base class for fail-closed model output integrity violations."""
+
+
+class IncompleteModelOutputError(ModelOutputIntegrityError):
+    """Raised when the provider reports that generation stopped before completion."""
+
+
+class SourceExtractionError(ModelOutputIntegrityError):
+    """Raised when a response cannot be reduced to one complete source payload."""
+
+
+class EmptyModelOutputError(SourceExtractionError):
+    """Raised when the provider returns no usable source content."""
+
+
+class InvalidGeneratedSourceError(ModelOutputIntegrityError):
+    """Raised when extracted source fails syntax validation for its target language."""
+
+
+# Provider-reported completion reasons that mean the output is not a complete
+# deliverable. The first three are the documented OpenAI/Groq/Anthropic forms;
+# the remainder are documented truncation/blocked variants used by compatible
+# gateways. A reason is only consulted when the provider actually reports one:
+# reaching a configured ceiling by itself is never treated as truncation.
+INCOMPLETE_FINISH_REASONS = frozenset({
+    "length",
+    "max_tokens",
+    "max_output_tokens",
+    "max_completion_tokens",
+    "token_limit",
+    "incomplete",
+    "content_filter",
+    "safety",
+    "recitation",
+    "blocked",
+    "error",
+})
+
+_FENCE_OPEN_RE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+.#-]*)[ \t]*$")
+_FENCE_CLOSE_RE = re.compile(r"^[ \t]*```[ \t]*$")
+_SOURCE_LIKE_OUTSIDE_RE = re.compile(
+    r"(?m)^[ \t]*(?:async[ \t]+def|def|class|import|from|@|#include|package|func|const|let|var|"
+    r"public|private|protected|interface|type|struct|using|namespace)\b"
+)
+
+
+def _response_text(response: Any) -> str:
+    """Return response text without assuming a LangChain AIMessage shape."""
+    if response is None:
+        return ""
+    content = getattr(response, "content", None)
+    if content is None:
+        return str(response)
+    if isinstance(content, str):
+        return content
+    return str(content)
+
+
+def response_finish_reason(response: Any) -> Tuple[str, str]:
+    """Return ``(raw, canonical)`` completion reason, or ``("", "")``."""
+    if response is None:
+        return "", ""
+
+    raw = ""
+    canonical = ""
+    try:
+        info = provider_response_info(response)
+        raw = str(info.get("raw_finish_reason") or "")
+        canonical = str(info.get("finish_reason") or "")
+    except Exception:
+        # Metadata shape is provider-specific; the direct-attribute fallback
+        # below still gets a chance, and missing metadata is not truncation.
+        pass
+
+    if not canonical:
+        for attr in ("finish_reason", "stop_reason"):
+            value = getattr(response, attr, None)
+            if value:
+                raw_value, canonical_value = normalize_finish_reason(value)
+                if canonical_value:
+                    return raw_value, canonical_value
+    return raw, canonical
+
+
+def assert_provider_output_complete(response: Any, target_file: str) -> None:
+    """Fail closed when the provider explicitly reports incomplete generation."""
+    raw, canonical = response_finish_reason(response)
+    if canonical and canonical in INCOMPLETE_FINISH_REASONS:
+        detail = f"finish_reason={canonical!r}"
+        if raw and raw.lower() != canonical:
+            detail += f" (raw={raw[:64]!r})"
+        raise IncompleteModelOutputError(
+            f"Provider stopped before completing output for '{target_file}': {detail}."
+        )
+
+
+def extract_generated_source(text: Any, target_file: str) -> str:
+    """Extract exactly one complete source payload from a model response.
+
+    Accepted shapes:
+      * plain source text with no Markdown fence;
+      * exactly one complete fenced block, with an optional language tag.
+
+    Rejected shapes (fail closed, never "best effort"):
+      * empty/whitespace-only output;
+      * an opening fence without a matching closing fence;
+      * malformed fence lines or nested fences;
+      * multiple fenced blocks (ambiguous; could silently discard code);
+      * source-like content outside the fenced block.
+    """
+    if text is None:
+        text = ""
+    if not isinstance(text, str):
+        text = str(text)
+
+    stripped = text.strip()
+    if not stripped:
+        raise EmptyModelOutputError(
+            f"Model returned empty output for '{target_file}'."
+        )
+
+    lines = stripped.splitlines()
+    fence_lines = [line for line in lines if "```" in line]
+    if not fence_lines:
+        # No fence: the entire payload is the candidate source. Syntax
+        # validation happens later, so malformed plain source still fails.
+        return stripped
+
+    for line in fence_lines:
+        if not (_FENCE_OPEN_RE.match(line) or _FENCE_CLOSE_RE.match(line)):
+            raise SourceExtractionError(
+                f"Malformed Markdown code fence in model output for '{target_file}'."
+            )
+
+    blocks: List[Tuple[str, str]] = []
+    outside: List[str] = []
+    index = 0
+    while index < len(lines):
+        opening = _FENCE_OPEN_RE.match(lines[index])
+        if opening:
+            language = opening.group(1) or ""
+            body_start = index + 1
+            cursor = body_start
+            while cursor < len(lines) and not _FENCE_CLOSE_RE.match(lines[cursor]):
+                if _FENCE_OPEN_RE.match(lines[cursor]):
+                    raise SourceExtractionError(
+                        f"Nested or unterminated Markdown code fence for '{target_file}'."
+                    )
+                cursor += 1
+            if cursor >= len(lines):
+                raise SourceExtractionError(
+                    f"Incomplete Markdown code fence for '{target_file}': "
+                    f"opening fence has no matching closing fence."
+                )
+            blocks.append((language, "\n".join(lines[body_start:cursor])))
+            index = cursor + 1
+        else:
+            if _FENCE_CLOSE_RE.match(lines[index]):
+                raise SourceExtractionError(
+                    f"Unmatched closing Markdown code fence for '{target_file}'."
+                )
+            outside.append(lines[index])
+            index += 1
+
+    if len(blocks) != 1:
+        raise SourceExtractionError(
+            f"Expected exactly one complete fenced code block for '{target_file}', "
+            f"found {len(blocks)}."
+        )
+
+    _language, body = blocks[0]
+    if not body.strip():
+        raise EmptyModelOutputError(
+            f"Fenced code block for '{target_file}' is empty."
+        )
+
+    outside_text = "\n".join(outside).strip()
+    if outside_text and _SOURCE_LIKE_OUTSIDE_RE.search(outside_text):
+        raise SourceExtractionError(
+            f"Refusing to discard source-like content outside the fenced block for '{target_file}'."
+        )
+
+    return body.strip("\n")
+
+
+def validate_generated_source(target_file: str, source: str) -> Optional[str]:
+    """Validate extracted source before any mutation can occur.
+
+    Returns the validator name that ran, or ``None`` when the target language
+    has no configured validator. Python targets are always checked with
+    ``ast.parse``; JSON and TOML use their standard-library parsers.
+    """
+    if not source or not source.strip():
+        raise EmptyModelOutputError(
+            f"Extracted source for '{target_file}' is empty."
+        )
+
+    suffix = Path(target_file).suffix.lower()
+
+    if suffix in {".py", ".pyi"}:
+        try:
+            ast.parse(source, filename=target_file)
+        except SyntaxError as exc:
+            raise InvalidGeneratedSourceError(
+                f"Generated Python for '{target_file}' failed syntax validation: "
+                f"{exc.msg} (line {exc.lineno})."
+            ) from exc
+        return "python_ast"
+
+    if suffix == ".json":
+        try:
+            json.loads(source)
+        except ValueError as exc:
+            raise InvalidGeneratedSourceError(
+                f"Generated JSON for '{target_file}' failed validation: {exc}."
+            ) from exc
+        return "json"
+
+    if suffix == ".toml":
+        try:
+            import tomllib
+
+            tomllib.loads(source)
+        except Exception as exc:
+            raise InvalidGeneratedSourceError(
+                f"Generated TOML for '{target_file}' failed validation: {exc}."
+            ) from exc
+        return "toml"
+
+    log.info(
+        "No language-specific validator is configured for target '%s'; "
+        "completeness and extraction checks ran, but syntax was not validated.",
+        target_file,
+    )
+    return None
 
 
 def extract_provider_token_usage(response: Any) -> Tuple[int, int, int]:
@@ -499,50 +742,74 @@ class ModelExecutionAdapter:
         if not auth_res.is_allowed:
             raise PermissionError(f"RBAC authorization denied for node {node.node_id}: {auth_res.reason}")
 
-        # 3. Process each target file for this task node
-        for target_file in node.target_files:
+        # 3. Generate, extract, and validate EVERY target before mutating any.
+        # P0.5.1: Validation failure must leave the workspace byte-for-byte
+        # unchanged. A per-file generate -> mutate -> check loop is unsafe
+        # because a later invalid target would leave earlier mutations behind
+        # and because syntax failures were previously logged but not enforced.
+        prepared: List[Tuple[str, str]] = []
+        try:
+            for target_file in node.target_files:
+                if cancellation_checker and cancellation_checker():
+                    raise TurnCancelledError("Task execution cancelled by user")
+
+                full_target = self.workspace_root / target_file
+                existing_content = ""
+                if full_target.exists():
+                    try:
+                        existing_content = full_target.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        existing_content = ""
+
+                # 4. Generate implementation code. The real-provider path
+                # already rejects provider-reported truncation and returns an
+                # extracted source payload.
+                if custom_code_generator:
+                    raw_content = custom_code_generator(node, target_file)
+                    finops.record_usage(input_tokens=150, output_tokens=250, cost_inr=0.0)
+                    code_content = extract_generated_source(raw_content, target_file)
+                elif self.mock_mode:
+                    raw_content = self._generate_deterministic_implementation(
+                        node=node,
+                        target_file=target_file,
+                        existing_content=existing_content,
+                        specification=specification,
+                        blueprint=blueprint,
+                    )
+                    finops.record_usage(input_tokens=200, output_tokens=350, cost_inr=0.0)
+                    code_content = extract_generated_source(raw_content, target_file)
+                else:
+                    code_content = self._call_model_for_implementation(
+                        node=node,
+                        target_file=target_file,
+                        existing_content=existing_content,
+                        specification=specification,
+                        blueprint=blueprint,
+                        project_knowledge=project_knowledge,
+                        finops=finops,
+                    )
+
+                # Prevent placeholder 'return OK' handlers from being accepted in any execution mode
+                if "Production implementation placeholder" in code_content or re.search(r"def handle_\w+\(\):\s*return ['\"]OK['\"]", code_content):
+                    raise ValueError(
+                        f"Placeholder handler generation is strictly prohibited in orchestration execution for node '{node.node_id}'."
+                    )
+
+                # 5. Fail closed before any mutation is applied. Python targets
+                # must pass ast.parse; JSON/TOML use their standard parsers;
+                # other languages are explicitly reported as unvalidated.
+                validate_generated_source(target_file, code_content)
+                prepared.append((target_file, code_content))
+        except ModelOutputIntegrityError as exc:
+            node.status = "FAILED"
+            node.error_message = str(exc)
+            raise
+
+        # 6. All targets validated. Only now touch the workspace.
+        for target_file, code_content in prepared:
             if cancellation_checker and cancellation_checker():
                 raise TurnCancelledError("Task execution cancelled by user")
 
-            full_target = self.workspace_root / target_file
-            existing_content = ""
-            if full_target.exists():
-                try:
-                    existing_content = full_target.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    existing_content = ""
-
-            # 4. Generate implementation code
-            if custom_code_generator:
-                code_content = custom_code_generator(node, target_file)
-                finops.record_usage(input_tokens=150, output_tokens=250, cost_inr=0.0)
-            elif self.mock_mode:
-                code_content = self._generate_deterministic_implementation(
-                    node=node,
-                    target_file=target_file,
-                    existing_content=existing_content,
-                    specification=specification,
-                    blueprint=blueprint,
-                )
-                finops.record_usage(input_tokens=200, output_tokens=350, cost_inr=0.0)
-            else:
-                code_content = self._call_model_for_implementation(
-                    node=node,
-                    target_file=target_file,
-                    existing_content=existing_content,
-                    specification=specification,
-                    blueprint=blueprint,
-                    project_knowledge=project_knowledge,
-                    finops=finops,
-                )
-
-            # Prevent placeholder 'return OK' handlers from being accepted in any execution mode
-            if "Production implementation placeholder" in code_content or re.search(r"def handle_\w+\(\):\s*return ['\"]OK['\"]", code_content):
-                raise ValueError(
-                    f"Placeholder handler generation is strictly prohibited in orchestration execution for node '{node.node_id}'."
-                )
-
-            # 5. Apply mutation through ControlledImplementationEngine -> WorkspaceMutationBroker
             impl_engine.execute_node_mutation(
                 task_id=task_id,
                 node=node,
@@ -550,16 +817,6 @@ class ModelExecutionAdapter:
                 content=code_content,
             )
             reasoning_loop.record_action(files_modified=1, tokens_used=300)
-
-            # 6. Syntax validation receipt for Python files
-            if target_file.endswith(".py"):
-                try:
-                    ast.parse(code_content, filename=target_file)
-                except SyntaxError as syn_err:
-                    log.warning(
-                        "Syntax warning in generated code for %s: %s",
-                        target_file, syn_err
-                    )
 
         return True
 
@@ -805,13 +1062,9 @@ class ModelExecutionAdapter:
             actual_cost_usd=actual_cost_usd,
         )
 
-        text = response.content if hasattr(response, "content") else str(response)
-
-        # Extract code from Markdown code block if present
-        match = re.search(r"```(?:python)?\s*\n(.*?)\n```", text, re.DOTALL)
-        if match:
-            clean_code = match.group(1)
-        else:
-            clean_code = text.strip()
-
-        return clean_code
+        # The provider has been paid and settled above. Validate its completion
+        # receipt and extraction before returning anything that could mutate a
+        # workspace. An incomplete response still records the real usage but is
+        # never delivered as source code.
+        assert_provider_output_complete(response, target_file)
+        return extract_generated_source(_response_text(response), target_file)
