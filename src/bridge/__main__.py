@@ -122,6 +122,18 @@ class BridgeServer:
         # this set is only here to keep one thread per workspace rather than one per frame.
         self._preview_hooked: set[str] = set()
         self._shutdown = threading.Event()
+        # P0.6.4.1: a desktop acceptance session runs ONE turn under a hard
+        # single-attempt, five-dispatch budget. Opt-in via
+        # CRUSORAI_ACCEPTANCE_RUN_ID; ordinary sessions are untouched.
+        from src.llm.acceptance_guard import activate_from_environment
+        self._acceptance_guard = activate_from_environment()
+        if self._acceptance_guard is not None:
+            print(
+                f"[bridge][acceptance] run={self._acceptance_guard.run_id} "
+                f"max_dispatches={self._acceptance_guard.max_dispatches} "
+                "attempts_per_dispatch=1",
+                file=sys.stderr, flush=True,
+            )
         from src.runtime.host_capabilities import host_capability_broker
         host_capability_broker.reset()
         host_capability_broker.set_emitter(self.emit)
@@ -2688,19 +2700,36 @@ class BridgeServer:
         self._apply_memory_policy()
         self._log_build()
         self._start_boot_warmup()
-        while not self._shutdown.is_set():
-            line = sys.stdin.buffer.readline()
-            if not line:
-                return 0
-            try:
-                frame = decode_line(line)
-                if not self.handle(frame):
+        try:
+            while not self._shutdown.is_set():
+                line = sys.stdin.buffer.readline()
+                if not line:
                     return 0
-            except ProtocolError as exc:
-                self.emit(error_frame(str(exc)))
-            except Exception as exc:
-                self.emit(error_frame(f"bridge internal error: {exc!r}"))
-        return 0
+                try:
+                    frame = decode_line(line)
+                    if not self.handle(frame):
+                        return 0
+                except ProtocolError as exc:
+                    self.emit(error_frame(str(exc)))
+                except Exception as exc:
+                    self.emit(error_frame(f"bridge internal error: {exc!r}"))
+            return 0
+        finally:
+            self._flush_acceptance_evidence()
+
+    def _flush_acceptance_evidence(self) -> None:
+        """Persist the acceptance dispatch ledger (no-op outside acceptance)."""
+        guard = getattr(self, "_acceptance_guard", None)
+        if guard is None:
+            return
+        import json
+        from src.llm.acceptance_guard import write_evidence
+        snapshot = guard.snapshot()
+        print(
+            "[bridge][acceptance] " + json.dumps(snapshot, separators=(",", ":")),
+            file=sys.stderr, flush=True,
+        )
+        write_evidence(guard, os.environ.get("CRUSORAI_ACCEPTANCE_EVIDENCE_PATH"))
 
 
 def main() -> int:

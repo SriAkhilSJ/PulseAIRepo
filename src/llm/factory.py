@@ -502,7 +502,14 @@ class RetryLLMProxy:
         _abort_state: _AbortState | None = None,
     ):
         self._llm = llm
-        self._max_attempts = max_attempts
+        # Acceptance mode (P0.6.4.1): a desktop acceptance turn clamps every
+        # proxy to a single attempt, whatever budget the caller asked for.
+        # Outside acceptance mode this is the identity function.
+        from src.llm.acceptance_guard import clamp_max_attempts, enforce_sdk_single_retry
+        self._max_attempts = clamp_max_attempts(max_attempts)
+        # Prove the raw client has no hidden SDK retries while acceptance mode
+        # is active (fails closed rather than silently multiplying dispatches).
+        enforce_sdk_single_retry(llm)
         self._abort_state = _abort_state or _AbortState(llm)
         self.provider = provider
         if self.provider is None:
@@ -753,6 +760,13 @@ class RetryLLMProxy:
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
                 # the previous attempt was blocked must never launch a new request.
                 self._raise_if_cancelled()
+
+                # Acceptance gate BEFORE the request (and before the "llm.request"
+                # telemetry, which claims to describe an ACTUAL send). When the
+                # turn's dispatch budget is exhausted this raises here, so the
+                # provider is never reached. No-op outside acceptance mode.
+                from src.llm.acceptance_guard import claim_dispatch
+                claim_dispatch(stage="retry_llm_proxy", model=str(self.model or ""))
 
                 # LLM request telemetry (benchmark evidence, PBR-002/012): one
                 # event per ACTUAL provider request attempt, emitted after the
