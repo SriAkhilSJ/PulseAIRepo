@@ -14,6 +14,8 @@ Replaces synthetic handler stubs with real, model-powered software engineering:
 from __future__ import annotations
 
 import ast
+import asyncio
+import inspect
 import logging
 import os
 import re
@@ -110,6 +112,173 @@ def extract_provider_token_usage(response: Any) -> Tuple[int, int, int]:
     raise MissingUsageReceiptError(
         f"Provider response missing authentic token usage receipt: {type(response).__name__}"
     )
+
+
+class UnsupportedTokenCeilingError(ValueError):
+    """Raised when a provider cannot enforce the requested output-token ceiling."""
+
+
+# Provider -> the request parameter that caps generated output tokens.
+# OpenAI-compatible clients (openai / custom / cheap / nvidia / deepseek) take
+# ``max_tokens`` and langchain-openai maps it to the wire-level
+# ``max_completion_tokens``; Groq and Anthropic take ``max_tokens``; Gemini's
+# GenerationConfig uses ``max_output_tokens``.
+_PROVIDER_OUTPUT_TOKEN_PARAMS: Dict[str, str] = {
+    "openai": "max_tokens",
+    "custom": "max_tokens",
+    "cheap": "max_tokens",
+    "nvidia": "max_tokens",
+    "deepseek": "max_tokens",
+    "groq": "max_tokens",
+    "anthropic": "max_tokens",
+    "gemini": "max_output_tokens",
+    "google": "max_output_tokens",
+}
+
+
+def resolve_output_token_parameter(provider: Optional[str]) -> Optional[str]:
+    """Return the provider-compatible output-token parameter, or None if unknown."""
+    if not provider:
+        return None
+    return _PROVIDER_OUTPUT_TOKEN_PARAMS.get(str(provider).strip().lower())
+
+
+def build_output_token_kwargs(provider: Optional[str], max_output_tokens: Optional[int]) -> Dict[str, int]:
+    """Build the exact provider invocation kwargs that enforce the output ceiling."""
+    param = resolve_output_token_parameter(provider)
+    if param is None or max_output_tokens is None:
+        return {}
+    try:
+        limit = int(max_output_tokens)
+    except (TypeError, ValueError):
+        return {}
+    if limit <= 0:
+        return {}
+    return {param: limit}
+
+
+def _unwrap_llm(target: Any) -> Any:
+    """Walk RetryLLMProxy / RunnableBinding wrappers down to the provider client."""
+    current = target
+    seen: set[int] = set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        inner = getattr(current, "_llm", None) or getattr(current, "bound", None)
+        if inner is None:
+            break
+        current = inner
+    return current
+
+
+def can_enforce_token_limit(
+    target: Any,
+    provider: Optional[str] = None,
+    max_output_tokens: Optional[int] = None,
+) -> bool:
+    """Verify the actual client can accept the provider's token-ceiling parameter.
+
+    Fails closed for an unknown provider, a missing invoke surface, or a client
+    whose ``invoke`` accepts neither the named parameter nor ``**kwargs``.
+    """
+    if target is None:
+        return False
+
+    param = resolve_output_token_parameter(provider)
+    if param is None:
+        return False
+
+    if max_output_tokens is not None:
+        try:
+            if int(max_output_tokens) <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+    client = _unwrap_llm(target)
+    invoke_fn = getattr(client, "invoke", None)
+    if not callable(invoke_fn):
+        return False
+
+    try:
+        sig = inspect.signature(invoke_fn)
+    except (TypeError, ValueError):
+        return False
+
+    params = sig.parameters
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return param in params
+
+
+def _provider_status_code(exc: Exception) -> Optional[int]:
+    """Best-effort HTTP status extraction from provider/SDK exceptions."""
+    for attr in ("status_code", "http_status", "status", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    response = getattr(exc, "response", None)
+    if response is not None:
+        value = getattr(response, "status_code", None)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    match = re.search(r"\b([45]\d{2})\b", str(exc))
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def is_uncertain_post_dispatch_error(exc: Exception) -> bool:
+    """Distinguish pre-dispatch failures from post-dispatch billing ambiguity.
+
+    Pre-dispatch programming/config failures and definitive provider
+    rejections are safe to release. Timeouts, connection loss, cancellation,
+    5xx responses, and unknown transport failures may have been billed and
+    must retain their financial hold as ``uncertain``.
+    """
+    # Client-side/config failure raised before any wire request can be billed.
+    if isinstance(exc, (TypeError, ValueError, KeyError, AttributeError, ImportError, NotImplementedError, AssertionError)):
+        return False
+
+    # User cancellation and transport interruption after dispatch.
+    if isinstance(exc, (TurnCancelledError, TimeoutError, asyncio.TimeoutError, ConnectionError)):
+        return True
+
+    cls_name = type(exc).__name__.lower()
+    msg = str(exc).lower()
+
+    if any(
+        token in cls_name
+        for token in (
+            "timeout", "cancel", "connection", "disconnect", "remotedisconnected",
+            "brokenpipe", "apiconnection", "serviceunavailable", "internalserver",
+        )
+    ):
+        return True
+
+    status = _provider_status_code(exc)
+    if status is not None:
+        # 5xx and request-timeout responses may be billed or unknown; retain.
+        if status == 408 or status >= 500:
+            return True
+        # Definitive rejections (bad request/auth/not-found/rate-limit) are unbilled.
+        if 400 <= status < 500:
+            return False
+
+    # Definitive pre-generation / edge rejection wording (no response generated).
+    if any(
+        token in msg
+        for token in (
+            "invalid api key", "invalid_api_key", "unauthorized", "authentication",
+            "permission denied", "model not found", "bad request", "invalid_request",
+            "unsupported model", "rate limit", "rate_limit", "429",
+        )
+    ):
+        return False
+
+    # Unknown failure during invocation: assume billing is possible.
+    return True
 
 
 class ModelExecutionAdapter:
@@ -365,7 +534,7 @@ class ModelExecutionAdapter:
             f"Return ONLY the code block, with no conversational preamble."
         )
 
-        # 2. FinOps reserve-before-call (P0.4)
+        # 2. FinOps reserve-before-call (P0.4 / P0.4.1)
         # Calculate conservative maximum input tokens (3 chars/token) and strict max output allowance
         prompt_chars = len(prompt)
         est_in = max(100, prompt_chars // 3)
@@ -386,7 +555,9 @@ class ModelExecutionAdapter:
         max_cost_inr = float(max_cost.cost_inr)
         max_cost_usd = float(max_cost.cost_usd)
 
-        # Atomically reserve conservative maximum expenditure
+        # 2. Canonical reserve-before-call. Nothing below may run until this
+        # returns a durably recorded reservation accepted by both the task
+        # governor and the canonical BudgetGovernor.
         res_id = finops.reserve(
             estimated_tokens=max_total_tokens,
             estimated_cost_inr=max_cost_inr,
@@ -395,45 +566,84 @@ class ModelExecutionAdapter:
         )
 
         try:
-            # 3. Model execution with output-token boundary
             llm = get_llm(provider=prov, model=mod)
-            try:
-                response = llm.invoke(prompt, max_tokens=max_output_tokens)
-            except TypeError:
-                response = llm.invoke(prompt)
+        except Exception:
+            finops.release_reservation(res_id, reason="provider_client_construction_failed")
+            raise
 
+        # One metered dispatch == one paid request. RetryLLMProxy would
+        # otherwise resend the same prompt up to five times under a single
+        # reservation, which is the unmetered duplication P0.4.1 forbids.
+        # (Test doubles without the attribute are unaffected.)
+        if hasattr(llm, "_max_attempts"):
+            try:
+                llm._max_attempts = 1
+            except Exception:
+                pass
+
+        # 3. Resolve and verify the provider-compatible output-token ceiling
+        # BEFORE dispatch. No invoke() is attempted without it.
+        invoke_kwargs = build_output_token_kwargs(prov, max_output_tokens)
+        if not invoke_kwargs or not can_enforce_token_limit(
+            llm, provider=prov, max_output_tokens=max_output_tokens
+        ):
+            finops.release_reservation(res_id, reason="provider_cannot_enforce_token_ceiling")
+            raise UnsupportedTokenCeilingError(
+                f"Provider '{prov}' (model '{mod}', client '{type(llm).__name__}') cannot enforce the requested "
+                f"output token ceiling of {max_output_tokens} tokens. Dispatch aborted to prevent unmetered execution."
+            )
+
+        # Transition reservation to in_flight immediately before wire dispatch.
+        finops.mark_in_flight(res_id)
+
+        # Exactly one dispatch, always with the token ceiling attached.
+        try:
+            response = llm.invoke(prompt, **invoke_kwargs)
+        except Exception as exc:
+            # Pre-dispatch rejections release; post-dispatch ambiguity retains
+            # the hold as uncertain so funds cannot be silently double-spent.
+            if is_uncertain_post_dispatch_error(exc):
+                finops.mark_uncertain(res_id, reason=f"post_dispatch_error: {type(exc).__name__}: {exc}")
+            else:
+                finops.release_reservation(res_id, reason=f"dispatch_rejected: {type(exc).__name__}")
+            raise
+
+        try:
             # 4. Extract authentic usage receipts (fail-closed on missing receipts)
             in_tok, out_tok, cached_tok = extract_provider_token_usage(response)
-
-            # 5. Calculate actual verified cost with micro-currency precision
-            calc_cost = pricing_reg.calculate_cost(
-                model=mod,
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                cached_tokens=cached_tok,
-                provider=prov,
-            )
-            if calc_cost.cost_inr is None or calc_cost.cost_usd is None or calc_cost.verification_status == VerificationStatus.UNKNOWN:
-                raise UnknownModelPricingError(
-                    f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
-                )
-
-            actual_cost_inr = float(calc_cost.cost_inr)
-            actual_cost_usd = float(calc_cost.cost_usd)
-
-            # 6. Settle reservation: commit actual spend, release unused hold, check for breaches
-            finops.commit_reservation(
-                reservation_id=res_id,
-                actual_input_tokens=in_tok,
-                actual_output_tokens=out_tok,
-                actual_cached_tokens=cached_tok,
-                actual_cost_inr=actual_cost_inr,
-                actual_cost_usd=actual_cost_usd,
-            )
         except Exception:
-            # Safely release the reservation on any failure, timeout, cancellation or error
-            finops.release_reservation(res_id, reason="call_failed_or_cancelled")
+            # Wire call succeeded but usage receipts missing: keep reservation uncertain
+            finops.mark_uncertain(res_id, reason="missing_usage_receipts_after_call")
             raise
+
+        # 5. Calculate actual verified cost with micro-currency precision
+        calc_cost = pricing_reg.calculate_cost(
+            model=mod,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            cached_tokens=cached_tok,
+            provider=prov,
+        )
+        if calc_cost.cost_inr is None or calc_cost.cost_usd is None or calc_cost.verification_status == VerificationStatus.UNKNOWN:
+            # The provider already ran; the hold must not be released as if
+            # the call were free. Mark it uncertain for reconciliation.
+            finops.mark_uncertain(res_id, reason="unverifiable_actual_cost")
+            raise UnknownModelPricingError(
+                f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
+            )
+
+        actual_cost_inr = float(calc_cost.cost_inr)
+        actual_cost_usd = float(calc_cost.cost_usd)
+
+        # 6. Settle the exact canonical reservation, then record actual spend.
+        finops.commit_reservation(
+            reservation_id=res_id,
+            actual_input_tokens=in_tok,
+            actual_output_tokens=out_tok,
+            actual_cached_tokens=cached_tok,
+            actual_cost_inr=actual_cost_inr,
+            actual_cost_usd=actual_cost_usd,
+        )
 
         text = response.content if hasattr(response, "content") else str(response)
 

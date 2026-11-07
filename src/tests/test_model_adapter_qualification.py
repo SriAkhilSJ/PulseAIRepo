@@ -35,7 +35,7 @@ class TestModelAdapterQualification(unittest.TestCase):
         recorded_prompts = []
 
         class FakeLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 recorded_prompts.append(prompt)
                 resp = type(
                     "Resp",
@@ -113,7 +113,7 @@ class TestModelAdapterQualification(unittest.TestCase):
         adapter = ModelExecutionAdapter(str(self.ws), mock_mode=False, provider="groq", model="qwen/qwen3.6-27b")
 
         class MissingUsageLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 # Returns response with content but NO usage_metadata or usage receipts
                 return type("Resp", (), {"content": "```python\ndef run(): pass\n```"})()
 
@@ -161,7 +161,7 @@ class TestModelAdapterQualification(unittest.TestCase):
         recorded = []
 
         class DummyLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 recorded.append(prompt)
                 return type("Resp", (), {"content": "code"})()
 
@@ -204,7 +204,7 @@ class TestModelAdapterQualification(unittest.TestCase):
         recorded = []
 
         class DummyLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 recorded.append(prompt)
                 return type("Resp", (), {"content": "code"})()
 
@@ -244,7 +244,7 @@ class TestModelAdapterQualification(unittest.TestCase):
         adapter = ModelExecutionAdapter(str(self.ws), mock_mode=False, provider="groq", model="qwen/qwen3.6-27b")
 
         class FailingLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 raise ConnectionError("Upstream Model Provider 504 Gateway Timeout")
 
         orig_get_llm = ma.get_llm

@@ -98,6 +98,9 @@ class BudgetGovernor:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._scopes: Dict[str, BudgetScopeState] = {}
+        # Canonical IDs that already committed or released. Prevents a retried
+        # settlement from charging the same reservation twice.
+        self._settled_reservations: Set[str] = set()
         self._default_policies: Dict[str, BudgetPolicy] = {
             "task": BudgetPolicy("task", hard_limit_usd=Decimal("5.00"), warning_threshold_ratio=Decimal("0.80")),
             "daily": BudgetPolicy("daily", hard_limit_usd=Decimal("25.00"), warning_threshold_ratio=Decimal("0.80")),
@@ -180,22 +183,80 @@ class BudgetGovernor:
     ) -> None:
         """
         Finalize a reservation by applying actual spend to committed spend and releasing the hold.
+
+        Idempotent: a repeated commit for the same canonical reservation is a
+        no-op and never charges twice. An unknown reservation ID fails closed;
+        silently applying spend without a matching hold would corrupt the
+        ledger and hide a reservation-ID mismatch.
         """
         with self._lock:
             state = self.get_scope_state(scope_key)
-            if reservation_id in state.active_reservations:
-                res = state.active_reservations[reservation_id]
-                res.is_committed = True
-                del state.active_reservations[reservation_id]
+            if reservation_id in self._settled_reservations:
+                log.info("Duplicate commit ignored for settled reservation %s", reservation_id)
+                return
 
+            res = state.active_reservations.pop(reservation_id, None)
+            if res is None:
+                raise KeyError(
+                    f"Canonical budget reservation '{reservation_id}' not found in scope '{scope_key}'; "
+                    f"refusing to commit spend against an unknown hold."
+                )
+
+            res.is_committed = True
+            self._settled_reservations.add(reservation_id)
             state.committed_spend_usd = quantize_currency(state.committed_spend_usd + actual_usd)
 
     def release_reservation(self, scope_key: str, reservation_id: str) -> None:
-        """Release a reservation without charging (e.g. on cancelled or failed request)."""
+        """Release a reservation without charging (e.g. on cancelled or failed request).
+
+        Idempotent: repeated releases are safe no-ops.
+        """
         with self._lock:
             state = self.get_scope_state(scope_key)
+            if reservation_id in self._settled_reservations:
+                log.info("Duplicate release ignored for settled reservation %s", reservation_id)
+                return
+            res = state.active_reservations.pop(reservation_id, None)
+            if res is not None:
+                res.is_released = True
+                self._settled_reservations.add(reservation_id)
+
+    def restore_reservation(
+        self,
+        scope_key: str,
+        reservation_id: str,
+        amount_usd: Decimal,
+        purpose: str = "recovered",
+    ) -> bool:
+        """
+        Re-establish a canonical hold recovered from durable task state.
+
+        The BudgetGovernor is process-local; a restart loses its in-memory
+        holds. Recovery re-holds the persisted amount under the SAME canonical
+        ID so the funds cannot silently become available budget again. Never
+        overwrites an existing hold, and never resurrects a settled reservation.
+        """
+        with self._lock:
+            if reservation_id in self._settled_reservations:
+                return False
+            state = self.get_scope_state(scope_key)
             if reservation_id in state.active_reservations:
-                del state.active_reservations[reservation_id]
+                return True
+            state.active_reservations[reservation_id] = ActiveReservation(
+                reservation_id=reservation_id,
+                scope_key=scope_key,
+                amount_usd=quantize_currency(amount_usd),
+                purpose=purpose,
+            )
+            return True
+
+    def restore_committed_spend(self, scope_key: str, usd: Decimal) -> None:
+        """Seed a restarted governor with previously committed spend from durable state."""
+        with self._lock:
+            state = self.get_scope_state(scope_key)
+            restored = quantize_currency(usd)
+            if restored > state.committed_spend_usd:
+                state.committed_spend_usd = restored
 
     def check_health_and_limits(self, scope_key: str) -> Dict[str, Any]:
         with self._lock:

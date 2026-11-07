@@ -67,7 +67,7 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
         recorded_prompts: List[str] = []
 
         class FakeLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 recorded_prompts.append(prompt)
                 return type(
                     "Resp",
@@ -151,7 +151,7 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
         invoke_prompts: List[str] = []
 
         class FakeBridgeLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 invoke_prompts.append(prompt)
                 return type(
                     "Resp",
@@ -236,7 +236,7 @@ class TestP03OrchestratorIntegration(unittest.TestCase):
         )
 
         class MissingReceiptLLM:
-            def invoke(self, prompt: str):
+            def invoke(self, prompt: str, **kwargs):
                 # Returns content but NO usage_metadata, response_metadata, or usage attribute
                 return type("Resp", (), {"content": "```python\ndef unmetered_fn(): pass\n```"})()
 

@@ -1,19 +1,22 @@
 """
 src/orchestration/finops_governor.py - Phase 9.7 FinOps Cost & Token Governance.
 
-Phase 11.6: Autonomous Engineering Execution & P0.4 Budget Overrun Prevention.
+Phase 11.6: Autonomous Engineering Execution & P0.4 / P0.4.1 Budget Overrun Prevention.
 Integrates directly with canonical Phase 9.7 FinOps:
 - Tracks tokens, cached tokens, model tiers, and monetary costs.
 - Enforces atomic reserve-before-call and post-execution settlement.
 - Concurrency-safe atomic reservations preventing race-condition overages.
 - Explicit budget breach detection and subsequent execution lockout.
-- State persistence and restart recovery.
+- Canonical BudgetGovernor two-phase commit with exact reservation ID propagation.
+- Fail-closed durable persistence before model dispatch.
+- Resilient uncertain reservation state holding funds on post-dispatch timeout/cancellation.
+- State persistence and restart recovery across process boundaries.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 import json
 import logging
 import os
@@ -31,6 +34,22 @@ class BudgetExhaustedError(RuntimeError):
     pass
 
 
+class FinancialPersistenceError(RuntimeError):
+    """Raised when a reservation or settlement cannot be durably recorded."""
+
+
+class FinancialStateCorruptionError(FinancialPersistenceError):
+    """Raised when persisted financial state exists but cannot be recovered safely."""
+
+
+class FinancialIntegrityError(RuntimeError):
+    """Raised when a canonical reservation ID is missing or a ledger invariant is broken."""
+
+
+class CanonicalReservationError(RuntimeError):
+    """Raised when the canonical BudgetGovernor fails to reserve/commit/release."""
+
+
 @dataclass
 class FinOpsReservation:
     """An atomic hold placed on a task budget slice prior to model execution."""
@@ -43,6 +62,9 @@ class FinOpsReservation:
     created_at: float = field(default_factory=time.time)
     is_committed: bool = False
     is_released: bool = False
+    canonical_reservation_id: Optional[str] = None
+    canonical_amount_usd: float = 0.0
+    status: str = "reserved"  # 'reserved', 'in_flight', 'reconciled', 'released', 'uncertain'
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -55,6 +77,9 @@ class FinOpsReservation:
             "created_at": self.created_at,
             "is_committed": self.is_committed,
             "is_released": self.is_released,
+            "canonical_reservation_id": self.canonical_reservation_id,
+            "canonical_amount_usd": self.canonical_amount_usd,
+            "status": self.status,
         }
 
     @classmethod
@@ -69,6 +94,9 @@ class FinOpsReservation:
             created_at=float(data.get("created_at", time.time())),
             is_committed=bool(data.get("is_committed", False)),
             is_released=bool(data.get("is_released", False)),
+            canonical_reservation_id=data.get("canonical_reservation_id"),
+            canonical_amount_usd=float(data.get("canonical_amount_usd", 0.0)),
+            status=data.get("status", "reserved"),
         )
 
 
@@ -162,13 +190,23 @@ class OrchestrationFinOpsGovernor:
             token_budget=token_budget,
         )
         self._active_reservations: Dict[str, FinOpsReservation] = {}
+        self._uncertain_reservations: Dict[str, FinOpsReservation] = {}
         self._settled_reservations: Dict[str, FinOpsReservation] = {}
 
-        # Restore from persistent state if available
+        # Restore from persistent state if available. A corrupt state file must
+        # never silently reset accounting to zero (that would free uncertain
+        # holds), so _load_state raises FinancialStateCorruptionError.
         self._load_state()
 
-        # Connect with canonical BudgetGovernor
+        # Connect with canonical BudgetGovernor (fail closed: a governor that
+        # cannot register its scope must not dispense budget).
         self._sync_with_canonical_budget_governor()
+
+        # Re-hold recovered reservations and spend in the process-local
+        # canonical governor. Cross-process atomicity is NOT claimed: this is
+        # best-effort reconstruction from the durable task state written by
+        # reserve()/commit().
+        self._restore_canonical_holds()
 
     def _sync_with_canonical_budget_governor(self) -> None:
         """Register task scope with canonical Phase 9.7 BudgetGovernor."""
@@ -185,7 +223,62 @@ class OrchestrationFinOpsGovernor:
             gov = get_budget_governor()
             gov.set_scope_policy(self.task_id, policy)
         except Exception as exc:
-            log.debug("Canonical budget governor sync optional: %s", exc)
+            raise FinancialIntegrityError(
+                f"Cannot register task scope '{self.task_id}' with the canonical BudgetGovernor: {exc}"
+            ) from exc
+
+    def _canonical_usd_amount(self, estimated_cost_inr: float, estimated_cost_usd: float) -> Decimal:
+        """
+        Derive the canonical USD hold from the task's authoritative INR budget.
+
+        The canonical governor is USD-denominated while task budgets are INR.
+        Dividing by the canonical FX rate and flooring directly at micro-currency
+        precision (no intermediate half-up rounding) guarantees that N holds can
+        never sum above the converted limit: e.g. 5 x floor6(2.00/86) = 0.116275,
+        which stays under floor6(10.00/86) = 0.116279.
+        """
+        from src.finops.pricing_registry import get_pricing_registry
+        if estimated_cost_inr > 0:
+            rate = get_pricing_registry().get_fx_rate()
+            if rate and rate > 0:
+                usd = Decimal(str(estimated_cost_inr)) / rate
+                return usd.quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+            return Decimal("0.000000")
+        return Decimal(str(estimated_cost_usd)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+
+    def _restore_canonical_holds(self) -> None:
+        """Re-establish canonical holds/spend in this process after a restart."""
+        from src.finops.budget_governor import get_budget_governor
+        gov = get_budget_governor()
+        gov.restore_committed_spend(self.task_id, Decimal(str(self.accounting.spent_usd)))
+
+        recovered = list(self._active_reservations.values()) + list(self._uncertain_reservations.values())
+        for res in recovered:
+            canonical_id = res.canonical_reservation_id
+            if not canonical_id:
+                # Legacy/hand-written state without a canonical ID cannot be
+                # settled safely. Keep the funds held as uncertain rather than
+                # letting them silently return to the available budget.
+                log.error(
+                    "Reservation %s recovered without a canonical reservation ID; "
+                    "holding funds as uncertain.",
+                    res.reservation_id,
+                )
+                self._active_reservations.pop(res.reservation_id, None)
+                res.status = "uncertain"
+                self._uncertain_reservations[res.reservation_id] = res
+                continue
+            amount = (
+                Decimal(str(res.canonical_amount_usd))
+                if res.canonical_amount_usd > 0
+                else self._canonical_usd_amount(res.amount_inr, res.amount_usd)
+            )
+            gov.restore_reservation(
+                scope_key=self.task_id,
+                reservation_id=canonical_id,
+                amount_usd=amount,
+                purpose=res.purpose,
+            )
 
     def _get_state_file(self) -> Optional[Path]:
         if self.storage_dir:
@@ -200,20 +293,22 @@ class OrchestrationFinOpsGovernor:
         return None
 
     def _persist_state(self) -> None:
+        """
+        Durable state persistence.
+        Raises on failure to enforce fail-closed semantics across financial boundaries.
+        """
         sf = self._get_state_file()
         if not sf:
             return
-        try:
-            payload = {
-                "accounting": self.accounting.to_dict(),
-                "active_reservations": {k: v.to_dict() for k, v in self._active_reservations.items()},
-                "settled_reservations": {k: v.to_dict() for k, v in self._settled_reservations.items()},
-            }
-            tmp_sf = sf.with_suffix(".tmp")
-            tmp_sf.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            os.replace(tmp_sf, sf)
-        except Exception as exc:
-            log.warning("FinOps governor persistence failed for %s: %s", self.task_id, exc)
+        payload = {
+            "accounting": self.accounting.to_dict(),
+            "active_reservations": {k: v.to_dict() for k, v in self._active_reservations.items()},
+            "uncertain_reservations": {k: v.to_dict() for k, v in self._uncertain_reservations.items()},
+            "settled_reservations": {k: v.to_dict() for k, v in self._settled_reservations.items()},
+        }
+        tmp_sf = sf.with_suffix(".tmp")
+        tmp_sf.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp_sf, sf)
 
     def _load_state(self) -> None:
         sf = self._get_state_file()
@@ -223,7 +318,6 @@ class OrchestrationFinOpsGovernor:
             data = json.loads(sf.read_text(encoding="utf-8"))
             if "accounting" in data:
                 persisted = TaskFinOpsExpenditure.from_dict(data["accounting"])
-                # Preserve the newly requested budget if greater or explicitly configured
                 configured_budget = self.accounting.budget_inr
                 configured_tokens = self.accounting.token_budget
                 self.accounting = persisted
@@ -235,12 +329,74 @@ class OrchestrationFinOpsGovernor:
                 self._active_reservations = {
                     k: FinOpsReservation.from_dict(v) for k, v in data["active_reservations"].items()
                 }
+            if "uncertain_reservations" in data:
+                self._uncertain_reservations = {
+                    k: FinOpsReservation.from_dict(v) for k, v in data["uncertain_reservations"].items()
+                }
             if "settled_reservations" in data:
                 self._settled_reservations = {
                     k: FinOpsReservation.from_dict(v) for k, v in data["settled_reservations"].items()
                 }
+
+            # Recalculate encumbered funds including both active and uncertain holds
+            total_reserved_inr = sum(r.amount_inr for r in self._active_reservations.values()) + sum(r.amount_inr for r in self._uncertain_reservations.values())
+            total_reserved_usd = sum(r.amount_usd for r in self._active_reservations.values()) + sum(r.amount_usd for r in self._uncertain_reservations.values())
+            total_reserved_tok = sum(r.tokens for r in self._active_reservations.values()) + sum(r.tokens for r in self._uncertain_reservations.values())
+            self.accounting.reserved_inr = round(total_reserved_inr, 6)
+            self.accounting.reserved_usd = round(total_reserved_usd, 6)
+            self.accounting.reserved_tokens = total_reserved_tok
         except Exception as exc:
-            log.warning("Failed to recover FinOps state for %s: %s", self.task_id, exc)
+            # Fail closed: a state file that exists but cannot be parsed must
+            # not be treated as "no reservations" (which would free holds).
+            raise FinancialStateCorruptionError(
+                f"Persisted FinOps state for task '{self.task_id}' at {sf} is unreadable: {exc}"
+            ) from exc
+
+    def _sync_reservation_to_store(self, res: FinOpsReservation) -> None:
+        """
+        Durably record a reservation transition in the canonical SQLite store.
+
+        Fail-closed: a reservation that is not durably recorded must never be
+        followed by a paid provider call. When no workspace/storage directory
+        is configured, the FinancialStore's canonical default database is used,
+        so there is no "persistence skipped" code path.
+        """
+        from src.agents.financial_store import FinancialStore
+        db_path = None
+        if self.workspace_root:
+            db_path = self.workspace_root / ".crusorai" / "sessions.db"
+        elif self.storage_dir:
+            db_path = self.storage_dir / "sessions.db"
+        store = None
+        try:
+            store = FinancialStore(db_path=db_path)
+            ok = store.save_reservation(
+                reservation_id=res.reservation_id,
+                root_session_id=self.task_id,
+                session_id=self.task_id,
+                turn_id=1,
+                estimated_cost_inr=Decimal(str(round(res.amount_inr, 6))),
+                estimated_tokens=res.tokens,
+                purpose=res.purpose,
+                status=res.status,
+                canonical_reservation_id=res.canonical_reservation_id,
+            )
+            if not ok:
+                raise FinancialPersistenceError(
+                    f"FinancialStore rejected reservation '{res.reservation_id}'."
+                )
+        except FinancialPersistenceError:
+            raise
+        except Exception as exc:
+            raise FinancialPersistenceError(
+                f"Failed to durably persist reservation '{res.reservation_id}': {exc}"
+            ) from exc
+        finally:
+            if store is not None:
+                try:
+                    store.close()
+                except Exception:
+                    pass
 
     def save_state(self, filepath: Optional[str] = None) -> None:
         with self._lock:
@@ -250,6 +406,7 @@ class OrchestrationFinOpsGovernor:
                 payload = {
                     "accounting": self.accounting.to_dict(),
                     "active_reservations": {k: v.to_dict() for k, v in self._active_reservations.items()},
+                    "uncertain_reservations": {k: v.to_dict() for k, v in self._uncertain_reservations.items()},
                     "settled_reservations": {k: v.to_dict() for k, v in self._settled_reservations.items()},
                 }
                 tmp_p = p.with_suffix(".tmp")
@@ -270,6 +427,10 @@ class OrchestrationFinOpsGovernor:
                 if "active_reservations" in data:
                     self._active_reservations = {
                         k: FinOpsReservation.from_dict(v) for k, v in data["active_reservations"].items()
+                    }
+                if "uncertain_reservations" in data:
+                    self._uncertain_reservations = {
+                        k: FinOpsReservation.from_dict(v) for k, v in data["uncertain_reservations"].items()
                     }
                 if "settled_reservations" in data:
                     self._settled_reservations = {
@@ -311,6 +472,7 @@ class OrchestrationFinOpsGovernor:
         Atomically reserve funds and tokens prior to model invocation.
         Rejects immediately with BudgetExhaustedError if the request cannot fit
         within remaining unreserved budget or if the task budget was previously breached.
+        Enforces canonical BudgetGovernor two-phase reservation and fail-closed persistence.
         """
         with self._lock:
             if self.accounting.is_breached:
@@ -341,6 +503,7 @@ class OrchestrationFinOpsGovernor:
                     f"reserved: {self.accounting.reserved_tokens})"
                 )
 
+            # 1. Local provisional hold
             res_id = reservation_id or f"res_{uuid.uuid4().hex[:12]}"
             res = FinOpsReservation(
                 reservation_id=res_id,
@@ -349,25 +512,118 @@ class OrchestrationFinOpsGovernor:
                 amount_usd=estimated_cost_usd,
                 tokens=estimated_tokens,
                 purpose=purpose,
+                status="reserved",
             )
             self._active_reservations[res_id] = res
             self.accounting.reserved_inr = round(self.accounting.reserved_inr + estimated_cost_inr, 6)
             self.accounting.reserved_usd = round(self.accounting.reserved_usd + estimated_cost_usd, 6)
             self.accounting.reserved_tokens += estimated_tokens
 
-            # Canonical BudgetGovernor reservation
+            # 2. Canonical BudgetGovernor reservation. The result is mandatory:
+            # a denied or failed canonical hold rolls the local provisional hold
+            # back and aborts execution before any provider dispatch.
+            canon_gov = None
+            canon_res_id: Optional[str] = None
+            canon_usd = self._canonical_usd_amount(estimated_cost_inr, estimated_cost_usd)
             try:
                 from src.finops.budget_governor import get_budget_governor
-                get_budget_governor().reserve_budget(
+                canon_gov = get_budget_governor()
+                success, canon_res_id, reason = canon_gov.reserve_budget(
                     scope_key=self.task_id,
-                    estimated_usd=Decimal(str(round(estimated_cost_usd, 6))),
+                    estimated_usd=canon_usd,
                     purpose=purpose,
                 )
+                if not success or not canon_res_id:
+                    self._discard_local_reservation(res_id)
+                    raise BudgetExhaustedError(
+                        f"Canonical budget governor denied reservation for scope '{self.task_id}': {reason}"
+                    )
+            except BudgetExhaustedError:
+                raise
             except Exception as exc:
-                log.debug("Canonical budget governor reserve optional: %s", exc)
+                self._discard_local_reservation(res_id)
+                raise CanonicalReservationError(
+                    f"Canonical budget governor failed to reserve for scope '{self.task_id}': {exc}"
+                ) from exc
 
-            self._persist_state()
+            res.canonical_reservation_id = canon_res_id
+            res.canonical_amount_usd = float(canon_usd)
+
+            # 3. Fail-closed durable persistence BEFORE returning a usable
+            # reservation. Both the task-state journal and the canonical
+            # SQLite store must accept the record.
+            try:
+                self._persist_state()
+                self._sync_reservation_to_store(res)
+            except Exception as exc:
+                self._discard_local_reservation(res_id)
+                if canon_gov is not None and canon_res_id:
+                    try:
+                        canon_gov.release_reservation(self.task_id, canon_res_id)
+                    except Exception:
+                        log.exception(
+                            "Failed to release canonical hold %s after local persistence failure",
+                            canon_res_id,
+                        )
+                # Best effort: remove the stale local record so a restart does
+                # not resurrect a phantom hold.
+                try:
+                    self._persist_state()
+                except Exception:
+                    log.exception("Failed to clean up state after reservation persistence failure")
+                raise FinancialPersistenceError(
+                    f"Durable reservation persistence failed for task '{self.task_id}': {exc}"
+                ) from exc
+
             return res_id
+
+    def _discard_local_reservation(self, reservation_id: str) -> None:
+        """Remove a provisional local hold and its accounting encumbrance."""
+        res = self._active_reservations.pop(reservation_id, None)
+        if res is None:
+            return
+        self.accounting.reserved_inr = max(0.0, round(self.accounting.reserved_inr - res.amount_inr, 6))
+        self.accounting.reserved_usd = max(0.0, round(self.accounting.reserved_usd - res.amount_usd, 6))
+        self.accounting.reserved_tokens = max(0, self.accounting.reserved_tokens - res.tokens)
+
+    def mark_in_flight(self, reservation_id: str) -> None:
+        """Mark reservation as actively in-flight during provider execution."""
+        with self._lock:
+            res = self._active_reservations.get(reservation_id)
+            if not res:
+                raise FinancialIntegrityError(
+                    f"Cannot mark unknown reservation '{reservation_id}' in-flight; dispatch must be blocked."
+                )
+            if res.status != "in_flight":
+                res.status = "in_flight"
+                self._sync_reservation_to_store(res)
+                self._persist_state()
+
+    def mark_uncertain(self, reservation_id: str, reason: str = "") -> None:
+        """
+        Transition an in-flight reservation to 'uncertain' state when post-dispatch outcome is unknown
+        (e.g. timeout, connection reset, cancellation).
+        CRITICAL: Retains the financial hold (reserved_inr, reserved_usd, reserved_tokens)
+        so that funds cannot be double-spent.
+        """
+        with self._lock:
+            res = self._active_reservations.pop(reservation_id, None)
+            if not res:
+                if reservation_id in self._uncertain_reservations:
+                    return
+                raise FinancialIntegrityError(
+                    f"Cannot mark unknown reservation '{reservation_id}' uncertain; "
+                    f"post-dispatch billing state would be lost."
+                )
+
+            res.status = "uncertain"
+            self._uncertain_reservations[reservation_id] = res
+            log.warning(
+                "Reservation '%s' marked UNCERTAIN (%s). Financial hold of INR %.4f / USD %.4f retained.",
+                reservation_id, reason, res.amount_inr, res.amount_usd,
+            )
+            self._sync_reservation_to_store(res)
+            self._persist_state()
 
     def commit_reservation(
         self,
@@ -383,19 +639,51 @@ class OrchestrationFinOpsGovernor:
         """
         Finalizes a reservation by committing actual expenditure and releasing unspent funds.
         Detects and records budget breaches if actual expenditure exceeds reserved maximum.
+        Propagates canonical reservation ID for canonical settlement.
         """
         with self._lock:
-            if reservation_id not in self._active_reservations:
+            res = self._active_reservations.get(reservation_id)
+            if res is None:
+                res = self._uncertain_reservations.get(reservation_id)
+
+            if res is None:
                 if reservation_id in self._settled_reservations:
                     log.warning("Reservation %s was already settled, ignoring duplicate commit", reservation_id)
                     return
-                raise KeyError(f"Active reservation '{reservation_id}' not found")
+                raise KeyError(f"Reservation '{reservation_id}' not found for commit")
 
-            res = self._active_reservations.pop(reservation_id)
+            if not res.canonical_reservation_id:
+                # A local-only hold cannot be settled against the canonical
+                # ledger. Keep the funds held and fail closed rather than
+                # charging an unrelated/unknown canonical reservation.
+                raise FinancialIntegrityError(
+                    f"Reservation '{reservation_id}' has no canonical reservation ID; settlement refused."
+                )
+
+            # Canonical settlement FIRST using the EXACT canonical ID. The
+            # canonical governor is idempotent, so a retried commit cannot
+            # double-charge. If it fails the local hold remains active.
+            try:
+                from src.finops.budget_governor import get_budget_governor
+                get_budget_governor().commit_reservation(
+                    scope_key=self.task_id,
+                    reservation_id=res.canonical_reservation_id,
+                    actual_usd=Decimal(str(round(actual_cost_usd, 6))),
+                )
+            except Exception as exc:
+                raise CanonicalReservationError(
+                    f"Canonical settlement failed for reservation '{reservation_id}' "
+                    f"(canonical '{res.canonical_reservation_id}'): {exc}"
+                ) from exc
+
+            self._active_reservations.pop(reservation_id, None)
+            self._uncertain_reservations.pop(reservation_id, None)
+
             res.is_committed = True
+            res.status = "reconciled"
             self._settled_reservations[reservation_id] = res
 
-            # Release the reservation hold
+            # Release the local reservation hold
             self.accounting.reserved_inr = max(0.0, round(self.accounting.reserved_inr - res.amount_inr, 6))
             self.accounting.reserved_usd = max(0.0, round(self.accounting.reserved_usd - res.amount_usd, 6))
             self.accounting.reserved_tokens = max(0, self.accounting.reserved_tokens - res.tokens)
@@ -430,52 +718,83 @@ class OrchestrationFinOpsGovernor:
                 self.accounting.is_breached = True
                 self.accounting.breach_reason = breach_msg
 
-            # Canonical BudgetGovernor commit
-            try:
-                from src.finops.budget_governor import get_budget_governor
-                get_budget_governor().commit_reservation(
-                    scope_key=self.task_id,
-                    reservation_id=reservation_id,
-                    actual_usd=Decimal(str(round(actual_cost_usd, 6))),
-                )
-            except Exception as exc:
-                log.debug("Canonical budget governor commit optional: %s", exc)
-
+            self._sync_reservation_to_store(res)
             self._persist_state()
 
     def release_reservation(self, reservation_id: str, reason: str = "cancelled_or_failed") -> None:
         """
-        Releases an active reservation without committing spend (e.g. on provider error, timeout, or cancellation).
+        Releases an active reservation without committing spend (e.g. on pre-dispatch error).
         Guarantees idempotent duplicate release prevention.
+        Propagates canonical reservation ID for canonical release.
         """
         with self._lock:
-            if reservation_id not in self._active_reservations:
+            res = self._active_reservations.get(reservation_id)
+            if res is None:
+                res = self._uncertain_reservations.get(reservation_id)
+
+            if res is None:
                 if reservation_id in self._settled_reservations:
                     log.warning("Reservation %s was already settled, ignoring duplicate release", reservation_id)
                     return
                 log.warning("Reservation %s not found for release", reservation_id)
                 return
 
-            res = self._active_reservations.pop(reservation_id)
-            res.is_released = True
-            self._settled_reservations[reservation_id] = res
+            if not res.canonical_reservation_id:
+                raise FinancialIntegrityError(
+                    f"Reservation '{reservation_id}' has no canonical reservation ID; release refused."
+                )
 
-            # Release the hold
-            self.accounting.reserved_inr = max(0.0, round(self.accounting.reserved_inr - res.amount_inr, 6))
-            self.accounting.reserved_usd = max(0.0, round(self.accounting.reserved_usd - res.amount_usd, 6))
-            self.accounting.reserved_tokens = max(0, self.accounting.reserved_tokens - res.tokens)
-
-            # Canonical BudgetGovernor release
+            # Canonical release FIRST using the EXACT canonical ID. Idempotent;
+            # a failure keeps the local hold so funds are never silently freed.
             try:
                 from src.finops.budget_governor import get_budget_governor
                 get_budget_governor().release_reservation(
                     scope_key=self.task_id,
-                    reservation_id=reservation_id,
+                    reservation_id=res.canonical_reservation_id,
                 )
             except Exception as exc:
-                log.debug("Canonical budget governor release optional: %s", exc)
+                raise CanonicalReservationError(
+                    f"Canonical release failed for reservation '{reservation_id}' "
+                    f"(canonical '{res.canonical_reservation_id}'): {exc}"
+                ) from exc
 
+            self._active_reservations.pop(reservation_id, None)
+            self._uncertain_reservations.pop(reservation_id, None)
+
+            res.is_released = True
+            res.status = "released"
+            self._settled_reservations[reservation_id] = res
+
+            # Release the local hold
+            self.accounting.reserved_inr = max(0.0, round(self.accounting.reserved_inr - res.amount_inr, 6))
+            self.accounting.reserved_usd = max(0.0, round(self.accounting.reserved_usd - res.amount_usd, 6))
+            self.accounting.reserved_tokens = max(0, self.accounting.reserved_tokens - res.tokens)
+
+            self._sync_reservation_to_store(res)
             self._persist_state()
+
+    def reconcile_uncertain_reservation(
+        self,
+        reservation_id: str,
+        actual_input_tokens: int,
+        actual_output_tokens: int,
+        actual_cached_tokens: int,
+        actual_cost_inr: float,
+        actual_cost_usd: float,
+    ) -> None:
+        """Administrative reconciliation of an uncertain reservation once verified."""
+        self.commit_reservation(
+            reservation_id=reservation_id,
+            actual_input_tokens=actual_input_tokens,
+            actual_output_tokens=actual_output_tokens,
+            actual_cached_tokens=actual_cached_tokens,
+            actual_cost_inr=actual_cost_inr,
+            actual_cost_usd=actual_cost_usd,
+        )
+
+    def release_uncertain_reservation(self, reservation_id: str, reason: str = "administrative_release") -> None:
+        """Administrative release of an uncertain reservation once confirmed uncharged."""
+        self.release_reservation(reservation_id=reservation_id, reason=reason)
 
     def record_usage(
         self,
