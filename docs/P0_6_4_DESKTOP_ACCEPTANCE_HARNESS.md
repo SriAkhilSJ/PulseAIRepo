@@ -62,7 +62,20 @@ python -m benchmarks.crusor_desktop_acceptance --skip-desktop
 
 # keep the window open for inspection after capture
 python -m benchmarks.crusor_desktop_acceptance --keep-app
+
+# P0.6.5: validate every gate and type the prompt WITHOUT submitting (no credits)
+python -m benchmarks.crusor_desktop_acceptance --live-turn --stop-before-submit
+
+# P0.6.5: one real desktop turn (spends provider credits; <=5 dispatches, 1 attempt each)
+python -m benchmarks.crusor_desktop_acceptance --live-turn --evidence-dir diagnostics/p0_6_5/live
 ```
+
+`--live-turn` drives the real composer over CDP (focus, `Input.insertText`,
+`rawKeyDown` Enter), waits for the panel's own **"Crusor ready"** chip, proves
+worker→bridge ownership by process ancestry, requires the acceptance ledger to
+have been written by that bridge process, then reads the turn manifest, journal,
+financial state and mutation ledger the application itself produced. Every gate
+is checked before submission, so a broken environment aborts without spending.
 
 Outputs (`--evidence-dir`, default `diagnostics/p0_6_4/`):
 

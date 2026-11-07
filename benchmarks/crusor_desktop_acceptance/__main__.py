@@ -26,11 +26,51 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-bridge", action="store_true", help="skip the bridge lifecycle lane")
     parser.add_argument("--keep-app", action="store_true", help="leave the desktop app running after capture")
     parser.add_argument("--json", action="store_true", help="print the summary JSON instead of the report path")
+    parser.add_argument("--live-turn", action="store_true",
+                        help="P0.6.5: drive ONE real prompt through the actual desktop UI (spends provider credits)")
+    parser.add_argument("--prompt-file", type=Path, default=None,
+                        help="prompt text for --live-turn (default: the built-in email-validator task)")
+    parser.add_argument("--max-dispatches", type=int, default=5, help="acceptance dispatch budget (default 5)")
+    parser.add_argument("--budget-inr", type=float, default=5.00, help="hard budget for the live turn (default 5)")
+    parser.add_argument("--turn-timeout", type=float, default=900.0, help="seconds to wait for the turn to finish")
+    parser.add_argument("--stop-before-submit", action="store_true",
+                        help="validate every gate and type the prompt, then stop WITHOUT submitting (no credits)")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.live_turn:
+        from benchmarks.crusor_desktop_acceptance.live_acceptance import (
+            DEFAULT_PROMPT,
+            LiveAcceptance,
+            LiveTurnOptions,
+        )
+
+        prompt = DEFAULT_PROMPT
+        if args.prompt_file:
+            prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip()
+        state = LiveAcceptance(LiveTurnOptions(
+            evidence_dir=args.evidence_dir,
+            workspace=args.workspace,
+            prompt=prompt,
+            max_dispatches=args.max_dispatches,
+            budget_inr=args.budget_inr,
+            launch_timeout_s=args.launch_timeout,
+            turn_timeout_s=args.turn_timeout,
+            stop_before_submit=args.stop_before_submit,
+        )).run()
+        print(f"run_id: {state['run_id']}")
+        print(f"verdict: {state.get('verdict')}")
+        for name, gate in state.get("gates", {}).items():
+            print(f"  [{'PASS' if gate.get('ok') else 'FAIL'}] {name}")
+        if state.get("correlation"):
+            print("correlation:", json.dumps(state["correlation"], default=str))
+        if state.get("stopped_before_submit"):
+            print("stopped before submit (provider-free preflight)")
+            return 0
+        return 0 if state.get("verdict") == "P0.6.5_DESKTOP_ACCEPTED" else 1
+
     options = HarnessOptions(
         evidence_dir=args.evidence_dir,
         workspace=args.workspace,

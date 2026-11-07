@@ -58,6 +58,11 @@ class AcceptanceGuard:
     _claims: list[DispatchClaim] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _clients: list[Any] = field(default_factory=list, repr=False)
+    #: When set, the ledger is rewritten after EVERY claim so evidence survives
+    #: a crash mid-turn (never only-at-exit).
+    persist_path: str = ""
+    started_at: float = field(default_factory=__import__("time").time)
+    engine_version: str = ""
 
     @property
     def used(self) -> int:
@@ -80,7 +85,13 @@ class AcceptanceGuard:
                 )
             claim = DispatchClaim(sequence=len(self._claims) + 1, stage=stage, model=model)
             self._claims.append(claim)
-            return claim
+        # Persist outside the lock (write_evidence takes the lock for snapshot).
+        if self.persist_path:
+            try:
+                write_evidence(self, self.persist_path)
+            except OSError:
+                pass
+        return claim
 
     def attempt_budget(self, requested: int) -> int:
         """The number of provider attempts allowed for one invocation."""
@@ -91,6 +102,7 @@ class AcceptanceGuard:
             self._clients.append(client)
 
     def snapshot(self) -> dict[str, Any]:
+        import os
         with self._lock:
             return {
                 "run_id": self.run_id,
@@ -104,6 +116,9 @@ class AcceptanceGuard:
                 ],
                 "registered_clients": len(self._clients),
                 "active": True,
+                "pid": os.getpid(),
+                "engine_version": self.engine_version,
+                "started_at": self.started_at,
             }
 
 
@@ -195,9 +210,12 @@ def activate_from_environment() -> AcceptanceGuard | None:
     except ValueError:
         limit = 5
     guard = AcceptanceGuard(run_id=run_id, max_dispatches=limit)
+    guard.persist_path = os.environ.get("CRUSORAI_ACCEPTANCE_EVIDENCE_PATH", "").strip()
     global _active_guard
     with _active_lock:
         _active_guard = guard
+    # First write: proves the guard is armed before any turn exists.
+    write_evidence(guard, guard.persist_path or None)
     return guard
 
 

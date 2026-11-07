@@ -209,6 +209,65 @@ def is_loopback_bind(address: str) -> bool:
     return address in {"127.0.0.1", "::1", "localhost"}
 
 
+def engine_processes_from(descendants: list[ProcessInfo], main_pid: int) -> dict[str, Any]:
+    """Pure classification of a process list (testable without a live app).
+
+    A Python bridge may be launched through a venv shim: ``.venv\\Scripts\\
+    python.exe`` spawns the real interpreter, which is the process that
+    imports ``src.bridge`` and therefore owns the acceptance guard. Ownership is
+    therefore decided by *ancestry* (any ancestor is one of the app's utility
+    processes), not by which python happens to be first in the list.
+    """
+    utilities = [p for p in descendants if "--type=utility" in p.command_line]
+    utility_pids = {p.pid for p in utilities}
+    parent_of = {p.pid: p.ppid for p in descendants}
+    bridges = [
+        p for p in descendants
+        if p.pid not in utility_pids
+        and "python" in p.name.lower()
+        and "src.bridge" in p.command_line
+    ]
+
+    def owned_by_app(proc: ProcessInfo) -> bool:
+        seen: set[int] = set()
+        current = proc.ppid
+        while current and current not in seen:
+            if current in utility_pids:
+                return True
+            seen.add(current)
+            current = parent_of.get(current, 0)
+        return False
+
+    foreign_python = [
+        p for p in descendants
+        if "python" in p.name.lower() and p not in bridges
+    ]
+    owned = [p for p in bridges if owned_by_app(p)]
+    return {
+        "main_pid": main_pid,
+        "worker_pids": sorted(utility_pids),
+        "workers": [p.to_dict() for p in utilities],
+        "bridge_pids": sorted(p.pid for p in bridges),
+        "bridges": [p.to_dict() for p in bridges],
+        "owned_bridge_pids": sorted(p.pid for p in owned),
+        "foreign_python_pids": sorted(p.pid for p in foreign_python),
+        "ancestry_ok": bool(owned),
+        "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
+def discover_engine_processes(main_pid: int) -> dict[str, Any]:
+    """Locate the Electron utility worker and the Python bridge it owns.
+
+    Returns the ancestry chain the acceptance must be able to defend:
+    ``main.exe -> utility(worker) -> python(bridge)``. A python process that is
+    not a child of the app's own utility process is reported separately and is
+    NOT accepted as the app's bridge.
+    """
+    tree = collect_tree(main_pid)
+    return engine_processes_from(tree.descendants, main_pid)
+
+
 def read_pe_version(exe: str | os.PathLike[str]) -> dict[str, str]:
     """Best-effort product version/company from the Windows image itself."""
     path = Path(exe)

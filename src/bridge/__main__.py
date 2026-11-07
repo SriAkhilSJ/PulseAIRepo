@@ -128,6 +128,7 @@ class BridgeServer:
         from src.llm.acceptance_guard import activate_from_environment
         self._acceptance_guard = activate_from_environment()
         if self._acceptance_guard is not None:
+            self._acceptance_guard.engine_version = ENGINE_VERSION
             print(
                 f"[bridge][acceptance] run={self._acceptance_guard.run_id} "
                 f"max_dispatches={self._acceptance_guard.max_dispatches} "
