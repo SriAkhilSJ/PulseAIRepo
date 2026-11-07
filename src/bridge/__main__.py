@@ -1169,10 +1169,12 @@ class BridgeServer:
                 )
                 if use_orchestrator:
                     from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
-                    from src.orchestration.models import TaskVerdict
+                    from src.orchestration.models import TaskVerdict, ExecutionLimits
+                    task_budget_inr = float(os.environ.get("CRUSORAI_TASK_BUDGET_INR", "5.0") or "5.0")
                     orch = EngineeringExecutionOrchestrator(
                         workspace_root=workspace,
                         tenant_id=self._sessions.get(sid, {}).get("tenant_id", "default_tenant"),
+                        limits=ExecutionLimits(max_cost_inr=task_budget_inr),
                     )
 
                     def on_orch_progress(view: dict) -> None:
