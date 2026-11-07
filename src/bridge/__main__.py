@@ -1045,7 +1045,10 @@ class BridgeServer:
                 "timestamp": identity.created_at,
                 "evidence": evidence_started,
             })
-            if evidence_started.get("status") in {"degraded", "unavailable"}:
+            if (
+                evidence_started.get("status") in {"degraded", "unavailable"}
+                and os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo"
+            ):
                 self.emit({
                     "type": "runtime_degraded",
                     **identity.event_fields(),
@@ -1159,15 +1162,126 @@ class BridgeServer:
                 ).strip()
                 if approval_policy not in {"ask", "workspace_session", "session"}:
                     approval_policy = "workspace_session"
-                result = stream_agent(
-                    text, thread_id=sid, workspace=workspace,
-                    approval_channel=True,
-                    approval_policy=approval_policy,
-                    turn_id=identity.turn_id,
-                    execution_mode=mode,
-                    reasoning_effort=reasoning_effort,
+
+                use_orchestrator = (
+                    mode in ("agent", "plan")
+                    and os.environ.get("CRUSORAI_ORCHESTRATOR_ENGINE", "orchestrator").lower() != "legacy"
                 )
-                cancelled = turn_controls.cancelled(sid)
+                if use_orchestrator:
+                    from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
+                    from src.orchestration.models import TaskVerdict
+                    orch = EngineeringExecutionOrchestrator(
+                        workspace_root=workspace,
+                        tenant_id=self._sessions.get(sid, {}).get("tenant_id", "default_tenant"),
+                    )
+
+                    def on_orch_progress(view: dict) -> None:
+                        _liveness.touch()
+                        curr_step = view.get("current_step", "PROGRESS")
+                        state = view.get("state", "RUNNING")
+                        lifecycle_status = "started"
+                        if state in ("COMPLETED", "SUCCESS"):
+                            lifecycle_status = "completed"
+                        elif state in ("CANCELLED", "CANCELED"):
+                            lifecycle_status = "cancelled"
+                        elif state in ("FAILED", "ERROR"):
+                            lifecycle_status = "failed"
+
+                        self.emit({
+                            "type": "turn_lifecycle",
+                            **identity.event_fields(),
+                            "lifecycle_status": lifecycle_status,
+                            "completed": (lifecycle_status == "completed"),
+                            "cancelled": (lifecycle_status == "cancelled"),
+                            "stage": curr_step,
+                            "state": state,
+                            "completed_steps": view.get("completed_steps", []),
+                            "pending_steps": view.get("pending_steps", []),
+                            "modified_files": view.get("modified_files", []),
+                            "tokens_used": view.get("tokens_used", 0),
+                            "cost_inr": view.get("cost_inr", 0.0),
+                        })
+                        all_pending = view.get("pending_steps", [])
+                        all_done = view.get("completed_steps", [])
+                        if all_pending or all_done:
+                            steps_payload = [
+                                {"id": s, "title": s, "text": s, "status": "completed"} for s in all_done
+                            ] + [
+                                {"id": s, "title": s, "text": s, "status": "in_progress" if s == curr_step else "pending"}
+                                for s in all_pending
+                            ]
+                            self.emit({
+                                "type": "plan_updated",
+                                **identity.event_fields(),
+                                "steps": steps_payload,
+                                "plan": steps_payload,
+                            })
+
+                    delivery = orch.run_task(
+                        task_prompt=text,
+                        task_id=f"turn_{identity.turn_id or sid[:8]}",
+                        on_progress=on_orch_progress,
+                        cancellation_checker=lambda: turn_controls.cancelled(sid),
+                    )
+
+                    cancelled = turn_controls.cancelled(sid)
+                    task_completed = (delivery.verdict == TaskVerdict.COMPLETED)
+                    summary_text = (
+                        f"### Engineering Execution Report\n\n"
+                        f"- **Verdict:** `{delivery.verdict.value}`\n"
+                        f"- **Task:** {delivery.what_was_requested}\n"
+                        f"- **Files Modified:** {len(delivery.files_changed)} ({', '.join(delivery.files_changed) if delivery.files_changed else 'None'})\n"
+                        f"- **Tests Executed:** {len(delivery.tests_executed)} ({len(delivery.tests_passed)} passed, {len(delivery.tests_failed)} failed)\n"
+                        f"- **Independent Verification:** `{'VERIFIED' if delivery.independently_verified else 'NOT_VERIFIED'}`\n"
+                    )
+                    if delivery.production_readiness_verdict:
+                        summary_text += f"- **Production Readiness:** `{delivery.production_readiness_verdict}`\n"
+                    if delivery.remaining_limitations:
+                        summary_text += f"\n**Limitations / Notes:**\n" + "\n".join(f"- {lim}" for lim in delivery.remaining_limitations)
+
+                    self.emit({
+                        "type": "token",
+                        **identity.event_fields(),
+                        "text": summary_text,
+                    })
+
+                    status_val = "verified" if delivery.independently_verified else (
+                        "failed" if delivery.verdict != TaskVerdict.COMPLETED else "unverified"
+                    )
+                    evidence_ref = delivery.evidence_references[-1] if delivery.evidence_references else ""
+                    self.emit({
+                        "type": "verification_updated",
+                        **identity.event_fields(),
+                        "status": status_val,
+                        "verified": delivery.independently_verified,
+                        "verdict": delivery.verdict.value,
+                        "evidence": evidence_ref,
+                        "evidence_digest": evidence_ref,
+                        "production_readiness": delivery.production_readiness_verdict,
+                    })
+
+                    final_lifecycle = "cancelled" if cancelled else ("completed" if task_completed else "failed")
+                    self.emit({
+                        "type": "turn_lifecycle",
+                        **identity.event_fields(),
+                        "lifecycle_status": final_lifecycle,
+                        "completed": task_completed,
+                        "cancelled": cancelled,
+                        "stage": "FINAL_DELIVERY",
+                        "state": delivery.verdict.value,
+                    })
+                    result = summary_text
+                else:
+                    result = stream_agent(
+                        text, thread_id=sid, workspace=workspace,
+                        approval_channel=True,
+                        approval_policy=approval_policy,
+                        turn_id=identity.turn_id,
+                        execution_mode=mode,
+                        reasoning_effort=reasoning_effort,
+                    )
+                    cancelled = turn_controls.cancelled(sid)
+                    task_completed = bool(getattr(result, "completed", True))
                 # Owner-machine diagnosis (2026-09-04 "run never ends, I have
                 # to press Stop"): turn_done is SILENT in the log, so a log
                 # that ends at the last ai answer proves nothing — the engine
@@ -1193,7 +1307,8 @@ class BridgeServer:
                             "type": "runtime_degraded", **identity.event_fields(),
                             "reason": f"event queue flush incomplete: {stranded} event(s) undrained",
                         })
-                task_completed = bool(getattr(result, "completed", True))
+                if not use_orchestrator:
+                    task_completed = bool(getattr(result, "completed", True))
                 _terminal.set()
                 lifecycle_status = (
                     "cancelled"

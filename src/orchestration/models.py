@@ -371,9 +371,12 @@ class DeliveryContract:
     remaining_limitations: List[str]
     user_action_required: Optional[str]
     cost_inr: float = 0.00
+    cost_usd: float = 0.00
     token_usage: Dict[str, int] = field(default_factory=dict)
     duration_seconds: float = 0.0
     evidence_references: List[str] = field(default_factory=list)
+    production_readiness_verdict: Optional[str] = None
+    production_readiness_findings: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -393,5 +396,7 @@ class DeliveryContract:
             "token_usage": self.token_usage,
             "duration_seconds": self.duration_seconds,
             "evidence_references": self.evidence_references,
+            "production_readiness_verdict": self.production_readiness_verdict,
+            "production_readiness_findings": self.production_readiness_findings,
         }
 

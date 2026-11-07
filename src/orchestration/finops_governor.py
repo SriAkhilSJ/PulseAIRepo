@@ -28,6 +28,7 @@ class TaskFinOpsExpenditure:
     task_id: str
     budget_inr: float = 0.00
     spent_inr: float = 0.00
+    spent_usd: float = 0.00
     token_budget: int = 150000
     tokens_consumed: int = 0
     input_tokens: int = 0
@@ -42,6 +43,7 @@ class TaskFinOpsExpenditure:
             "task_id": self.task_id,
             "budget_inr": self.budget_inr,
             "spent_inr": self.spent_inr,
+            "spent_usd": self.spent_usd,
             "token_budget": self.token_budget,
             "tokens_consumed": self.tokens_consumed,
             "input_tokens": self.input_tokens,
@@ -84,6 +86,7 @@ class OrchestrationFinOpsGovernor:
         output_tokens: int = 0,
         cached_tokens: int = 0,
         cost_inr: float = 0.00,
+        cost_usd: float = 0.00,
         tool_seconds: float = 0.0,
         test_seconds: float = 0.0,
     ) -> None:
@@ -93,11 +96,12 @@ class OrchestrationFinOpsGovernor:
         self.accounting.output_tokens += output_tokens
         self.accounting.cached_tokens += cached_tokens
         self.accounting.tokens_consumed += total_tok
-        self.accounting.spent_inr += cost_inr
+        self.accounting.spent_inr = round(self.accounting.spent_inr + cost_inr, 6)
+        self.accounting.spent_usd = round(self.accounting.spent_usd + cost_usd, 6)
         self.accounting.tool_execution_seconds += tool_seconds
         self.accounting.test_execution_seconds += test_seconds
         self.accounting.calls_count += 1
 
         if self.accounting.spent_inr > self.accounting.budget_inr:
-            log.warning(f"Task {self.accounting.task_id} exhausted monetary budget: INR {self.accounting.spent_inr:.2f}")
+            log.warning(f"Task {self.accounting.task_id} exhausted monetary budget: INR {self.accounting.spent_inr:.4f}")
 
