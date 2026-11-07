@@ -5,7 +5,7 @@ Phase 11.6: Autonomous Engineering Execution.
 """
 
 from src.orchestration.context_manager import AdaptiveContextManager, AuthoritativeTaskContext
-from src.orchestration.finops_governor import BudgetExhaustedError, OrchestrationFinOpsGovernor
+from src.orchestration.finops_governor import BudgetExhaustedError, FinOpsReservation, OrchestrationFinOpsGovernor
 from src.orchestration.implementation_engine import ControlledImplementationEngine, ScopeDivergenceError
 from src.orchestration.journal import DurableOrchestrationJournal
 from src.orchestration.lifecycle import LifecycleManager, StageExecutionRecord
@@ -55,6 +55,7 @@ __all__ = [
     "DesktopTaskProgressView",
     "DesktopVisibilityReporter",
     "BudgetExhaustedError",
+    "FinOpsReservation",
     "OrchestrationFinOpsGovernor",
     "DurableOrchestrationJournal",
     "EngineeringExecutionOrchestrator",

@@ -151,7 +151,13 @@ class EngineeringExecutionOrchestrator:
         state_machine = TaskStateMachine(tid, str(self.workspace_root), tenant_id=self.tenant_id, storage_dir=self.storage_dir)
         lifecycle = LifecycleManager(tid)
         context_mgr = AdaptiveContextManager(tid, str(self.workspace_root), tenant_id=self.tenant_id, storage_dir=self.storage_dir)
-        finops = OrchestrationFinOpsGovernor(tid, budget_inr=self.limits.max_cost_inr, token_budget=self.limits.max_token_budget)
+        finops = OrchestrationFinOpsGovernor(
+            tid,
+            budget_inr=self.limits.max_cost_inr,
+            token_budget=self.limits.max_token_budget,
+            storage_dir=self.storage_dir,
+            workspace_root=str(self.workspace_root),
+        )
         journal = DurableOrchestrationJournal(tid, str(self.workspace_root), tenant_id=self.tenant_id, storage_dir=self.storage_dir)
         reasoning_loop = BoundedAutonomousReasoningLoop(limits=self.limits)
 

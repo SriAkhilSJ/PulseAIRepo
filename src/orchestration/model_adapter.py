@@ -365,21 +365,76 @@ class ModelExecutionAdapter:
             f"Return ONLY the code block, with no conversational preamble."
         )
 
-        # 2. FinOps pre-call budget authorization check
-        est_in = max(100, len(prompt) // 4)
-        est_out = 500
-        est_cost = pricing_reg.calculate_cost(
+        # 2. FinOps reserve-before-call (P0.4)
+        # Calculate conservative maximum input tokens (3 chars/token) and strict max output allowance
+        prompt_chars = len(prompt)
+        est_in = max(100, prompt_chars // 3)
+        max_output_tokens = getattr(node, "max_tokens", None) or 2048
+        max_total_tokens = est_in + max_output_tokens
+
+        max_cost = pricing_reg.calculate_cost(
             model=mod,
             input_tokens=est_in,
-            output_tokens=est_out,
+            output_tokens=max_output_tokens,
             provider=prov,
         )
-        est_cost_inr = float(est_cost.cost_inr) if est_cost.cost_inr is not None else 0.0
-        finops.authorize_operation(estimated_tokens=est_in + est_out, estimated_cost_inr=est_cost_inr)
+        if max_cost.cost_inr is None or max_cost.cost_usd is None or max_cost.verification_status == VerificationStatus.UNKNOWN:
+            raise UnknownModelPricingError(
+                f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
+            )
 
-        # 3. Model execution
-        llm = get_llm(provider=prov, model=mod)
-        response = llm.invoke(prompt)
+        max_cost_inr = float(max_cost.cost_inr)
+        max_cost_usd = float(max_cost.cost_usd)
+
+        # Atomically reserve conservative maximum expenditure
+        res_id = finops.reserve(
+            estimated_tokens=max_total_tokens,
+            estimated_cost_inr=max_cost_inr,
+            estimated_cost_usd=max_cost_usd,
+            purpose=f"node_{node.node_id}",
+        )
+
+        try:
+            # 3. Model execution with output-token boundary
+            llm = get_llm(provider=prov, model=mod)
+            try:
+                response = llm.invoke(prompt, max_tokens=max_output_tokens)
+            except TypeError:
+                response = llm.invoke(prompt)
+
+            # 4. Extract authentic usage receipts (fail-closed on missing receipts)
+            in_tok, out_tok, cached_tok = extract_provider_token_usage(response)
+
+            # 5. Calculate actual verified cost with micro-currency precision
+            calc_cost = pricing_reg.calculate_cost(
+                model=mod,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                cached_tokens=cached_tok,
+                provider=prov,
+            )
+            if calc_cost.cost_inr is None or calc_cost.cost_usd is None or calc_cost.verification_status == VerificationStatus.UNKNOWN:
+                raise UnknownModelPricingError(
+                    f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
+                )
+
+            actual_cost_inr = float(calc_cost.cost_inr)
+            actual_cost_usd = float(calc_cost.cost_usd)
+
+            # 6. Settle reservation: commit actual spend, release unused hold, check for breaches
+            finops.commit_reservation(
+                reservation_id=res_id,
+                actual_input_tokens=in_tok,
+                actual_output_tokens=out_tok,
+                actual_cached_tokens=cached_tok,
+                actual_cost_inr=actual_cost_inr,
+                actual_cost_usd=actual_cost_usd,
+            )
+        except Exception:
+            # Safely release the reservation on any failure, timeout, cancellation or error
+            finops.release_reservation(res_id, reason="call_failed_or_cancelled")
+            raise
+
         text = response.content if hasattr(response, "content") else str(response)
 
         # Extract code from Markdown code block if present
@@ -388,33 +443,5 @@ class ModelExecutionAdapter:
             clean_code = match.group(1)
         else:
             clean_code = text.strip()
-
-        # 4. Extract authentic usage receipts (fail-closed on missing receipts)
-        in_tok, out_tok, cached_tok = extract_provider_token_usage(response)
-
-        # 5. Calculate verified cost with micro-currency precision
-        calc_cost = pricing_reg.calculate_cost(
-            model=mod,
-            input_tokens=in_tok,
-            output_tokens=out_tok,
-            cached_tokens=cached_tok,
-            provider=prov,
-        )
-        if calc_cost.cost_inr is None or calc_cost.cost_usd is None or calc_cost.verification_status == VerificationStatus.UNKNOWN:
-            raise UnknownModelPricingError(
-                f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
-            )
-
-        cost_inr = float(calc_cost.cost_inr)
-        cost_usd = float(calc_cost.cost_usd)
-
-        # 6. Record exact usage in FinOps governor
-        finops.record_usage(
-            input_tokens=in_tok,
-            output_tokens=out_tok,
-            cached_tokens=cached_tok,
-            cost_inr=cost_inr,
-            cost_usd=cost_usd,
-        )
 
         return clean_code
