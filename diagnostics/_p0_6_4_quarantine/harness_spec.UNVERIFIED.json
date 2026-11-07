@@ -1,0 +1,27 @@
+{
+  "run_id": "p0_6_4_e0acc466",
+  "session_id": "ses_b564caddfb99",
+  "turn_id": "turn_edd81cca",
+  "workspace_id": "ws_cdb1acfe",
+  "timestamp": 1794080484.687115,
+  "components": {
+    "electron_main": {
+      "status": "instrumented",
+      "target": "desktop/vscode"
+    },
+    "renderer": {
+      "selector": "textarea.crusorai-composer-input",
+      "cdp_local_only": true
+    },
+    "bridge_worker": {
+      "path": "desktop/vscode/src/vs/workbench/contrib/crusorai/node/crusorAIWorkerMain.ts"
+    },
+    "finops_governor": {
+      "storage": ".crusorai/finops",
+      "budget_limit_inr": 5.0
+    },
+    "mutation_broker": {
+      "audit_ledger": true
+    }
+  }
+}

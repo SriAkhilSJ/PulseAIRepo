@@ -2084,11 +2084,11 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // counted +a −r next to the filename — earned from the result, so it
     // appears when the edit lands, never while running.
     const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
-    const titleMain = element('span', undefined, titleSpan, subtitle, 
+    const titleMain = element('span', undefined, titleSpan, subtitle,
     // The sub-agent card carries mode/type/description itself; the
     // generic k=v chips would only repeat it (founder screenshot
     // 2026-10-15: 'Delegate mode=research subagent_type=research').
-    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -2296,7 +2296,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
-        const summary = element('summary', 'crusorai-tool-run-summary', 
+        const summary = element('summary', 'crusorai-tool-run-summary',
         // The disclosure arrow LEADS the header (founder
         // 2026-10-17: arrow marks at the start — "⌄ Terminal
         // 3", not "Terminal 3 ⌄"); the global collapsible-arrow
