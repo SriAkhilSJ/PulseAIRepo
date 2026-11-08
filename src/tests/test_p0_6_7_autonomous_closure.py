@@ -403,6 +403,45 @@ class TestAnalyzerDiscipline(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+    def test_test_requirement_is_assigned_the_test_file_by_role(self) -> None:
+        from src.orchestration.planner import EngineeringTaskPlanner
+
+        tmp = Path(tempfile.mkdtemp(prefix="p0_6_7_plan_role_"))
+        try:
+            def req(rid: str, description: str):
+                return SimpleNamespace(
+                    id=rid, title=rid, description=description,
+                    classification="EXPLICIT", status=SimpleNamespace(value="ACCEPTED"),
+                    affected_files=[], acceptance_criteria=["Works"],
+                )
+
+            reqs = [
+                req("REQ-001", "Create src/duration.py with parse_duration(value)."),
+                req("REQ-002", "Supported units: h, m, s."),
+                req("REQ-003", "Then create tests/test_duration.py with pytest tests."),
+            ]
+            spec = SimpleNamespace(all_requirements=lambda: reqs, requirements=reqs)
+            dag = EngineeringTaskPlanner(str(tmp)).build_plan(
+                "t", spec,
+                requested_files=["src/duration.py", "tests/test_duration.py"],
+                task_prompt="Create src/duration.py and tests/test_duration.py",
+                max_nodes=5,
+            )
+            targets = [f for n in dag.nodes.values() for f in n.target_files]
+            self.assertIn("src/duration.py", targets)
+            self.assertIn("tests/test_duration.py", targets)
+            self.assertEqual(targets.count("tests/test_duration.py"), 1,
+                             "the test file must be planned once, not dispatched twice")
+            test_node = next(
+                n for n in dag.nodes.values()
+                if n.target_files == ["tests/test_duration.py"]
+            )
+            self.assertIn("REQ-003", test_node.related_requirement_ids)
+            self.assertNotIn("REQ-002", test_node.related_requirement_ids)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class TestRepairLoop(unittest.TestCase):
     def setUp(self) -> None:
         self.ws = _workspace({"README.md": "# ws\n"}, git=True)

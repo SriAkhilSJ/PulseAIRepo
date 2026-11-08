@@ -1198,7 +1198,9 @@ class ModelExecutionAdapter:
             prompt += (
                 "\nThis is a generated TEST file. It contradicts the explicit user contract or "
                 "is not executable as written. Repair ONLY the test so it expresses the user's "
-                "stated behavior. Do not delete, skip or weaken any assertion, and do not add "
+                "stated behavior. Preserve every existing test function name and assertion; "
+                "make the smallest change that fixes the defect (for an import error, fix the "
+                "import path only). Do not delete, skip or weaken any assertion, and do not add "
                 "tests that merely mirror a broken implementation.\n"
             )
         else:

@@ -18,6 +18,7 @@ Produces:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any, Dict, List, Optional, Set
 
@@ -26,6 +27,7 @@ from src.intelligence.architecture_models import ArchitectureBlueprint
 from src.intelligence.models import ProjectKnowledge
 from src.intelligence.requirement_models import ProjectSpecification
 from src.orchestration.models import EngineeringPlanDAG, EngineeringTaskNode
+from src.orchestration.test_execution import is_test_file
 from src.regression.models import TestBaseline
 from src.workspace.models import ChangePlan
 
@@ -201,6 +203,9 @@ class EngineeringTaskPlanner:
         # nobody asked for satisfies nobody, even when it "completes".
         requested_pool = [f for f in (requested_files or []) if f]
         requested_set = set(requested_pool)
+        requested_tests = [f for f in requested_pool if is_test_file(f)]
+        requested_sources = [f for f in requested_pool if not is_test_file(f)]
+        used_requested: Set[str] = set()
 
         for req in mandatory_reqs:
             node_id = f"task_{req.id.lower().replace('-', '_')}"
@@ -212,8 +217,21 @@ class EngineeringTaskPlanner:
                     target_files = file_mentions
                 else:
                     target_files = [f"src/{req.id.lower().replace('-', '_')}_module.py"]
-            if requested_pool:
-                target_files = [requested_pool.pop(0)]
+            # Assign user-named files by ROLE, not FIFO. The P0.6.7 live run
+            # proved the old pop(0) gave the test file to a "Supported units"
+            # requirement and dispatched the same path twice while the actual
+            # tests requirement targeted the module.
+            description = (req.description or "").lower()
+            is_test_requirement = bool(re.search(
+                r"\b(?:test|tests|pytest|unittest|spec|specs)\b", description,
+            ))
+            if is_test_requirement:
+                available = [f for f in requested_tests if f not in used_requested]
+            else:
+                available = [f for f in requested_sources if f not in used_requested]
+            if available:
+                target_files = [available[0]]
+                used_requested.add(available[0])
 
             # Risk classification based on impact report if available
             risk = "LOW"
@@ -253,6 +271,48 @@ class EngineeringTaskPlanner:
                 completion_conditions=["Clean tests"],
             )
             created_nodes["task_main"] = fallback_node
+
+        # 1a0. Every user-named file is a work unit. A file named by the user
+        #      must not disappear because no requirement happened to match its
+        #      role (e.g. "add tests" phrased as a generic requirement).
+        planned_targets = {f for node in created_nodes.values() for f in node.target_files}
+        for unused in requested_pool:
+            if unused in planned_targets:
+                continue
+            stem = unused.replace("\\", "/").rsplit("/", 1)[-1].split(".")[0]
+            node_id = f"task_{'tests_' if is_test_file(unused) else ''}{stem}"
+            base_id = node_id
+            suffix = 1
+            while node_id in created_nodes:
+                suffix += 1
+                node_id = f"{base_id}_{suffix}"
+            created_nodes[node_id] = EngineeringTaskNode(
+                node_id=node_id,
+                description=f"Create {unused}",
+                objective=task_prompt or f"Create {unused}",
+                related_requirement_ids=[],
+                target_files=[unused],
+                dependencies=[],
+                risk_level="LOW",
+                expected_outputs=[f"Working {unused}"],
+                required_tests=[],
+                acceptance_criteria=["Passes verification"],
+                completion_conditions=["Clean tests"],
+            )
+            planned_targets.add(unused)
+
+        # 1a1. Two requirements that resolve to the SAME file are one dispatch,
+        #      not two writes of the same path. Merge them (ids preserved).
+        merged_by_target: Dict[str, EngineeringTaskNode] = {}
+        for node in created_nodes.values():
+            key = node.target_files[0] if len(node.target_files) == 1 else None
+            if key and key in merged_by_target:
+                absorb_requirement_nodes(merged_by_target[key], [node])
+            elif key:
+                merged_by_target[key] = node
+            else:
+                merged_by_target[node.node_id] = node
+        created_nodes = {n.node_id: n for n in merged_by_target.values()}
 
         # 1a. If the user named files, those files ARE the work units: keep the
         #     nodes that received a requested path and absorb the analyzer's
