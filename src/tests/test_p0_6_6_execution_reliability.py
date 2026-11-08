@@ -339,5 +339,68 @@ class TestCeiling(unittest.TestCase):
             assert_provider_output_complete(response, "src/x.py")
 
 
+class TestPlanScopedVerification(unittest.TestCase):
+    """The plan, not the filename, decides which file implements a requirement.
+
+    Before P0.6.6 verification passed only because the planner invented
+    ``src/req_00N_module.py`` names: ``req_002`` in the path satisfied every
+    acceptance criterion by substring. User-named files legitimately contain no
+    requirement id, so the orchestrator now passes the plan's explicit
+    requirement -> files map.
+    """
+
+    def setUp(self) -> None:
+        from src.verification.authority import VerificationAuthority
+        from src.verification.requirement_verifier import RequirementVerifier
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="p0_6_6_verify_"))
+        (self.tmp / "src").mkdir()
+        (self.tmp / "src" / "payment_gateway.py").write_text(
+            "class PaymentGateway:\n"
+            "    def process_charge(self, amount: int):\n"
+            "        return {'status': 'CHARGED'}\n",
+            encoding="utf-8",
+        )
+        self.verifier = RequirementVerifier(VerificationAuthority(str(self.tmp)))
+        req = SimpleNamespace(
+            id="REQ-002",
+            description="Configure deployment pipeline credentials",
+            intent="Configure deployment pipeline credentials",
+            acceptance_criteria=["Automated test runner executes without errors"],
+        )
+        self.spec = SimpleNamespace(all_requirements=lambda: [req], requirements=[req])
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_17_filename_heuristics_alone_do_not_verify(self) -> None:
+        from src.verification.models import RequirementVerificationStatus
+
+        records = self.verifier.verify_all_requirements(
+            self.spec, ["src/payment_gateway.py"], {},
+        )
+        self.assertEqual(records[0].status, RequirementVerificationStatus.NOT_IMPLEMENTED)
+        self.assertEqual(records[0].relevant_files, [])
+
+    def test_18_plan_scope_verifies_a_user_named_file(self) -> None:
+        from src.verification.models import RequirementVerificationStatus
+
+        records = self.verifier.verify_all_requirements(
+            self.spec, ["src/payment_gateway.py"], {},
+            requirement_files={"REQ-002": ["src/payment_gateway.py"]},
+        )
+        self.assertEqual(records[0].status, RequirementVerificationStatus.VERIFIED)
+        self.assertEqual(records[0].relevant_files, ["src/payment_gateway.py"])
+
+    def test_19_scope_to_a_missing_file_never_verifies(self) -> None:
+        from src.verification.models import RequirementVerificationStatus
+
+        records = self.verifier.verify_all_requirements(
+            self.spec, ["src/payment_gateway.py"], {},
+            requirement_files={"REQ-002": ["src/invented_but_absent.py"]},
+        )
+        self.assertEqual(records[0].status, RequirementVerificationStatus.NOT_IMPLEMENTED)
+
+
 if __name__ == "__main__":
     unittest.main()

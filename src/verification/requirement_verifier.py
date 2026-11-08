@@ -36,9 +36,17 @@ class RequirementVerifier:
         specification: Any,
         mutated_files: List[str],
         test_results: Dict[str, str],
+        requirement_files: Optional[Dict[str, List[str]]] = None,
     ) -> List[RequirementVerificationRecord]:
         """
         Evaluates each requirement defined in the ProjectSpecification.
+
+        ``requirement_files`` is the PLAN's traceability map (requirement id ->
+        target files). When present it is authoritative: the engine verifies a
+        requirement against the files the plan used to implement it, instead of
+        hoping the requirement id appears in a filename. The previous heuristic
+        only "passed" because the planner invented ``src/req_00N_module.py``
+        names; user-named files legitimately carry no requirement id.
         """
         records: List[RequirementVerificationRecord] = []
 
@@ -54,7 +62,11 @@ class RequirementVerifier:
             req_list = specification.functional_requirements
 
         for req in req_list:
-            rec = self.verify_single_requirement(req, mutated_files, test_results)
+            req_id = getattr(req, "id", "") or getattr(req, "req_id", "")
+            scoped = (requirement_files or {}).get(req_id) if req_id else None
+            rec = self.verify_single_requirement(
+                req, mutated_files, test_results, scoped_files=scoped
+            )
             records.append(rec)
 
         return records
@@ -64,6 +76,7 @@ class RequirementVerifier:
         req: Any,
         mutated_files: List[str],
         test_results: Dict[str, str],
+        scoped_files: Optional[List[str]] = None,
     ) -> RequirementVerificationRecord:
         """
         Deeply inspects code and tests to verify an individual requirement.
@@ -87,27 +100,39 @@ class RequirementVerifier:
         relevant_symbols: List[str] = []
         remaining_limitations: List[str] = []
 
-        # Find code files related to this requirement
+        # Find code files related to this requirement. A plan-provided scope wins:
+        # the plan already declared which files implement this requirement id, so
+        # filename-keyword luck is not evidence of anything.
         keywords = self._extract_keywords(desc + " " + intent)
         req_norm = req_id.lower().replace("-", "_")
-        for rel in mutated_files:
-            content = self.authority.inspect_file(rel)
-            if not content:
-                continue
-
-            matches_id = req_norm in rel.lower() or req_id.lower() in content.lower()
-            matches_keyword = any(kw.lower() in rel.lower() or kw.lower() in content.lower() for kw in keywords)
-            if matches_id or matches_keyword:
+        scoped = [rel for rel in (scoped_files or []) if rel in mutated_files]
+        if scoped:
+            for rel in scoped:
+                content = self.authority.inspect_file(rel)
+                if not content:
+                    continue
                 relevant_files.append(rel)
-                symbols = self._extract_symbols_from_code(content, rel)
-                relevant_symbols.extend(symbols)
+                relevant_symbols.extend(self._extract_symbols_from_code(content, rel))
+        else:
+            for rel in mutated_files:
+                content = self.authority.inspect_file(rel)
+                if not content:
+                    continue
+
+                matches_id = req_norm in rel.lower() or req_id.lower() in content.lower()
+                matches_keyword = any(kw.lower() in rel.lower() or kw.lower() in content.lower() for kw in keywords)
+                if matches_id or matches_keyword:
+                    relevant_files.append(rel)
+                    symbols = self._extract_symbols_from_code(content, rel)
+                    relevant_symbols.extend(symbols)
 
         # Check acceptance criteria against AST and behavioral evidence
         satisfied_count = 0
         for crit in criteria:
             crit_text = crit.get("criterion", "")
             is_satisfied, evidence = self._evaluate_criterion(
-                crit_text, relevant_files, relevant_symbols, test_results
+                crit_text, relevant_files, relevant_symbols, test_results,
+                plan_scoped=bool(scoped),
             )
             crit["satisfied"] = is_satisfied
             crit["evidence"] = evidence
@@ -168,9 +193,15 @@ class RequirementVerifier:
         files: List[str],
         symbols: List[str],
         test_results: Dict[str, str],
+        plan_scoped: bool = False,
     ) -> Tuple[bool, str]:
         """
         Determines if an individual acceptance criterion is genuinely satisfied with real implementation.
+
+        ``plan_scoped`` means the plan explicitly mapped this requirement to these
+        files. That replaces the old filename heuristic (an invented
+        ``src/req_002_module.py`` used to satisfy every criterion by substring);
+        the non-stub AST check below still has to pass.
         """
         crit_keywords = self._extract_keywords(criterion)
         if not files:
@@ -208,7 +239,10 @@ class RequirementVerifier:
 
             # Match criteria against keywords, file paths, symbols, or requirement bindings
             matched_kws = [kw for kw in crit_keywords if kw.lower() in content.lower() or kw.lower() in f.lower()]
-            targeted_for_req = any(marker in content.lower() or marker in f.lower() for marker in ["req_", "task_req", "handler", "requirement"])
+            targeted_for_req = plan_scoped or any(
+                marker in content.lower() or marker in f.lower()
+                for marker in ["req_", "task_req", "handler", "requirement"]
+            )
 
             if matched_kws or targeted_for_req:
                 found_evidence.append(f"{f} contains behavioral implementation")

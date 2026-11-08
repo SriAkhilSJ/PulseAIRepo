@@ -97,6 +97,7 @@ class IndependentVerificationEngine:
         regression_report: Optional[Any] = None,
         test_execution_results: Optional[Dict[str, str]] = None,
         check_runtime: bool = True,
+        requirement_files: Optional[Dict[str, List[str]]] = None,
     ) -> VerificationReport:
         """
         Executes complete, independent verification across all quality dimensions.
@@ -129,6 +130,7 @@ class IndependentVerificationEngine:
             specification=specification,
             mutated_files=mutated_files,
             test_results=test_results,
+            requirement_files=requirement_files,
         )
 
         # 4. Application runtime probe (if requested/applicable)

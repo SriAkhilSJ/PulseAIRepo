@@ -223,11 +223,11 @@ class ExecutionLimits:
     #: The orchestrator refuses a plan whose node count exceeds it, BEFORE any
     #: dispatch happens. The acceptance guard (P0.6.4.1) may lower it.
     max_dispatch_budget: int | None = None
-    #: Per-node provider output ceiling. Measured twice on this provider:
-    #: 2048 truncated every node (P0.6.5), and 4096 still truncated all four
-    #: implementation nodes (P0.6.6 run 1). 8192 is the smallest value with
-    #: headroom for a complete module + docstrings; the financial bound for a
-    #: 5-dispatch turn at this ceiling is ~INR 0.35, far inside the INR 5 cap.
+    #: Per-node provider output ceiling. Measured on this provider: 2048
+    #: truncated every node (P0.6.5); 4096 still truncated all four
+    #: implementation nodes (P0.6.6); 8192 completes a user-scoped module.
+    #: Worst-case financial bound: 5 dispatches x 8192 output tokens at the
+    #: measured ~INR 1.9e-5/token is ~INR 0.78, far inside the INR 5 cap.
     #: None keeps the adapter's own default (2048).
     max_output_tokens_per_node: int | None = 8192
 

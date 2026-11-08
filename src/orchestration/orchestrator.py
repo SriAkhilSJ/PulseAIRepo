@@ -599,6 +599,18 @@ class EngineeringExecutionOrchestrator:
         if not test_exec_map:
             test_exec_map = {"test_baseline": "PASS"}
 
+        # Plan->requirement traceability: the plan already decided which files
+        # implement which requirement ids (including coalesced ones). Give that
+        # mapping to verification instead of letting it guess from filenames --
+        # user-named files carry no requirement id, and invented ones did.
+        req_file_scope: Dict[str, List[str]] = {}
+        for node in plan_dag.nodes.values():
+            for rid in node.related_requirement_ids:
+                bucket = req_file_scope.setdefault(rid, [])
+                for rel in node.target_files:
+                    if rel not in bucket:
+                        bucket.append(rel)
+
         verification_report = self.verification_engine.verify_task(
             task_id=tid,
             original_request=task_prompt,
@@ -609,6 +621,7 @@ class EngineeringExecutionOrchestrator:
             regression_report=reg_report,
             test_execution_results=test_exec_map,
             check_runtime=False,
+            requirement_files=req_file_scope,
         )
 
         is_clean = verification_report.verdict in {
