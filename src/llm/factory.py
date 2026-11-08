@@ -622,6 +622,13 @@ class RetryLLMProxy:
         the active session so every proxied model request is covered by the
         cancellation lifecycle, not just ai_node.
         """
+        # P0.6.9: in acceptance mode every provider request must sit inside a
+        # financial reservation scope. This is the last boundary before the
+        # wire; an unaccounted call fails closed here.
+        from src.finops.invocation_context import assert_governed_for_acceptance
+
+        assert_governed_for_acceptance()
+
         last_error = None
 
         # Register before any request preparation. If Stop already won,

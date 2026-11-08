@@ -17,6 +17,7 @@ import ast
 import inspect
 import json
 import logging
+import time
 import os
 import re
 from dataclasses import dataclass
@@ -1135,10 +1136,58 @@ class ModelExecutionAdapter:
             purpose=purpose,
         )
 
+        # P0.6.9 attribution: one invocation record per physical call, with the
+        # same run/session/turn identity the auxiliary gateway uses.
+        from src.finops.invocation_context import (
+            invocation_scope,
+            new_invocation_id,
+            record_invocation,
+        )
+
+        invocation_id = new_invocation_id()
+        dispatch_started = time.time()
+        operation_type = "repair" if str(purpose).startswith("repair_") else "implementation"
+
+        def _ledger_record(
+            status: str,
+            *,
+            in_tok: int = 0,
+            out_tok: int = 0,
+            cached_tok: int = 0,
+            cost_inr: float = 0.0,
+            cost_usd: float = 0.0,
+            error: str = "",
+        ) -> None:
+            try:
+                record_invocation(self.workspace_root, {
+                    "invocation_id": invocation_id,
+                    "subsystem": "engineering",
+                    "operation_type": operation_type,
+                    "provider": prov,
+                    "model": mod,
+                    "reservation_id": res_id,
+                    "usage_record_id": f"{res_id}:usage" if (in_tok or out_tok) else "",
+                    "settlement_id": res_id if status == "settled" else "",
+                    "status": status,
+                    "input_tokens": in_tok,
+                    "output_tokens": out_tok,
+                    "cached_tokens": cached_tok,
+                    "actual_cost_inr": cost_inr,
+                    "actual_cost_usd": cost_usd,
+                    "started_at": dispatch_started,
+                    "completed_at": time.time(),
+                    "purpose": purpose,
+                    "task_id": os.environ.get("CRUSORAI_TURN_ID", ""),
+                    "error": error,
+                })
+            except Exception:
+                log.warning("invocation ledger write failed for %s", invocation_id)
+
         try:
             llm = get_llm(provider=prov, model=mod)
-        except Exception:
+        except Exception as exc:
             finops.release_reservation(res_id, reason="provider_client_construction_failed")
+            _ledger_record("released", error=f"client construction failed: {type(exc).__name__}")
             raise
 
         # One metered dispatch == one paid request. RetryLLMProxy would
@@ -1158,6 +1207,7 @@ class ModelExecutionAdapter:
             llm, provider=prov, max_output_tokens=max_output_tokens
         ):
             finops.release_reservation(res_id, reason="provider_cannot_enforce_token_ceiling")
+            _ledger_record("released", error="provider cannot enforce the output token ceiling")
             raise UnsupportedTokenCeilingError(
                 f"Provider '{prov}' (model '{mod}', client '{type(llm).__name__}') cannot enforce the requested "
                 f"output token ceiling of {max_output_tokens} tokens. Dispatch aborted to prevent unmetered execution."
@@ -1168,22 +1218,43 @@ class ModelExecutionAdapter:
 
         # Exactly one dispatch, always with the token ceiling attached.
         try:
-            response = llm.invoke(prompt, **invoke_kwargs)
+            with invocation_scope(
+                subsystem="engineering",
+                reservation_id=res_id,
+                operation_type=operation_type,
+                task_id=os.environ.get("CRUSORAI_TURN_ID", ""),
+                provider=prov,
+                model=mod,
+                purpose=purpose,
+            ):
+                response = llm.invoke(prompt, **invoke_kwargs)
         except Exception as exc:
             # Pre-dispatch rejections release; post-dispatch ambiguity retains
             # the hold as uncertain so funds cannot be silently double-spent.
             if is_uncertain_post_dispatch_error(exc):
                 finops.mark_uncertain(res_id, reason=f"post_dispatch_error: {type(exc).__name__}: {exc}")
+                _ledger_record(
+                    "uncertain",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             else:
                 finops.release_reservation(res_id, reason=f"dispatch_rejected: {type(exc).__name__}")
+                _ledger_record(
+                    "released",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
             raise
 
         try:
             # 5. Extract authentic usage receipts (fail-closed on missing receipts)
             in_tok, out_tok, cached_tok = extract_provider_token_usage(response)
-        except Exception:
+        except Exception as exc:
             # Wire call succeeded but usage receipts missing: keep reservation uncertain
             finops.mark_uncertain(res_id, reason="missing_usage_receipts_after_call")
+            _ledger_record(
+                "uncertain",
+                error=f"missing usage receipts: {type(exc).__name__}",
+            )
             raise
 
         # 6. Calculate actual verified cost with micro-currency precision
@@ -1198,6 +1269,10 @@ class ModelExecutionAdapter:
             # The provider already ran; the hold must not be released as if
             # the call were free. Mark it uncertain for reconciliation.
             finops.mark_uncertain(res_id, reason="unverifiable_actual_cost")
+            _ledger_record(
+                "uncertain", in_tok=in_tok, out_tok=out_tok, cached_tok=cached_tok,
+                error="actual cost could not be calculated",
+            )
             raise UnknownModelPricingError(
                 f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
             )
@@ -1213,6 +1288,10 @@ class ModelExecutionAdapter:
             actual_cached_tokens=cached_tok,
             actual_cost_inr=actual_cost_inr,
             actual_cost_usd=actual_cost_usd,
+        )
+        _ledger_record(
+            "settled", in_tok=in_tok, out_tok=out_tok, cached_tok=cached_tok,
+            cost_inr=actual_cost_inr, cost_usd=actual_cost_usd,
         )
 
         # The provider has been paid and settled above. Validate its completion

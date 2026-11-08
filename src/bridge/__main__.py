@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import queue
 import sys
 import threading
@@ -382,27 +383,35 @@ class BridgeServer:
                   file=sys.stderr, flush=True)
 
     def _auxiliary_llm_allowed(self) -> bool:
-        """Acceptance turns must spend provider dispatches only on the task.
+        """Auxiliary calls are allowed unless the product explicitly disables them.
 
-        P0.6.8 live evidence: the auto-titler used the auxiliary model
-        (qwen/qwen3.7-flash) inside an acceptance turn, claiming a third
-        dispatch that no FinOps reservation settled. Auxiliary calls are not
-        task work and cannot be attributed to the task budget, so acceptance
-        mode disables them entirely.
+        P0.6.9: acceptance no longer suppresses titling. The governed gateway
+        must authorize and settle the call; the provider proxy fails closed if
+        no reservation scope exists.
         """
-        if os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip():
-            return False
         if os.environ.get("CRUSORAI_AUTOTITLE", "").strip().lower() in {"0", "off", "false", "no"}:
             return False
         return True
 
-    def _maybe_autotitle_session(self, sid: str, user_text: str, assistant_text: str = "") -> None:
-        """Fire the async auto-titler for an untitled session (Hermes parity).
+    @staticmethod
+    def _local_title(user_text: str) -> str:
+        words = re.sub(r"\s+", " ", str(user_text or "")).strip().split()
+        return " ".join(words[:6])[:60] or "New session"
 
-        FIXED rule: a session with any title (generated, renamed, pending) is
-        never retitled here. Best-effort by contract: titling never breaks
-        the turn. ``CRUSORAI_AUTOTITLE=off`` disables the call entirely, and
-        acceptance turns never make auxiliary provider calls.
+    def _maybe_autotitle_session(
+        self,
+        sid: str,
+        user_text: str,
+        assistant_text: str = "",
+        *,
+        wait: bool = False,
+    ) -> None:
+        """Fire the auto-titler for an untitled session (Hermes parity).
+
+        P0.6.9: the model call goes through GovernedProviderGateway (reserve →
+        invoke → usage → settle, attributed to session_titling). A blocked or
+        unpriced call never reaches the provider; an explicit local fallback is
+        recorded as local, not as a successful model invocation.
         """
         if not self._auxiliary_llm_allowed():
             return
@@ -415,11 +424,62 @@ class BridgeServer:
 
             def _run() -> None:
                 try:
+                    from src.config.settings import AUX_LLM_MODEL, AUX_LLM_PROVIDER
+                    from src.finops.governed import (
+                        AuxiliaryAccountingError,
+                        GovernedProviderGateway,
+                    )
+                    from src.llm.factory import get_llm
                     from src.runtime.session_titling import (
                         ensure_unique_title,
                         generate_session_title,
                     )
-                    base = generate_session_title(user_text, assistant_text)
+
+                    blocked: list[str] = []
+                    gateway = GovernedProviderGateway(
+                        workspace,
+                        subsystem="session_titling",
+                        operation_type="auxiliary",
+                        session_id=sid,
+                        budget_inr=float(os.environ.get("CRUSORAI_AUX_BUDGET_INR", "0.50") or "0.50"),
+                        token_budget=int(os.environ.get("CRUSORAI_AUX_TOKEN_BUDGET", "4000") or "4000"),
+                    )
+
+                    def _governed_invoke(prompt: str) -> str:
+                        try:
+                            return gateway.invoke(
+                                prompt=prompt,
+                                provider=AUX_LLM_PROVIDER,
+                                model=AUX_LLM_MODEL,
+                                max_output_tokens=int(
+                                    os.environ.get("CRUSORAI_AUX_MAX_TOKENS", "64") or "64"
+                                ),
+                                purpose="session_title",
+                                client_factory=lambda: get_llm(
+                                    provider=AUX_LLM_PROVIDER,
+                                    model=AUX_LLM_MODEL,
+                                    max_attempts=1,
+                                ),
+                            ).text
+                        except AuxiliaryAccountingError as exc:
+                            blocked.append(str(exc))
+                            raise
+
+                    base = generate_session_title(
+                        user_text, assistant_text, invoke=_governed_invoke,
+                    )
+                    if not base:
+                        # The provider call may have settled but returned no
+                        # usable text; use a local title and say so. A failed or
+                        # uncertain provider invocation still fails acceptance
+                        # through the ledger, never through this fallback.
+                        base = self._local_title(user_text)
+                        print(
+                            "[bridge] title model returned no usable text; "
+                            + (f"accounting blocked ({blocked[0]}); " if blocked else "")
+                            + "using local fallback",
+                            file=sys.stderr, flush=True,
+                        )
                     if not base:
                         return
                     title = ensure_unique_title(store, workspace, base)
@@ -436,7 +496,11 @@ class BridgeServer:
                     print(f"[bridge] autotitle failed for {sid}: {exc!r}",
                           file=sys.stderr, flush=True)
 
-            threading.Thread(target=_run, name=f"bridge-titler-{sid}", daemon=True).start()
+            if wait or os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip():
+                # Acceptance evidence must exist before turn_done.
+                _run()
+            else:
+                threading.Thread(target=_run, name=f"bridge-titler-{sid}", daemon=True).start()
         except Exception as exc:
             print(f"[bridge] autotitle dispatch failed for {sid}: {exc!r}",
                   file=sys.stderr, flush=True)
@@ -1275,6 +1339,16 @@ class BridgeServer:
                                 "plan": steps_payload,
                             })
 
+                    # P0.6.9: propagate the turn identity so every invocation
+                    # record (engineering + auxiliary) shares run/session/turn.
+                    os.environ["CRUSORAI_SESSION_ID"] = identity.session_id
+                    os.environ["CRUSORAI_TURN_ID"] = identity.turn_id
+                    os.environ["CRUSORAI_WORKSPACE_ID"] = getattr(identity, "workspace_id", "") or ""
+                    os.environ["CRUSORAI_RUN_ID"] = (
+                        os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
+                        or f"turn:{identity.turn_id}"
+                    )
+
                     delivery = orch.run_task(
                         task_prompt=text,
                         task_id=f"turn_{identity.turn_id or sid[:8]}",
@@ -1386,6 +1460,19 @@ class BridgeServer:
                         else ("" if task_completed else "graph_returned_incomplete")
                     ),
                 )
+                if (
+                    task_completed
+                    and not cancelled
+                    and os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
+                ):
+                    # P0.6.9: run the governed auxiliary title call BEFORE the
+                    # terminal frame so its reservation + settlement are part of
+                    # the same turn evidence.
+                    try:
+                        self._maybe_autotitle_session(sid, text, str(result), wait=True)
+                    except Exception:
+                        pass
+
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
                     "message": str(result),
