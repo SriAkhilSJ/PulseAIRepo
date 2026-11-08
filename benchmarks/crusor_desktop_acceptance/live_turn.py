@@ -60,10 +60,6 @@ def build_acceptance_env(
         # The bridge's own watchdog: a turn that wedges prints every thread's
         # stack after 60 s, which is the only way to see WHERE it is stuck.
         "CRUSORAI_BRIDGE_DIAGNOSTICS": "1",
-        # Auxiliary model calls (session auto-title) must not claim acceptance
-        # dispatches: they are not task work and no task FinOps reservation can
-        # settle them (P0.6.8 live finding).
-        "CRUSORAI_AUTOTITLE": "off",
         # The engine executes the task's tests with this interpreter. Pinning it
         # keeps the workspace's pytest resolution out of the guessing game when
         # the desktop bridge runs under a launcher shim.
@@ -511,6 +507,77 @@ def read_acceptance_ledger(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         return {"available": False, "path": str(path), "error": str(exc)}
     return {"available": True, "path": str(path), **data}
+
+
+def read_provider_invocations(workspace: str | Path) -> dict[str, Any]:
+    """Read the P0.6.9 invocation ledger (task + auxiliary) and summarize it."""
+    from src.finops.invocation_context import read_invocations, summarize_invocations
+
+    records = read_invocations(workspace)
+    return {
+        "available": bool(records),
+        "path": str(Path(workspace).resolve() / ".crusorai" / "finops" / "provider_invocations.jsonl"),
+        "records": records,
+        "summary": summarize_invocations(records),
+    }
+
+
+def read_all_orchestration_finops(workspace: str | Path) -> dict[str, Any]:
+    """Aggregate every FinOps state file in the workspace (task + auxiliary)."""
+    root = Path(workspace).resolve() / ".crusorai" / "finops"
+    files = sorted(root.glob("*_finops.json")) if root.exists() else []
+    total_inr = 0.0
+    calls = 0
+    settled = 0
+    uncertain = 0
+    active = 0
+    per_file: list[dict[str, Any]] = []
+    for path in files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        accounting = data.get("accounting") or {}
+        total_inr += float(accounting.get("spent_inr") or 0.0)
+        calls += int(accounting.get("calls_count") or 0)
+        settled += len(data.get("settled_reservations") or {})
+        uncertain += len(data.get("uncertain_reservations") or {})
+        active += len(data.get("active_reservations") or {})
+        per_file.append({
+            "file": path.name,
+            "task_id": accounting.get("task_id"),
+            "calls": int(accounting.get("calls_count") or 0),
+            "spent_inr": float(accounting.get("spent_inr") or 0.0),
+            "settled": len(data.get("settled_reservations") or {}),
+            "uncertain": len(data.get("uncertain_reservations") or {}),
+            "active": len(data.get("active_reservations") or {}),
+        })
+    return {
+        "available": bool(files),
+        "files": per_file,
+        "calls_count": calls,
+        "settled_count": settled,
+        "uncertain_count": uncertain,
+        "active_count": active,
+        "spent_inr": round(total_inr, 8),
+    }
+
+
+def read_session_title(db_path: str | Path, session_id: str) -> str:
+    db = Path(db_path)
+    if not db.exists() or not session_id:
+        return ""
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = con.execute(
+                "select title from crusor_sessions where session_id = ?", (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        return str(row[0] or "") if row else ""
+    except sqlite3.Error:
+        return ""
 
 
 def read_orchestration_lifecycle(workspace: str | Path) -> dict[str, Any]:

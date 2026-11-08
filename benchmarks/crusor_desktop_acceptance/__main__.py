@@ -72,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         # Accept every token the current harness can emit; a stale token here
         # turns an accepted run into exit code 1 for scripting and CI.
         accepted = {
+            "P0.6.9_ACCEPTANCE_PASSED",
             "P0.6.8_ACCEPTANCE_PASSED",
             "P0.6.7_ACCEPTANCE_PASSED",
             "P0.6.6_LIVE_ACCEPTED",

@@ -51,10 +51,13 @@ from benchmarks.crusor_desktop_acceptance.live_turn import (
     press_enter,
     prompt_sha256,
     read_acceptance_ledger,
+    read_all_orchestration_finops,
     read_financial_state,
     read_mutation_ledger,
     read_orchestration_finops,
     read_orchestration_lifecycle,
+    read_provider_invocations,
+    read_session_title,
     refresh_manifest,
     type_prompt,
     wait_for_engine_ready,
@@ -458,6 +461,15 @@ class LiveAcceptance:
             "orchestrator_classification": orch_class,
             "cost_governance": {"state": fin, "classification": fin_class},
         }
+        self.state["session_financials"] = read_all_orchestration_finops(self.workspace)
+        invocations = read_provider_invocations(self.workspace)
+        self.state["invocations"] = invocations
+        if invocations.get("available"):
+            try:
+                shutil.copy2(invocations["path"], self.evidence_dir / "provider_invocations.jsonl")
+            except OSError:
+                pass
+        self.state["session_title"] = read_session_title(home / "sessions.db", session_id)
 
         mutations = read_mutation_ledger(self.workspace)
         self.state["mutations"] = mutations
@@ -576,9 +588,6 @@ class LiveAcceptance:
             and "pytest" in str(final_run.get("command") or "")
         )
         completion_ok = bool(in_turn.get("completion_ok"))
-        dispatches_reconciled = (
-            int(guard.get("dispatches_used") or 0) == int(fin.get("calls_count") or 0)
-        )
         contract = in_turn.get("contract") or {}
         assignment = in_turn.get("assignment") or {}
         plan_report = in_turn.get("plan") or {}
@@ -605,10 +614,53 @@ class LiveAcceptance:
             and int(plan_report.get("demand") or 0) == 2
         )
         cross_ok = bool(cross.get("ok"))
+
+        invocations = self.state.get("invocations") or {}
+        summary = invocations.get("summary") or {}
+        records = invocations.get("records") or []
+        session_fin = self.state.get("session_financials") or {}
+        task_settled = [
+            r for r in records
+            if r.get("subsystem") == "engineering" and r.get("status") == "settled"
+        ]
+        aux_records = [r for r in records if r.get("subsystem") == "session_titling"]
+        aux_settled = [
+            r for r in aux_records
+            if r.get("status") == "settled"
+            and float(r.get("actual_cost_inr") or 0.0) > 0
+            and bool(r.get("model"))
+            and bool(r.get("provider"))
+        ]
+        ledger_ok = (
+            bool(invocations.get("available"))
+            and int(summary.get("total_calls") or 0) > 0
+            and int(summary.get("settled_calls") or 0) == int(summary.get("total_calls") or 0)
+            and int(summary.get("uncertain_calls") or 0) == 0
+            and len(task_settled) >= 2
+            and len(aux_settled) >= 1
+        )
+        dispatches_reconciled = (
+            int(guard.get("dispatches_used") or 0)
+            == int(summary.get("settled_calls") or 0)
+            == int(session_fin.get("calls_count") or 0)
+        )
+        costs_reconciled = (
+            abs(
+                float(summary.get("total_cost_inr") or 0.0)
+                - float(session_fin.get("spent_inr") or 0.0)
+            ) < 1e-6
+            and int(session_fin.get("uncertain_count") or 0) == 0
+            and int(session_fin.get("active_count") or 0) == 0
+            and float(session_fin.get("spent_inr") or 0.0) <= float(self.options.budget_inr)
+        )
+        title_ok = bool(str(self.state.get("session_title") or "").strip())
         ok = (
             bool(guard.get("ok"))
             and bool(fin.get("ok"))
+            and ledger_ok
             and dispatches_reconciled
+            and costs_reconciled
+            and title_ok
             and contract_ok
             and plan_ok
             and cross_ok
@@ -623,11 +675,11 @@ class LiveAcceptance:
             and bool(self.state.get("correlation"))
         )
         if ok:
-            return "P0.6.8_ACCEPTANCE_PASSED"
+            return "P0.6.9_ACCEPTANCE_PASSED"
         completion = in_turn.get("completion") or {}
         if in_turn.get("available") and completion.get("blocked"):
-            return "P0.6.8_ACCEPTANCE_BLOCKED"
-        return "P0.6.8_ACCEPTANCE_FAILED"
+            return "P0.6.9_ACCEPTANCE_BLOCKED"
+        return "P0.6.9_ACCEPTANCE_FAILED"
 
     def _finalise(self, app, client, console_samples) -> dict[str, Any]:
         if client is not None:
