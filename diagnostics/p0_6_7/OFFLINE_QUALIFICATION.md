@@ -2,7 +2,7 @@
 
 Run date: 2026-11-07 (local) · Branch `feat/prompt-cache-stabilization`
 Baseline: `fa4d265c` (P0.6.6 closed) · Implementation commits:
-`180ccab4` (engine), `12694aff` (tests), `0a86cd65` (acceptance harness).
+`180ccab4` (engine), `12694aff` (tests), `0a86cd65` (acceptance harness), `e60abead` (post-live planner role fix).
 
 No live provider was called during this phase.
 
@@ -32,13 +32,17 @@ No live provider was called during this phase.
 
 ## 2. Result
 
-**247 passed, 0 failed, 0 skipped in 204.31 s.**
+**248 passed, 0 failed, 0 skipped in 217.49 s** (final tree, after the post-live
+planner fix).
+
+An earlier run on the pre-fix tree was **247 passed in 204.31 s**; the
+post-live fix added one regression test and no failures.
 
 Per-suite collection (verified with `--collect-only`):
 
 | Suite | Tests | Result |
 | --- | --- | --- |
-| `test_p0_6_7_autonomous_closure.py` (new) | 23 | passed |
+| `test_p0_6_7_autonomous_closure.py` (new) | 24 | passed |
 | `test_p0_6_5_live_acceptance.py` (P0.6.7 verdict gates) | 31 | passed |
 | `test_p0_6_6_execution_reliability.py` | 27 | passed |
 | `test_p0_6_4_desktop_observability.py` | 31 | passed |
@@ -49,7 +53,7 @@ Per-suite collection (verified with `--collect-only`):
 | `test_phase_9_7_enterprise_finops.py` | 20 | passed |
 | `test_phase_12_1_1_identity_finops_production.py` | 5 | passed |
 | bridge suites (8 files) | 63 | passed |
-| **Total** | **247** | **247 passed** |
+| **Total** | **248** | **248 passed** |
 
 The previous P0.6.6 baseline was 220; the delta is +23 new lifecycle tests, +4
 net verdict-gate tests (P0.6.5 file 27 → 31), and no removed tests.
@@ -140,6 +144,28 @@ Harness commit `0a86cd65`: `benchmarks/crusor_desktop_acceptance/live_acceptance
   `token = self.supervision_gate.grant_approval(...)` — an in-memory approval
   token object, not a credential. No key, bearer token, private key or secret
   assignment exists in the changed tree.
+
+## 7b. Post-live hardening (offline only)
+
+The live acceptance exposed a file-assignment defect: FIFO assignment gave
+`tests/test_duration.py` to the "Supported units" requirement, and the tests
+requirement also resolved to that path, so three dispatches were spent on two
+files while the module was built to a different contract.
+
+Commit `e60abead` fixes this:
+
+- user-named files are assigned by role (test-intent requirements → test files,
+  others → source files);
+- every user-named file is guaranteed a node (a synthetic test node is added
+  when no requirement matches);
+- nodes resolving to the same path are merged with requirement ids preserved;
+- a regression test reproduces the exact live prompt and asserts two
+  implementation dispatches;
+- generated-test repair prompts now require preserving every existing test
+  function name and assertion.
+
+This change is **not live-proven**: the milestone authorizes exactly one live
+acceptance run, and the failed result is reported as failed.
 
 ## 8. Known limitations (carried into the live report)
 
