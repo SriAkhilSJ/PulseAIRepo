@@ -43,6 +43,7 @@ from benchmarks.crusor_desktop_acceptance.live_turn import (
     build_acceptance_env,
     classify_financials,
     classify_guard,
+    classify_orchestration_finops,
     click_send,
     composer_value,
     ensure_panel_open,
@@ -52,6 +53,7 @@ from benchmarks.crusor_desktop_acceptance.live_turn import (
     read_acceptance_ledger,
     read_financial_state,
     read_mutation_ledger,
+    read_orchestration_finops,
     refresh_manifest,
     type_prompt,
     wait_for_engine_ready,
@@ -69,11 +71,14 @@ from benchmarks.crusor_desktop_acceptance.renderer_observer import (
 )
 
 DEFAULT_PROMPT = (
-    "Create a small, clean Python utility module at src/email_validator.py with a "
-    "function validate_email(address) that returns True only for a plausible address, "
-    "raises ValueError for non-strings, and has a docstring. Add focused unit tests in "
-    "tests/test_email_validator.py, run them, and report exactly what you created and "
-    "verified. Do not modify unrelated files."
+    "Create src/email_validator.py with exactly one public function "
+    "validate_email(address). It must return True for a plausible email (one '@' with "
+    "non-empty local and domain parts and a dot in the domain), return False for any "
+    "invalid string, raise TypeError when address is not a string, and carry a short "
+    "docstring. Keep the module under 30 lines: no classes, no CLI, no examples. "
+    "Then create tests/test_email_validator.py with four pytest tests (valid address, "
+    "invalid string, non-string raises TypeError, missing '@'). Every test must pass "
+    "when run with pytest. Do not modify unrelated files."
 )
 
 
@@ -386,11 +391,11 @@ class LiveAcceptance:
             return self.finish(app, client, env, session_id, turn_id, bridge_pid)
         except AbortedPreflight as exc:
             self.state["aborted"] = str(exc)
-            self.state["verdict"] = "P0.6.5_PREFLIGHT_ABORTED"
+            self.state["verdict"] = "P0.6.6_PREFLIGHT_ABORTED"
             return self._finalise(app, client, console_samples)
         except Exception as exc:  # noqa: BLE001 - evidence must survive any failure
             self.state["failure"] = f"{type(exc).__name__}: {exc}"
-            self.state["verdict"] = "P0.6.5_ACCEPTANCE_FAILED"
+            self.state["verdict"] = "P0.6.6_LIVE_FAILED"
             return self._finalise(app, client, console_samples)
 
     # -- helpers -----------------------------------------------------------
@@ -439,7 +444,15 @@ class LiveAcceptance:
             shutil.copy2(db, self.evidence_dir / "sessions.db")
         fin = read_financial_state(db, session_id=session_id, turn_id=turn_id)
         fin_class = classify_financials(fin, budget_inr=self.options.budget_inr)
-        self.state["financial"] = {"state": fin, "classification": fin_class}
+        # The desktop turn runs through the orchestrator, whose governor writes
+        # into the WORKSPACE, not CRUSORAI_HOME. Read that authoritative state.
+        orch_fin = read_orchestration_finops(self.workspace, task_id=f"turn_{turn_id}")
+        orch_class = classify_orchestration_finops(orch_fin, budget_inr=self.options.budget_inr)
+        self.state["financial"] = {
+            "orchestrator": orch_fin,
+            "orchestrator_classification": orch_class,
+            "cost_governance": {"state": fin, "classification": fin_class},
+        }
 
         mutations = read_mutation_ledger(self.workspace)
         self.state["mutations"] = mutations
@@ -452,7 +465,7 @@ class LiveAcceptance:
 
         verification = self._verify_artifacts()
         self.state["verification"] = verification
-        self.state["verdict"] = self._verdict(guard_final, fin_class, verification)
+        self.state["verdict"] = self._verdict(guard_final, orch_class, verification)
         return self._finalise(None, None, [])
 
     def _verify_artifacts(self) -> dict[str, Any]:
@@ -472,6 +485,7 @@ class LiveAcceptance:
                 out["ast_ok"] = False
                 out["ast_error"] = str(exc)
             out["has_validate_email"] = "def validate_email" in source
+            out["independent_smoke"] = self._independent_smoke(module)
         if tests.exists():
             out["tests_sha256"] = hashlib.sha256(tests.read_bytes()).hexdigest()
             try:
@@ -485,6 +499,43 @@ class LiveAcceptance:
                 out["pytest_error"] = str(exc)
         return out
 
+    @staticmethod
+    def _independent_smoke(module_path: Path) -> dict[str, Any]:
+        """The harness's own contract check — never the agent's tests.
+
+        Imports the saved module in a subprocess (isolated from the engine) and
+        exercises the agreed behaviour. This is the authoritative verification
+        of the artifact; the agent's own test run is reported separately.
+        """
+        script = (
+            "import json, sys\n"
+            "from importlib.util import spec_from_file_location, module_from_spec\n"
+            f"spec = spec_from_file_location('ev', r'{module_path}')\n"
+            "mod = module_from_spec(spec); sys.modules['ev'] = mod; spec.loader.exec_module(mod)\n"
+            "fn = mod.validate_email\n"
+            "res = {}\n"
+            "res['valid'] = fn('alice@example.com') is True\n"
+            "res['invalid_string'] = fn('not-an-email') is False\n"
+            "try:\n"
+            "    fn(None)\n"
+            "    res['non_string_typeerror'] = False\n"
+            "except TypeError:\n"
+            "    res['non_string_typeerror'] = True\n"
+            "except Exception:\n"
+            "    res['non_string_typeerror'] = False\n"
+            "print(json.dumps(res))\n"
+        )
+        try:
+            done = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True, text=True, timeout=120, cwd=str(module_path.parent.parent),
+            )
+            payload = json.loads((done.stdout or "{}").strip().splitlines()[-1]) if done.stdout.strip() else {}
+            return {"ok": bool(payload) and all(payload.values()), "checks": payload,
+                    "stderr": (done.stderr or "")[-300:]}
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
     def _verdict(self, guard: dict[str, Any], fin: dict[str, Any], verification: dict[str, Any]) -> str:
         terminal = (self.state.get("stages", {}).get("turn_terminal") or {})
         renderer_console = self.state.get("renderer_console") or {}
@@ -494,11 +545,12 @@ class LiveAcceptance:
             and bool(verification.get("module_exists"))
             and bool(verification.get("ast_ok"))
             and verification.get("pytest_returncode") == 0
+            and bool((verification.get("independent_smoke") or {}).get("ok"))
             and terminal.get("status") == "completed"
             and renderer_console.get("unhandled_errors", 0) == 0
             and bool(self.state.get("correlation"))
         )
-        return "P0.6.5_DESKTOP_ACCEPTED" if ok else "P0.6.5_ACCEPTANCE_FAILED"
+        return "P0.6.6_LIVE_ACCEPTED" if ok else "P0.6.6_LIVE_FAILED"
 
     def _finalise(self, app, client, console_samples) -> dict[str, Any]:
         if client is not None:

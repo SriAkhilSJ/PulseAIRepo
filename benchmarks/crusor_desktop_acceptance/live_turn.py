@@ -325,6 +325,113 @@ def refresh_manifest(candidate: dict[str, Any]) -> dict[str, Any]:
 # financial ledger (the real cost governor's SQLite)
 # ---------------------------------------------------------------------------
 
+def read_orchestration_finops(workspace: str | Path, *, task_id: str = "") -> dict[str, Any]:
+    """Read the ORCHESTRATOR's financial state.
+
+    The engine's desktop turn runs through ``EngineeringExecutionOrchestrator``
+    → ``ModelExecutionAdapter``, whose governor persists:
+      * ``<ws>/.crusorai/finops/<task>_finops.json`` (accounting + reservations)
+      * ``<ws>/.crusorai/sessions.db`` (canonical SQLite: reservations + calls)
+    P0.6.5 read ``CRUSORAI_HOME/sessions.db`` instead and wrongly concluded no
+    settlement had happened. This reads the real one.
+    """
+    root = Path(workspace) / ".crusorai"
+    out: dict[str, Any] = {"available": False, "finops_json": None, "workspace": str(workspace)}
+    candidates = sorted((root / "finops").glob("*_finops.json")) if (root / "finops").is_dir() else []
+    if task_id:
+        preferred = [p for p in candidates if task_id in p.name]
+        candidates = preferred or candidates
+    data: dict[str, Any] = {}
+    if candidates:
+        try:
+            data = json.loads(candidates[-1].read_text(encoding="utf-8"))
+            out["finops_json"] = str(candidates[-1])
+            out["available"] = True
+        except (OSError, json.JSONDecodeError) as exc:
+            out["error"] = str(exc)
+
+    accounting = data.get("accounting") or {}
+    settled = data.get("settled_reservations") or {}
+    uncertain = data.get("uncertain_reservations") or {}
+    active = data.get("active_reservations") or {}
+
+    db_rows: dict[str, Any] = {}
+    db = root / "sessions.db"
+    if db.exists():
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            con.row_factory = sqlite3.Row
+            tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+            if "financial_reservations" in tables:
+                db_rows["reservations"] = [
+                    dict(r) for r in con.execute(
+                        "select reservation_id, status, estimated_cost_inr, purpose, "
+                        "root_session_id, created_at, updated_at from financial_reservations"
+                    )
+                ]
+            if "financial_call_ledger" in tables:
+                db_rows["calls"] = [
+                    dict(r) for r in con.execute(
+                        "select event_id, provider, model, input_tokens, output_tokens, "
+                        "actual_cost_inr, cost_known, reservation_id, call_outcome "
+                        "from financial_call_ledger"
+                    )
+                ]
+            con.close()
+        except sqlite3.Error as exc:
+            db_rows["error"] = str(exc)
+
+    out.update({
+        "accounting": accounting,
+        "settled": settled,
+        "uncertain": uncertain,
+        "active": active,
+        "db": db_rows,
+        "db_path": str(db) if db.exists() else None,
+    })
+    return out
+
+
+def classify_orchestration_finops(state: dict[str, Any], *, budget_inr: float = 5.00) -> dict[str, Any]:
+    """Financial acceptance checks for the orchestrator path."""
+    if not state.get("available"):
+        return {"ok": False, "reason": state.get("error") or "no orchestrator finops state found"}
+    accounting = state.get("accounting") or {}
+    settled = state.get("settled") or {}
+    uncertain = state.get("uncertain") or {}
+    active = state.get("active") or {}
+    calls = int(accounting.get("calls_count") or 0)
+    spent = float(accounting.get("spent_inr") or 0.0)
+    settled_committed = [rid for rid, res in settled.items() if res.get("is_committed")]
+    db_reservations = (state.get("db") or {}).get("reservations") or []
+    db_settled = [r for r in db_reservations if r.get("status") == "reconciled"]
+    checks = {
+        "has_settlements": bool(settled_committed),
+        "calls_matched_by_settlements": calls == len(settled_committed),
+        "no_active_reservations": not active,
+        "no_uncertain_reservations": not uncertain,
+        "within_budget": spent <= budget_inr,
+        "not_breached": not bool(accounting.get("is_breached")),
+        "sqlite_reconciled": bool(db_settled) and len(db_settled) >= len(settled_committed),
+        "usage_recorded": int(accounting.get("input_tokens") or 0) > 0
+        and int(accounting.get("output_tokens") or 0) > 0,
+    }
+    return {
+        "ok": all(checks.values()),
+        "checks": checks,
+        "calls_count": calls,
+        "settled_count": len(settled_committed),
+        "uncertain_count": len(uncertain),
+        "active_count": len(active),
+        "spent_inr": round(spent, 6),
+        "spent_usd": float(accounting.get("spent_usd") or 0.0),
+        "input_tokens": int(accounting.get("input_tokens") or 0),
+        "output_tokens": int(accounting.get("output_tokens") or 0),
+        "budget_inr": budget_inr,
+        "db_settled_rows": len(db_settled),
+    }
+
+
 def read_financial_state(db_path: Path, *, session_id: str, turn_id: str) -> dict[str, Any]:
     if not Path(db_path).exists():
         return {"available": False, "db": str(db_path)}

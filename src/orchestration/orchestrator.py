@@ -86,6 +86,9 @@ class EngineeringExecutionOrchestrator:
         self.tenant_id = tenant_id
         self.limits = limits or ExecutionLimits()
         self.storage_dir = storage_dir
+        #: The governor created by the current run_task, so the wrapper can
+        #: reconcile it on EVERY exit (success, failure, cancellation, raise).
+        self._last_finops: Optional[OrchestrationFinOpsGovernor] = None
 
         # Initialize existing subsystem engines
         self.discovery_mgr = PersistentProjectIntelligenceManager(str(self.workspace_root))
@@ -113,7 +116,133 @@ class EngineeringExecutionOrchestrator:
         )
         self.production_engine = ProductionReadinessEngine(str(self.workspace_root), tenant_id=tenant_id, storage_dir=storage_dir)
 
-    def run_task(
+    # -- dispatch budget ---------------------------------------------------
+
+    def _remaining_dispatch_budget(self) -> Optional[int]:
+        """Dispatches this task may still spend (task limit ∩ live guard).
+
+        The acceptance guard (P0.6.4.1) counts dispatches for the whole desktop
+        turn; the task limit counts them for this orchestration. The tighter of
+        the two wins, so a plan can never be generated that the guard would
+        refuse mid-flight. Each DAG node is treated as one potential dispatch
+        (the verification node included), which is the conservative reading.
+        """
+        budgets: list[int] = []
+        configured = getattr(self.limits, "max_dispatch_budget", None)
+        if configured is not None:
+            budgets.append(int(configured))
+        try:
+            from src.llm.acceptance_guard import active_guard
+
+            guard = active_guard()
+            if guard is not None:
+                budgets.append(int(guard.remaining))
+        except Exception:
+            pass
+        if not budgets:
+            return None
+        return max(0, min(budgets))
+
+    @staticmethod
+    def _requested_files(task_prompt: str) -> list[str]:
+        """File paths the user named in the request (order preserved, deduped)."""
+        import re as _re
+
+        found: list[str] = []
+        for token in _re.findall(r"[A-Za-z0-9_./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml)\b", task_prompt or ""):
+            cleaned = token.strip("`'\",()[]<>").replace("\\", "/")
+            if cleaned and cleaned not in found:
+                found.append(cleaned)
+        return found[:8]
+
+    def _validate_plan_budget(self, plan_dag: Any, budget: Optional[int]) -> None:
+        """Refuse a plan that cannot fit the dispatch budget (costs nothing).
+
+        Demand is measured in PROVIDER DISPATCHES: the adapter generates one
+        file per dispatch and the verification node dispatches none. Counting
+        nodes instead under-estimated a 6-file plan as "6 nodes" while the
+        verification node actually costs zero — and, worse, merging nodes does
+        not reduce file dispatches.
+        """
+        if budget is None:
+            return
+        demand = 0
+        for node in plan_dag.nodes.values():
+            if node.node_id == "task_verification":
+                continue
+            demand += max(1, len(node.target_files))
+        if demand <= budget:
+            return
+        from src.orchestration.planner import PlanBudgetExceeded
+
+        raise PlanBudgetExceeded(
+            requested_nodes=demand,
+            allowed_nodes=budget,
+            requirement_ids=sorted({
+                rid for node in plan_dag.nodes.values() for rid in node.related_requirement_ids
+            }),
+        )
+
+    # -- financial reconciliation -----------------------------------------
+
+    def _finalize_finops_after(self, finops: OrchestrationFinOpsGovernor) -> dict:
+        """Reconcile the governor on EVERY exit of ``run_task``.
+
+        * ACTIVE reservations are released: the scheduler is synchronous, so by
+          the time ``run_task`` returns no wire call can still be in flight and
+          an active hold would otherwise leak budget forever.
+        * UNCERTAIN reservations are NEVER released as free — the provider may
+          have billed them. They stay held for explicit reconciliation and are
+          reported in the delivery evidence.
+        Duplicate settlement is already refused by ``commit_reservation``
+        (settled ids are ignored), so this cannot double-charge.
+        """
+        released: list[str] = []
+        failed: list[dict] = []
+        for reservation_id in list(getattr(finops, "_active_reservations", {}).keys()):
+            try:
+                finops.release_reservation(reservation_id, reason="task_exit_without_settlement")
+                released.append(reservation_id)
+            except Exception as exc:  # pragma: no cover - defensive
+                failed.append({"id": reservation_id, "error": str(exc)})
+        uncertain = list(getattr(finops, "_uncertain_reservations", {}).keys())
+        accounting = finops.accounting
+        summary = {
+            "released_on_exit": released,
+            "release_failures": failed,
+            "uncertain_unresolved": uncertain,
+            "settled_count": len(getattr(finops, "_settled_reservations", {})),
+            "active_after": len(getattr(finops, "_active_reservations", {})),
+            "spent_inr": accounting.spent_inr,
+            "spent_usd": accounting.spent_usd,
+            "calls_count": accounting.calls_count,
+            "input_tokens": accounting.input_tokens,
+            "output_tokens": accounting.output_tokens,
+            "is_breached": accounting.is_breached,
+        }
+        log.info("finops finalized: %s", summary)
+        return summary
+
+    def run_task(self, *args: Any, **kwargs: Any) -> DeliveryContract:
+        """Public entry: run the task and always reconcile its finances.
+
+        The implementation creates an ``OrchestrationFinOpsGovernor``; this
+        wrapper guarantees that whatever way the turn ends (success, failure,
+        cancellation, an unexpected exception) the governor is reconciled:
+        active holds released, uncertain holds reported and retained.
+        """
+        self._last_finops = None
+        try:
+            return self._run_task_impl(*args, **kwargs)
+        finally:
+            finops = self._last_finops
+            if finops is not None:
+                try:
+                    self._finalize_finops_after(finops)
+                except Exception as exc:  # pragma: no cover - defensive
+                    log.warning("finops finalization failed: %r", exc)
+
+    def _run_task_impl(
         self,
         task_prompt: str,
         task_id: Optional[str] = None,
@@ -158,6 +287,7 @@ class EngineeringExecutionOrchestrator:
             storage_dir=self.storage_dir,
             workspace_root=str(self.workspace_root),
         )
+        self._last_finops = finops
         journal = DurableOrchestrationJournal(tid, str(self.workspace_root), tenant_id=self.tenant_id, storage_dir=self.storage_dir)
         reasoning_loop = BoundedAutonomousReasoningLoop(limits=self.limits)
 
@@ -251,14 +381,41 @@ class EngineeringExecutionOrchestrator:
         state_machine.transition_to(TaskExecutionState.PLANNING, "Generating structured engineering plan DAG")
         lifecycle.begin_stage(TaskLifecycleStage.ENGINEERING_PLAN, {})
         emit_progress("ENGINEERING_PLAN")
+        dispatch_budget = self._remaining_dispatch_budget()
         plan_dag = self.planner.build_plan(
             task_id=tid,
             specification=analysis_result.specification,
             blueprint=arch_result.blueprint,
             knowledge=knowledge,
+            max_nodes=dispatch_budget,
+            requested_files=self._requested_files(task_prompt),
+            task_prompt=task_prompt,
         )
+        # Defense in depth: never execute a plan that cannot fit the budget.
+        try:
+            self._validate_plan_budget(plan_dag, dispatch_budget)
+        except Exception:
+            state_machine.transition_to(TaskExecutionState.FAILED, "Plan exceeds dispatch budget")
+            journal.record_event("PLAN_REJECTED", {
+                "nodes": len(plan_dag.nodes),
+                "dispatches": sum(max(1, len(n.target_files)) for n in plan_dag.nodes.values()
+                                  if n.node_id != "task_verification"),
+                "budget": dispatch_budget,
+            })
+            raise
+        # Per-node output ceiling from the limits (measured justification lives
+        # on ExecutionLimits.max_output_tokens_per_node).
+        ceiling = getattr(self.limits, "max_output_tokens_per_node", None)
+        if ceiling:
+            for node in plan_dag.nodes.values():
+                if not getattr(node, "max_tokens", None):
+                    node.max_tokens = int(ceiling)
         context_mgr.record_plan(plan_dag)
-        journal.record_event("PLAN_GENERATED", {"nodes_count": len(plan_dag.nodes)})
+        journal.record_event("PLAN_GENERATED", {
+            "nodes_count": len(plan_dag.nodes),
+            "dispatch_budget": dispatch_budget,
+            "per_node_output_tokens": ceiling,
+        })
         lifecycle.complete_stage({"nodes": len(plan_dag.nodes)})
 
         # STAGE 7: CHANGE_IMPACT_ANALYSIS (Phase 11.4)

@@ -37,6 +37,94 @@ class ScopeCreepError(ValueError):
     pass
 
 
+class PlanBudgetExceeded(RuntimeError):
+    """The plan cannot be expressed within the dispatches available.
+
+    Raised BEFORE any provider request, so an over-budget plan costs nothing.
+    """
+
+    def __init__(self, requested_nodes: int, allowed_nodes: int, requirement_ids: list[str]) -> None:
+        self.requested_nodes = requested_nodes
+        self.allowed_nodes = allowed_nodes
+        self.requirement_ids = requirement_ids
+        super().__init__(
+            f"plan needs {requested_nodes} nodes but only {allowed_nodes} dispatch(es) "
+            f"are available for requirements {requirement_ids}; refusing to execute"
+        )
+
+
+_RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+
+def merge_requirement_nodes(nodes: list[EngineeringTaskNode]) -> EngineeringTaskNode:
+    """Coalesce requirement nodes into ONE node without dropping requirements.
+
+    Requirement ids, target files, tests and acceptance criteria are UNIONed so
+    nothing is silently lost; member dependencies are kept and the highest risk
+    wins. This is how a 6-requirement plan becomes a plan that fits a
+    5-dispatch budget.
+    """
+    first = nodes[0]
+    req_ids: list[str] = []
+    targets: list[str] = []
+    tests: list[str] = []
+    criteria: list[str] = []
+    outputs: list[str] = []
+    deps: list[str] = []
+    for node in nodes:
+        for bucket, values in (
+            (req_ids, node.related_requirement_ids),
+            (targets, node.target_files),
+            (tests, node.required_tests),
+            (criteria, node.acceptance_criteria),
+            (outputs, node.expected_outputs),
+            (deps, node.dependencies),
+        ):
+            for value in values:
+                if value not in bucket:
+                    bucket.append(value)
+    risk = max((node.risk_level for node in nodes), key=lambda r: _RISK_ORDER.get(r, 0))
+    ceilings = [node.max_tokens for node in nodes if node.max_tokens]
+    return EngineeringTaskNode(
+        node_id=first.node_id,
+        description=("Implement requirements: " + ", ".join(req_ids)) if req_ids else first.description,
+        objective=" | ".join(dict.fromkeys(node.objective for node in nodes)),
+        related_requirement_ids=req_ids,
+        related_architecture_decisions=list(dict.fromkeys(
+            adr for node in nodes for adr in node.related_architecture_decisions)),
+        target_files=targets,
+        dependencies=[d for d in deps if d not in {n.node_id for n in nodes}],
+        risk_level=risk,
+        expected_outputs=outputs or ["Working code"],
+        required_tests=tests,
+        acceptance_criteria=criteria or ["Passes verification"],
+        completion_conditions=["Passing targeted unit tests"],
+        max_tokens=max(ceilings) if ceilings else None,
+    )
+
+
+def absorb_requirement_nodes(target: EngineeringTaskNode, others: list[EngineeringTaskNode]) -> None:
+    """Fold other requirement nodes into ``target`` WITHOUT adding files.
+
+    Used when the user named the files: their requested modules are the units
+    of work, and analyzer-derived placeholder nodes are absorbed into them so
+    every requirement id stays in the traceability map while no extra
+    ``src/req_00N_module.py`` file is invented (and no extra dispatch spent).
+    """
+    for node in others:
+        for rid in node.related_requirement_ids:
+            if rid not in target.related_requirement_ids:
+                target.related_requirement_ids.append(rid)
+        for bucket, values in (
+            (target.required_tests, node.required_tests),
+            (target.acceptance_criteria, node.acceptance_criteria),
+        ):
+            for value in values:
+                if value not in bucket:
+                    bucket.append(value)
+        target.objective = " | ".join(dict.fromkeys([target.objective, node.objective]))
+
+
 class EngineeringTaskPlanner:
     """
     Synthesizes structured, minimal, dependency-ordered engineering task plans.
@@ -55,6 +143,9 @@ class EngineeringTaskPlanner:
         impact_report: Optional[ChangeImpactReport] = None,
         test_baseline: Optional[TestBaseline] = None,
         change_plan: Optional[ChangePlan] = None,
+        max_nodes: Optional[int] = None,
+        requested_files: Optional[list[str]] = None,
+        task_prompt: Optional[str] = None,
     ) -> EngineeringPlanDAG:
         """
         Synthesizes an EngineeringPlanDAG tailored strictly to approved requirements.
@@ -70,6 +161,11 @@ class EngineeringTaskPlanner:
 
         # 2. Extract tasks directly mapped to requirements
         created_nodes: Dict[str, EngineeringTaskNode] = {}
+        # Files the USER actually named in the request take precedence over the
+        # synthesized ``src/<req>_module.py`` names: a plan that writes to paths
+        # nobody asked for satisfies nobody, even when it "completes".
+        requested_pool = [f for f in (requested_files or []) if f]
+        requested_set = set(requested_pool)
 
         for req in all_reqs:
             node_id = f"task_{req.id.lower().replace('-', '_')}"
@@ -81,6 +177,8 @@ class EngineeringTaskPlanner:
                     target_files = file_mentions
                 else:
                     target_files = [f"src/{req.id.lower().replace('-', '_')}_module.py"]
+            if requested_pool:
+                target_files = [requested_pool.pop(0)]
 
             # Risk classification based on impact report if available
             risk = "LOW"
@@ -120,6 +218,83 @@ class EngineeringTaskPlanner:
                 completion_conditions=["Clean tests"],
             )
             created_nodes["task_main"] = fallback_node
+
+        # 1a. If the user named files, those files ARE the work units: keep the
+        #     nodes that received a requested path and absorb the analyzer's
+        #     placeholder nodes into them (ids preserved, no invented files, no
+        #     extra dispatch spent on ``src/req_00N_module.py``).
+        if requested_set:
+            requested_nodes = [
+                n for n in created_nodes.values()
+                if n.target_files and n.target_files[0] in requested_set
+            ]
+            if requested_nodes:
+                absorbed = [n for n in created_nodes.values() if n not in requested_nodes]
+                for index, node in enumerate(absorbed):
+                    absorb_requirement_nodes(requested_nodes[index % len(requested_nodes)], [node])
+                created_nodes = {n.node_id: n for n in requested_nodes}
+                # The USER's words, not the analyzer's inferred specification,
+                # govern a file the user named. Without this the node objective
+                # demanded RFC-5321/DNS/CLI work the user never asked for (963
+                # generated lines, contract violated, self-tests failing).
+                if task_prompt and task_prompt.strip():
+                    for node in requested_nodes:
+                        node.objective = task_prompt.strip()
+                        node.description = (
+                            f"Implement {node.target_files[0]} exactly as the user asked "
+                            "(minimal scope; no extra APIs, classes or CLI)"
+                        )
+
+        # 1b. Dispatch budget: coalesce requirement nodes so the plan fits.
+        #     Every requirement id is preserved (union), never dropped.
+        #
+        #     IMPORTANT: the adapter dispatches once PER TARGET FILE (the
+        #     verification node dispatches none), so the budget is measured in
+        #     files, not nodes. When the surviving files still exceed the
+        #     implementation budget, each merged node is consolidated onto a
+        #     single module and the absorbed paths are recorded in
+        #     ``expected_outputs`` — a visible plan decision, not a silent drop.
+        if max_nodes is not None:
+            if int(max_nodes) < 2:
+                raise PlanBudgetExceeded(
+                    requested_nodes=len(created_nodes) + 1,
+                    allowed_nodes=int(max_nodes),
+                    requirement_ids=[r.id for r in all_reqs],
+                )
+            impl_budget = int(max_nodes) - 1
+            if len(created_nodes) > impl_budget:
+                ordered = list(created_nodes.values())
+                buckets: list[list[EngineeringTaskNode]] = [[] for _ in range(impl_budget)]
+                for index, node in enumerate(ordered):
+                    buckets[index % impl_budget].append(node)
+                merged: Dict[str, EngineeringTaskNode] = {}
+                for bucket in buckets:
+                    if not bucket:
+                        continue
+                    node = merge_requirement_nodes(bucket) if len(bucket) > 1 else bucket[0]
+                    merged[node.node_id] = node
+                covered = {rid for n in merged.values() for rid in n.related_requirement_ids}
+                expected = {rid for n in ordered for rid in n.related_requirement_ids}
+                missing = expected - covered
+                if missing:
+                    raise PlanBudgetExceeded(
+                        requested_nodes=len(created_nodes) + 1,
+                        allowed_nodes=int(max_nodes),
+                        requirement_ids=sorted(missing),
+                    )
+                created_nodes = merged
+
+            file_demand = sum(max(1, len(n.target_files)) for n in created_nodes.values())
+            if file_demand > impl_budget:
+                for node in created_nodes.values():
+                    if len(node.target_files) <= 1:
+                        continue
+                    primary = node.target_files[0]
+                    absorbed = node.target_files[1:]
+                    node.target_files = [primary]
+                    node.expected_outputs = list(node.expected_outputs) + [
+                        f"consolidated into {primary}: {path}" for path in absorbed
+                    ]
 
         # Add nodes to DAG
         for node in created_nodes.values():

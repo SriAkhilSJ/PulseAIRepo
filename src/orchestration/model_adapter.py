@@ -657,6 +657,25 @@ def is_uncertain_post_dispatch_error(exc: Exception) -> bool:
     no request reached the provider, and text-only status numbers are not
     evidence (see :func:`_provider_status_code`).
     """
+    # Refusals decided BEFORE the wire call must not retain money. The
+    # acceptance guard raises inside RetryLLMProxy.invoke (so it surfaces here),
+    # but its claim is the last check before dispatch: nothing was sent.
+    # Same for an explicit user cancellation.
+    try:
+        from src.llm.acceptance_guard import AcceptanceGuardError
+
+        if isinstance(exc, AcceptanceGuardError):
+            return False
+    except Exception:
+        pass
+    try:
+        from src.llm.factory import TurnCancelledError
+
+        if isinstance(exc, TurnCancelledError):
+            return False
+    except Exception:
+        pass
+
     status = _provider_status_code(exc)
     if status is None:
         # No documented rejection evidence. Timeouts, cancellation, connection
@@ -932,6 +951,20 @@ class ModelExecutionAdapter:
         )
         if existing_content:
             prompt += f"\nExisting file content:\n```\n{existing_content}\n```\n"
+        # Exact-name contract. The user's request names its public symbols; the
+        # model otherwise picks synonyms (observed: `is_valid_email` for
+        # `validate_email`), which breaks the tests written by the next node and
+        # the caller entirely. Naming is not a stylistic choice here.
+        required_symbols: list[str] = []
+        for match in re.finditer(r"\b(?:def|function)\s+([A-Za-z_]\w*)", str(node.objective or "")):
+            name = match.group(1)
+            if name not in required_symbols:
+                required_symbols.append(name)
+        if required_symbols:
+            prompt += (
+                "\nRequired public symbol(s): " + ", ".join(required_symbols)
+                + "\nUse EXACTLY these names. Do not rename, wrap or abbreviate them.\n"
+            )
         prompt += (
             f"\nGenerate the complete, robust, production-quality implementation of {target_file}.\n"
             f"Include comprehensive error handling, type annotations, and docstrings.\n"

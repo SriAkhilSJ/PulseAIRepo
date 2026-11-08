@@ -160,35 +160,17 @@ class WorkspaceBaselineManager:
         if not (self.workspace_root / ".git").exists():
             return None, None, None
         try:
-            res_root = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
-                cwd=str(self.workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if res_root.returncode != 0:
-                return None, None, None
-            git_root = res_root.stdout.strip()
+            from src.utils.git_safe import run_git
 
-            res_branch = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=str(self.workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            branch = res_branch.stdout.strip() if res_branch.returncode == 0 else "HEAD"
-
-            res_commit = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=str(self.workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            commit = res_commit.stdout.strip() if res_commit.returncode == 0 else None
-
+            git_root = run_git(self.workspace_root, ["rev-parse", "--show-toplevel"], timeout=5)
+            try:
+                branch = run_git(self.workspace_root, ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5)
+            except Exception:
+                branch = "HEAD"
+            try:
+                commit = run_git(self.workspace_root, ["rev-parse", "HEAD"], timeout=5)
+            except Exception:
+                commit = None
             return git_root, branch, commit
         except Exception:
             return None, None, None
@@ -204,17 +186,10 @@ class WorkspaceBaselineManager:
             return staged, unstaged, untracked
 
         try:
-            res = subprocess.run(
-                ["git", "status", "--porcelain=v1", "-uall"],
-                cwd=str(self.workspace_root),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if res.returncode != 0:
-                return staged, unstaged, untracked
+            from src.utils.git_safe import run_git
 
-            for line in res.stdout.splitlines():
+            res_stdout = run_git(self.workspace_root, ["status", "--porcelain=v1", "-uall"], timeout=5)
+            for line in res_stdout.splitlines():
                 if len(line) < 4:
                     continue
                 x = line[0]

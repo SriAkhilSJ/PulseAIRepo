@@ -1184,7 +1184,10 @@ class BridgeServer:
                     from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
                     from src.orchestration.models import TaskVerdict, ExecutionLimits
                     task_budget_inr = float(os.environ.get("CRUSORAI_TASK_BUDGET_INR", "5.0") or "5.0")
-                    session_info = self._sessions.get(sid, {})
+                    # A partially constructed server (unit tests, embeds) may not
+                    # have the live registry; an empty session is the honest
+                    # default and keeps the turn runnable.
+                    session_info = getattr(self, "_sessions", {}).get(sid, {})
                     adapter = (
                         session_info.get("model_adapter")
                         or getattr(self, "model_adapter", None)
@@ -1196,7 +1199,17 @@ class BridgeServer:
                     orch = EngineeringExecutionOrchestrator(
                         workspace_root=workspace,
                         tenant_id=session_info.get("tenant_id", "default_tenant"),
-                        limits=ExecutionLimits(max_cost_inr=task_budget_inr),
+                        limits=ExecutionLimits(
+                            max_cost_inr=task_budget_inr,
+                            # Acceptance runs cap the whole turn's dispatches; the
+                            # planner must fit the plan into that budget, not
+                            # discover the cap mid-flight.
+                            max_dispatch_budget=(
+                                int(os.environ["CRUSORAI_ACCEPTANCE_MAX_DISPATCHES"])
+                                if os.environ.get("CRUSORAI_ACCEPTANCE_MAX_DISPATCHES", "").strip()
+                                else None
+                            ),
+                        ),
                         provider=session_info.get("provider") or os.environ.get("LLM_PROVIDER"),
                         model=session_info.get("model") or os.environ.get("LLM_MODEL"),
                         mock_mode=mock_mode,

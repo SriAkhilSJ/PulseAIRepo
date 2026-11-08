@@ -31,8 +31,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # ------------------------------------------------------------- helpers
 
-def _run_script(script: str, env_extra: dict | None = None, timeout: float = 30.0):
-    """Run a python snippet as a child, capturing stdout and stderr separately."""
+def _run_script(script: str, env_extra: dict | None = None, timeout: float = 90.0):
+    """Run a python snippet as a child, capturing stdout and stderr separately.
+
+    ։90 s, not 30: importing ``src.bridge.__main__`` alone costs ~22 s cold on
+    this machine (measured 2026-11-07), so the old budget measured hardware.
+    """
     env = dict(os.environ)
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUNBUFFERED", "1")
@@ -175,7 +179,13 @@ _READERS: dict[subprocess.Popen, _FrameReader] = {}
 _SPAWNS: dict[subprocess.Popen, dict] = {}
 
 
-def _read_frames(proc, predicate, timeout: float = 20.0):
+def _read_frames(proc, predicate, timeout: float = 60.0):
+    """Collect stdout frames until ``predicate`` matches.
+
+    ։60 s, not 20: a cold ``python -m src.bridge`` on this machine spends ~22 s
+    importing before it can answer ``hello`` (measured 2026-11-07). The old
+    budget failed the transport suite for being slow, not for being wrong.
+    """
     """Read stdout lines until predicate(frame) is True; return all frames seen.
 
     Polls the reader queue in short slices (never one long blocking get):
@@ -336,6 +346,10 @@ def test_real_turn_forwards_headless_workspace_approval_policy(tmp_path, monkeyp
 
     monkeypatch.setattr(chat_graph, "stream_agent", fake_stream_agent)
     monkeypatch.setenv("CRUSORAI_BRIDGE_APPROVAL_POLICY", "workspace_session")
+    # This test targets the LEGACY graph forwarding path (`stream_agent`); the
+    # orchestrator is the production default, so opt this one case out instead
+    # of silently asserting a path that is no longer taken.
+    monkeypatch.setenv("CRUSORAI_ORCHESTRATOR_ENGINE", "legacy")
     server = object.__new__(BridgeServer)
     emitted = []
     server.emit = emitted.append

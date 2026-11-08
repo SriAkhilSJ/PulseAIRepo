@@ -313,7 +313,7 @@ class TestVerdictGates(unittest.TestCase):
             {"ok": True},
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0},
         )
-        self.assertEqual(verdict, "P0.6.5_ACCEPTANCE_FAILED")
+        self.assertEqual(verdict, "P0.6.6_LIVE_FAILED")
 
     def test_10b_full_chain_passes_the_gate_math(self) -> None:
         acc = self._instance()
@@ -323,9 +323,10 @@ class TestVerdictGates(unittest.TestCase):
         verdict = acc._verdict(
             {"ok": True},
             {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0},
+            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
+             "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.5_DESKTOP_ACCEPTED")
+        self.assertEqual(verdict, "P0.6.6_LIVE_ACCEPTED")
 
     def test_10c_guard_or_finance_failure_blocks_acceptance(self) -> None:
         acc = self._instance()
@@ -333,11 +334,11 @@ class TestVerdictGates(unittest.TestCase):
         acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
         acc.state["renderer_console"] = {"unhandled_errors": 0}
         good_verify = {"module_exists": True, "ast_ok": True, "pytest_returncode": 0}
-        self.assertEqual(acc._verdict({"ok": False}, {"ok": True}, good_verify), "P0.6.5_ACCEPTANCE_FAILED")
-        self.assertEqual(acc._verdict({"ok": True}, {"ok": False}, good_verify), "P0.6.5_ACCEPTANCE_FAILED")
+        self.assertEqual(acc._verdict({"ok": False}, {"ok": True}, good_verify), "P0.6.6_LIVE_FAILED")
+        self.assertEqual(acc._verdict({"ok": True}, {"ok": False}, good_verify), "P0.6.6_LIVE_FAILED")
         self.assertEqual(acc._verdict({"ok": True}, {"ok": True},
                                       {"module_exists": True, "ast_ok": True, "pytest_returncode": 1}),
-                         "P0.6.5_ACCEPTANCE_FAILED")
+                         "P0.6.6_LIVE_FAILED")
 
 
 class TestDiscoveryGitBounded(unittest.TestCase):

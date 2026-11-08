@@ -219,6 +219,17 @@ class ExecutionLimits:
     max_cost_inr: float = 0.00  # Paid LLM budget: strictly INR 0.00
     max_file_modifications: int = 50
     max_concurrent_operations: int = 4
+    #: Hard cap on provider dispatches for the whole task. None = unbounded.
+    #: The orchestrator refuses a plan whose node count exceeds it, BEFORE any
+    #: dispatch happens. The acceptance guard (P0.6.4.1) may lower it.
+    max_dispatch_budget: int | None = None
+    #: Per-node provider output ceiling. Measured twice on this provider:
+    #: 2048 truncated every node (P0.6.5), and 4096 still truncated all four
+    #: implementation nodes (P0.6.6 run 1). 8192 is the smallest value with
+    #: headroom for a complete module + docstrings; the financial bound for a
+    #: 5-dispatch turn at this ceiling is ~INR 0.35, far inside the INR 5 cap.
+    #: None keeps the adapter's own default (2048).
+    max_output_tokens_per_node: int | None = 8192
 
 
 @dataclass
@@ -237,6 +248,7 @@ class EngineeringTaskNode:
     required_tests: List[str] = field(default_factory=list)
     acceptance_criteria: List[str] = field(default_factory=list)
     completion_conditions: List[str] = field(default_factory=list)
+    max_tokens: Optional[int] = None  # per-node provider output ceiling
     status: str = "PENDING"  # PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED
     error_message: Optional[str] = None
     started_at: Optional[float] = None
@@ -257,6 +269,7 @@ class EngineeringTaskNode:
             "required_tests": self.required_tests,
             "acceptance_criteria": self.acceptance_criteria,
             "completion_conditions": self.completion_conditions,
+            "max_tokens": self.max_tokens,
             "status": self.status,
             "error_message": self.error_message,
             "started_at": self.started_at,
@@ -279,6 +292,7 @@ class EngineeringTaskNode:
             required_tests=data.get("required_tests", []),
             acceptance_criteria=data.get("acceptance_criteria", []),
             completion_conditions=data.get("completion_conditions", []),
+            max_tokens=data.get("max_tokens"),
             status=data.get("status", "PENDING"),
             error_message=data.get("error_message"),
             started_at=data.get("started_at"),
