@@ -305,8 +305,8 @@ class TestVerdictGates(unittest.TestCase):
         ))
 
     @staticmethod
-    def _in_turn(*, completion_ok: bool = True, repairs: bool = True) -> dict:
-        final = {"total": 5, "failed": 0, "errors": 0,
+    def _in_turn(*, completion_ok: bool = True, repairs: bool = False) -> dict:
+        final = {"total": 6, "failed": 0, "errors": 0,
                  "command": "python -m pytest -q tests/test_duration.py"}
         return {
             "available": True,
@@ -315,6 +315,22 @@ class TestVerdictGates(unittest.TestCase):
             "repairs": [{"attempt": 1}] if repairs else [],
             "completion_ok": completion_ok,
             "completion": {"ok": completion_ok, "blocked": not completion_ok},
+            "contract": {
+                "contract_hash": "a" * 64,
+                "ambiguities": [],
+                "components": [
+                    {"role": "SOURCE", "target_file": "src/duration.py",
+                     "requirement_ids": ["REQ-001"]},
+                    {"role": "TEST", "target_file": "tests/test_duration.py",
+                     "requirement_ids": ["REQ-002"]},
+                ],
+            },
+            "assignment": {"requirement_map": {
+                "REQ-001": ["src/duration.py"],
+                "REQ-002": ["tests/test_duration.py"],
+            }},
+            "plan": {"ok": True, "work_units": 2, "demand": 2},
+            "cross_file": {"ok": True, "errors": []},
         }
 
     def test_10_missing_correlation_cannot_pass(self) -> None:
@@ -328,7 +344,7 @@ class TestVerdictGates(unittest.TestCase):
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
              "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_FAILED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
 
     def test_10b_full_chain_passes_the_gate_math(self) -> None:
         acc = self._instance()
@@ -342,7 +358,7 @@ class TestVerdictGates(unittest.TestCase):
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
              "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_PASSED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_PASSED")
 
     def test_10c_guard_or_finance_failure_blocks_acceptance(self) -> None:
         acc = self._instance()
@@ -352,12 +368,12 @@ class TestVerdictGates(unittest.TestCase):
         acc.state["in_turn"] = self._in_turn()
         good_verify = {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
                        "independent_smoke": {"ok": True}}
-        self.assertEqual(acc._verdict({"ok": False}, {"ok": True}, good_verify), "P0.6.7_ACCEPTANCE_FAILED")
-        self.assertEqual(acc._verdict({"ok": True}, {"ok": False}, good_verify), "P0.6.7_ACCEPTANCE_FAILED")
+        self.assertEqual(acc._verdict({"ok": False}, {"ok": True}, good_verify), "P0.6.8_ACCEPTANCE_FAILED")
+        self.assertEqual(acc._verdict({"ok": True}, {"ok": False}, good_verify), "P0.6.8_ACCEPTANCE_FAILED")
         self.assertEqual(acc._verdict({"ok": True}, {"ok": True},
                                       {"module_exists": True, "ast_ok": True, "pytest_returncode": 1,
                                        "independent_smoke": {"ok": True}}),
-                         "P0.6.7_ACCEPTANCE_FAILED")
+                         "P0.6.8_ACCEPTANCE_FAILED")
 
     def test_10d_a_turn_without_in_turn_tests_cannot_pass(self) -> None:
         acc = self._instance()
@@ -370,20 +386,35 @@ class TestVerdictGates(unittest.TestCase):
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
              "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_FAILED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
 
-    def test_10e_repair_must_be_exercised(self) -> None:
+    def test_10e_contract_evidence_is_required(self) -> None:
         acc = self._instance()
         acc.state["correlation"] = {"run_id": "r"}
         acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
         acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn(repairs=False)
+        acc.state["in_turn"] = self._in_turn()
+        acc.state["in_turn"]["contract"] = None
         verdict = acc._verdict(
             {"ok": True}, {"ok": True},
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
              "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_FAILED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
+
+    def test_10h_wrong_plan_shape_fails(self) -> None:
+        acc = self._instance()
+        acc.state["correlation"] = {"run_id": "r"}
+        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
+        acc.state["renderer_console"] = {"unhandled_errors": 0}
+        acc.state["in_turn"] = self._in_turn()
+        acc.state["in_turn"]["plan"] = {"ok": True, "work_units": 3, "demand": 3}
+        verdict = acc._verdict(
+            {"ok": True}, {"ok": True},
+            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
+             "independent_smoke": {"ok": True}},
+        )
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
 
     def test_10g_unaccounted_dispatch_cannot_pass(self) -> None:
         acc = self._instance()
@@ -397,7 +428,7 @@ class TestVerdictGates(unittest.TestCase):
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
              "independent_smoke": {"ok": True}},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_FAILED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
 
     def test_10f_blocked_completion_is_reported_as_blocked(self) -> None:
         acc = self._instance()
@@ -413,7 +444,7 @@ class TestVerdictGates(unittest.TestCase):
             {"ok": True}, {"ok": True},
             {"module_exists": True, "ast_ok": True, "pytest_returncode": 0},
         )
-        self.assertEqual(verdict, "P0.6.7_ACCEPTANCE_BLOCKED")
+        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_BLOCKED")
 
 
 class TestDiscoveryGitBounded(unittest.TestCase):
