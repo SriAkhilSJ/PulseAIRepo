@@ -1256,6 +1256,10 @@ class ModelExecutionAdapter:
             cost_inr: float = 0.0,
             cost_usd: float = 0.0,
             error: str = "",
+            requested_output_tokens: int | None = None,
+            finish_reason: str = "",
+            response_received_at: float | None = None,
+            usage_receipt_present: bool | None = None,
         ) -> None:
             try:
                 record_invocation(self.workspace_root, {
@@ -1268,6 +1272,10 @@ class ModelExecutionAdapter:
                     "usage_record_id": f"{res_id}:usage" if (in_tok or out_tok) else "",
                     "settlement_id": res_id if status == "settled" else "",
                     "status": status,
+                    "requested_output_tokens": requested_output_tokens,
+                    "finish_reason": finish_reason,
+                    "response_received_at": response_received_at,
+                    "usage_receipt_present": usage_receipt_present,
                     "input_tokens": in_tok,
                     "output_tokens": out_tok,
                     "cached_tokens": cached_tok,
@@ -1316,6 +1324,7 @@ class ModelExecutionAdapter:
         finops.mark_in_flight(res_id)
 
         # Exactly one dispatch, always with the token ceiling attached.
+        response_received_at: float | None = None
         try:
             with invocation_scope(
                 subsystem="engineering",
@@ -1327,6 +1336,7 @@ class ModelExecutionAdapter:
                 purpose=purpose,
             ):
                 response = llm.invoke(prompt, **invoke_kwargs)
+                response_received_at = time.time()
         except Exception as exc:
             # Pre-dispatch rejections release; post-dispatch ambiguity retains
             # the hold as uncertain so funds cannot be silently double-spent.
@@ -1350,9 +1360,14 @@ class ModelExecutionAdapter:
         except Exception as exc:
             # Wire call succeeded but usage receipts missing: keep reservation uncertain
             finops.mark_uncertain(res_id, reason="missing_usage_receipts_after_call")
+            _raw_finish, _canonical_finish = response_finish_reason(response)
             _ledger_record(
                 "uncertain",
                 error=f"missing usage receipts: {type(exc).__name__}",
+                requested_output_tokens=max_output_tokens,
+                finish_reason=_raw_finish or _canonical_finish,
+                response_received_at=response_received_at,
+                usage_receipt_present=False,
             )
             raise
 
@@ -1371,6 +1386,10 @@ class ModelExecutionAdapter:
             _ledger_record(
                 "uncertain", in_tok=in_tok, out_tok=out_tok, cached_tok=cached_tok,
                 error="actual cost could not be calculated",
+                requested_output_tokens=max_output_tokens,
+                finish_reason=(response_finish_reason(response)[0] or response_finish_reason(response)[1]),
+                response_received_at=response_received_at,
+                usage_receipt_present=True,
             )
             raise UnknownModelPricingError(
                 f"Pricing calculation failed for model '{mod}' (provider '{prov}'). Failing closed."
@@ -1388,9 +1407,14 @@ class ModelExecutionAdapter:
             actual_cost_inr=actual_cost_inr,
             actual_cost_usd=actual_cost_usd,
         )
+        _raw_finish, _canonical_finish = response_finish_reason(response)
         _ledger_record(
             "settled", in_tok=in_tok, out_tok=out_tok, cached_tok=cached_tok,
             cost_inr=actual_cost_inr, cost_usd=actual_cost_usd,
+            requested_output_tokens=max_output_tokens,
+            finish_reason=_raw_finish or _canonical_finish,
+            response_received_at=response_received_at,
+            usage_receipt_present=True,
         )
 
         # The provider has been paid and settled above. Validate its completion

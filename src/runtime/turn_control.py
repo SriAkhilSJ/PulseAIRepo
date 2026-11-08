@@ -17,6 +17,8 @@ class _Control:
     # Queued prompts ride as (text, reasoning_effort) pairs so a turn started
     # while another is active keeps ITS Think pick, not the active turn's.
     queued: deque[tuple[str, str | None]] = field(default_factory=deque)
+    # Parallel submission ids for the queued prompts (Live11 exactly-once).
+    queued_ids: deque[str | None] = field(default_factory=deque)
     active: bool = False
     active_depth: int = 0
     # Wall-clock moment the current turn's first owner began (for the
@@ -197,16 +199,32 @@ class TurnControlRegistry:
             item.steer.clear()
             return out
 
-    def queue(self, session_id: str, text: str, reasoning_effort: str | None = None) -> int:
+    def queue(self, session_id: str, text: str, reasoning_effort: str | None = None,
+              submission_id: str | None = None) -> int:
         item = self._get(session_id)
         with item.lock:
             item.queued.append((str(text).strip(), reasoning_effort))
+            item.queued_ids.append(str(submission_id) if submission_id else None)
             return len(item.queued)
 
     def pop_queued(self, session_id: str) -> tuple[str, str | None] | None:
         item = self._get(session_id)
         with item.lock:
-            return item.queued.popleft() if item.queued else None
+            if not item.queued:
+                return None
+            if item.queued_ids:
+                item.queued_ids.popleft()
+            return item.queued.popleft()
+
+    def pop_queued_submission(self, session_id: str) -> tuple[str, str | None, str | None] | None:
+        """Pop a queued prompt together with its submission id."""
+        item = self._get(session_id)
+        with item.lock:
+            if not item.queued:
+                return None
+            text, effort = item.queued.popleft()
+            submission_id = item.queued_ids.popleft() if item.queued_ids else None
+            return text, effort, submission_id
 
     def reset(self, session_id: str) -> None:
         with self._lock:

@@ -171,6 +171,7 @@ interface CrusorSurfaceSnapshot {
 	readonly error: string | undefined;
 	readonly hadProviderAttempt: boolean;
 	readonly pendingPrompt: string | undefined;
+	readonly pendingSubmissionId: string | undefined;
 }
 
 export class CrusorAIRendererService extends Disposable implements ICrusorAIRendererService {
@@ -185,7 +186,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private restartAttempts = 0;
 	private engineFault: string | undefined;
 	private pendingPrompt: string | undefined;
+	private pendingSubmissionId: string | undefined;
 	private lastSubmittedPrompt: string | undefined;
+	private lastSubmissionId: string | undefined;
+	private lastSubmissionCompleted = false;
+	private lastSubmitAt = 0;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
 	/**
@@ -492,10 +497,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// broken while it is being restarted, and the row's own action would look like a no-op.
 			this.engineFault = undefined;
 			this.error = undefined;
-			const promptToRetry = this.pendingPrompt || this.lastSubmittedPrompt;
+			const promptToRetry = this.pendingPrompt
+				|| (this.lastSubmissionCompleted ? undefined : this.lastSubmittedPrompt);
 			void this.ensureEngine().then(() => {
 				if (promptToRetry && this.engineService.state === CrusorAIEngineState.Ready) {
 					this.pendingPrompt = undefined;
+					this.pendingSubmissionId = undefined;
 					void this.submitPrompt(promptToRetry);
 				}
 			});
@@ -732,6 +739,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			error: this.error,
 			hadProviderAttempt: this.hadProviderAttempt,
 			pendingPrompt: this.pendingPrompt,
+			pendingSubmissionId: this.pendingSubmissionId,
 		};
 	}
 
@@ -776,6 +784,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.error = snapshot.error;
 		this.hadProviderAttempt = snapshot.hadProviderAttempt;
 		this.pendingPrompt = snapshot.pendingPrompt;
+		this.pendingSubmissionId = snapshot.pendingSubmissionId;
 		this.pendingHydration = undefined;
 	}
 
@@ -879,7 +888,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.userMessage = undefined;
 		this.assistantText = '';
 		this.pendingPrompt = undefined;
+		this.pendingSubmissionId = undefined;
 		this.pendingHydration = undefined;
+		this.lastSubmissionCompleted = false;
 		this.tools.clear();
 		this.parts = [];
 		this.reasoningParts = [];
@@ -1745,14 +1756,43 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		this.draft = '';
 		this.error = undefined;
-		this.lastSubmittedPrompt = promptText;
-		if (!this.sessionId) {
-			this.pendingPrompt = promptText;
-			this.send({ type: 'session_create', workspace: this.workspacePath });
+		const submissionId = this.pendingPrompt && promptText === this.pendingPrompt && this.pendingSubmissionId
+			? this.pendingSubmissionId
+			: this.newSubmissionId();
+		if (this.pendingPrompt && promptText === this.pendingPrompt) {
+			// A duplicate gesture while the first session_create is in flight is
+			// the same logical submission: replay the create with the same id so
+			// the bridge returns the original session instead of minting one.
+			console.info(`[CrusorAI] duplicate submit while pending; reusing ${submissionId}`);
+			this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
 			this.render();
 			return;
 		}
-		this.startTurn(promptText);
+		if (this.running && this.lastSubmissionId && promptText === this.lastSubmittedPrompt
+			&& Date.now() - this.lastSubmitAt < 2000) {
+			console.info(`[CrusorAI] duplicate submit ignored while turn is active: ${submissionId}`);
+			return;
+		}
+		this.lastSubmittedPrompt = promptText;
+		this.lastSubmissionId = submissionId;
+		this.lastSubmissionCompleted = false;
+		this.lastSubmitAt = Date.now();
+		if (!this.sessionId) {
+			this.pendingPrompt = promptText;
+			this.pendingSubmissionId = submissionId;
+			this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
+			this.render();
+			return;
+		}
+		this.startTurn(promptText, submissionId);
+	}
+
+	private newSubmissionId(): string {
+		try {
+			const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+			if (uuid) { return `sub-${uuid}`; }
+		} catch { /* fall through */ }
+		return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 	}
 
 	/**
@@ -1778,7 +1818,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		// startTurn on session_info, and pre-setting it would archive a
 		// bubble-only turn and paint the message twice.
 		this.pendingPrompt = text;
-		this.send({ type: 'session_create', workspace: this.workspacePath });
+		this.pendingSubmissionId = this.newSubmissionId();
+		this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: this.pendingSubmissionId });
 		this.render();
 		return false;
 	}
@@ -1835,10 +1876,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.turnStartedAt = Date.now();
 	}
 
-	private startTurn(text: string): void {
+	private startTurn(text: string, submissionId?: string): void {
 		this.archiveLiveTurn();
 		this.resetTurnState(text);
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
+		const payload: CrusorClientMethod = {
+			type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath,
+			text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none',
+			...(submissionId ? { submission_id: submissionId } : {}),
+		};
+		this.send(payload);
 		this.render();
 	}
 
@@ -2194,10 +2240,23 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				const candidate = valueRecord(event);
 				if (typeof candidate?.type === 'string') { this.acceptFrame(event as CrusorServerEvent); }
 			}
+			if (frame.duplicate_submission) {
+				const hadPending = !!this.pendingPrompt;
+				this.pendingPrompt = undefined;
+				this.pendingSubmissionId = undefined;
+				if (hadPending && !this.running) {
+					this.error = `This submission was already accepted (${frame.submission_state ?? 'known'}); start a new prompt instead of resending it.`;
+				}
+				console.info(`[CrusorAI] duplicate submission ack: session=${frame.session_id} state=${frame.submission_state ?? '?'}`);
+				this.render();
+				return;
+			}
 			if (this.pendingPrompt) {
 				const prompt = this.pendingPrompt;
+				const submissionId = this.pendingSubmissionId;
 				this.pendingPrompt = undefined;
-				this.startTurn(prompt);
+				this.pendingSubmissionId = undefined;
+				this.startTurn(prompt, submissionId);
 				return;
 			}
 			// Rename/pin/archive acks re-sync the list so the row shows the new truth.
@@ -2461,6 +2520,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.telemetry = { ...this.telemetry, input: frame.input, output: frame.output, cache: frame.cache, cost: frame.cost };
 		} else if (frame.type === 'turn_done') {
 			this.running = false;
+			this.lastSubmissionCompleted = true;
 			if ((frame as { cancelled?: boolean }).cancelled === true) {
 				this.interrupt = this.stampInterrupt();
 			}
@@ -2504,6 +2564,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.settleAdoptedTurn();
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
+			this.lastSubmissionCompleted = false;
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();

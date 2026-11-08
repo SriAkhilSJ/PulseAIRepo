@@ -423,6 +423,10 @@ class TestHistoricalReplay(unittest.TestCase):
         recovery = [r for r in records if r["operation_type"] == "recovery"]
         self.assertEqual(len(recovery), 1)
         self.assertEqual(recovery[0]["purpose"], "node_task_duration_recovery1")
+        truncated = [r for r in records if r["purpose"] == "node_task_duration"][0]
+        self.assertEqual(truncated["finish_reason"], "length")
+        self.assertEqual(truncated["requested_output_tokens"], 8192)
+        self.assertTrue(truncated["usage_receipt_present"])
         self.assertEqual(len({r["reservation_id"] for r in records}), 3)
         self.assertAlmostEqual(
             sum(r["actual_cost_inr"] for r in records),

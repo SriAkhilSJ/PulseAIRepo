@@ -773,6 +773,81 @@ class OrchestrationFinOpsGovernor:
             self._sync_reservation_to_store(res)
             self._persist_state()
 
+    def reconcile_orphaned_reservations(self, reason: str = "process_restart",
+                                        reservation_ids: Optional[set[str]] = None) -> list[Dict[str, Any]]:
+        """Resolve reservations left behind by a previous process.
+
+        A ``reserved`` hold proves dispatch never started (the adapter marks
+        ``in_flight`` immediately before ``invoke``), so it is released.  An
+        ``in_flight`` hold may have reached the provider, so it becomes
+        ``uncertain`` and retains the financial hold.  Never invents usage.
+
+        ``reservation_ids`` limits the pass to known-old holds, so a startup
+        sweep cannot touch a call that belongs to the current process.
+
+        Idempotent: a second call sees no matching active reservations.
+        """
+        events: list[Dict[str, Any]] = []
+        with self._lock:
+            for reservation_id, res in list(self._active_reservations.items()):
+                if reservation_ids is not None and reservation_id not in reservation_ids:
+                    continue
+                prior = str(res.status or "reserved")
+                try:
+                    if prior == "in_flight":
+                        self.mark_uncertain(
+                            reservation_id,
+                            reason=f"orphaned_{reason}_dispatch_may_have_occurred",
+                        )
+                        to_state = "uncertain"
+                    else:
+                        self.release_reservation(
+                            reservation_id,
+                            reason=f"orphaned_{reason}_dispatch_never_started",
+                        )
+                        to_state = "released"
+                    events.append({
+                        "event": "reservation_reconciled",
+                        "task_id": self.task_id,
+                        "reservation_id": reservation_id,
+                        "from_state": prior,
+                        "to_state": to_state,
+                        "reason": reason,
+                        "amount_inr": res.amount_inr,
+                        "tokens": res.tokens,
+                        "timestamp": time.time(),
+                    })
+                except Exception as exc:  # noqa: BLE001 - fail closed, preserve hold
+                    events.append({
+                        "event": "reservation_reconciliation_failed",
+                        "task_id": self.task_id,
+                        "reservation_id": reservation_id,
+                        "from_state": prior,
+                        "to_state": prior,
+                        "reason": reason,
+                        "error": f"{type(exc).__name__}: {exc}"[:500],
+                        "timestamp": time.time(),
+                    })
+                    log.error(
+                        "Orphan reconciliation failed for reservation %s: %r",
+                        reservation_id, exc,
+                    )
+            if events:
+                self._append_lifecycle_events(events)
+        return events
+
+    def _append_lifecycle_events(self, events: list[Dict[str, Any]]) -> None:
+        state_file = self._get_state_file()
+        if state_file is None:
+            return
+        try:
+            path = state_file.with_name("lifecycle.jsonl")
+            with path.open("a", encoding="utf-8") as handle:
+                for event in events:
+                    handle.write(json.dumps(event, sort_keys=True) + "\n")
+        except OSError:
+            log.warning("finops lifecycle event append failed for task %s", self.task_id)
+
     def reconcile_uncertain_reservation(
         self,
         reservation_id: str,

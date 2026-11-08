@@ -13,6 +13,7 @@ import re
 import queue
 import sys
 import threading
+from pathlib import Path
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -123,6 +124,9 @@ class BridgeServer:
         # this set is only here to keep one thread per workspace rather than one per frame.
         self._preview_hooked: set[str] = set()
         self._shutdown = threading.Event()
+        # Exactly-once submission boundary (Live11): durable, workspace-scoped.
+        self._reconciled_workspaces: set[str] = set()
+        self._known_workspaces: set[str] = set()
         # P0.6.4.1: a desktop acceptance session runs ONE turn under a hard
         # single-attempt, five-dispatch budget. Opt-in via
         # CRUSORAI_ACCEPTANCE_RUN_ID; ordinary sessions are untouched.
@@ -535,6 +539,70 @@ class BridgeServer:
             return sid
         self._sessions[sid] = {"session_id": sid, "workspace": workspace}
         return sid
+
+    @staticmethod
+    def _submission_ledger(workspace: str):
+        from src.runtime.submission_ledger import get_submission_ledger
+
+        return get_submission_ledger(workspace)
+
+    def _reconcile_workspace_once(self, workspace: str) -> None:
+        """Resolve orphaned calls/submissions once per workspace per process."""
+        if not workspace:
+            return
+        try:
+            resolved = str(Path(workspace).expanduser().resolve())
+        except OSError:
+            resolved = workspace
+        self._known_workspaces.add(resolved)
+        if resolved in self._reconciled_workspaces:
+            return
+        self._reconciled_workspaces.add(resolved)
+        try:
+            from src.finops.recovery import reconcile_workspace
+
+            receipt = reconcile_workspace(resolved, reason="bridge_startup")
+            fin = receipt.get("finops") or {}
+            subs = receipt.get("submissions") or {}
+            if fin.get("events") or fin.get("failures") or subs.get("reconciled"):
+                print(
+                    "[bridge][recovery] "
+                    + json.dumps({
+                        "workspace": resolved,
+                        "finops_events": len(fin.get("events") or []),
+                        "finops_failures": fin.get("failures") or [],
+                        "submissions_reconciled": subs.get("reconciled") or 0,
+                    }, sort_keys=True),
+                    file=sys.stderr, flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - startup repair must not block turns
+            print(f"[bridge][recovery] startup reconciliation failed: {exc!r}",
+                  file=sys.stderr, flush=True)
+
+    def _reconcile_on_shutdown(self) -> None:
+        """Best-effort: never leave an interrupted hold as `in_flight`."""
+        try:
+            orch = getattr(self, "_last_orchestrator", None)
+            finops = getattr(orch, "_last_finops", None) if orch is not None else None
+            if finops is not None:
+                events = finops.reconcile_orphaned_reservations(reason="bridge_shutdown")
+                if events:
+                    print("[bridge][recovery] shutdown " + json.dumps(events, sort_keys=True),
+                          file=sys.stderr, flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[bridge][recovery] shutdown in-process reconciliation failed: {exc!r}",
+                  file=sys.stderr, flush=True)
+        for workspace in list(self._known_workspaces):
+            try:
+                from src.finops.recovery import reconcile_workspace_finops
+
+                receipt = reconcile_workspace_finops(workspace, reason="bridge_shutdown", force=True)
+                if receipt.get("events") or receipt.get("failures"):
+                    print("[bridge][recovery] shutdown " + json.dumps(receipt, sort_keys=True)[:2000],
+                          file=sys.stderr, flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[bridge][recovery] shutdown sweep failed for {workspace}: {exc!r}",
+                      file=sys.stderr, flush=True)
 
     @staticmethod
     def _project_event(event: dict, identity: TurnIdentity) -> dict | None:
@@ -1004,10 +1072,20 @@ class BridgeServer:
             )
             return self._evidence_unavailable(exc)
 
-    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None) -> None:
+    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None,
+                  submission_id: str | None = None) -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
+        from src.finops.invocation_context import set_submission_id, reset_submission_id
 
+        submission_token = set_submission_id(submission_id or "")
+        turn_outcome = "failed"
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
+        if submission_id:
+            try:
+                self._submission_ledger(workspace).mark_turn_started(submission_id, identity.turn_id)
+            except Exception as exc:  # noqa: BLE001 - submission evidence is best-effort
+                print(f"[bridge][submission] turn-start write failed: {exc!r}",
+                      file=sys.stderr, flush=True)
         evidence: TurnEvidenceRecorder | None = None
         evidence_started: dict
         try:
@@ -1448,6 +1526,7 @@ class BridgeServer:
                     if cancelled
                     else ("completed" if task_completed else "failed")
                 )
+                turn_outcome = lifecycle_status
                 if (
                     task_completed
                     and not cancelled
@@ -1525,6 +1604,7 @@ class BridgeServer:
                 # exception types. Intentional Stop wins over generic failure
                 # attribution and must produce one terminal cancelled receipt.
                 if turn_controls.cancelled(sid):
+                    turn_outcome = "cancelled"
                     self._touch_turn(sid, text)
                     _terminal.set()
                     cancel_message = "Operation cancelled by the user."
@@ -1607,11 +1687,21 @@ class BridgeServer:
                 event_bus.unsubscribe(q)
             turn_controls.end(sid)
             set_active_session(None)
+            if submission_id:
+                try:
+                    self._submission_ledger(workspace).mark_terminal(
+                        submission_id, turn_outcome, turn_id=identity.turn_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 - never break teardown
+                    print(f"[bridge][submission] terminal write failed: {exc!r}",
+                          file=sys.stderr, flush=True)
+            reset_submission_id(submission_token)
 
         from src.runtime.turn_control import turn_controls
-        queued = turn_controls.pop_queued(sid)
+        queued = turn_controls.pop_queued_submission(sid)
         if queued and not self._shutdown.is_set():
-            self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
+            self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1],
+                           submission_id=queued[2])
 
     def _delegate_tip(self, sid: str, tip: str) -> str:
         """A delegated child is always its OWN tip.
@@ -1866,6 +1956,85 @@ class BridgeServer:
         if not workspace and kind in _WORKSPACE_REQUIRED_METHODS:
             self.emit(error_frame(NO_WORKSPACE_ERROR))
             return True
+        # Exactly-once boundary (Live11): a stable submission id is checked
+        # BEFORE a session is minted or a turn worker starts. The ledger is
+        # durable, so a reconnect/restart cannot replay an accepted submission.
+        submission_id = str(frame.get("submission_id") or "").strip()
+        if workspace:
+            self._reconcile_workspace_once(workspace)
+        if kind in {"session_create", "prompt"}:
+            try:
+                ledger = self._submission_ledger(workspace)
+            except Exception as exc:  # noqa: BLE001 - fail closed, never guess
+                self.emit(error_frame(f"submission ledger unavailable: {exc}"))
+                return True
+            if submission_id:
+                record = ledger.get(submission_id)
+                if kind == "session_create" and record is not None:
+                    if record.state == "accepted":
+                        # The original create may have crashed after recording
+                        # the session but before its reply. Return the same
+                        # session normally so the renderer can start its
+                        # pending prompt; the prompt claim still accepts once.
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "submission_state": record.state,
+                        })
+                    else:
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                    return True
+                if kind == "prompt" and record is not None:
+                    requested_sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip()
+                    if record.session_id and requested_sid and record.session_id != requested_sid:
+                        self.emit(error_frame(
+                            "submission id is already bound to a different session; "
+                            "start a new submission for a new turn"
+                        ))
+                        return True
+                    if record.state != "accepted":
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id or requested_sid,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                        return True
+            elif kind == "prompt":
+                # Legacy/replayed frames carry no id. Block an identical prompt
+                # arriving for a DIFFERENT session soon after a completed one;
+                # a fixed client always supplies an id, so intentional repeats
+                # stay possible.
+                from src.runtime.submission_ledger import prompt_sha256
+
+                text = str(frame.get("text") or frame.get("message") or "").strip()
+                requested_sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip()
+                try:
+                    window_s = float(os.environ.get("CRUSORAI_SUBMISSION_REPLAY_WINDOW_S", "600") or "600")
+                except ValueError:
+                    window_s = 600.0
+                recent = ledger.find_recent_completed(
+                    prompt_sha256(text),
+                    window_s=window_s,
+                    exclude_session_id=requested_sid,
+                )
+                if recent is not None:
+                    self.emit({
+                        "type": "session_info",
+                        "session_id": recent.session_id,
+                        "duplicate_submission": True,
+                        "submission_state": recent.state,
+                        "legacy_replay": True,
+                    })
+                    return True
+
         # The frame that binds a workspace is also the moment we know which folder the user opened,
         # and the preview proxy is useless without it — so this is where it gets started. Nothing
         # visible: no console window, no waiting, no failure path into the turn.
@@ -1932,6 +2101,33 @@ class BridgeServer:
                 "host_tool_result_resolved": resolved,
             })
         elif kind == "session_create":
+            # Exactly-once: bind the submission id to this session before the
+            # session_info reply. A replay is handled above and never reaches
+            # this minting path.
+            if submission_id:
+                try:
+                    from src.runtime.submission_ledger import prompt_sha256
+
+                    record = self._submission_ledger(workspace).record_session(
+                        submission_id,
+                        session_id=sid,
+                        prompt_sha=(
+                            prompt_sha256(str(frame.get("text") or ""))
+                            if str(frame.get("text") or "").strip() else ""
+                        ),
+                    )
+                    if record.session_id and record.session_id != sid:
+                        self._sessions.pop(sid, None)
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                        })
+                        return True
+                except Exception as exc:  # noqa: BLE001 - fail closed
+                    self.emit(error_frame(f"submission ledger write failed: {exc}"))
+                    return True
             # Hermes session.create: mint a lazy draft (no DB row) unless this
             # create carries intent (a parent link or seed messages), in which
             # case the row persists NOW because the post-create resume reads
@@ -2186,46 +2382,92 @@ class BridgeServer:
                 self.emit(error_frame("prompt text is required"))
             elif mode not in EXECUTION_MODES:
                 self.emit(error_frame(f"unsupported execution mode: {mode}"))
-            elif sid in self._workers and self._workers[sid].is_alive():
-                from src.runtime.turn_control import turn_controls
-                depth = turn_controls.queue(sid, text, effort)
-                self.emit({"type": "session_info", "session_id": sid, "queued": depth})
             else:
-                # Warm the heavy turn-path imports on the MAIN thread before
-                # dispatching the worker: numpy/transformers C-extension init
-                # deadlocks when imported on a non-main thread (Windows), which
-                # previously hung the real turn silently. Once cached in
-                # sys.modules, the worker's own imports are instant no-ops.
-                # The echo runner never touches chat_graph, so skip the ~11s
-                # warm-up there.
-                if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
-                    from src.dashboard.event_bus import event_bus  # noqa: F401
-                    from src.graphs.chat_graph import stream_agent  # noqa: F401
-                # Hermes lazy-row rule: the row exists from the first ACCEPTED
-                # prompt, so a turn that dies mid-flight still lists. The
-                # title/activity touch lands at turn end (see _touch_turn).
-                try:
-                    store = self._durable_store()
-                    if store.get_session(sid) is None:
-                        # Explicit pending titles (session_new) persist; otherwise the
-                        # row stays untitled for the auto-titler (no capture).
-                        pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
-                        store.create_session(
-                            sid, self._sessions[sid]["workspace"],
-                            title=pending or "",
-                            model=str(self._sessions.get(sid, {}).get("model") or "") or None,
-                            parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
+                if submission_id:
+                    try:
+                        from src.runtime.submission_ledger import prompt_sha256
+
+                        digest = prompt_sha256(text)
+                        ledger = self._submission_ledger(workspace)
+                        try:
+                            is_new_session = self._durable_store().get_session(sid) is None
+                        except Exception:
+                            is_new_session = False
+                        if is_new_session:
+                            try:
+                                window_s = float(os.environ.get(
+                                    "CRUSORAI_NEW_SESSION_REPLAY_WINDOW_S", "60") or "60"
+                                )
+                            except ValueError:
+                                window_s = 60.0
+                            recent = ledger.find_recent_completed(
+                                digest, window_s=window_s, exclude_session_id=sid,
+                            )
+                            if recent is not None:
+                                self.emit({
+                                    "type": "session_info",
+                                    "session_id": recent.session_id,
+                                    "duplicate_submission": True,
+                                    "submission_state": recent.state,
+                                    "submission_reason": "new_session_same_prompt",
+                                })
+                                return True
+                        claimed, record, reason = ledger.claim_prompt(
+                            submission_id, session_id=sid, prompt_sha=digest,
                         )
-                except Exception as exc:
-                    print(f"[bridge] prompt row ensure failed for {sid}: {exc!r}",
-                          file=sys.stderr, flush=True)
-                worker = threading.Thread(
-                    target=self._run_turn,
-                    args=(sid, text, self._sessions[sid]["workspace"], mode, effort),
-                    name=f"bridge-turn-{sid}", daemon=True,
-                )
-                self._workers[sid] = worker
-                worker.start()
+                    except Exception as exc:  # noqa: BLE001 - fail closed
+                        self.emit(error_frame(f"submission ledger unavailable: {exc}"))
+                        return True
+                    if not claimed:
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id or sid,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            "submission_reason": reason,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                        return True
+                if sid in self._workers and self._workers[sid].is_alive():
+                    from src.runtime.turn_control import turn_controls
+                    depth = turn_controls.queue(sid, text, effort, submission_id=submission_id)
+                    self.emit({"type": "session_info", "session_id": sid, "queued": depth})
+                else:
+                    # Warm the heavy turn-path imports on the MAIN thread before
+                    # dispatching the worker: numpy/transformers C-extension init
+                    # deadlocks when imported on a non-main thread (Windows), which
+                    # previously hung the real turn silently. Once cached in
+                    # sys.modules, the worker's own imports are instant no-ops.
+                    # The echo runner never touches chat_graph, so skip the ~11s
+                    # warm-up there.
+                    if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
+                        from src.dashboard.event_bus import event_bus  # noqa: F401
+                        from src.graphs.chat_graph import stream_agent  # noqa: F401
+                    # Hermes lazy-row rule: the row exists from the first ACCEPTED
+                    # prompt, so a turn that dies mid-flight still lists. The
+                    # title/activity touch lands at turn end (see _touch_turn).
+                    try:
+                        store = self._durable_store()
+                        if store.get_session(sid) is None:
+                            # Explicit pending titles (session_new) persist; otherwise the
+                            # row stays untitled for the auto-titler (no capture).
+                            pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
+                            store.create_session(
+                                sid, self._sessions[sid]["workspace"],
+                                title=pending or "",
+                                model=str(self._sessions.get(sid, {}).get("model") or "") or None,
+                                parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
+                            )
+                    except Exception as exc:
+                        print(f"[bridge] prompt row ensure failed for {sid}: {exc!r}",
+                              file=sys.stderr, flush=True)
+                    worker = threading.Thread(
+                        target=self._run_turn,
+                        args=(sid, text, self._sessions[sid]["workspace"], mode, effort, submission_id),
+                        name=f"bridge-turn-{sid}", daemon=True,
+                    )
+                    self._workers[sid] = worker
+                    worker.start()
         elif kind == "cancel":
             from src.runtime.turn_control import turn_controls
             # cancel() owns both the event transition and one-shot abort firing.
@@ -2834,6 +3076,7 @@ class BridgeServer:
                     self.emit(error_frame(f"bridge internal error: {exc!r}"))
             return 0
         finally:
+            self._reconcile_on_shutdown()
             self._flush_acceptance_evidence()
 
     def _flush_acceptance_evidence(self) -> None:

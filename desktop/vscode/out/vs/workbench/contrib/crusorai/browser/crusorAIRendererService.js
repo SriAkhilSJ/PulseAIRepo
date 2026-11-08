@@ -24,9 +24,8 @@ import { IOpenerService } from '../../../../platform/opener/common/opener.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IWorkspaceContextService } from '../../../../platform/workspace/common/workspace.js';
 import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
-import { CrusorAICommandId } from '../common/crusorAI.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
+import { ICrusorAIEngineService, CrusorAIEngineSetupError } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
@@ -244,6 +243,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.seenEventIds = new Set();
         this.eventIdOrder = [];
         this.restartAttempts = 0;
+        this.lastSubmissionCompleted = false;
+        this.lastSubmitAt = 0;
         /** After a stash restore, heal the away-window gap once from the settled checkpoint. */
         this.healAfterRestore = false;
         this.healRequested = false;
@@ -416,17 +417,19 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 // broken while it is being restarted, and the row's own action would look like a no-op.
                 this.engineFault = undefined;
                 this.error = undefined;
-                const promptToRetry = this.pendingPrompt || this.lastSubmittedPrompt;
+                const promptToRetry = this.pendingPrompt
+                    || (this.lastSubmissionCompleted ? undefined : this.lastSubmittedPrompt);
                 void this.ensureEngine().then(() => {
-                    if (promptToRetry && this.engineService.state === CrusorAIEngineState.Ready) {
+                    if (promptToRetry && this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
                         this.pendingPrompt = undefined;
+                        this.pendingSubmissionId = undefined;
                         void this.submitPrompt(promptToRetry);
                     }
                 });
             },
             selectWorkspace: uri => this.selectWorkspace(uri),
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
-            openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
+            openEngineSettings: () => { void this.commandService.executeCommand("crusorai.openSettings" /* CrusorAICommandId.OpenSettings */); },
             openManager: () => { this.openManagerWindow(); },
             // Composer + -> the Add… dialog (native QuickPick; each row routes to
             // its registered command — one code path with the palette).
@@ -476,17 +479,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this._oneshotListeners = new Set();
         this.syntaxColorCache = new Map();
         this._register(this.engineService.onDidChangeState(state => {
-            if (state === CrusorAIEngineState.Ready) {
+            if (state === "ready" /* CrusorAIEngineState.Ready */) {
                 this.restartAttempts = 0;
                 this.engineFault = undefined;
             }
-            else if (state === CrusorAIEngineState.Crashed || state === CrusorAIEngineState.Degraded) {
+            else if (state === "crashed" /* CrusorAIEngineState.Crashed */ || state === "degraded" /* CrusorAIEngineState.Degraded */) {
                 // The only trace of a dying sidecar used to be a log line: the process exit is reported by
                 // the engine service, `scheduleRestart` swallows exhaustion, and a turn in flight never
                 // receives turn_done -- so the panel kept painting a live run that had no engine behind it.
                 // A setup failure already has its own actionable row, so it is not overwritten here.
                 if (!this.engineSetupError) {
-                    this.engineFault = state === CrusorAIEngineState.Crashed
+                    this.engineFault = state === "crashed" /* CrusorAIEngineState.Crashed */
                         ? 'The Crusor engine process stopped while this session was open.'
                         : 'The Crusor engine could not accept the request, so it never reached the model.';
                     if (this.running) {
@@ -656,6 +659,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             error: this.error,
             hadProviderAttempt: this.hadProviderAttempt,
             pendingPrompt: this.pendingPrompt,
+            pendingSubmissionId: this.pendingSubmissionId,
         };
     }
     restoreSurface(snapshot) {
@@ -705,6 +709,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.error = snapshot.error;
         this.hadProviderAttempt = snapshot.hadProviderAttempt;
         this.pendingPrompt = snapshot.pendingPrompt;
+        this.pendingSubmissionId = snapshot.pendingSubmissionId;
         this.pendingHydration = undefined;
     }
     /**
@@ -820,7 +825,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.userMessage = undefined;
         this.assistantText = '';
         this.pendingPrompt = undefined;
+        this.pendingSubmissionId = undefined;
         this.pendingHydration = undefined;
+        this.lastSubmissionCompleted = false;
         this.tools.clear();
         this.parts = [];
         this.reasoningParts = [];
@@ -1194,7 +1201,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      */
     requestSessionList() {
         const workspace = this.workspacePath;
-        if (!workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (!workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         this.send({ type: 'session_list', session_id: this.sessionId, workspace, limit: 40, archived: 'exclude' });
@@ -1446,7 +1453,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }, delay);
     }
     async ensureEngine() {
-        if (this.engineService.state === CrusorAIEngineState.Ready) {
+        if (this.engineService.state === "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         if (this.startPromise) {
@@ -1467,7 +1474,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const resumeSession = this.sessionId;
         this.startPromise = this.engineService.start(workspace).then(() => {
             this.engineSetupError = false;
-            if (this.engineService.state !== CrusorAIEngineState.Ready) {
+            if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
                 return;
             }
             // The durable list is the session surface's memory: refresh it on every (re)connect.
@@ -1522,7 +1529,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     publishHostCapabilities(sessionId = this.sessionId) {
         const workspace = this.workspacePath;
-        if (!sessionId || !workspace || this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (!sessionId || !workspace || this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             return;
         }
         const statuses = new Map(this.workbenchService.getCapabilities().map(item => [item.id, item]));
@@ -1727,7 +1734,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.ensureEngine(),
             new Promise(resolve => setTimeout(resolve, 20_000)),
         ]);
-        if (this.engineService.state !== CrusorAIEngineState.Ready) {
+        if (this.engineService.state !== "ready" /* CrusorAIEngineState.Ready */) {
             // The one dishonest thing the old code did: return silently. The
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
@@ -1743,14 +1750,45 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         this.draft = '';
         this.error = undefined;
-        this.lastSubmittedPrompt = promptText;
-        if (!this.sessionId) {
-            this.pendingPrompt = promptText;
-            this.send({ type: 'session_create', workspace: this.workspacePath });
+        const submissionId = this.pendingPrompt && promptText === this.pendingPrompt && this.pendingSubmissionId
+            ? this.pendingSubmissionId
+            : this.newSubmissionId();
+        if (this.pendingPrompt && promptText === this.pendingPrompt) {
+            // A duplicate gesture while the first session_create is in flight is
+            // the same logical submission: replay the create with the same id so
+            // the bridge returns the original session instead of minting one.
+            console.info(`[CrusorAI] duplicate submit while pending; reusing ${submissionId}`);
+            this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
             this.render();
             return;
         }
-        this.startTurn(promptText);
+        if (this.running && this.lastSubmissionId && promptText === this.lastSubmittedPrompt
+            && Date.now() - this.lastSubmitAt < 2000) {
+            console.info(`[CrusorAI] duplicate submit ignored while turn is active: ${submissionId}`);
+            return;
+        }
+        this.lastSubmittedPrompt = promptText;
+        this.lastSubmissionId = submissionId;
+        this.lastSubmissionCompleted = false;
+        this.lastSubmitAt = Date.now();
+        if (!this.sessionId) {
+            this.pendingPrompt = promptText;
+            this.pendingSubmissionId = submissionId;
+            this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
+            this.render();
+            return;
+        }
+        this.startTurn(promptText, submissionId);
+    }
+    newSubmissionId() {
+        try {
+            const uuid = globalThis.crypto?.randomUUID?.();
+            if (uuid) {
+                return `sub-${uuid}`;
+            }
+        }
+        catch { /* fall through */ }
+        return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
     }
     /**
      * A turn opened by code outside the composer (today: the Preview window's
@@ -1775,7 +1813,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // startTurn on session_info, and pre-setting it would archive a
         // bubble-only turn and paint the message twice.
         this.pendingPrompt = text;
-        this.send({ type: 'session_create', workspace: this.workspacePath });
+        this.pendingSubmissionId = this.newSubmissionId();
+        this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: this.pendingSubmissionId });
         this.render();
         return false;
     }
@@ -1831,10 +1870,15 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.turnOutcome = 'running';
         this.turnStartedAt = Date.now();
     }
-    startTurn(text) {
+    startTurn(text, submissionId) {
         this.archiveLiveTurn();
         this.resetTurnState(text);
-        this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
+        const payload = {
+            type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath,
+            text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none',
+            ...(submissionId ? { submission_id: submissionId } : {}),
+        };
+        this.send(payload);
         this.render();
     }
     /**
@@ -2228,10 +2272,23 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     this.acceptFrame(event);
                 }
             }
+            if (frame.duplicate_submission) {
+                const hadPending = !!this.pendingPrompt;
+                this.pendingPrompt = undefined;
+                this.pendingSubmissionId = undefined;
+                if (hadPending && !this.running) {
+                    this.error = `This submission was already accepted (${frame.submission_state ?? 'known'}); start a new prompt instead of resending it.`;
+                }
+                console.info(`[CrusorAI] duplicate submission ack: session=${frame.session_id} state=${frame.submission_state ?? '?'}`);
+                this.render();
+                return;
+            }
             if (this.pendingPrompt) {
                 const prompt = this.pendingPrompt;
+                const submissionId = this.pendingSubmissionId;
                 this.pendingPrompt = undefined;
-                this.startTurn(prompt);
+                this.pendingSubmissionId = undefined;
+                this.startTurn(prompt, submissionId);
                 return;
             }
             // Rename/pin/archive acks re-sync the list so the row shows the new truth.
@@ -2526,6 +2583,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         else if (frame.type === 'turn_done') {
             this.running = false;
+            this.lastSubmissionCompleted = true;
             if (frame.cancelled === true) {
                 this.interrupt = this.stampInterrupt();
             }
@@ -2572,6 +2630,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         else if (frame.type === 'turn_failed') {
             this.running = false;
+            this.lastSubmissionCompleted = false;
             this.cancelRequested = false;
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
@@ -2824,11 +2883,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 source: detailLine ? `${detailLine}` : 'Crusor Agent finished',
                 actions: {
                     primary: [{
-                            id: CrusorAICommandId.Focus,
+                            id: "crusorai.focus" /* CrusorAICommandId.Focus */,
                             label: 'Open Crusor',
                             tooltip: 'Focus Crusor Agent',
                             enabled: true,
-                            run: () => { void this.commandService.executeCommand(CrusorAICommandId.Focus); }
+                            run: () => { void this.commandService.executeCommand("crusorai.focus" /* CrusorAICommandId.Focus */); }
                         }]
                 }
             });

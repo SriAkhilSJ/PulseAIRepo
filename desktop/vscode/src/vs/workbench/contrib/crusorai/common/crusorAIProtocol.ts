@@ -61,6 +61,11 @@ export interface CrusorSessionInfo {
 	readonly resumed?: boolean;
 	readonly forked_from?: string;
 	readonly queued?: number;
+	/** Live11 exactly-once: this frame is a replay, not a new turn. */
+	readonly duplicate_submission?: boolean;
+	readonly submission_state?: string;
+	readonly submission_reason?: string;
+	readonly legacy_replay?: boolean;
 	readonly cancel_requested?: boolean;
 	readonly steer_accepted?: boolean;
 	readonly safety_resolved?: boolean;
@@ -188,6 +193,8 @@ interface CrusorSessionRequest {
 	readonly session_id?: string;
 	readonly thread_id?: string;
 	readonly workspace?: string;
+	/** Stable idempotency key for one logical user submission (Live11). */
+	readonly submission_id?: string;
 }
 
 export type CrusorClientMethod =

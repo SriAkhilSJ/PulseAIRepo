@@ -28,7 +28,23 @@ class UnaccountedProviderCall(RuntimeError):
 _CURRENT_SCOPE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
     "crusor_invocation_scope", default=None,
 )
+_CURRENT_SUBMISSION: ContextVar[str] = ContextVar(
+    "crusor_submission_id", default="",
+)
 _LEDGER_LOCK = threading.Lock()
+
+
+def set_submission_id(submission_id: str | None):
+    """Bind the current thread/context to one submission id."""
+    return _CURRENT_SUBMISSION.set(str(submission_id or ""))
+
+
+def reset_submission_id(token) -> None:
+    _CURRENT_SUBMISSION.reset(token)
+
+
+def current_submission_id() -> str:
+    return _CURRENT_SUBMISSION.get() or os.environ.get("CRUSORAI_SUBMISSION_ID", "")
 
 
 def new_invocation_id() -> str:
@@ -49,6 +65,7 @@ def invocation_scope(
     provider: str = "",
     model: str = "",
     purpose: str = "",
+    submission_id: str = "",
 ) -> Iterator[Dict[str, Any]]:
     """Mark the next provider call as financially reserved and attributable."""
     scope = {
@@ -60,6 +77,7 @@ def invocation_scope(
         "provider": provider,
         "model": model,
         "purpose": purpose,
+        "submission_id": submission_id or current_submission_id(),
     }
     token = _CURRENT_SCOPE.set(scope)
     try:
@@ -96,6 +114,7 @@ def record_invocation(workspace: str | Path, record: Dict[str, Any]) -> str:
         "run_id": record.get("run_id") or os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", ""),
         "session_id": record.get("session_id") or os.environ.get("CRUSORAI_SESSION_ID", ""),
         "turn_id": record.get("turn_id") or os.environ.get("CRUSORAI_TURN_ID", ""),
+        "submission_id": record.get("submission_id") or current_submission_id(),
         "workspace_id": record.get("workspace_id") or os.environ.get("CRUSORAI_WORKSPACE_ID", ""),
         "parent_invocation_id": record.get("parent_invocation_id", ""),
         "task_id": record.get("task_id", ""),
@@ -108,6 +127,16 @@ def record_invocation(workspace: str | Path, record: Dict[str, Any]) -> str:
         "usage_record_id": record.get("usage_record_id", ""),
         "settlement_id": record.get("settlement_id", ""),
         "status": record.get("status", "unknown"),
+        "requested_output_tokens": (
+            int(record["requested_output_tokens"])
+            if record.get("requested_output_tokens") is not None else None
+        ),
+        "finish_reason": record.get("finish_reason", ""),
+        "response_received_at": (
+            float(record["response_received_at"])
+            if record.get("response_received_at") is not None else None
+        ),
+        "usage_receipt_present": record.get("usage_receipt_present"),
         "input_tokens": int(record.get("input_tokens") or 0),
         "output_tokens": int(record.get("output_tokens") or 0),
         "cached_tokens": int(record.get("cached_tokens") or 0),
