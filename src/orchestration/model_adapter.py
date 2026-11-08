@@ -719,6 +719,10 @@ class ModelExecutionAdapter:
         self.provider = provider or os.environ.get("LLM_PROVIDER")
         self.model = model or os.environ.get("LLM_MODEL")
         self.authorizer = get_tool_authorizer()
+        #: P0.6.9.x: bounded generation recoveries (one per source target by
+        #: default). Each recovery is a NEW paid dispatch with its own
+        #: reservation/settlement; it is never hidden inside the first call.
+        self.generation_recoveries: list[dict[str, Any]] = []
 
     def execute_node(
         self,
@@ -807,6 +811,7 @@ class ModelExecutionAdapter:
                         blueprint=blueprint,
                         project_knowledge=project_knowledge,
                         finops=finops,
+                        cancellation_checker=cancellation_checker,
                     )
 
                 # Prevent placeholder 'return OK' handlers from being accepted in any execution mode
@@ -1006,6 +1011,7 @@ class ModelExecutionAdapter:
         blueprint: Any,
         project_knowledge: Any,
         finops: OrchestrationFinOpsGovernor,
+        cancellation_checker: Optional[Callable[[], bool]] = None,
     ) -> str:
         """Invokes the configured LLM provider to author real code with verified FinOps accounting."""
         from src.config.settings import LLM_PROVIDER, LLM_MODEL
@@ -1052,14 +1058,103 @@ class ModelExecutionAdapter:
             f"Return ONLY the code block, with no conversational preamble."
         )
 
-        return self._dispatch_code_prompt(
-            prompt=prompt,
-            target_file=target_file,
-            purpose=f"node_{node.node_id}",
-            max_output_tokens=getattr(node, "max_tokens", None) or 2048,
-            finops=finops,
-            log_label=node.node_id,
+        # Provider-aware effective ceiling. The request must not exceed what the
+        # catalog/endpoint says the model can emit; when the provider states
+        # nothing, the requested value stands (no invented global cap).
+        from src.llm.output_budget import requested_output_cap
+
+        requested_ceiling = int(getattr(node, "max_tokens", None) or 2048)
+        effective_ceiling = requested_output_cap(
+            mod, provider=prov, requested=requested_ceiling,
         )
+        log.info(
+            "generation ceiling for %s: requested=%d effective=%d provider=%s model=%s",
+            node.node_id, requested_ceiling, effective_ceiling, prov, mod,
+        )
+
+        max_recoveries = self._max_generation_recoveries()
+        recoveries = 0
+        current_prompt = prompt
+        purpose = f"node_{node.node_id}"
+        while True:
+            try:
+                return self._dispatch_code_prompt(
+                    prompt=current_prompt,
+                    target_file=target_file,
+                    purpose=purpose,
+                    max_output_tokens=effective_ceiling,
+                    finops=finops,
+                    log_label=node.node_id,
+                )
+            except IncompleteModelOutputError as exc:
+                if recoveries >= max_recoveries:
+                    raise
+                if cancellation_checker and cancellation_checker():
+                    raise TurnCancelledError(
+                        "Task execution cancelled before generation recovery"
+                    )
+                if not self._recovery_capacity_available():
+                    log.warning(
+                        "generation incomplete for %s and no dispatch capacity remains",
+                        target_file,
+                    )
+                    raise
+                recoveries += 1
+                purpose = f"node_{node.node_id}_recovery{recoveries}"
+                current_prompt = prompt + self._recovery_instruction()
+                self.generation_recoveries.append({
+                    "node_id": node.node_id,
+                    "target_file": target_file,
+                    "attempt": recoveries,
+                    "reason": str(exc)[:300],
+                    "requested_ceiling": requested_ceiling,
+                    "effective_ceiling": effective_ceiling,
+                })
+                log.warning(
+                    "generation recovery %d for %s: provider stopped early (%s); "
+                    "redispatching with a minimal-output contract",
+                    recoveries, target_file, type(exc).__name__,
+                )
+
+    @staticmethod
+    def _recovery_instruction() -> str:
+        """Deterministic regeneration contract — never a partial merge.
+
+        We deliberately do NOT append the truncated response: assembling a
+        Python file from arbitrary line ranges cannot be proven free of
+        duplicated headers, missing imports or conflicting definitions. A fresh
+        complete generation is the only reconstruction with a checkable
+        invariant (one symbol, one file, AST-valid, contract-valid).
+        """
+        return (
+            "\n\nRECOVERY: Your previous response for this file was truncated at the "
+            "provider's output limit. Produce a COMPLETE but MINIMAL file now.\n"
+            "Hard limits: at most 120 lines; only the public symbol(s) in the contract; "
+            "no examples, no test code, no CLI, no README, no extra classes or constants, "
+            "no repeated definitions. Keep imports minimal. Return ONLY the file."
+        )
+
+    @staticmethod
+    def _max_generation_recoveries() -> int:
+        raw = os.environ.get("CRUSORAI_MAX_GENERATION_RECOVERIES", "1").strip()
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 1
+        return max(0, min(value, 2))
+
+    @staticmethod
+    def _recovery_capacity_available() -> bool:
+        """Respect the live acceptance guard before spending another dispatch."""
+        try:
+            from src.llm.acceptance_guard import active_guard
+
+            guard = active_guard()
+        except Exception:
+            return True
+        if guard is None:
+            return True
+        return int(guard.remaining) > 0
 
     def _dispatch_code_prompt(
         self,
@@ -1146,7 +1241,11 @@ class ModelExecutionAdapter:
 
         invocation_id = new_invocation_id()
         dispatch_started = time.time()
-        operation_type = "repair" if str(purpose).startswith("repair_") else "implementation"
+        operation_type = (
+            "repair" if str(purpose).startswith("repair_")
+            else "recovery" if "_recovery" in str(purpose)
+            else "implementation"
+        )
 
         def _ledger_record(
             status: str,

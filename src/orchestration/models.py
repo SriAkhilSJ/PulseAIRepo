@@ -490,6 +490,7 @@ class DeliveryContract:
     #: P0.6.8 contract-first evidence.
     contract: Dict[str, Any] = field(default_factory=dict)
     cross_file_validation: Dict[str, Any] = field(default_factory=dict)
+    generation_recoveries: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -516,5 +517,6 @@ class DeliveryContract:
             "requirement_verification": self.requirement_verification,
             "contract": self.contract,
             "cross_file_validation": self.cross_file_validation,
+            "generation_recoveries": self.generation_recoveries,
         }
 

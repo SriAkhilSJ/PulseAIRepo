@@ -734,7 +734,16 @@ class EngineeringExecutionOrchestrator:
             raise RuntimeError(f"Implementation task node execution failed: {first_fail}")
 
         journal.record_event("IMPLEMENTATION_DONE", {"mutated_files": list(self.impl_engine.mutated_files)})
-        lifecycle.complete_stage({"files": list(self.impl_engine.mutated_files)})
+        generation_recoveries = list(getattr(self.model_adapter, "generation_recoveries", []) or [])
+        if generation_recoveries:
+            journal.record_event("GENERATION_RECOVERIES", {
+                "count": len(generation_recoveries),
+                "recoveries": generation_recoveries,
+            })
+        lifecycle.complete_stage({
+            "files": list(self.impl_engine.mutated_files),
+            "generation_recoveries": len(generation_recoveries),
+        })
 
         # ------------------------------------------------------------------
         # P0.6.7 STAGE 11-13: artifact validation -> test discovery/execution
@@ -1324,6 +1333,7 @@ class EngineeringExecutionOrchestrator:
             requirement_verification=[r.to_dict() for r in verification_report.requirements],
             contract=contract.to_dict(),
             cross_file_validation=cross_file_report or {},
+            generation_recoveries=generation_recoveries,
         )
 
         journal.record_event("TASK_DELIVERED", delivery.to_dict())
