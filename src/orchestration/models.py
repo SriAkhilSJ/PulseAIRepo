@@ -30,6 +30,9 @@ class TaskExecutionState(str, enum.Enum):
     ARCHITECTURE_REVIEW = "ARCHITECTURE_REVIEW"
     APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
     PLANNING = "PLANNING"
+    CONTRACT_EXTRACTED = "CONTRACT_EXTRACTED"
+    FILES_ASSIGNED = "FILES_ASSIGNED"
+    PLAN_VALIDATED = "PLAN_VALIDATED"
     IMPACT_ANALYSIS = "IMPACT_ANALYSIS"
     BASELINE_TESTING = "BASELINE_TESTING"
     READY_TO_IMPLEMENT = "READY_TO_IMPLEMENT"
@@ -39,6 +42,7 @@ class TaskExecutionState(str, enum.Enum):
     VALIDATING_ARTIFACTS = "VALIDATING_ARTIFACTS"
     DISCOVERING_TESTS = "DISCOVERING_TESTS"
     EXECUTING_TESTS = "EXECUTING_TESTS"
+    CROSS_FILE_VALIDATED = "CROSS_FILE_VALIDATED"
     FAILURE_DIAGNOSIS = "FAILURE_DIAGNOSIS"
     CORRECTING = "CORRECTING"
     RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
@@ -57,6 +61,10 @@ class TaskLifecycleStage(str, enum.Enum):
     PROJECT_DISCOVERY = "PROJECT_DISCOVERY"
     REQUIREMENT_VALIDATION = "REQUIREMENT_VALIDATION"
     ARCHITECTURE_VALIDATION = "ARCHITECTURE_VALIDATION"
+    CONTRACT_EXTRACTION = "CONTRACT_EXTRACTION"
+    FILE_ASSIGNMENT = "FILE_ASSIGNMENT"
+    PLAN_VALIDATION = "PLAN_VALIDATION"
+    CROSS_FILE_VALIDATION = "CROSS_FILE_VALIDATION"
     ENGINEERING_PLAN = "ENGINEERING_PLAN"
     CHANGE_IMPACT_ANALYSIS = "CHANGE_IMPACT_ANALYSIS"
     TEST_BASELINE = "TEST_BASELINE"
@@ -118,7 +126,21 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
     TaskExecutionState.ARCHITECTURE_REVIEW: {
         TaskExecutionState.APPROVAL_REQUIRED,
         TaskExecutionState.PLANNING,
+        TaskExecutionState.CONTRACT_EXTRACTED,
         TaskExecutionState.BLOCKED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.CONTRACT_EXTRACTED: {
+        TaskExecutionState.FILES_ASSIGNED,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.FILES_ASSIGNED: {
+        TaskExecutionState.PLANNING,
+        TaskExecutionState.PLAN_VALIDATED,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
         TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.APPROVAL_REQUIRED: {
@@ -129,11 +151,18 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
         TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.PLANNING: {
+        TaskExecutionState.PLAN_VALIDATED,
         TaskExecutionState.IMPACT_ANALYSIS,
         TaskExecutionState.APPROVAL_REQUIRED,
         TaskExecutionState.BLOCKED,
         TaskExecutionState.CANCELLED,
         TaskExecutionState.FAILED,
+    },
+    TaskExecutionState.PLAN_VALIDATED: {
+        TaskExecutionState.IMPACT_ANALYSIS,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.IMPACT_ANALYSIS: {
         TaskExecutionState.BASELINE_TESTING,
@@ -165,10 +194,18 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
     },
     TaskExecutionState.VALIDATING_ARTIFACTS: {
         TaskExecutionState.DISCOVERING_TESTS,
+        TaskExecutionState.CROSS_FILE_VALIDATED,
         TaskExecutionState.EXECUTING_TESTS,
         TaskExecutionState.TESTING,
         TaskExecutionState.BLOCKED,
         TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.CROSS_FILE_VALIDATED: {
+        TaskExecutionState.DISCOVERING_TESTS,
+        TaskExecutionState.EXECUTING_TESTS,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.BLOCKED,
         TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.DISCOVERING_TESTS: {
@@ -288,6 +325,10 @@ class EngineeringTaskNode:
     acceptance_criteria: List[str] = field(default_factory=list)
     completion_conditions: List[str] = field(default_factory=list)
     max_tokens: Optional[int] = None  # per-node provider output ceiling
+    #: P0.6.8 contract-first planning fields.
+    file_role: str = "SOURCE"
+    contract: Dict[str, Any] = field(default_factory=dict)
+    contract_hash: str = ""
     status: str = "PENDING"  # PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED
     error_message: Optional[str] = None
     started_at: Optional[float] = None
@@ -309,6 +350,9 @@ class EngineeringTaskNode:
             "acceptance_criteria": self.acceptance_criteria,
             "completion_conditions": self.completion_conditions,
             "max_tokens": self.max_tokens,
+            "file_role": self.file_role,
+            "contract": self.contract,
+            "contract_hash": self.contract_hash,
             "status": self.status,
             "error_message": self.error_message,
             "started_at": self.started_at,
@@ -332,6 +376,9 @@ class EngineeringTaskNode:
             acceptance_criteria=data.get("acceptance_criteria", []),
             completion_conditions=data.get("completion_conditions", []),
             max_tokens=data.get("max_tokens"),
+            file_role=data.get("file_role", "SOURCE"),
+            contract=data.get("contract") or {},
+            contract_hash=data.get("contract_hash", ""),
             status=data.get("status", "PENDING"),
             error_message=data.get("error_message"),
             started_at=data.get("started_at"),
@@ -440,6 +487,9 @@ class DeliveryContract:
     test_evidence: Dict[str, Any] = field(default_factory=dict)
     repair_attempts: List[Dict[str, Any]] = field(default_factory=list)
     requirement_verification: List[Dict[str, Any]] = field(default_factory=list)
+    #: P0.6.8 contract-first evidence.
+    contract: Dict[str, Any] = field(default_factory=dict)
+    cross_file_validation: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -464,5 +514,7 @@ class DeliveryContract:
             "test_evidence": self.test_evidence,
             "repair_attempts": self.repair_attempts,
             "requirement_verification": self.requirement_verification,
+            "contract": self.contract,
+            "cross_file_validation": self.cross_file_validation,
         }
 

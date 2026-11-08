@@ -917,6 +917,85 @@ class ModelExecutionAdapter:
         ]
         return "\n".join(lines)
 
+    def _contract_block(self, node: EngineeringTaskNode, target_file: str) -> str:
+        """Render the authoritative contract for this work unit.
+
+        P0.6.7's live failure came from prose-only prompts: the model invented a
+        timedelta API and a test import path the user never requested. This
+        block is shared by source and test nodes and carries the same hash.
+        """
+        data = getattr(node, "contract", None) or {}
+        if not data:
+            return ""
+        role = str(data.get("role") or getattr(node, "file_role", "SOURCE"))
+        symbols = data.get("symbols") or []
+        signatures = data.get("signatures") or {}
+        returns = data.get("returns")
+        lines = [
+            "",
+            "AUTHORITATIVE ENGINEERING CONTRACT",
+            f"Contract hash: {getattr(node, 'contract_hash', '') or data.get('contract_hash', '')}",
+            f"File role: {role}",
+            f"Target file: {target_file}",
+        ]
+        responsibility = (data.get("responsibility") or "").strip()
+        if responsibility:
+            lines.append(f"Responsibility: {responsibility[:1200]}")
+        if symbols:
+            rendered = []
+            for symbol in symbols:
+                params = signatures.get(symbol)
+                rendered.append(f"{symbol}({', '.join(params)})" if params is not None else symbol)
+            lines.append("Required public symbol(s): " + ", ".join(rendered))
+        if returns:
+            lines.append(f"Return type: {returns}")
+        if data.get("units"):
+            lines.append("Supported units/values: " + ", ".join(data["units"]))
+        if data.get("errors"):
+            rendered_errors = "; ".join(
+                f"{e.get('type')} for {e.get('when')}" if e.get("when") else str(e.get("type"))
+                for e in data["errors"]
+            )
+            lines.append("Error behavior: " + rendered_errors)
+        if data.get("forbidden"):
+            lines.append("Forbidden: " + "; ".join(data["forbidden"]))
+        if data.get("imports"):
+            rendered_imports = []
+            for item in data["imports"]:
+                module = item.get("module")
+                names = item.get("symbols") or []
+                if module and names:
+                    rendered_imports.append(f"from {module} import {', '.join(names)}")
+                elif module:
+                    rendered_imports.append(f"import {module}")
+            if rendered_imports:
+                lines.append("Import contract: " + " | ".join(rendered_imports))
+        if data.get("test_cases"):
+            rendered_cases = []
+            for case in data["test_cases"][:20]:
+                if case.get("raises"):
+                    rendered_cases.append(f"{case.get('input')!r} raises {case['raises']}")
+                else:
+                    rendered_cases.append(f"{case.get('input')!r} -> {case.get('expected')!r}")
+            lines.append("Required test cases: " + "; ".join(rendered_cases))
+        if data.get("edge_cases"):
+            lines.append("Edge cases: " + " | ".join(str(e)[:200] for e in data["edge_cases"][:8]))
+        if data.get("requirement_ids"):
+            lines.append("Requirement IDs: " + ", ".join(data["requirement_ids"]))
+        if role == "TEST":
+            lines.append(
+                "This file is TESTS. Import the implementation exactly as the import contract "
+                "states. Do not invent symbols, classes or behaviors that are not in the contract. "
+                "Do not weaken or omit the required cases."
+            )
+        else:
+            lines.append(
+                "This file is the IMPLEMENTATION. Follow this contract exactly: do not rename "
+                "symbols, change parameters or return types, add public APIs, classes, constants, "
+                "CLI entry points, units or behaviors that are not listed. Minimal scope wins."
+            )
+        return "\n".join(lines) + "\n"
+
     def _call_model_for_implementation(
         self,
         node: EngineeringTaskNode,
@@ -949,6 +1028,7 @@ class ModelExecutionAdapter:
             f"Requirements to satisfy: {req_list}\n"
             f"Target file path: {target_file}\n"
         )
+        prompt += self._contract_block(node, target_file)
         if existing_content:
             prompt += f"\nExisting file content:\n```\n{existing_content}\n```\n"
         # Exact-name contract. The user's request names its public symbols; the
@@ -966,8 +1046,8 @@ class ModelExecutionAdapter:
                 + "\nUse EXACTLY these names. Do not rename, wrap or abbreviate them.\n"
             )
         prompt += (
-            f"\nGenerate the complete, robust, production-quality implementation of {target_file}.\n"
-            f"Include comprehensive error handling, type annotations, and docstrings.\n"
+            f"\nGenerate the complete implementation of {target_file} that satisfies the contract above.\n"
+            f"Keep the public surface minimal. Include type annotations and a short docstring.\n"
             f"Return ONLY the code block, with no conversational preamble."
         )
 
@@ -1189,6 +1269,7 @@ class ModelExecutionAdapter:
             f"```\n{failure_evidence}\n```\n"
             f"Current file content:\n```\n{current}\n```\n"
         )
+        prompt += self._contract_block(node, target_file)
         if required_symbols:
             prompt += (
                 "\nRequired public symbol(s): " + ", ".join(required_symbols)

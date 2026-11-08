@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from src.impact.models import ChangeImpactReport
@@ -168,6 +169,7 @@ class EngineeringTaskPlanner:
         max_nodes: Optional[int] = None,
         requested_files: Optional[list[str]] = None,
         task_prompt: Optional[str] = None,
+        contract: Optional[Any] = None,
     ) -> EngineeringPlanDAG:
         """
         Synthesizes an EngineeringPlanDAG tailored strictly to approved requirements.
@@ -195,6 +197,19 @@ class EngineeringTaskPlanner:
             }
             for req in optional_reqs
         ]
+
+        # P0.6.8: contract-first planning. When a contract is supplied, work
+        # units come from its components (role, target file, requirement ids and
+        # structured contract fields) instead of positional file assignment.
+        if contract is not None:
+            return self._build_contract_plan(
+                dag,
+                contract,
+                task_prompt=task_prompt,
+                blueprint=blueprint,
+                impact_report=impact_report,
+                max_nodes=max_nodes,
+            )
 
         # 2. Extract tasks directly mapped to requirements
         created_nodes: Dict[str, EngineeringTaskNode] = {}
@@ -412,6 +427,112 @@ class EngineeringTaskPlanner:
         dag.add_node(verify_node)
 
         # Validate DAG dependencies and topological order
+        dag.get_execution_order()
+        return dag
+
+    def _build_contract_plan(
+        self,
+        dag: EngineeringPlanDAG,
+        contract: Any,
+        *,
+        task_prompt: Optional[str],
+        blueprint: Any,
+        impact_report: Any,
+        max_nodes: Optional[int],
+    ) -> EngineeringPlanDAG:
+        """Turn validated contract components into one work unit per file.
+
+        The contract already resolved Requirement → Role → File. The planner does
+        not re-decide roles, reorder files or invent targets here.
+        """
+        from src.orchestration.contract import FileRole
+
+        adr_ids = [adr.id for adr in (blueprint.adrs if blueprint else [])]
+        risk = "LOW"
+        if impact_report:
+            risk = getattr(
+                getattr(impact_report, "risk_classification", None), "value",
+                str(getattr(impact_report, "risk_classification", "LOW")),
+            )
+
+        nodes: List[EngineeringTaskNode] = []
+        used_ids: Set[str] = set()
+        for component in contract.components:
+            role = str(component.role)
+            stem = Path(str(component.target_file)).stem
+            prefix = "tests_" if role == FileRole.TEST.value else ""
+            node_id = f"task_{prefix}{stem}"
+            suffix = 1
+            base = node_id
+            while node_id in used_ids:
+                suffix += 1
+                node_id = f"{base}_{suffix}"
+            used_ids.add(node_id)
+
+            requirement_ids = list(component.requirement_ids)
+            objective = (task_prompt or component.responsibility or f"Create {component.target_file}").strip()
+            node = EngineeringTaskNode(
+                node_id=node_id,
+                description=(
+                    f"{role} {component.target_file}: "
+                    f"{(component.responsibility or component.name)[:140]}"
+                ),
+                objective=objective,
+                related_requirement_ids=requirement_ids,
+                related_architecture_decisions=adr_ids,
+                target_files=[component.target_file],
+                dependencies=[],
+                risk_level=risk,
+                expected_outputs=[f"Working {component.target_file}"],
+                required_tests=[f"test_{rid.lower().replace('-', '_')}" for rid in requirement_ids],
+                acceptance_criteria=["Passes the authoritative engineering contract"],
+                completion_conditions=["Contract-consistent tests pass"],
+                file_role=role,
+                contract=component.to_dict(),
+                contract_hash=contract.contract_hash,
+            )
+            nodes.append(node)
+
+        if not nodes:
+            nodes.append(EngineeringTaskNode(
+                node_id="task_main",
+                description="Implement requested task outcome",
+                objective=(task_prompt or "Fulfill the user request").strip(),
+                target_files=["src/main_task.py"],
+                expected_outputs=["Working code"],
+                acceptance_criteria=["Passes verification"],
+                completion_conditions=["Clean tests"],
+            ))
+
+        demand = len(nodes)
+        if max_nodes is not None and demand > int(max_nodes):
+            raise PlanBudgetExceeded(
+                requested_nodes=demand,
+                allowed_nodes=int(max_nodes),
+                requirement_ids=sorted({
+                    rid for c in contract.components for rid in c.requirement_ids
+                }),
+            )
+
+        for node in nodes:
+            dag.add_node(node)
+
+        impl_keys = [n.node_id for n in nodes]
+        verification = EngineeringTaskNode(
+            node_id="task_verification",
+            description="Run contract verification and independent completion checks",
+            objective="Ensure every contract requirement is verified by executed tests",
+            related_requirement_ids=sorted({
+                rid for c in contract.components for rid in c.requirement_ids
+            }),
+            dependencies=impl_keys,
+            risk_level="LOW",
+            expected_outputs=["Cross-file report", "Test report"],
+            required_tests=["suite_verification"],
+            acceptance_criteria=["Contract report clean", "Executed tests pass"],
+            completion_conditions=["Completion gate satisfied"],
+        )
+        dag.add_node(verification)
         dag.get_execution_order()
         return dag
 

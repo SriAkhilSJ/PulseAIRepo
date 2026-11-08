@@ -101,6 +101,7 @@ class IndependentVerificationEngine:
         requirement_tests: Optional[Dict[str, List[str]]] = None,
         require_test_evidence: bool = False,
         test_execution_error: Optional[str] = None,
+        contract_failures: Optional[Dict[str, List[str]]] = None,
     ) -> VerificationReport:
         """
         Executes complete, independent verification across all quality dimensions.
@@ -137,6 +138,7 @@ class IndependentVerificationEngine:
             requirement_tests=requirement_tests,
             require_test_evidence=require_test_evidence,
             test_execution_error=test_execution_error,
+            contract_failures=contract_failures,
         )
 
         # 4. Application runtime probe (if requested/applicable)

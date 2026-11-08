@@ -222,7 +222,13 @@ class EngineeringExecutionOrchestrator:
         return None
 
     def _test_integrity_guard(self, target_file: str):
-        """Refuse a repaired test that deletes, skips or xfails assertions."""
+        """Refuse a repaired test that deletes, skips or weakens verification.
+
+        P0.6.8 adds a stable inventory comparison (test functions + assertion
+        counts + exception assertions + params) on top of the P0.6.7 auditor so
+        import-only maintenance is allowed while coverage loss is not.
+        """
+        from src.orchestration.contract import audit_test_repair
         from src.regression.integrity import TestIntegrityAuditor
 
         auditor = TestIntegrityAuditor()
@@ -232,12 +238,16 @@ class EngineeringExecutionOrchestrator:
             original = path.read_text(encoding="utf-8", errors="replace")
 
         def guard(candidate: str) -> str:
-            violations = auditor.audit_test_modification(target_file, original, candidate)
+            violations = list(audit_test_repair(original, candidate))
+            try:
+                audit = auditor.audit_test_modification(target_file, original, candidate)
+                violations.extend(
+                    getattr(v, "description", None) or str(v) for v in audit
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                violations.append(f"integrity audit failed: {exc}")
             if violations:
-                descriptions = [
-                    getattr(v, "description", None) or str(v) for v in violations[:3]
-                ]
-                raise ValueError("test integrity violation: " + "; ".join(descriptions))
+                raise ValueError("test integrity violation: " + "; ".join(violations[:5]))
             return candidate
 
         return guard
@@ -491,6 +501,69 @@ class EngineeringExecutionOrchestrator:
         journal.record_event("ARCHITECTURE_ESTABLISHED", {"style": style_val, "stack": stack_val})
         lifecycle.complete_stage({"style": style_val})
 
+        # STAGE 5.5: CONTRACT EXTRACTION + FILE ASSIGNMENT (P0.6.8)
+        from src.orchestration.contract import (
+            extract_contract,
+            validate_contract_plan,
+        )
+
+        state_machine.transition_to(
+            TaskExecutionState.CONTRACT_EXTRACTED,
+            "Extracting the authoritative engineering contract",
+        )
+        lifecycle.begin_stage(TaskLifecycleStage.CONTRACT_EXTRACTION, {})
+        emit_progress("CONTRACT_EXTRACTION")
+        requested_files = self._requested_files(task_prompt)
+        raw_requirements = getattr(analysis_result.specification, "all_requirements", None)
+        if callable(raw_requirements):
+            all_requirements = raw_requirements()
+        elif raw_requirements:
+            all_requirements = raw_requirements
+        else:
+            all_requirements = getattr(analysis_result.specification, "requirements", [])
+        contract = extract_contract(
+            task_prompt,
+            all_requirements,
+            requested_files,
+            task_id=tid,
+            workspace=str(self.workspace_root),
+        )
+        contract_path = contract.persist(self.workspace_root)
+        journal.record_event("CONTRACT_EXTRACTED", {
+            "contract_hash": contract.contract_hash,
+            "version": contract.version,
+            "path": contract_path,
+            "components": [
+                {
+                    "role": component.role,
+                    "target": component.target_file,
+                    "requirement_ids": component.requirement_ids,
+                    "symbols": component.symbols,
+                    "signatures": component.signatures,
+                    "returns": component.returns,
+                    "units": component.units,
+                }
+                for component in contract.components
+            ],
+            "ambiguities": contract.ambiguities,
+            "optional_suggestions": contract.optional_suggestions,
+        })
+        lifecycle.complete_stage({"contract_hash": contract.contract_hash})
+
+        state_machine.transition_to(
+            TaskExecutionState.FILES_ASSIGNED,
+            "Assigning user-named files by semantic role",
+        )
+        lifecycle.begin_stage(TaskLifecycleStage.FILE_ASSIGNMENT, {})
+        emit_progress("FILES_ASSIGNED")
+        assignment_report = {
+            "requirement_map": contract.requirement_map,
+            "roles": {c.target_file: c.role for c in contract.components},
+            "ambiguities": contract.ambiguities,
+        }
+        journal.record_event("FILES_ASSIGNED", assignment_report)
+        lifecycle.complete_stage(assignment_report)
+
         # STAGE 6: ENGINEERING_PLAN (Phase 11.6 Planner)
         state_machine.transition_to(TaskExecutionState.PLANNING, "Generating structured engineering plan DAG")
         lifecycle.begin_stage(TaskLifecycleStage.ENGINEERING_PLAN, {})
@@ -502,21 +575,31 @@ class EngineeringExecutionOrchestrator:
             blueprint=arch_result.blueprint,
             knowledge=knowledge,
             max_nodes=dispatch_budget,
-            requested_files=self._requested_files(task_prompt),
+            requested_files=requested_files,
             task_prompt=task_prompt,
+            contract=contract,
         )
-        # Defense in depth: never execute a plan that cannot fit the budget.
+        # Pre-dispatch plan validation: Requirement -> Role -> File -> Work Unit.
         try:
             self._validate_plan_budget(plan_dag, dispatch_budget)
-        except Exception:
-            state_machine.transition_to(TaskExecutionState.FAILED, "Plan exceeds dispatch budget")
+            plan_report = validate_contract_plan(
+                contract,
+                plan_dag,
+                max_dispatches=dispatch_budget,
+                requested_files=requested_files,
+            )
+        except Exception as exc:
+            state_machine.transition_to(TaskExecutionState.FAILED, "Plan rejected before dispatch")
             journal.record_event("PLAN_REJECTED", {
-                "nodes": len(plan_dag.nodes),
-                "dispatches": sum(max(1, len(n.target_files)) for n in plan_dag.nodes.values()
-                                  if n.node_id != "task_verification"),
+                "reason": f"{type(exc).__name__}: {exc}",
                 "budget": dispatch_budget,
+                "requested_files": requested_files,
+                "requirement_map": contract.requirement_map,
             })
             raise
+        state_machine.transition_to(TaskExecutionState.PLAN_VALIDATED, "Contract plan validated")
+        journal.record_event("PLAN_VALIDATED", plan_report)
+        lifecycle.complete_stage(plan_report)
         # Per-node output ceiling from the limits (measured justification lives
         # on ExecutionLimits.max_output_tokens_per_node).
         ceiling = getattr(self.limits, "max_output_tokens_per_node", None)
@@ -529,8 +612,10 @@ class EngineeringExecutionOrchestrator:
             "nodes_count": len(plan_dag.nodes),
             "dispatch_budget": dispatch_budget,
             "per_node_output_tokens": ceiling,
+            "work_units": plan_report.get("work_units"),
+            "demand": plan_report.get("demand"),
+            "contract_hash": contract.contract_hash,
         })
-        lifecycle.complete_stage({"nodes": len(plan_dag.nodes)})
 
         # STAGE 7: CHANGE_IMPACT_ANALYSIS (Phase 11.4)
         state_machine.transition_to(TaskExecutionState.IMPACT_ANALYSIS, "Evaluating blast radius & affected components")
@@ -657,6 +742,8 @@ class EngineeringExecutionOrchestrator:
         # task lifecycle. Completion is refused without this evidence.
         # ------------------------------------------------------------------
         from src.orchestration.test_execution import (
+            FailureCategory,
+            FailureDiagnosis,
             RunnerKind,
             classify_failure,
             discover_tests,
@@ -684,6 +771,63 @@ class EngineeringExecutionOrchestrator:
                     if not entry.get("exists") or entry.get("ast_ok") is False
                 )
             )
+
+        # STAGE 11a: CROSS-FILE CONTRACT VALIDATION (P0.6.8)
+        from src.orchestration.contract import repair_test_imports, validate_cross_file
+
+        state_machine.transition_to(
+            TaskExecutionState.CROSS_FILE_VALIDATED,
+            "Validating imports, symbols, signatures and returns across generated files",
+        )
+        lifecycle.begin_stage(TaskLifecycleStage.CROSS_FILE_VALIDATION, {})
+        emit_progress("CROSS_FILE_VALIDATION")
+        cross_file_report = validate_cross_file(
+            self.workspace_root, contract, self.impl_engine.mutated_files,
+        )
+        # Deterministic, dispatch-free import repair for generated tests
+        # (P0.6.7's live failure: "from duration import" while the file is
+        # src/duration.py). This never changes assertions (inventory audited).
+        import_targets = sorted({
+            finding.get("file")
+            for finding in cross_file_report.get("errors", [])
+            if finding.get("code") == "wrong_import_path" and finding.get("file")
+        })
+        rewrites: List[Dict[str, Any]] = []
+        for target_file in import_targets:
+            if target_file not in self.impl_engine.mutated_files:
+                continue
+            changed, updated, notes = repair_test_imports(
+                self.workspace_root, target_file, contract,
+            )
+            if not changed:
+                continue
+            node = next(
+                (n for n in plan_dag.nodes.values() if target_file in n.target_files),
+                None,
+            )
+            if node is None:
+                continue
+            self.impl_engine.execute_node_mutation(
+                task_id=tid, node=node, rel_path=target_file, content=updated,
+            )
+            rewrites.append({"file": target_file, "notes": notes})
+            journal.record_event("TEST_REPAIR_APPLIED", {
+                "file": target_file,
+                "method": "import_rewrite",
+                "notes": notes,
+                "dispatch": False,
+            })
+        if rewrites:
+            cross_file_report = validate_cross_file(
+                self.workspace_root, contract, self.impl_engine.mutated_files,
+            )
+        journal.record_event("CROSS_FILE_VALIDATED", cross_file_report)
+        lifecycle.complete_stage({
+            "ok": bool(cross_file_report.get("ok")),
+            "errors": len(cross_file_report.get("errors") or []),
+            "warnings": len(cross_file_report.get("warnings") or []),
+            "import_rewrites": len(rewrites),
+        })
 
         state_machine.transition_to(TaskExecutionState.DISCOVERING_TESTS, "Discovering tests for this task")
         lifecycle.begin_stage(TaskLifecycleStage.TEST_DISCOVERY, {})
@@ -739,7 +883,10 @@ class EngineeringExecutionOrchestrator:
         repair_diagnosis: Optional[Dict[str, Any]] = None
         max_repairs = max(0, int(getattr(self.limits, "max_correction_attempts", 3) or 0))
 
-        while testing_required and not test_run.ok:
+        while (
+            (testing_required and not test_run.ok)
+            or (bool(cross_file_report) and not cross_file_report.get("ok"))
+        ):
             if cancellation_checker and cancellation_checker():
                 state_machine.transition_to(TaskExecutionState.CANCELLED, "Task cancelled during test verification")
                 journal.record_event("TASK_CANCELLED", {"stage": "TEST_EXECUTION"})
@@ -748,13 +895,32 @@ class EngineeringExecutionOrchestrator:
                     "Execution cancelled during test verification.",
                 )
 
-            diagnosis = classify_failure(
-                test_run,
-                workspace=self.workspace_root,
-                modified_files=self.impl_engine.mutated_files,
-                generated_test_files=discovery.generated,
-                prompt=task_prompt,
-            )
+            if test_run.ok and cross_file_report and not cross_file_report.get("ok"):
+                # Tests pass but the files contradict the contract statically
+                # (e.g. timedelta instead of int). Treat the implicated source
+                # files as implementation defects so a repair can fix them.
+                errors = cross_file_report.get("errors") or []
+                targets = sorted({
+                    e.get("file") for e in errors
+                    if e.get("file") and not is_test_file(str(e.get("file")))
+                })
+                diagnosis = FailureDiagnosis(
+                    category=FailureCategory.IMPLEMENTATION_DEFECT,
+                    reason="; ".join(str(e.get("message") or "") for e in errors[:4]),
+                    target_files=targets,
+                    failing_tests=[],
+                    repairable=bool(targets),
+                    details=errors,
+                )
+            else:
+                diagnosis = classify_failure(
+                    test_run,
+                    workspace=self.workspace_root,
+                    modified_files=self.impl_engine.mutated_files,
+                    generated_test_files=discovery.generated,
+                    prompt=task_prompt,
+                    contract=contract,
+                )
             repair_diagnosis = diagnosis.to_dict()
             state_machine.transition_to(TaskExecutionState.FAILURE_DIAGNOSIS, "Diagnosing failing tests")
             lifecycle.begin_stage(TaskLifecycleStage.FAILURE_DIAGNOSIS, {
@@ -811,6 +977,11 @@ class EngineeringExecutionOrchestrator:
             })
             emit_progress("REPAIRING")
             evidence_text = format_repair_evidence(test_run, diagnosis)
+            if cross_file_report and cross_file_report.get("errors"):
+                evidence_text += "\n\nStatic contract violations:\n" + "\n".join(
+                    f"- {e.get('code')}: {e.get('message')}"
+                    for e in cross_file_report["errors"][:10]
+                )
             guard = self._test_integrity_guard(target_file) if is_generated_test else None
             target_path = self.workspace_root / target_file
             before_hash = hashlib.sha256(target_path.read_bytes()).hexdigest() if target_path.exists() else ""
@@ -854,6 +1025,20 @@ class EngineeringExecutionOrchestrator:
             lifecycle.complete_stage(artifact_report)
             if not artifact_report.get("ok"):
                 break
+
+            state_machine.transition_to(
+                TaskExecutionState.CROSS_FILE_VALIDATED,
+                "Re-validating cross-file contract after repair",
+            )
+            lifecycle.begin_stage(TaskLifecycleStage.CROSS_FILE_VALIDATION, {"rerun": True})
+            cross_file_report = validate_cross_file(
+                self.workspace_root, contract, self.impl_engine.mutated_files,
+            )
+            journal.record_event("CROSS_FILE_VALIDATED", cross_file_report)
+            lifecycle.complete_stage({
+                "ok": bool(cross_file_report.get("ok")),
+                "errors": len(cross_file_report.get("errors") or []),
+            })
 
             state_machine.transition_to(TaskExecutionState.EXECUTING_TESTS, "Re-executing tests after repair")
             lifecycle.begin_stage(TaskLifecycleStage.TEST_EXECUTION, {"rerun": True})
@@ -957,6 +1142,10 @@ class EngineeringExecutionOrchestrator:
                 or discovery.reason
                 or "no test case was collected"
             )
+        contract_failures: Dict[str, List[str]] = {}
+        for finding in (cross_file_report.get("errors") or []):
+            for rid in finding.get("requirement_ids") or []:
+                contract_failures.setdefault(rid, []).append(str(finding.get("message") or ""))
 
         verification_report = self.verification_engine.verify_task(
             task_id=tid,
@@ -972,6 +1161,7 @@ class EngineeringExecutionOrchestrator:
             requirement_tests=requirement_tests,
             require_test_evidence=testing_required,
             test_execution_error=test_execution_error,
+            contract_failures=contract_failures,
         )
 
         is_clean = verification_report.verdict in {
@@ -1011,6 +1201,10 @@ class EngineeringExecutionOrchestrator:
         completion_reasons: List[str] = []
         if not artifact_report.get("ok"):
             completion_reasons.append("one or more artifacts are missing or structurally invalid")
+        if cross_file_report and not cross_file_report.get("ok"):
+            completion_reasons.append(
+                f"{len(cross_file_report.get('errors') or [])} cross-file contract violation(s)"
+            )
         if testing_required:
             if test_run.runner == RunnerKind.NONE.value:
                 completion_reasons.append(
@@ -1128,6 +1322,8 @@ class EngineeringExecutionOrchestrator:
             test_evidence=test_evidence,
             repair_attempts=repair_attempts,
             requirement_verification=[r.to_dict() for r in verification_report.requirements],
+            contract=contract.to_dict(),
+            cross_file_validation=cross_file_report or {},
         )
 
         journal.record_event("TASK_DELIVERED", delivery.to_dict())

@@ -40,6 +40,7 @@ class RequirementVerifier:
         requirement_tests: Optional[Dict[str, List[str]]] = None,
         require_test_evidence: bool = False,
         test_execution_error: Optional[str] = None,
+        contract_failures: Optional[Dict[str, List[str]]] = None,
     ) -> List[RequirementVerificationRecord]:
         """
         Evaluates each requirement defined in the ProjectSpecification.
@@ -75,6 +76,7 @@ class RequirementVerifier:
                 executed_test_ids=executed,
                 require_test_evidence=require_test_evidence,
                 test_execution_error=test_execution_error,
+                contract_failures=(contract_failures or {}).get(req_id) if req_id else None,
             )
             records.append(rec)
 
@@ -89,6 +91,7 @@ class RequirementVerifier:
         executed_test_ids: Optional[List[str]] = None,
         require_test_evidence: bool = False,
         test_execution_error: Optional[str] = None,
+        contract_failures: Optional[List[str]] = None,
     ) -> RequirementVerificationRecord:
         """
         Verifies one requirement against the plan's files and REAL test evidence.
@@ -235,6 +238,12 @@ class RequirementVerifier:
             status = RequirementVerificationStatus.PARTIALLY_VERIFIED
         else:
             status = RequirementVerificationStatus.FAILED
+
+        if contract_failures:
+            status = RequirementVerificationStatus.FAILED
+            remaining_limitations.extend(
+                f"Contract violation: {message}" for message in contract_failures[:5]
+            )
 
         if optional_suggestion and status != RequirementVerificationStatus.VERIFIED:
             status = RequirementVerificationStatus.NOT_APPLICABLE

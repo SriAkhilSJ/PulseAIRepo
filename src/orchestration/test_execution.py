@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 log = logging.getLogger("crusor.orchestration.test_execution")
 
@@ -798,6 +798,7 @@ def classify_failure(
     modified_files: Iterable[str],
     generated_test_files: Iterable[str] = (),
     prompt: str = "",
+    contract: Any = None,
 ) -> FailureDiagnosis:
     """Turn a run into a normalized, non-destructive diagnosis."""
     root = Path(workspace).resolve()
@@ -887,6 +888,11 @@ def classify_failure(
     test_failures: List[Dict[str, Any]] = []
     ambiguous: List[Dict[str, Any]] = []
     targets: List[str] = []
+    contract_returns: Set[str] = set()
+    if contract is not None:
+        for component in getattr(contract, "components", []):
+            if getattr(component, "role", "") == "SOURCE" and getattr(component, "returns", None):
+                contract_returns.add(str(component.returns))
 
     for case in failing:
         message = f"{case.failure_type or ''}: {case.message or ''}\n{case.traceback or ''}"
@@ -940,6 +946,28 @@ def classify_failure(
         elif "assertionerror" in lowered or case.failure_type == "AssertionError":
             category = FailureCategory.IMPLEMENTATION_DEFECT
             reason = "assertion failure against required behavior"
+        elif (
+            "did not raise" in lowered
+            or lowered.startswith("failed:")
+        ):
+            # pytest reports a missing expected exception as "Failed: DID NOT
+            # RAISE ..." with no AssertionError type. The contract required the
+            # error; the implementation did not honor it.
+            category = FailureCategory.IMPLEMENTATION_DEFECT
+            reason = "behavior contradicted the required contract"
+        elif (
+            contract_returns & {"int", "str", "bool", "float", "list", "dict"}
+            and ("has no attribute" in lowered or "not subscriptable" in lowered)
+            and case_file in generated_tests
+        ):
+            # The contract fixes a primitive return; a generated test calling an
+            # attribute of a richer type (P0.6.7: timedelta.total_seconds on an
+            # int) contradicts the contract. Repair the test, not the code.
+            category = FailureCategory.TEST_EXPECTATION_DEFECT
+            reason = (
+                "generated test expects a different return type than the "
+                f"authoritative contract ({', '.join(sorted(contract_returns))})"
+            )
         elif case.failure_type in {"TypeError", "ValueError", "AttributeError", "KeyError", "IndexError", "ZeroDivisionError"}:
             category = FailureCategory.IMPLEMENTATION_DEFECT
             reason = f"implementation raised {case.failure_type}"
