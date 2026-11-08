@@ -98,10 +98,12 @@ unavailable; it never returns the original unsanitized text.
 
 `src/tests/test_security_containment.py` (9 tests):
 
-1. **Static guard** — scans runtime source and the checkup for the Everyone/GA
-   SDDL, `SetSecurityInfo` (outside the documented sandbox allowlist),
-   `repair_winsta`, `runner.exe`, `-ExecutionPolicy Bypass`, `_trigger_repairs`,
-   `_diag_pid`, old developer paths and import-time `win32security`.
+1. **Static guard** — scans runtime source (`src/`, `benchmarks/`, the desktop
+   contribution) for the Everyone/GA SDDL, `SetSecurityInfo` (outside the
+   documented sandbox allowlist), `repair_winsta`, `runner.exe`,
+   `-ExecutionPolicy Bypass`, `_trigger_repairs`, `_diag_pid`, old developer
+   paths and import-time `win32security`. The checkup itself is covered by the
+   safety-guard tests below, not by this static scan.
 2. **Deleted scripts** — asserts both repair scripts are absent.
 3. **Import purity** — imports `src.context.vector_memory` and
    `src.context.context_engine` in a fresh guarded process; blocks
