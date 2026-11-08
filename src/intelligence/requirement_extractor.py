@@ -416,7 +416,11 @@ class RequirementExtractor:
         items = []
         c = start_counter
         # Scan for explicit functional sentences or clauses
-        sentences = [s.strip() for s in re.split(r"[.\n;]", prompt) if s.strip()]
+        # Split on sentence boundaries, newlines and semicolons. Do NOT split
+        # on every period: "src/email_validator.py" was previously shattered
+        # into "Create src/email_validator" + "py with a function ...", which
+        # invented requirements out of a path.
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+|;", prompt) if s.strip()]
         for sent in sentences:
             lowered = sent.lower()
             verbs = ["add", "create", "build", "generate", "implement", "support", "allow", "enable", "include", "provide", "handle", "integrate", "update"]

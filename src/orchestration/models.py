@@ -36,6 +36,9 @@ class TaskExecutionState(str, enum.Enum):
     IMPLEMENTING = "IMPLEMENTING"
     BUILDING = "BUILDING"
     TESTING = "TESTING"
+    VALIDATING_ARTIFACTS = "VALIDATING_ARTIFACTS"
+    DISCOVERING_TESTS = "DISCOVERING_TESTS"
+    EXECUTING_TESTS = "EXECUTING_TESTS"
     FAILURE_DIAGNOSIS = "FAILURE_DIAGNOSIS"
     CORRECTING = "CORRECTING"
     RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
@@ -60,6 +63,9 @@ class TaskLifecycleStage(str, enum.Enum):
     APPROVAL_AND_PERMISSION_CHECK = "APPROVAL_AND_PERMISSION_CHECK"
     IMPLEMENTATION = "IMPLEMENTATION"
     BUILD_AND_TEST_EXECUTION = "BUILD_AND_TEST_EXECUTION"
+    ARTIFACT_VALIDATION = "ARTIFACT_VALIDATION"
+    TEST_DISCOVERY = "TEST_DISCOVERY"
+    TEST_EXECUTION = "TEST_EXECUTION"
     FAILURE_DIAGNOSIS = "FAILURE_DIAGNOSIS"
     BOUNDED_CORRECTION = "BOUNDED_CORRECTION"
     REGRESSION_VERIFICATION = "REGRESSION_VERIFICATION"
@@ -149,9 +155,32 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
         TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.IMPLEMENTING: {
+        TaskExecutionState.VALIDATING_ARTIFACTS,
         TaskExecutionState.BUILDING,
         TaskExecutionState.TESTING,
         TaskExecutionState.RECOVERY_REQUIRED,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.VALIDATING_ARTIFACTS: {
+        TaskExecutionState.DISCOVERING_TESTS,
+        TaskExecutionState.EXECUTING_TESTS,
+        TaskExecutionState.TESTING,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.DISCOVERING_TESTS: {
+        TaskExecutionState.EXECUTING_TESTS,
+        TaskExecutionState.BLOCKED,
+        TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
+    },
+    TaskExecutionState.EXECUTING_TESTS: {
+        TaskExecutionState.TESTING,
+        TaskExecutionState.VERIFYING,
+        TaskExecutionState.FAILURE_DIAGNOSIS,
         TaskExecutionState.BLOCKED,
         TaskExecutionState.FAILED,
         TaskExecutionState.CANCELLED,
@@ -172,15 +201,21 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
     },
     TaskExecutionState.FAILURE_DIAGNOSIS: {
         TaskExecutionState.CORRECTING,
+        TaskExecutionState.TESTING,
+        TaskExecutionState.VERIFYING,
         TaskExecutionState.RECOVERY_REQUIRED,
         TaskExecutionState.BLOCKED,
         TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.CORRECTING: {
+        TaskExecutionState.VALIDATING_ARTIFACTS,
+        TaskExecutionState.EXECUTING_TESTS,
         TaskExecutionState.BUILDING,
         TaskExecutionState.TESTING,
         TaskExecutionState.RECOVERY_REQUIRED,
         TaskExecutionState.FAILED,
+        TaskExecutionState.CANCELLED,
     },
     TaskExecutionState.RECOVERY_REQUIRED: {
         TaskExecutionState.PLANNING,
@@ -192,6 +227,7 @@ VALID_TRANSITIONS: Dict[TaskExecutionState, Set[TaskExecutionState]] = {
         TaskExecutionState.COMPLETED,
         TaskExecutionState.PARTIALLY_COMPLETED,
         TaskExecutionState.FAILURE_DIAGNOSIS,
+        TaskExecutionState.BLOCKED,
         TaskExecutionState.FAILED,
     },
     TaskExecutionState.COMPLETED: set(),
@@ -219,6 +255,9 @@ class ExecutionLimits:
     max_cost_inr: float = 0.00  # Paid LLM budget: strictly INR 0.00
     max_file_modifications: int = 50
     max_concurrent_operations: int = 4
+    #: Hard ceiling for one in-turn test execution (no provider cost; keeps a
+    #: hanging project suite from blocking the turn forever).
+    test_timeout_seconds: float = 300.0
     #: Hard cap on provider dispatches for the whole task. None = unbounded.
     #: The orchestrator refuses a plan whose node count exceeds it, BEFORE any
     #: dispatch happens. The acceptance guard (P0.6.4.1) may lower it.
@@ -308,6 +347,10 @@ class EngineeringPlanDAG:
     nodes: Dict[str, EngineeringTaskNode] = field(default_factory=dict)
     revision: int = 1
     created_at: float = field(default_factory=time.time)
+    #: Requirements deliberately NOT turned into work because they were
+    #: analyzer suggestions (REASONABLE_DEFAULT / DISCOVERABLE). Recorded so a
+    #: smaller plan is a visible decision, not a silent drop.
+    optional_requirements: List[Dict[str, Any]] = field(default_factory=list)
 
     def add_node(self, node: EngineeringTaskNode) -> None:
         self.nodes[node.node_id] = node
@@ -354,6 +397,7 @@ class EngineeringPlanDAG:
             "revision": self.revision,
             "created_at": self.created_at,
             "nodes": {nid: n.to_dict() for nid, n in self.nodes.items()},
+            "optional_requirements": self.optional_requirements,
         }
 
     @classmethod
@@ -391,6 +435,11 @@ class DeliveryContract:
     evidence_references: List[str] = field(default_factory=list)
     production_readiness_verdict: Optional[str] = None
     production_readiness_findings: List[Dict[str, Any]] = field(default_factory=list)
+    #: P0.6.7 — attributable in-turn test evidence (command, counts, cases,
+    #: report path, hashes, repair dispatches). Empty for legacy callers.
+    test_evidence: Dict[str, Any] = field(default_factory=dict)
+    repair_attempts: List[Dict[str, Any]] = field(default_factory=list)
+    requirement_verification: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -412,5 +461,8 @@ class DeliveryContract:
             "evidence_references": self.evidence_references,
             "production_readiness_verdict": self.production_readiness_verdict,
             "production_readiness_findings": self.production_readiness_findings,
+            "test_evidence": self.test_evidence,
+            "repair_attempts": self.repair_attempts,
+            "requirement_verification": self.requirement_verification,
         }
 

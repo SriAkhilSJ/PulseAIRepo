@@ -971,6 +971,47 @@ class ModelExecutionAdapter:
             f"Return ONLY the code block, with no conversational preamble."
         )
 
+        return self._dispatch_code_prompt(
+            prompt=prompt,
+            target_file=target_file,
+            purpose=f"node_{node.node_id}",
+            max_output_tokens=getattr(node, "max_tokens", None) or 2048,
+            finops=finops,
+            log_label=node.node_id,
+        )
+
+    def _dispatch_code_prompt(
+        self,
+        *,
+        prompt: str,
+        target_file: str,
+        purpose: str,
+        max_output_tokens: int,
+        finops: OrchestrationFinOpsGovernor,
+        log_label: str = "",
+    ) -> str:
+        """The ONLY paid dispatch path: reserve -> invoke once -> verify -> settle.
+
+        Repair calls use this method too. That is deliberate: a repair is a
+        provider invocation like any other and must claim the same acceptance
+        slot, carry the same verified-pricing ceiling, and settle the same
+        canonical reservation. A second dispatch implementation would be an
+        unmetered execution path.
+        """
+        from src.config.settings import LLM_PROVIDER, LLM_MODEL
+
+        prov = self.provider or os.environ.get("LLM_PROVIDER") or LLM_PROVIDER or "custom"
+        mod = self.model or os.environ.get("LLM_MODEL") or LLM_MODEL or "default"
+
+        # 1. Enforce verified pricing exists before dispatching call (fail-closed)
+        pricing_reg = PricingRegistry.get_pricing_registry()
+        pricing = pricing_reg.get_model_pricing(mod, provider=prov)
+        if not pricing or pricing.verification_status == VerificationStatus.UNKNOWN:
+            raise UnknownModelPricingError(
+                f"Cannot establish verified or catalog pricing for model '{mod}' (provider '{prov}'). "
+                f"Failing closed to prevent unmetered execution."
+            )
+
         # 2. FinOps reserve-before-call (P0.4 / P0.4.1 / P0.4.2)
         # Bound the EXACT prompt sent to the provider. The bound is the larger
         # of the exact local tokenizer count (when available) and a serialized
@@ -978,12 +1019,11 @@ class ModelExecutionAdapter:
         # ``chars // 3`` heuristic was optimistic and could under-reserve for
         # code, Unicode, emoji, and JSON-escaped text.
         input_bound = estimate_prompt_token_upper_bound(prompt, provider=prov, model=mod)
-        max_output_tokens = getattr(node, "max_tokens", None) or 2048
         est_in = input_bound.upper_bound_tokens
         max_total_tokens = est_in + max_output_tokens
         log.info(
-            "P0.4.2 input-token upper bound for node %s: %d tokens (%s; exact=%s; serialized_bytes=%d)",
-            node.node_id,
+            "P0.4.2 input-token upper bound for %s: %d tokens (%s; exact=%s; serialized_bytes=%d)",
+            log_label or purpose,
             est_in,
             input_bound.method,
             input_bound.exact_local_tokens,
@@ -1005,14 +1045,14 @@ class ModelExecutionAdapter:
         max_cost_inr = float(max_cost.cost_inr)
         max_cost_usd = float(max_cost.cost_usd)
 
-        # 2. Canonical reserve-before-call. Nothing below may run until this
+        # 3. Canonical reserve-before-call. Nothing below may run until this
         # returns a durably recorded reservation accepted by both the task
         # governor and the canonical BudgetGovernor.
         res_id = finops.reserve(
             estimated_tokens=max_total_tokens,
             estimated_cost_inr=max_cost_inr,
             estimated_cost_usd=max_cost_usd,
-            purpose=f"node_{node.node_id}",
+            purpose=purpose,
         )
 
         try:
@@ -1031,7 +1071,7 @@ class ModelExecutionAdapter:
             except Exception:
                 pass
 
-        # 3. Resolve and verify the provider-compatible output-token ceiling
+        # 4. Resolve and verify the provider-compatible output-token ceiling
         # BEFORE dispatch. No invoke() is attempted without it.
         invoke_kwargs = build_output_token_kwargs(prov, max_output_tokens)
         if not invoke_kwargs or not can_enforce_token_limit(
@@ -1059,14 +1099,14 @@ class ModelExecutionAdapter:
             raise
 
         try:
-            # 4. Extract authentic usage receipts (fail-closed on missing receipts)
+            # 5. Extract authentic usage receipts (fail-closed on missing receipts)
             in_tok, out_tok, cached_tok = extract_provider_token_usage(response)
         except Exception:
             # Wire call succeeded but usage receipts missing: keep reservation uncertain
             finops.mark_uncertain(res_id, reason="missing_usage_receipts_after_call")
             raise
 
-        # 5. Calculate actual verified cost with micro-currency precision
+        # 6. Calculate actual verified cost with micro-currency precision
         calc_cost = pricing_reg.calculate_cost(
             model=mod,
             input_tokens=in_tok,
@@ -1085,7 +1125,7 @@ class ModelExecutionAdapter:
         actual_cost_inr = float(calc_cost.cost_inr)
         actual_cost_usd = float(calc_cost.cost_usd)
 
-        # 6. Settle the exact canonical reservation, then record actual spend.
+        # 7. Settle the exact canonical reservation, then record actual spend.
         finops.commit_reservation(
             reservation_id=res_id,
             actual_input_tokens=in_tok,
@@ -1101,3 +1141,95 @@ class ModelExecutionAdapter:
         # never delivered as source code.
         assert_provider_output_complete(response, target_file)
         return extract_generated_source(_response_text(response), target_file)
+
+    def repair_node(
+        self,
+        *,
+        task_id: str,
+        node: EngineeringTaskNode,
+        target_file: str,
+        failure_evidence: str,
+        finops: OrchestrationFinOpsGovernor,
+        impl_engine: ControlledImplementationEngine,
+        cancellation_checker: Optional[Callable[[], bool]] = None,
+        user_prompt: str = "",
+        diagnosis: str = "IMPLEMENTATION_DEFECT",
+        content_guard: Optional[Callable[[str], str]] = None,
+    ) -> bool:
+        """Spend ONE authorized dispatch repairing a file, then mutate it.
+
+        The repair prompt carries the user's own contract, the current file and
+        the captured failing-test evidence. Tests are not rewritten here unless
+        the caller explicitly selected a generated test file after classifying
+        the defect as a test-expectation defect.
+        """
+        if cancellation_checker and cancellation_checker():
+            raise TurnCancelledError("Task execution cancelled before repair dispatch")
+
+        full_target = self.workspace_root / target_file
+        current = ""
+        if full_target.exists():
+            try:
+                current = full_target.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                current = ""
+
+        required_symbols: list[str] = []
+        for match in re.finditer(r"\b(?:def|function)\s+([A-Za-z_]\w*)", str(node.objective or "")):
+            if match.group(1) not in required_symbols:
+                required_symbols.append(match.group(1))
+
+        is_test_target = bool(re.search(r"(^|/)test_[^/]+\.py$|(^|/)[^/]+_test\.py$", target_file))
+        prompt = (
+            "You are repairing an existing file inside a Crusor AI engineering task.\n"
+            f"User request:\n{user_prompt or node.objective}\n\n"
+            f"Target file: {target_file}\n"
+            f"Diagnosis: {diagnosis}\n"
+            "Failing test evidence (authoritative, do not rewrite it):\n"
+            f"```\n{failure_evidence}\n```\n"
+            f"Current file content:\n```\n{current}\n```\n"
+        )
+        if required_symbols:
+            prompt += (
+                "\nRequired public symbol(s): " + ", ".join(required_symbols)
+                + "\nUse EXACTLY these names. Do not rename, wrap or abbreviate them.\n"
+            )
+        if is_test_target:
+            prompt += (
+                "\nThis is a generated TEST file. It contradicts the explicit user contract or "
+                "is not executable as written. Repair ONLY the test so it expresses the user's "
+                "stated behavior. Do not delete, skip or weaken any assertion, and do not add "
+                "tests that merely mirror a broken implementation.\n"
+            )
+        else:
+            prompt += (
+                "\nThis is the IMPLEMENTATION. Fix it so the failing tests pass. Do not modify "
+                "any test file. Keep the public API and the user's exact requirements. "
+                "Make the smallest correct change.\n"
+            )
+        prompt += (
+            f"\nReturn ONLY the complete corrected contents of {target_file} in one code block, "
+            "with no conversational preamble."
+        )
+
+        code_content = self._dispatch_code_prompt(
+            prompt=prompt,
+            target_file=target_file,
+            purpose=f"repair_{node.node_id}",
+            max_output_tokens=getattr(node, "max_tokens", None) or 2048,
+            finops=finops,
+            log_label=f"repair:{node.node_id}",
+        )
+
+        if "Production implementation placeholder" in code_content:
+            raise ValueError("Repair produced a placeholder handler; refusing to mutate the workspace.")
+        if content_guard is not None:
+            code_content = content_guard(code_content)
+        validate_generated_source(target_file, code_content)
+        impl_engine.execute_node_mutation(
+            task_id=task_id,
+            node=node,
+            rel_path=target_file,
+            content=code_content,
+        )
+        return True

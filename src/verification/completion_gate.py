@@ -83,17 +83,22 @@ class IndependentCompletionGate:
                 f"Independent test suite recorded {failed_tests} failure(s).",
             )
 
-        # 5. Check requirement satisfaction
-        total_reqs = len(requirements)
+        # 5. Check requirement satisfaction. Optional analyzer suggestions are
+        # NOT_APPLICABLE by construction and cannot block a user-scoped task.
+        mandatory_reqs = [
+            r for r in requirements
+            if r.status != RequirementVerificationStatus.NOT_APPLICABLE
+        ]
+        total_reqs = len(mandatory_reqs)
         if total_reqs == 0:
             return (
                 VerificationVerdict.NOT_TESTED,
                 "No approved requirements were evaluated.",
             )
 
-        verified_reqs = [r for r in requirements if r.status == RequirementVerificationStatus.VERIFIED]
-        failed_reqs = [r for r in requirements if r.status == RequirementVerificationStatus.FAILED]
-        not_impl_reqs = [r for r in requirements if r.status == RequirementVerificationStatus.NOT_IMPLEMENTED]
+        verified_reqs = [r for r in mandatory_reqs if r.status == RequirementVerificationStatus.VERIFIED]
+        failed_reqs = [r for r in mandatory_reqs if r.status == RequirementVerificationStatus.FAILED]
+        not_impl_reqs = [r for r in mandatory_reqs if r.status == RequirementVerificationStatus.NOT_IMPLEMENTED]
 
         if failed_reqs:
             return (
@@ -110,6 +115,29 @@ class IndependentCompletionGate:
             return (
                 VerificationVerdict.FAILED,
                 "Requested requirements were not implemented.",
+            )
+
+        # P0.6.7: evidence that exists but cannot be attributed, and mandatory
+        # requirements with no executed test, are both completion blockers.
+        inconclusive_reqs = [
+            r for r in mandatory_reqs
+            if r.status == RequirementVerificationStatus.INCONCLUSIVE
+        ]
+        if inconclusive_reqs:
+            return (
+                VerificationVerdict.BLOCKED,
+                f"{len(inconclusive_reqs)} requirement(s) have inconclusive verification evidence.",
+            )
+
+        not_verified_reqs = [
+            r for r in mandatory_reqs
+            if r.status == RequirementVerificationStatus.NOT_VERIFIED
+        ]
+        if not_verified_reqs:
+            return (
+                VerificationVerdict.FAILED,
+                f"{len(not_verified_reqs)} requirement(s) have no executed test establishing "
+                "the required behavior; file presence is not verification.",
             )
 
         # 6. Check unexecutable checks / limitations

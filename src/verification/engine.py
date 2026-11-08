@@ -98,6 +98,9 @@ class IndependentVerificationEngine:
         test_execution_results: Optional[Dict[str, str]] = None,
         check_runtime: bool = True,
         requirement_files: Optional[Dict[str, List[str]]] = None,
+        requirement_tests: Optional[Dict[str, List[str]]] = None,
+        require_test_evidence: bool = False,
+        test_execution_error: Optional[str] = None,
     ) -> VerificationReport:
         """
         Executes complete, independent verification across all quality dimensions.
@@ -131,6 +134,9 @@ class IndependentVerificationEngine:
             mutated_files=mutated_files,
             test_results=test_results,
             requirement_files=requirement_files,
+            requirement_tests=requirement_tests,
+            require_test_evidence=require_test_evidence,
+            test_execution_error=test_execution_error,
         )
 
         # 4. Application runtime probe (if requested/applicable)

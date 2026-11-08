@@ -55,6 +55,26 @@ class PlanBudgetExceeded(RuntimeError):
 
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
+#: Only work the user actually asked for (or inferred as necessary) may become a
+#: mandatory plan node. Analyzer defaults are suggestions: they are recorded on
+#: the DAG but cannot silently expand scope or block completion.
+_MANDATORY_CLASSIFICATIONS = {"EXPLICIT", "NECESSARY_INFERRED"}
+
+
+def requirement_classification(req: Any) -> str:
+    raw = getattr(req, "classification", None)
+    value = getattr(raw, "value", raw)
+    return str(value or "").upper()
+
+
+def is_mandatory_requirement(req: Any) -> bool:
+    classification = requirement_classification(req)
+    if not classification:
+        # Legacy/fake specifications without classification keep the old
+        # behaviour: every listed requirement is work.
+        return True
+    return classification in _MANDATORY_CLASSIFICATIONS
+
 
 def merge_requirement_nodes(nodes: list[EngineeringTaskNode]) -> EngineeringTaskNode:
     """Coalesce requirement nodes into ONE node without dropping requirements.
@@ -159,6 +179,21 @@ class EngineeringTaskPlanner:
             all_reqs = getattr(specification, "requirements", [])
         approved_req_ids = {r.id for r in all_reqs if getattr(r.status, "value", str(r.status)) in {"APPROVED", "DISCOVERED", "PROPOSED", "VERIFIED"}}
 
+        # 1a. Analyzer discipline: only mandatory requirements become work.
+        #     Domain templates and "reasonable defaults" are recorded as
+        #     suggestions, never silently promoted into mandatory scope.
+        mandatory_reqs = [r for r in all_reqs if is_mandatory_requirement(r)]
+        optional_reqs = [r for r in all_reqs if not is_mandatory_requirement(r)]
+        dag.optional_requirements = [
+            {
+                "id": getattr(req, "id", ""),
+                "description": getattr(req, "description", ""),
+                "classification": requirement_classification(req),
+                "reason": "optional suggestion; not part of the requested mandatory scope",
+            }
+            for req in optional_reqs
+        ]
+
         # 2. Extract tasks directly mapped to requirements
         created_nodes: Dict[str, EngineeringTaskNode] = {}
         # Files the USER actually named in the request take precedence over the
@@ -167,7 +202,7 @@ class EngineeringTaskPlanner:
         requested_pool = [f for f in (requested_files or []) if f]
         requested_set = set(requested_pool)
 
-        for req in all_reqs:
+        for req in mandatory_reqs:
             node_id = f"task_{req.id.lower().replace('-', '_')}"
             target_files = getattr(req, "affected_files", None) or []
             if not target_files:
