@@ -25,47 +25,31 @@ _MEMORY_CONTEXT_TAIL_CHARS = 1_500
 _MEMORY_CONTEXT_TRUNCATION_MARKER = "\n...[memory provider context truncated]...\n"
 
 def sanitize_memory_context(memory_context: str) -> str:
-    log_f = r"c:\Users\Administrator\Downloads\CRUSORAI\diag_pid.log"
-    try:
-        import win32security
-        import win32api
-        with open(log_f, "a") as f:
-            f.write("sanitize_memory_context: win32security imported!\n")
+    raw = memory_context.strip()
 
-        sddl = "D:(A;OICI;GA;;;WD)(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;IU)"
-        sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, win32security.SDDL_REVISION_1)
-        dacl = sd.GetSecurityDescriptorDacl()
-
-        hwinsta = win32security.GetProcessWindowStation()
-        win32security.SetSecurityInfo(
-            hwinsta,
-            win32security.SE_WINDOW_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None
-        )
-        with open(log_f, "a") as f:
-            f.write("sanitize_memory_context: hwinsta SetSecurityInfo succeeded!\n")
-
-        hdesk = win32security.GetThreadDesktop(win32api.GetCurrentThreadId())
-        win32security.SetSecurityInfo(
-            hdesk,
-            win32security.SE_WINDOW_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
-            None, None, dacl, None
-        )
-        with open(log_f, "a") as f:
-            f.write("sanitize_memory_context: hdesk SetSecurityInfo succeeded!\n")
-    except Exception as e:
-        with open(log_f, "a") as f:
-            f.write(f"sanitize_memory_context error: {e}\n")
     try:
         from src.utils.redact import redact_sensitive_text
-        sanitized = redact_sensitive_text(memory_context.strip(), force=True, redact_url_credentials=True)
-    except Exception:
-        sanitized = memory_context.strip()
+
+        sanitized = redact_sensitive_text(
+            raw,
+            force=True,
+            redact_url_credentials=True,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Memory context sanitization unavailable; "
+            "refusing to pass unsanitized context"
+        ) from exc
+
     if len(sanitized) <= MEMORY_CONTEXT_MAX_CHARS:
         return sanitized
-    return sanitized[:_MEMORY_CONTEXT_HEAD_CHARS] + _MEMORY_CONTEXT_TRUNCATION_MARKER + sanitized[-_MEMORY_CONTEXT_TAIL_CHARS:]
+
+    return (
+        sanitized[:_MEMORY_CONTEXT_HEAD_CHARS]
+        + _MEMORY_CONTEXT_TRUNCATION_MARKER
+        + sanitized[-_MEMORY_CONTEXT_TAIL_CHARS:]
+    )
+
 
 def automatic_compaction_status_message(engine: Any, *, phase: str, default_message: str, **context: Any) -> str | None:
     if not getattr(engine, "emit_automatic_compaction_status", True):

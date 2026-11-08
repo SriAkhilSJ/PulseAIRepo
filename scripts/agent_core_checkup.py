@@ -26,6 +26,7 @@ import json
 import os
 import pkgutil
 import re
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -37,6 +38,154 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
+
+# Packages whose imports are exercised by the hygiene check. The import runs in
+# a guarded child process, never in the checkup process itself: importing every
+# module in-process is what allowed import-time side effects to run during past
+# checkups.
+GUARDED_IMPORT_PACKAGES = (
+    "src.context", "src.llm", "src.graphs", "src.tools",
+    "src.runtime", "src.agents", "src.bridge",
+)
+
+# Child source. It installs process-spawn, Win32-security-import and
+# external-write guards BEFORE importing any repository module, then reports
+# every blocked attempt and import error as one JSON line.
+GUARDED_IMPORT_PROBE = r'''
+import builtins
+import importlib
+import json
+import os
+import pkgutil
+import sys
+
+_spec = json.loads(sys.argv[1])
+_root = os.path.abspath(_spec.get("root") or os.getcwd())
+_violations = []
+
+def _block(label):
+    def _blocked(*args, **kwargs):
+        _violations.append(label)
+        raise RuntimeError("blocked by import guard: " + label)
+    return _blocked
+
+import subprocess as _sp
+_sp.run = _block("subprocess.run")
+_sp.Popen = _block("subprocess.Popen")
+_sp.call = _block("subprocess.call")
+_sp.check_output = _block("subprocess.check_output")
+os.system = _block("os.system")
+os.popen = _block("os.popen")
+for _name in ("spawnl", "spawnle", "spawnlp", "spawnlpe",
+              "spawnv", "spawnve", "spawnvp", "spawnvpe", "startfile"):
+    if hasattr(os, _name):
+        setattr(os, _name, _block("os." + _name))
+
+_blocked_roots = (
+    "win32" + "security", "win32" + "con", "win32" + "api",
+    "win32" + "service", "win32" + "process",
+)
+
+class _Win32Blocker:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in _blocked_roots:
+            _violations.append("import:" + fullname)
+            raise ImportError("blocked by import guard: " + fullname)
+        return None
+
+sys.meta_path.insert(0, _Win32Blocker())
+
+_real_open = builtins.open
+
+def _guarded_open(file, *args, **kwargs):
+    mode = args[0] if args else kwargs.get("mode", "r")
+    if any(ch in str(mode) for ch in "wax+"):
+        try:
+            path = os.path.realpath(os.fspath(file))
+        except TypeError:
+            path = str(file)
+        if not path.lower().startswith(_root.lower()):
+            _violations.append("write:" + path)
+            raise RuntimeError("blocked external write: " + path)
+    return _real_open(file, *args, **kwargs)
+
+builtins.open = _guarded_open
+
+_extra = _spec.get("extra_path")
+if _extra and _extra not in sys.path:
+    sys.path.insert(0, _extra)
+
+_errors = []
+for _pkg in _spec.get("packages") or []:
+    try:
+        _mod = importlib.import_module(_pkg)
+        _path = getattr(_mod, "__path__", None)
+        if _path:
+            for _, _name, _ in pkgutil.walk_packages(_path, _pkg + "."):
+                try:
+                    importlib.import_module(_name)
+                except Exception as _exc:
+                    _errors.append("%s: %s: %s" % (_name, type(_exc).__name__, _exc))
+    except Exception as _exc:
+        _errors.append("%s: %s: %s" % (_pkg, type(_exc).__name__, _exc))
+
+print(json.dumps({
+    "violations": _violations,
+    "errors": _errors[:25],
+    "error_count": len(_errors),
+}))
+'''
+
+
+def run_guarded_import_probe(
+    packages: tuple[str, ...] | None = None,
+    *,
+    extra_path: str | None = None,
+    timeout_s: float = 300.0,
+) -> dict:
+    """Import the core packages in a child process under hard safety guards.
+
+    Never imports repository modules into the checkup process. Returns
+    ``{"ok", "violations", "errors", "error_count", "returncode"}``.
+    """
+    spec = {
+        "packages": list(packages or GUARDED_IMPORT_PACKAGES),
+        "extra_path": extra_path,
+        "root": str(ROOT),
+    }
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", GUARDED_IMPORT_PROBE, json.dumps(spec)],
+            cwd=str(ROOT), env=env, capture_output=True, text=True,
+            timeout=timeout_s,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "ok": False, "violations": [], "errors": [f"{type(exc).__name__}: {exc}"],
+            "error_count": 1, "returncode": -1,
+        }
+    lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
+    try:
+        payload = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        return {
+            "ok": False, "violations": [],
+            "errors": [(proc.stderr or "")[-500:] or "guarded import probe produced no result"],
+            "error_count": 1, "returncode": proc.returncode,
+        }
+    violations = list(payload.get("violations") or [])
+    errors = list(payload.get("errors") or [])
+    return {
+        "ok": not violations,
+        "violations": violations,
+        "errors": errors,
+        "error_count": int(payload.get("error_count") or 0),
+        "returncode": proc.returncode,
+    }
 
 
 @dataclass
@@ -851,25 +1000,25 @@ def check_hygiene(cu: Checkup) -> None:
         is structural; a missing third-party package is an environment choice
         and is reported as a WARN with the package named.
         """
-        structural, optional = [], []
-        for pkg in ("src.context", "src.llm", "src.graphs", "src.tools", "src.runtime", "src.agents", "src.bridge"):
-            mod = importlib.import_module(pkg)
-            for _, name, _ in pkgutil.walk_packages(mod.__path__, pkg + "."):
-                try:
-                    importlib.import_module(name)
-                except ImportError as exc:
-                    missing = getattr(exc, "name", None) or ""
-                    if missing.startswith("src") or missing in ("", None):
-                        structural.append(f"{name} ({exc})")
-                    else:
-                        optional.append(f"{name} needs {missing}")
-                except Exception as exc:  # noqa: BLE001
-                    structural.append(f"{name} ({type(exc).__name__}: {exc})")
-        if structural:
-            return (FAIL, f"{len(structural)} module(s) broken regardless of extras: {', '.join(structural[:3])}")
-        if optional:
-            return (WARN, f"{len(optional)} module(s) need an uninstalled extra: {', '.join(optional[:3])}")
-        return "all core modules import keyless"
+        result = run_guarded_import_probe()
+        if result["violations"]:
+            return (
+                FAIL,
+                "guarded import blocked unsafe operation(s): "
+                + ", ".join(result["violations"][:5]),
+            )
+        if not result["ok"]:
+            return (
+                FAIL,
+                "guarded import probe failed: " + "; ".join(result["errors"][:2]),
+            )
+        if result["errors"]:
+            return (
+                WARN,
+                f"{result['error_count']} module(s) could not import under the guard: "
+                + "; ".join(result["errors"][:3]),
+            )
+        return "all core modules import under the safety guard (no spawn or Win32-security calls)"
 
     def _missing_package_imports():
         """Yield (path, lineno, module, guarded) using the AST, not a regex.

