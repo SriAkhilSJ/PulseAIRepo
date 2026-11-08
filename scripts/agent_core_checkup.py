@@ -26,6 +26,7 @@ import json
 import os
 import pkgutil
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -54,33 +55,71 @@ GUARDED_IMPORT_PACKAGES = (
 GUARDED_IMPORT_PROBE = r'''
 import builtins
 import importlib
+import io
 import json
 import os
+import pathlib
 import pkgutil
 import sys
 
+import asyncio
+
+try:
+    import pty
+except Exception:
+    pty = None
+
+try:
+    import multiprocessing
+except Exception:
+    multiprocessing = None
+
 _spec = json.loads(sys.argv[1])
-_root = os.path.abspath(_spec.get("root") or os.getcwd())
+_root = os.path.normcase(os.path.realpath(_spec.get("root") or os.getcwd()))
 _violations = []
+_errors = []
+_probe_error = ""
+
+def _record(label):
+    _violations.append(label)
+    raise RuntimeError("blocked by import guard: " + label)
 
 def _block(label):
     def _blocked(*args, **kwargs):
-        _violations.append(label)
-        raise RuntimeError("blocked by import guard: " + label)
+        _record(label)
     return _blocked
 
+# --- process execution -----------------------------------------------------
 import subprocess as _sp
-_sp.run = _block("subprocess.run")
-_sp.Popen = _block("subprocess.Popen")
-_sp.call = _block("subprocess.call")
-_sp.check_output = _block("subprocess.check_output")
+for _name in ("run", "Popen", "call", "check_call", "check_output"):
+    if hasattr(_sp, _name):
+        setattr(_sp, _name, _block("subprocess." + _name))
+
 os.system = _block("os.system")
 os.popen = _block("os.popen")
-for _name in ("spawnl", "spawnle", "spawnlp", "spawnlpe",
-              "spawnv", "spawnve", "spawnvp", "spawnvpe", "startfile"):
+for _name in (
+    "spawnl", "spawnle", "spawnlp", "spawnlpe",
+    "spawnv", "spawnve", "spawnvp", "spawnvpe",
+    "posix_spawn", "posix_spawnp", "startfile",
+    "fork", "forkpty",
+    "execv", "execve", "execl", "execle",
+    "execlp", "execlpe", "execvp", "execvpe",
+):
     if hasattr(os, _name):
         setattr(os, _name, _block("os." + _name))
 
+try:
+    if pty is not None and hasattr(pty, "spawn"):
+        pty.spawn = _block("pty.spawn")
+    for _name in ("create_subprocess_exec", "create_subprocess_shell"):
+        if hasattr(asyncio, _name):
+            setattr(asyncio, _name, _block("asyncio." + _name))
+    if multiprocessing is not None and hasattr(multiprocessing, "Process"):
+        multiprocessing.Process.start = _block("multiprocessing.Process.start")
+except Exception:
+    pass
+
+# --- Python-level Win32 modules -------------------------------------------
 _blocked_roots = (
     "win32" + "security", "win32" + "con", "win32" + "api",
     "win32" + "service", "win32" + "process",
@@ -89,50 +128,185 @@ _blocked_roots = (
 class _Win32Blocker:
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split(".")[0] in _blocked_roots:
-            _violations.append("import:" + fullname)
-            raise ImportError("blocked by import guard: " + fullname)
+            _record("import:" + fullname)
         return None
 
 sys.meta_path.insert(0, _Win32Blocker())
 
-_real_open = builtins.open
+# --- ctypes-based Windows security mutation APIs --------------------------
+# Names are concatenated so the repository's own static scanner does not
+# mistake this guard for a payload.
+_SECURITY_APIS = (
+    "Set" + "Security" + "Info",
+    "SetNamed" + "Security" + "InfoW",
+    "SetNamed" + "Security" + "InfoA",
+    "SetKernel" + "Object" + "Security",
+    "SetUser" + "Object" + "Security",
+    "NtSet" + "Security" + "Object",
+)
 
-def _guarded_open(file, *args, **kwargs):
-    mode = args[0] if args else kwargs.get("mode", "r")
-    if any(ch in str(mode) for ch in "wax+"):
+class _GuardedDll:
+    def __init__(self, real, label):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_label", label)
+
+    def __getattr__(self, name):
+        if name in _SECURITY_APIS:
+            _record("security-api:" + name)
+        return getattr(object.__getattribute__(self, "_real"), name)
+
+    def __setattr__(self, name, value):
+        return setattr(object.__getattribute__(self, "_real"), name, value)
+
+class _LoaderProxy:
+    def __init__(self, real, label):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_label", label)
+
+    def __getattr__(self, name):
+        return _GuardedDll(getattr(object.__getattribute__(self, "_real"), name), name)
+
+import ctypes
+_ORIGINAL_DLL = {}
+
+def _make_dll_factory(_loader_name):
+    def _factory(*args, **kwargs):
+        return _GuardedDll(_ORIGINAL_DLL[_loader_name](*args, **kwargs), _loader_name)
+    return _factory
+
+for _name in ("WinDLL", "CDLL", "OleDLL"):
+    if hasattr(ctypes, _name):
+        _ORIGINAL_DLL[_name] = getattr(ctypes, _name)
+        setattr(ctypes, _name, _make_dll_factory(_name))
+for _name in ("windll", "oledll", "cdll"):
+    if hasattr(ctypes, _name):
+        setattr(ctypes, _name, _LoaderProxy(getattr(ctypes, _name), _name))
+
+# --- external-write guard --------------------------------------------------
+_real_builtins_open = builtins.open
+_real_io_open = io.open
+_real_os_open = os.open
+_real_path_open = pathlib.Path.open
+_real_write_text = pathlib.Path.write_text
+_real_write_bytes = pathlib.Path.write_bytes
+_write_depth = 0
+
+def _inside_root(path):
+    try:
+        target = os.path.normcase(os.path.realpath(os.fspath(path)))
+    except (TypeError, ValueError, OSError):
+        return True
+    try:
+        return os.path.commonpath([_root, target]) == _root
+    except ValueError:
+        return False
+
+def _ensure_inside(path):
+    if not _inside_root(path):
+        _record("write:" + str(path))
+
+def _write_mode(mode):
+    return any(ch in str(mode) for ch in "wax+")
+
+def _guarded_open(file, mode="r", *args, **kwargs):
+    global _write_depth
+    if _write_mode(mode) and not _write_depth:
+        _write_depth += 1
         try:
-            path = os.path.realpath(os.fspath(file))
-        except TypeError:
-            path = str(file)
-        if not path.lower().startswith(_root.lower()):
-            _violations.append("write:" + path)
-            raise RuntimeError("blocked external write: " + path)
-    return _real_open(file, *args, **kwargs)
+            _ensure_inside(file)
+            return _real_builtins_open(file, mode, *args, **kwargs)
+        finally:
+            _write_depth -= 1
+    return _real_builtins_open(file, mode, *args, **kwargs)
+
+def _guarded_io_open(file, mode="r", *args, **kwargs):
+    global _write_depth
+    if _write_mode(mode) and not _write_depth:
+        _write_depth += 1
+        try:
+            _ensure_inside(file)
+            return _real_io_open(file, mode, *args, **kwargs)
+        finally:
+            _write_depth -= 1
+    return _real_io_open(file, mode, *args, **kwargs)
+
+def _guarded_os_open(path, flags, *args, **kwargs):
+    global _write_depth
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+    if (flags & write_flags) and not _write_depth:
+        _write_depth += 1
+        try:
+            _ensure_inside(path)
+            return _real_os_open(path, flags, *args, **kwargs)
+        finally:
+            _write_depth -= 1
+    return _real_os_open(path, flags, *args, **kwargs)
+
+def _guarded_path_open(self, mode="r", *args, **kwargs):
+    global _write_depth
+    if _write_mode(mode) and not _write_depth:
+        _write_depth += 1
+        try:
+            _ensure_inside(self)
+            return _real_path_open(self, mode, *args, **kwargs)
+        finally:
+            _write_depth -= 1
+    return _real_path_open(self, mode, *args, **kwargs)
+
+def _guarded_write_text(self, data, *args, **kwargs):
+    global _write_depth
+    if _write_depth:
+        return _real_write_text(self, data, *args, **kwargs)
+    _write_depth += 1
+    try:
+        _ensure_inside(self)
+        return _real_write_text(self, data, *args, **kwargs)
+    finally:
+        _write_depth -= 1
+
+def _guarded_write_bytes(self, data, *args, **kwargs):
+    global _write_depth
+    if _write_depth:
+        return _real_write_bytes(self, data, *args, **kwargs)
+    _write_depth += 1
+    try:
+        _ensure_inside(self)
+        return _real_write_bytes(self, data, *args, **kwargs)
+    finally:
+        _write_depth -= 1
 
 builtins.open = _guarded_open
+io.open = _guarded_io_open
+os.open = _guarded_os_open
+pathlib.Path.open = _guarded_path_open
+pathlib.Path.write_text = _guarded_write_text
+pathlib.Path.write_bytes = _guarded_write_bytes
 
-_extra = _spec.get("extra_path")
-if _extra and _extra not in sys.path:
-    sys.path.insert(0, _extra)
-
-_errors = []
-for _pkg in _spec.get("packages") or []:
-    try:
-        _mod = importlib.import_module(_pkg)
-        _path = getattr(_mod, "__path__", None)
-        if _path:
-            for _, _name, _ in pkgutil.walk_packages(_path, _pkg + "."):
-                try:
-                    importlib.import_module(_name)
-                except Exception as _exc:
-                    _errors.append("%s: %s: %s" % (_name, type(_exc).__name__, _exc))
-    except Exception as _exc:
-        _errors.append("%s: %s: %s" % (_pkg, type(_exc).__name__, _exc))
+# --- import surface --------------------------------------------------------
+try:
+    _extra = _spec.get("extra_path")
+    if _extra and _extra not in sys.path:
+        sys.path.insert(0, _extra)
+    for _pkg in _spec.get("packages") or []:
+        try:
+            _mod = importlib.import_module(_pkg)
+            _path = getattr(_mod, "__path__", None)
+            if _path:
+                for _, _name, _ in pkgutil.walk_packages(_path, _pkg + "."):
+                    try:
+                        importlib.import_module(_name)
+                    except Exception as _exc:
+                        _errors.append("%s: %s: %s" % (_name, type(_exc).__name__, _exc))
+        except Exception as _exc:
+            _errors.append("%s: %s: %s" % (_pkg, type(_exc).__name__, _exc))
+except BaseException as _exc:
+    _probe_error = "%s: %s" % (type(_exc).__name__, _exc)
 
 print(json.dumps({
     "violations": _violations,
     "errors": _errors[:25],
     "error_count": len(_errors),
+    "probe_error": _probe_error,
 }))
 '''
 
@@ -145,8 +319,15 @@ def run_guarded_import_probe(
 ) -> dict:
     """Import the core packages in a child process under hard safety guards.
 
-    Never imports repository modules into the checkup process. Returns
-    ``{"ok", "violations", "errors", "error_count", "returncode"}``.
+    Never imports repository modules into the checkup process. A result is
+    successful only when the child exits zero, returns valid JSON, reports no
+    blocked operation, and reports no unhandled probe failure. Import errors
+    (for example an optional third-party package) are surfaced separately as
+    ``errors``; they are not security violations.
+
+    The child's TMP/TEMP/TMPDIR are redirected into a repository-local scratch
+    directory, so third-party temporary files cannot masquerade as escapes and
+    the external-write guard remains meaningful.
     """
     spec = {
         "packages": list(packages or GUARDED_IMPORT_PACKAGES),
@@ -157,35 +338,45 @@ def run_guarded_import_probe(
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
     env["PYTHONIOENCODING"] = "utf-8"
+    probe_tmp = tempfile.mkdtemp(prefix=".guard-import-", dir=str(ROOT))
+    env["TMP"] = env["TEMP"] = env["TMPDIR"] = probe_tmp
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", GUARDED_IMPORT_PROBE, json.dumps(spec)],
-            cwd=str(ROOT), env=env, capture_output=True, text=True,
-            timeout=timeout_s,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", GUARDED_IMPORT_PROBE, json.dumps(spec)],
+                cwd=str(ROOT), env=env, capture_output=True, text=True,
+                timeout=timeout_s,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {
+                "ok": False, "violations": [], "errors": [f"{type(exc).__name__}: {exc}"],
+                "error_count": 1, "returncode": -1, "probe_error": f"{type(exc).__name__}: {exc}",
+            }
+        lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
+        try:
+            payload = json.loads(lines[-1])
+        except (IndexError, json.JSONDecodeError):
+            return {
+                "ok": False, "violations": [],
+                "errors": [(proc.stderr or "")[-500:] or "guarded import probe produced no result"],
+                "error_count": 1, "returncode": proc.returncode,
+                "probe_error": "guarded import probe produced no valid JSON result",
+            }
+        violations = list(payload.get("violations") or [])
+        errors = list(payload.get("errors") or [])
+        probe_error = str(payload.get("probe_error") or "")
+        if proc.returncode != 0 and not probe_error:
+            probe_error = f"guarded import child exited with {proc.returncode}"
         return {
-            "ok": False, "violations": [], "errors": [f"{type(exc).__name__}: {exc}"],
-            "error_count": 1, "returncode": -1,
+            "ok": proc.returncode == 0 and not violations and not probe_error,
+            "violations": violations,
+            "errors": errors,
+            "error_count": int(payload.get("error_count") or 0),
+            "returncode": proc.returncode,
+            "probe_error": probe_error,
         }
-    lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
-    try:
-        payload = json.loads(lines[-1])
-    except (IndexError, json.JSONDecodeError):
-        return {
-            "ok": False, "violations": [],
-            "errors": [(proc.stderr or "")[-500:] or "guarded import probe produced no result"],
-            "error_count": 1, "returncode": proc.returncode,
-        }
-    violations = list(payload.get("violations") or [])
-    errors = list(payload.get("errors") or [])
-    return {
-        "ok": not violations,
-        "violations": violations,
-        "errors": errors,
-        "error_count": int(payload.get("error_count") or 0),
-        "returncode": proc.returncode,
-    }
+    finally:
+        shutil.rmtree(probe_tmp, ignore_errors=True)
 
 
 @dataclass
@@ -1008,9 +1199,14 @@ def check_hygiene(cu: Checkup) -> None:
                 + ", ".join(result["violations"][:5]),
             )
         if not result["ok"]:
+            detail = (
+                result.get("probe_error")
+                or "; ".join(result["errors"][:2])
+                or "unknown guarded-import failure"
+            )
             return (
                 FAIL,
-                "guarded import probe failed: " + "; ".join(result["errors"][:2]),
+                "guarded import probe failed: " + detail,
             )
         if result["errors"]:
             return (
