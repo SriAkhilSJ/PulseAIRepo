@@ -1,0 +1,39 @@
+{
+  "accounting": {
+    "task_id": "aux_session_titling_session-ae337925e1524bbf8e3a10e417a21962",
+    "budget_inr": 0.2,
+    "spent_inr": 0.004809,
+    "spent_usd": 5.2e-05,
+    "reserved_inr": 0.0,
+    "reserved_usd": 0.0,
+    "token_budget": 4000,
+    "tokens_consumed": 525,
+    "reserved_tokens": 0,
+    "input_tokens": 461,
+    "output_tokens": 64,
+    "cached_tokens": 0,
+    "tool_execution_seconds": 0.0,
+    "test_execution_seconds": 0.0,
+    "calls_count": 1,
+    "is_breached": false,
+    "breach_reason": null
+  },
+  "active_reservations": {},
+  "uncertain_reservations": {},
+  "settled_reservations": {
+    "res_2a7451171393": {
+      "reservation_id": "res_2a7451171393",
+      "task_id": "aux_session_titling_session-ae337925e1524bbf8e3a10e417a21962",
+      "amount_inr": 0.014149,
+      "amount_usd": 0.000153,
+      "tokens": 1788,
+      "purpose": "session_titling:session_title",
+      "created_at": 1794125332.493389,
+      "is_committed": true,
+      "is_released": false,
+      "canonical_reservation_id": "c72ed950-eed5-45",
+      "canonical_amount_usd": 0.000164,
+      "status": "reconciled"
+    }
+  }
+}

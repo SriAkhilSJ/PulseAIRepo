@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "checked_files": {
+    "src/duration.py": {
+      "role": "SOURCE",
+      "public_symbols": [
+        "parse_duration"
+      ]
+    },
+    "tests/test_duration.py": {
+      "role": "TEST",
+      "imports": [
+        {
+          "module": "pytest",
+          "symbols": [],
+          "alias": null
+        },
+        {
+          "module": "src.duration",
+          "symbols": [
+            "parse_duration"
+          ]
+        }
+      ]
+    }
+  },
+  "contract_hash": "0043b1263e870c7fe07d73f1e517deed0cac0eb508ece2d291e5d19e132fa654",
+  "method": "static_ast",
+  "note": "a clean static report is not proof of semantic correctness; execution is authoritative"
+}

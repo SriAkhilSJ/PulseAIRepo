@@ -1,0 +1,34 @@
+{
+  "run_id": "p0_6_5_20261108T000751_06427b06",
+  "max_dispatches": 5,
+  "dispatches_used": 4,
+  "dispatches_remaining": 1,
+  "attempts_per_dispatch": 1,
+  "claims": [
+    {
+      "sequence": 1,
+      "stage": "retry_llm_proxy",
+      "model": "z-ai/glm-5.3-flash"
+    },
+    {
+      "sequence": 2,
+      "stage": "retry_llm_proxy",
+      "model": "z-ai/glm-5.3-flash"
+    },
+    {
+      "sequence": 3,
+      "stage": "retry_llm_proxy",
+      "model": "qwen/qwen3.7-flash"
+    },
+    {
+      "sequence": 4,
+      "stage": "retry_llm_proxy",
+      "model": "z-ai/glm-5.3-flash"
+    }
+  ],
+  "registered_clients": 4,
+  "active": true,
+  "pid": 4356,
+  "engine_version": "0.2.0-runtime",
+  "started_at": 1794125298.824458
+}

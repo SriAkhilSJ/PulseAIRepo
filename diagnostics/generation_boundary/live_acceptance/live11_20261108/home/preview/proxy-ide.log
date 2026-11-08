@@ -1,0 +1,6 @@
+
+--- crusor preview proxy for C:\Users\Administrator\AppData\Local\Temp\crusor_p0_6_5_ws_k6nc97rs (session ide) ---
+<frozen runpy>:128: RuntimeWarning: 'src.preview.server' found in sys.modules after import of package 'src.preview', but prior to execution of 'src.preview.server'; this may result in unpredictable behaviour
+Crusor Preview proxy on http://127.0.0.1:8931
+  preview window : http://127.0.0.1:8931/crusor-preview/ui/
+  endpoint file  : C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\diagnostics\generation_boundary\live_acceptance\live11_20261108\home\preview\ide.json
