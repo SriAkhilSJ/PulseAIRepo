@@ -76,5 +76,9 @@ exit 0
   The Live11 repair manifest is 16/19 with three intentional source/artifact
   deltas documented in `HISTORICAL_MANIFEST_DELTAS.md`; the manifest itself was
   not rewritten.
-- No provider calls, no Electron acceptance run, no benchmark.
+- No provider calls and no Electron task session before the authorized attempt.
+- The first authorized launch failed before the workbench on a missing native
+  binding; see `LAUNCH_SMOKE_GAP.md` and
+  `diagnostics/live12_run_20261108_085953/`. The compile suite does not start
+  Electron, so it could not catch this.
 - P2 roadmap unchanged.

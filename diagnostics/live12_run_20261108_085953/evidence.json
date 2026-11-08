@@ -1,0 +1,78 @@
+{
+  "run_id": "p0_6_5_20261108T090012_ccd13cd7",
+  "started_at": "2026-11-08T17:00:12.462Z",
+  "prompt": "Create src/duration.py with exactly one public function parse_duration(value). It parses a duration string into whole seconds. Supported units: h, m, s. Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units. Return an int. Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values. Do not accept floats. Raise TypeError when value is not a string. Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError. The test file must import the function exactly as `from src.duration import parse_duration`. Run pytest and make every test pass. Do not modify unrelated files.",
+  "prompt_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8",
+  "gates": {},
+  "stages": {
+    "workspace": {
+      "at": "2026-11-08T17:00:12.827Z",
+      "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_r0pxdk8q",
+      "git_status": "",
+      "git_head": "286a9cd06b8e65403579b2b27402f00b52071b74",
+      "inventory": [
+        "README.md"
+      ]
+    },
+    "git": {
+      "at": "2026-11-08T17:00:13.074Z",
+      "branch": "feat/prompt-cache-stabilization",
+      "head": "312ba97529b54f3b0ddea119d7e8f6ab01858b47",
+      "desktop_dirty": 4
+    },
+    "electron_launch": {
+      "at": "2026-11-08T17:00:13.114Z",
+      "pid": 25932,
+      "port": 59089,
+      "exe": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+      "argv": [
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode",
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_r0pxdk8q",
+        "--remote-debugging-port=59089",
+        "--user-data-dir=C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\live12_run_20261108_085953\\user-data",
+        "--remote-allow-origins=http://127.0.0.1",
+        "--enable-logging",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--skip-welcome",
+        "--skip-release-notes",
+        "--disable-telemetry",
+        "--disable-crash-reporter"
+      ],
+      "env_keys": [
+        "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+        "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+        "CRUSORAI_ACCEPTANCE_RUN_ID",
+        "CRUSORAI_BRIDGE_DIAGNOSTICS",
+        "CRUSORAI_COST_GOVERNANCE",
+        "CRUSORAI_EVIDENCE_DIR",
+        "CRUSORAI_HOME",
+        "CRUSORAI_MEMORY",
+        "CRUSORAI_RESERVE_BUDGET_INR",
+        "CRUSORAI_SESSION_COST_BUDGET_INR",
+        "CRUSORAI_TEST_PYTHON",
+        "CRUSORAI_TURN_COST_BUDGET_INR"
+      ],
+      "portable_dir": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\live12_run_20261108_085953\\portable"
+    }
+  },
+  "env_keys": [
+    "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+    "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+    "CRUSORAI_ACCEPTANCE_RUN_ID",
+    "CRUSORAI_BRIDGE_DIAGNOSTICS",
+    "CRUSORAI_COST_GOVERNANCE",
+    "CRUSORAI_EVIDENCE_DIR",
+    "CRUSORAI_HOME",
+    "CRUSORAI_MEMORY",
+    "CRUSORAI_RESERVE_BUDGET_INR",
+    "CRUSORAI_SESSION_COST_BUDGET_INR",
+    "CRUSORAI_TEST_PYTHON",
+    "CRUSORAI_TURN_COST_BUDGET_INR"
+  ],
+  "failure": "LaunchError: CDP /json/version never answered on 127.0.0.1:59089: CDP endpoint unreachable at http://127.0.0.1:59089/json/version: <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>",
+  "verdict": "P0.6.6_LIVE_FAILED",
+  "finished_at": "2026-11-08T17:02:16.566Z",
+  "records": []
+}

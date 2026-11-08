@@ -30,20 +30,24 @@
 | 23a | Mid-turn visual evidence capture | PASS | bounded sampler; `TestVisualSampling`; not yet collected live |
 | 24 | Historical reservation remains uncertain | PASS | not released/settled/included |
 | 25 | Hard budget enforcement | PASS | offline refusal proof |
-| 26 | Provider calls / spend / Electron runs | PASS | 0 / ₹0.00 / 0 |
+| 26 | Provider calls / spend | PASS | 0 calls / ₹0.00 |
 | 27 | P2 roadmap unchanged | PASS | no diff |
+| 28 | Electron launch smoke test | **FAILED on first authorized attempt, then repaired offline** | `@vscode/policy-watcher` native binding missing after `npm ci --ignore-scripts`; main process crashed before the workbench. Eight native modules restored from the local VS Code install; not re-tested. See `diagnostics/live12_run_20261108_085953/NATIVE_MODULE_REPAIR.md` |
 
 ## Verdict
 
 ```text
-LIVE12_READY_FOR_EXPLICIT_AUTHORIZATION
+LIVE12_INCONCLUSIVE_LAUNCH_REPAIRED_RETEST_REQUIRED
 ```
 
-All mandatory offline reliability, build, provenance, financial and regression
-gates pass. The source commit is `7d4a4cc5`; the build/artifact manifest records
-it exactly. The working tree is dirty only because unrelated pre-existing user
-changes remain and the generated evidence is being committed; the contribution
-source hash matches the shipped bundle.
+All offline reliability, build, provenance, financial and regression gates pass,
+but the first authorized launch never reached a workbench session: the Electron
+main process crashed on a missing native binding. The native modules were
+restored offline; no provider call or spend occurred. A new Electron session
+must be explicitly authorized to test the repaired launch and then perform the
+first real submission.
 
-LIVE12 execution still requires a separate written authorization with a
-spending ceiling. No provider call or Electron acceptance run occurred here.
+Prior readiness text (retained for history): the source commit is `7d4a4cc5`;
+the build/artifact manifest records it exactly; the contribution source hash
+matches the shipped bundle. LIVE12 execution still requires a separate written
+authorization with a spending ceiling.

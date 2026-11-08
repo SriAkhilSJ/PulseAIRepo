@@ -96,9 +96,16 @@ No `CrusorAI.exe`, Electron or acceptance process is running.
 
 ## 8. Remaining blockers
 
-None for preparation. Execution still requires a separate written
+- **Launch smoke test not yet re-run.** The first authorized attempt crashed in
+  Electron's main process because `@vscode/policy-watcher` had no native binding
+  after `npm ci --ignore-scripts`. Eight native modules were restored offline
+  from the local VS Code install; `vsda` remains unresolved and is not on the
+  early startup path. The repaired launch has not been exercised.
+- A new explicit authorization is required for another Electron session.
+
+Execution still requires a separate written
 `AUTHORIZE LIVE12 — ₹1.00`.
 
 ```text
-LIVE12_READY_FOR_EXPLICIT_AUTHORIZATION
+LIVE12_INCONCLUSIVE_LAUNCH_REPAIRED_RETEST_REQUIRED
 ```
