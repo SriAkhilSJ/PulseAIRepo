@@ -168,3 +168,19 @@ and the approval token variable.
 
 Branch `feat/prompt-cache-stabilization`; local HEAD == origin verified after
 push.
+
+## 17. Final authorized re-acceptance (live10)
+
+One additional bounded live run was authorized and executed after the two
+lifecycle fixes. It failed **before testing or titling**: the source provider
+output hit the 8192-token ceiling (`finish_reason='length'`) and the fail-closed
+adapter refused to mutate `src/duration.py`. The turn ended `failed`; no
+auxiliary provider call was made.
+
+- Run `p0_6_5_20261107T224903_ddf70775`, turn `turn-894b79c8...`.
+- Contract `82b51fcd...`, 2 components, plan 2 work units, validated.
+- 2 physical claims (source + tests), both settled; INR 0.164152; 0 active/uncertain.
+- No title, no auxiliary claim; the harness waited 90 s and honestly timed out.
+- Offline preflight: 309 passed; Invariant 7 maintained; live9 checksums 24/24.
+
+Full detail: `FINAL_REACCEPTANCE.md`. No further paid run was performed.

@@ -1,5 +1,11 @@
 # P0.6.9 — Acceptance Matrix
 
+> **Final re-acceptance (live10, `p0_6_5_20261107T224903_ddf70775`):** failed at
+> implementation generation — provider output hit the 8192-token ceiling
+> (`finish_reason='length'`), no module was written, no tests ran, no auxiliary
+> call occurred. The final verdict remains `P0.6.9_ACCEPTANCE_FAILED`.
+> See `FINAL_REACCEPTANCE.md`. No further run.
+
 Run `p0_6_5_20261107T221000_edc9f5de` · turn `turn-b140891f…` · workspace
 `ws-3064aec2…` · evidence `diagnostics/p0_6_9/live9`.
 
