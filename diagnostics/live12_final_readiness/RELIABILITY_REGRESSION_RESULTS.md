@@ -32,7 +32,7 @@ All runs are provider-free. Date: 2026-11-08.
 ```
 
 ```text
-359 collected, 359 passed in 573.05s (0:09:33)
+366 collected, 366 passed in 678.32s (0:11:18)
 ```
 
 Zero failures, zero errors, zero skipped. `reliability_battery.log` is the raw
@@ -42,7 +42,8 @@ output.
 
 | Suite | Result |
 |---|---|
-| `test_live12_readiness.py` | 10 passed |
+| `test_live12_readiness.py` | 17 passed |
+| `test_p0_6_5_live_acceptance.py::TestVerdictGates` | 9 passed |
 | `test_bridge_transport.py::test_turn_done_survives_a_undrained_event_queue` | 1 passed (17.78 s) |
 | `test_generation_boundary.py` | 15 passed (36.17 s) |
 | `test_live11_repair.py` | 25 passed |

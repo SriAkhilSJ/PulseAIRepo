@@ -26,5 +26,8 @@ The actual Live9/Live10/Live11 acceptance evidence manifests remain intact:
 P0.6.9                          41/41
 Live11 run                      48/48
 Live12 preflight                14/14
-Live12 final readiness          24/24
 ```
+
+`diagnostics/live12_final_readiness/SHA256SUMS.txt` is this task's own evidence
+manifest. It is regenerated whenever readiness evidence is added, and every
+entry verifies at the final commit.

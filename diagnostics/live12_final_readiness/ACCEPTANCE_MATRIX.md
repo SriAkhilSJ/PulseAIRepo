@@ -10,6 +10,8 @@
 | 6 | Repeated `session_info` spawns no subprocess | PASS | `test_live12_readiness.py` |
 | 7 | Autotitle-off reaches Python | PASS | source chain + tests |
 | 8 | Autotitle-off makes zero title calls | PASS | `_auxiliary_llm_allowed` false before store/provider |
+| 8a | Harness accepts titling-off without a title call | PASS | zero `session_titling` records required; any title call fails (`HARNESS_REPAIR.md`) |
+| 8b | Auxiliary wait short-circuits when titling off | PASS | returns in <2 s with `skipped=auxiliary_disabled` |
 | 9 | Title cannot create session/turn | PASS | code audit |
 | 10 | Full desktop compile passes | PASS | `npm run compile`, 13 min, exit 0 |
 | 11 | Dependency environment restored | PASS | npm 11 `npm ci --ignore-scripts`; Electron types present |
@@ -24,7 +26,8 @@
 | 20 | Exactly-once suite passes | PASS | 25/25 |
 | 21 | Generation boundary suite passes | PASS | 15/15 |
 | 22 | Financial lifecycle suite passes | PASS | 25/25 + P0.6.9 15/15 |
-| 23 | Full provider-free battery | PASS | 359 collected, 359 passed in 573.05 s |
+| 23 | Full provider-free battery | PASS | 366 collected, 366 passed in 678.32 s |
+| 23a | Mid-turn visual evidence capture | PASS | bounded sampler; `TestVisualSampling`; not yet collected live |
 | 24 | Historical reservation remains uncertain | PASS | not released/settled/included |
 | 25 | Hard budget enforcement | PASS | offline refusal proof |
 | 26 | Provider calls / spend / Electron runs | PASS | 0 / ₹0.00 / 0 |
@@ -33,7 +36,7 @@
 ## Verdict
 
 ```text
-LIVE12_READY_FOR_AUTHORIZATION
+LIVE12_READY_FOR_EXPLICIT_AUTHORIZATION
 ```
 
 All mandatory offline reliability, build, provenance, financial and regression

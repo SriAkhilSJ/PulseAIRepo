@@ -40,6 +40,7 @@ from benchmarks.crusor_desktop_acceptance.desktop_launcher import (
     wait_for_page_target,
 )
 from benchmarks.crusor_desktop_acceptance.live_turn import (
+    autotitle_disabled,
     build_acceptance_env,
     classify_financials,
     classify_guard,
@@ -340,6 +341,7 @@ class LiveAcceptance:
                 "composer_after_submit": after_value,
                 "method": method,
             })
+            self._sample_visual(client, "turn-submitted")
 
             try:
                 candidate = wait_for_turn_manifest(
@@ -365,11 +367,16 @@ class LiveAcceptance:
 
             # Wait for terminal status.
             deadline = time.monotonic() + self.options.turn_timeout_s
+            last_visual_sample = time.monotonic()
             while time.monotonic() < deadline and not turn_is_terminal(candidate):
                 time.sleep(1.0)
                 candidate = refresh_manifest(candidate)
                 console_samples.append(collect_console(client))
+                if time.monotonic() - last_visual_sample >= 20.0:
+                    self._sample_visual(client, "turn-running")
+                    last_visual_sample = time.monotonic()
             manifest = candidate["manifest"]
+            self._sample_visual(client, "turn-terminal")
             self.stage("turn_terminal", {
                 "status": (manifest.get("terminal") or {}).get("status"),
                 "completed": (manifest.get("terminal") or {}).get("completed"),
@@ -436,13 +443,54 @@ class LiveAcceptance:
             "chat_context_error_present": any("chat.contextContributions" in w for w in warnings),
         }
 
+    def _sample_visual(self, client, label: str, *, max_samples: int = 30) -> None:
+        """Capture what the Agent pane actually renders while the turn runs.
+
+        A final screenshot cannot show whether tool cards were ever rendered.
+        These samples are cheap, bounded and best-effort: a CDP or disk failure
+        must never abort a paid turn. Static images prove presence, not motion;
+        the DOM counts record whether the animated/running classes were applied.
+        """
+        samples = self.state.setdefault("visual", [])
+        if len(samples) >= max_samples:
+            return
+        entry: dict[str, Any] = {"label": label, "at": utc_now_iso(), "index": len(samples)}
+        try:
+            entry["panel"] = client.evaluate(
+                "(() => ({"
+                " tool_rows: document.querySelectorAll('.crusorai-tool-row').length,"
+                " running_rows: document.querySelectorAll('.crusorai-tool-row.is-running').length,"
+                " activity_rows: document.querySelectorAll('.crusorai-activity-row').length,"
+                " streaming_messages: document.querySelectorAll('.crusorai-assistant-message.is-streaming').length,"
+                " plan_live: document.querySelectorAll('.crusorai-plan-live').length"
+                "}))()"
+            )
+        except Exception as exc:  # noqa: BLE001 - visual evidence must not abort a turn
+            entry["panel_error"] = f"{type(exc).__name__}: {exc}"[:200]
+        try:
+            shot = save_screenshot(client, self.shots / f"turn-{len(samples):02d}.png")
+            entry["screenshot"] = str(shot)
+        except Exception as exc:  # noqa: BLE001 - visual evidence must not abort a turn
+            entry["screenshot_error"] = f"{type(exc).__name__}: {exc}"[:200]
+        samples.append(entry)
+        self.save()
+
     def finish(self, app, client, env: dict[str, str], session_id: str, turn_id: str, bridge_pid: int) -> dict[str, Any]:
         home = Path(env["CRUSORAI_HOME"])
+        # Autotitle is a run-level configuration, captured here so the verdict
+        # classifies the run by what it actually required, not by whatever
+        # happens to be exported when the verdict is computed.
+        autotitle_off = autotitle_disabled()
+        self.state["autotitle"] = {
+            "disabled": autotitle_off,
+            "value": os.environ.get("CRUSORAI_AUTOTITLE", ""),
+        }
         # P0.6.9: never kill the app while a governed auxiliary call is still
         # in flight. The bridge now settles before the manifest, but slow title
-        # providers get a bounded grace period here too.
+        # providers get a bounded grace period here too. With titling disabled
+        # there is nothing to wait for, so the wait must not burn 90 s.
         self.state["aux_accounting_wait"] = wait_for_auxiliary_accounting(
-            self.workspace, timeout_s=90.0,
+            self.workspace, timeout_s=90.0, expected=not autotitle_off,
         )
         # Persist final console + stop the app (the bridge flushes its ledger on exit).
         shutdown = stop_app(app)
@@ -638,13 +686,24 @@ class LiveAcceptance:
             and bool(r.get("model"))
             and bool(r.get("provider"))
         ]
+        # Autotitle-off is not "skip the title gate": it is a stronger gate.
+        # The run must produce ZERO session_titling records; any title
+        # invocation would be an unauthorised auxiliary provider dispatch.
+        autotitle_off = bool((self.state.get("autotitle") or {}).get("disabled"))
+        aux_ok = (not aux_records) if autotitle_off else (len(aux_settled) >= 1)
+        self.state["auxiliary_gate"] = {
+            "autotitle_off": autotitle_off,
+            "aux_records": len(aux_records),
+            "aux_settled": len(aux_settled),
+            "ok": aux_ok,
+        }
         ledger_ok = (
             bool(invocations.get("available"))
             and int(summary.get("total_calls") or 0) > 0
             and int(summary.get("settled_calls") or 0) == int(summary.get("total_calls") or 0)
             and int(summary.get("uncertain_calls") or 0) == 0
             and len(task_settled) >= 2
-            and len(aux_settled) >= 1
+            and aux_ok
         )
         dispatches_reconciled = (
             int(guard.get("dispatches_used") or 0)
@@ -660,7 +719,7 @@ class LiveAcceptance:
             and int(session_fin.get("active_count") or 0) == 0
             and float(session_fin.get("spent_inr") or 0.0) <= float(self.options.budget_inr)
         )
-        title_ok = bool(str(self.state.get("session_title") or "").strip())
+        title_ok = True if autotitle_off else bool(str(self.state.get("session_title") or "").strip())
         ok = (
             bool(guard.get("ok"))
             and bool(fin.get("ok"))

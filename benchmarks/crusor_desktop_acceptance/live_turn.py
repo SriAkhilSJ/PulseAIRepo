@@ -24,7 +24,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from benchmarks.crusor_desktop_acceptance.cdp_client import CdpClient, CdpError
 
@@ -36,6 +36,20 @@ COMPOSER_SELECTOR = "textarea.crusorai-composer-input"
 # ---------------------------------------------------------------------------
 # acceptance environment
 # ---------------------------------------------------------------------------
+
+AUTOTITLE_OFF_VALUES = frozenset({"0", "off", "false", "no"})
+
+
+def autotitle_disabled(environ: Mapping[str, str] | None = None) -> bool:
+    """True when session titling is explicitly disabled.
+
+    The bridge and the acceptance harness must agree on the exact same set of
+    values, otherwise a run could satisfy one gate while the other still makes
+    a title provider call.
+    """
+    env = os.environ if environ is None else environ
+    return str(env.get("CRUSORAI_AUTOTITLE", "")).strip().lower() in AUTOTITLE_OFF_VALUES
+
 
 def build_acceptance_env(
     *,
@@ -509,14 +523,22 @@ def read_acceptance_ledger(path: Path) -> dict[str, Any]:
     return {"available": True, "path": str(path), **data}
 
 
-def wait_for_auxiliary_accounting(workspace: str | Path, *, timeout_s: float = 90.0) -> dict[str, Any]:
+def wait_for_auxiliary_accounting(
+    workspace: str | Path, *, timeout_s: float = 90.0, expected: bool = True,
+) -> dict[str, Any]:
     """Wait for the auxiliary title invocation to reach a terminal accounting state.
 
     P0.6.9 live9: the bridge wrote the evidence manifest before the governed
     title call settled, so the harness shut the app down mid-call and left an
     in-flight reservation. The bridge now settles before finalizing the
     manifest; this wait is defence in depth for slow auxiliary providers.
+
+    ``expected=False`` is the autotitle-off case: there is no title call to
+    wait for, so the harness must not burn the full timeout before shutdown.
     """
+    if not expected:
+        return {"records": [], "waited": False, "skipped": "auxiliary_disabled"}
+
     from src.finops.invocation_context import read_invocations
 
     deadline = time.time() + max(0.0, float(timeout_s))
