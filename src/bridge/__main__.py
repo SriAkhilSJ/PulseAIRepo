@@ -381,14 +381,30 @@ class BridgeServer:
             print(f"[bridge] turn touch failed for {sid}: {exc!r}",
                   file=sys.stderr, flush=True)
 
+    def _auxiliary_llm_allowed(self) -> bool:
+        """Acceptance turns must spend provider dispatches only on the task.
+
+        P0.6.8 live evidence: the auto-titler used the auxiliary model
+        (qwen/qwen3.7-flash) inside an acceptance turn, claiming a third
+        dispatch that no FinOps reservation settled. Auxiliary calls are not
+        task work and cannot be attributed to the task budget, so acceptance
+        mode disables them entirely.
+        """
+        if os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip():
+            return False
+        if os.environ.get("CRUSORAI_AUTOTITLE", "").strip().lower() in {"0", "off", "false", "no"}:
+            return False
+        return True
+
     def _maybe_autotitle_session(self, sid: str, user_text: str, assistant_text: str = "") -> None:
         """Fire the async auto-titler for an untitled session (Hermes parity).
 
         FIXED rule: a session with any title (generated, renamed, pending) is
         never retitled here. Best-effort by contract: titling never breaks
-        the turn. ``CRUSORAI_AUTOTITLE=off`` disables the call entirely.
+        the turn. ``CRUSORAI_AUTOTITLE=off`` disables the call entirely, and
+        acceptance turns never make auxiliary provider calls.
         """
-        if os.environ.get("CRUSORAI_AUTOTITLE", "").strip().lower() in {"0", "off", "false", "no"}:
+        if not self._auxiliary_llm_allowed():
             return
         try:
             store = self._durable_store()

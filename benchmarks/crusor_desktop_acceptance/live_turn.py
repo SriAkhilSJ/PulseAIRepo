@@ -60,6 +60,10 @@ def build_acceptance_env(
         # The bridge's own watchdog: a turn that wedges prints every thread's
         # stack after 60 s, which is the only way to see WHERE it is stuck.
         "CRUSORAI_BRIDGE_DIAGNOSTICS": "1",
+        # Auxiliary model calls (session auto-title) must not claim acceptance
+        # dispatches: they are not task work and no task FinOps reservation can
+        # settle them (P0.6.8 live finding).
+        "CRUSORAI_AUTOTITLE": "off",
         # The engine executes the task's tests with this interpreter. Pinning it
         # keeps the workspace's pytest resolution out of the guessing game when
         # the desktop bridge runs under a launcher shim.
