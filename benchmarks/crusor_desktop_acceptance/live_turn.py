@@ -509,6 +509,34 @@ def read_acceptance_ledger(path: Path) -> dict[str, Any]:
     return {"available": True, "path": str(path), **data}
 
 
+def wait_for_auxiliary_accounting(workspace: str | Path, *, timeout_s: float = 90.0) -> dict[str, Any]:
+    """Wait for the auxiliary title invocation to reach a terminal accounting state.
+
+    P0.6.9 live9: the bridge wrote the evidence manifest before the governed
+    title call settled, so the harness shut the app down mid-call and left an
+    in-flight reservation. The bridge now settles before finalizing the
+    manifest; this wait is defence in depth for slow auxiliary providers.
+    """
+    from src.finops.invocation_context import read_invocations
+
+    deadline = time.time() + max(0.0, float(timeout_s))
+    records: list[dict[str, Any]] = []
+    terminal = {"settled", "uncertain", "released", "blocked"}
+    while time.time() < deadline:
+        records = [
+            r for r in read_invocations(workspace)
+            if r.get("subsystem") == "session_titling"
+        ]
+        if records and all(r.get("status") in terminal for r in records):
+            return {"records": records, "waited": True}
+        time.sleep(1.0)
+    records = [
+        r for r in read_invocations(workspace)
+        if r.get("subsystem") == "session_titling"
+    ]
+    return {"records": records, "waited": False}
+
+
 def read_provider_invocations(workspace: str | Path) -> dict[str, Any]:
     """Read the P0.6.9 invocation ledger (task + auxiliary) and summarize it."""
     from src.finops.invocation_context import read_invocations, summarize_invocations

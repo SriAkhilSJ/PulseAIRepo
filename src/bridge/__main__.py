@@ -1448,6 +1448,21 @@ class BridgeServer:
                     if cancelled
                     else ("completed" if task_completed else "failed")
                 )
+                if (
+                    task_completed
+                    and not cancelled
+                    and os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
+                ):
+                    # P0.6.9: settle the governed auxiliary title call BEFORE the
+                    # evidence manifest is finalized. The acceptance harness
+                    # treats the manifest terminal as the end of the turn; doing
+                    # this later let the app be shut down mid-provider-call and
+                    # left an in-flight reservation (live9).
+                    try:
+                        self._maybe_autotitle_session(sid, text, str(result), wait=True)
+                    except Exception:
+                        pass
+
                 evidence_done = self._finalize_evidence(
                     evidence,
                     status=lifecycle_status,
@@ -1460,19 +1475,6 @@ class BridgeServer:
                         else ("" if task_completed else "graph_returned_incomplete")
                     ),
                 )
-                if (
-                    task_completed
-                    and not cancelled
-                    and os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
-                ):
-                    # P0.6.9: run the governed auxiliary title call BEFORE the
-                    # terminal frame so its reservation + settlement are part of
-                    # the same turn evidence.
-                    try:
-                        self._maybe_autotitle_session(sid, text, str(result), wait=True)
-                    except Exception:
-                        pass
-
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
                     "message": str(result),

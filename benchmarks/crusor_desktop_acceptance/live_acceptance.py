@@ -63,6 +63,7 @@ from benchmarks.crusor_desktop_acceptance.live_turn import (
     wait_for_engine_ready,
     wait_for_turn_manifest,
     turn_is_terminal,
+    wait_for_auxiliary_accounting,
 )
 from benchmarks.crusor_desktop_acceptance.processes import discover_engine_processes
 from benchmarks.crusor_desktop_acceptance.renderer_observer import (
@@ -437,6 +438,12 @@ class LiveAcceptance:
 
     def finish(self, app, client, env: dict[str, str], session_id: str, turn_id: str, bridge_pid: int) -> dict[str, Any]:
         home = Path(env["CRUSORAI_HOME"])
+        # P0.6.9: never kill the app while a governed auxiliary call is still
+        # in flight. The bridge now settles before the manifest, but slow title
+        # providers get a bounded grace period here too.
+        self.state["aux_accounting_wait"] = wait_for_auxiliary_accounting(
+            self.workspace, timeout_s=90.0,
+        )
         # Persist final console + stop the app (the bridge flushes its ledger on exit).
         shutdown = stop_app(app)
         time.sleep(2.0)

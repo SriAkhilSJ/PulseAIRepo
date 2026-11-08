@@ -334,5 +334,33 @@ class TestBridgeTitlingWiring(unittest.TestCase):
         self.assertTrue(any(frame.get("type") == "session_info" for frame in emitted))
 
 
+class TestAuxiliaryWaitHelper(unittest.TestCase):
+    def test_wait_returns_after_a_terminal_aux_record(self) -> None:
+        import time
+
+        from benchmarks.crusor_desktop_acceptance.live_turn import wait_for_auxiliary_accounting
+        from src.finops.invocation_context import record_invocation
+
+        ws = _ws()
+
+        def writer() -> None:
+            time.sleep(0.2)
+            record_invocation(ws, {
+                "subsystem": "session_titling", "status": "settled",
+                "actual_cost_inr": 0.01, "provider": "cheap",
+                "model": "qwen/qwen3.7-flash",
+            })
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        try:
+            result = wait_for_auxiliary_accounting(ws, timeout_s=3.0)
+        finally:
+            thread.join(timeout=2)
+            shutil.rmtree(ws, ignore_errors=True)
+        self.assertTrue(result["waited"])
+        self.assertEqual(result["records"][0]["status"], "settled")
+
+
 if __name__ == "__main__":
     unittest.main()
