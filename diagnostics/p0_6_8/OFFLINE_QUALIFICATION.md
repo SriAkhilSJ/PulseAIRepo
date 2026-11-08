@@ -32,11 +32,11 @@ authentic usage receipts (priced model `groq`/`qwen/qwen3.6-27b`).
 
 ## 2. Result
 
-**291 passed, 0 failed, 0 skipped in 230.84 s.**
+**293 passed, 0 failed, 0 skipped in 225.13 s.**
 
 | Suite | Tests | Result |
 | --- | --- | --- |
-| `test_p0_6_8_contract_first.py` (new) | 42 | passed |
+| `test_p0_6_8_contract_first.py` (new) | 44 | passed |
 | `test_p0_6_7_autonomous_closure.py` | 24 | passed |
 | `test_p0_6_6_execution_reliability.py` | 27 | passed |
 | `test_p0_6_5_live_acceptance.py` | 32 | passed |
@@ -48,10 +48,10 @@ authentic usage receipts (priced model `groq`/`qwen/qwen3.6-27b`).
 | `test_phase_9_7_enterprise_finops.py` | 20 | passed |
 | `test_phase_12_1_1_identity_finops_production.py` | 5 | passed |
 | bridge suites (8 files) | 63 | passed |
-| **Total** | **291** | **291 passed** |
+| **Total** | **293** | **293 passed** |
 
-The P0.6.7 final baseline was 247; P0.6.8 adds 42 contract/planner/cross-file/
-repair tests and 2 net acceptance-gate tests (P0.6.5 31 → 32).
+The P0.6.7 final baseline was 247; P0.6.8 adds 44 contract/planner/cross-file/
+repair/isolation tests and 2 net acceptance-gate tests (P0.6.5 31 → 32).
 
 ## 3. Exact historical reproduction
 
@@ -113,6 +113,22 @@ Modified: `src/orchestration/planner.py`, `orchestrator.py`, `model_adapter.py`,
 1 reviewed false positive: `orchestrator.py` `token =
 self.supervision_gate.grant_approval(...)` — an in-memory approval token, not a
 credential.
+
+## 8b. Acceptance isolation (added after the live run)
+
+The one live acceptance exposed a real accounting gap: the session auto-titler
+called the auxiliary model (`qwen/qwen3.7-flash`) inside the acceptance turn.
+The acceptance guard counted that call (3 claims) but no task FinOps reservation
+settled it (2 settlements). The task itself passed 10/10 tests.
+
+Committed fix:
+
+- `build_acceptance_env` sets `CRUSORAI_AUTOTITLE=off`;
+- `BridgeServer._auxiliary_llm_allowed()` refuses auxiliary model calls whenever
+  `CRUSORAI_ACCEPTANCE_RUN_ID` is set, independent of the env flag;
+- two tests pin the env value and the bridge refusal.
+
+This is offline-proven only (no second live run was authorized).
 
 ## 9. Known limitations
 

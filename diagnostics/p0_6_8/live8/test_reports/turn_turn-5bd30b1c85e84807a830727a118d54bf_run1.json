@@ -1,0 +1,148 @@
+{
+  "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+  "run_index": 1,
+  "discovery": {
+    "runner": "pytest",
+    "files": [
+      "tests/test_duration.py"
+    ],
+    "generated": [
+      "tests/test_duration.py"
+    ],
+    "explicit": [
+      "tests/test_duration.py"
+    ],
+    "related": [],
+    "command": [
+      "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "--tb=short",
+      "--no-header",
+      "-p",
+      "no:cacheprovider",
+      "-rf",
+      "--junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+      "tests/test_duration.py"
+    ],
+    "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+    "reason": "pytest with generated/explicit/related tests",
+    "warnings": []
+  },
+  "result": {
+    "runner": "pytest",
+    "command": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m pytest -q --tb=short --no-header -p no:cacheprovider -rf --junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml tests/test_duration.py",
+    "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+    "exit_code": 0,
+    "started_at": 1794115117.0748749,
+    "finished_at": 1794115118.1749682,
+    "duration_s": 1.1,
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "test_id": "tests/test_duration.py::test_one_hour_thirty_minutes",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.001,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_forty_five_seconds",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_hour_minute_second_with_spaces",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_duplicate_unit_raises",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.001,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_unknown_unit_raises",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.001,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_empty_string_raises",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_missing_number_raises",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_negative_value_raises",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      },
+      {
+        "test_id": "tests/test_duration.py::test_non_string_raises_type_error",
+        "file": "tests/test_duration.py",
+        "status": "PASSED",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": null,
+        "traceback": null
+      }
+    ],
+    "report_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+    "timed_out": false,
+    "infrastructure_error": null,
+    "source_hashes": {
+      "tests/test_duration.py": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+      "src/duration.py": "79741a7b7dc69dc7ac6053a7b6df9c6cd39dde120084e0b49922f06f2c3bf215"
+    },
+    "stdout": "..........                                                               [100%]\n10 passed in 0.06s\n",
+    "stderr": ""
+  }
+}
