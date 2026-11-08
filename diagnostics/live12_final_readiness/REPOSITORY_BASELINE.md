@@ -21,7 +21,7 @@ Historical evidence at baseline:
 |---|---|
 | `diagnostics/p0_6_9/SHA256SUMS.txt` | 41/41 |
 | Live11 run manifest | 48/48 |
-| `diagnostics/live11_repair/SHA256SUMS.txt` | 19/19 |
+| `diagnostics/live11_repair/SHA256SUMS.txt` | 19/19 at preflight; **16/19 after this repair** (3 intentional source/artifact deltas, see `HISTORICAL_MANIFEST_DELTAS.md`) |
 | `diagnostics/live12_acceptance/SHA256SUMS.txt` | 14/14 |
 
 Relevant commits:

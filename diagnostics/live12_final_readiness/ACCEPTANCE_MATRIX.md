@@ -3,7 +3,7 @@
 | # | Criterion | Result | Evidence |
 |---|---|---|---|
 | 1 | Baseline HEAD / origin / ancestor | PASS | `f1299525`, local == origin, baseline ancestor |
-| 2 | Historical evidence unchanged | PASS | 41/41, 48/48, 19/19, 14/14 |
+| 2 | Historical evidence unchanged | PASS | P0.6.9 41/41, Live11 48/48, Live12 preflight 14/14; Live11 repair manifest 16/19 with 3 intentional source/artifact deltas documented |
 | 3 | Live11 title blocking path explained | PASS | stack + timeline in `LIVE11_TITLE_DELAY_ROOT_CAUSE.md` |
 | 4 | Build footer no longer runs Git in `emit` | PASS | `_engine_build_cached`; tests |
 | 5 | Build probe bounded / unknown safe | PASS | daemon probe cap 2.5 s, explicit `"unknown"` |

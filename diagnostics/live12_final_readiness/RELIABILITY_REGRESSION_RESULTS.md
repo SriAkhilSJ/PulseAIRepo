@@ -71,7 +71,9 @@ exit 0
 
 ## 5. Integrity
 
-- Historical checksums: P0.6.9 41/41; Live11 48/48; Live11 repair 19/19;
-  Live12 preflight 14/14.
+- Historical checksums: P0.6.9 41/41; Live11 run 48/48; Live12 preflight 14/14.
+  The Live11 repair manifest is 16/19 with three intentional source/artifact
+  deltas documented in `HISTORICAL_MANIFEST_DELTAS.md`; the manifest itself was
+  not rewritten.
 - No provider calls, no Electron acceptance run, no benchmark.
 - P2 roadmap unchanged.
