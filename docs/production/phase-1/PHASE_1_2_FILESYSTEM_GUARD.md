@@ -113,16 +113,23 @@ cost leg, compaction/cache interaction). No FAIL.
 
 ## 6. CI results
 
+Phase 1.2 implementation commit `c32582db`:
+
+| Workflow | Platform / jobs | Result | Run |
+|---|---|---|---|
+| Agent-core body checkup | `ubuntu-latest` (`checkup`) | **success** | 42515332263 |
+| Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` (`Target contracts`) | **success** (all three) | 42515332279 |
+
 Phase 1.1 implementation commit `bb94f740`:
 
-| Workflow | Platform / jobs | Result |
-|---|---|---|
-| Agent-core body checkup | `ubuntu-latest` (`checkup`) | **success** |
-| Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` | **success** (all three) |
+| Workflow | Platform / jobs | Result | Run |
+|---|---|---|---|
+| Agent-core body checkup | `ubuntu-latest` (`checkup`) | **success** | 42512697497 |
+| Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` | **success** (all three) | 42512697504 |
 
-Phase 1.2 commit has not yet been pushed at the time of this evidence; no
-Phase 1.2 CI result is claimed. The path-filtered Agent-core checkup will run on
-a future push because `scripts/agent_core_checkup.py` and `src/tests/` change.
+The docs-only commit `2204e320` did not trigger the path-filtered Agent-core
+checkup; its Host compatibility run succeeded on all three platforms
+(run 42513837736).
 
 ## 7. Remaining bypasses and limitations
 
