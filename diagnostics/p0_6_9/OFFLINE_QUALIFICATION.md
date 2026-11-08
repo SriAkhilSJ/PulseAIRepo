@@ -31,11 +31,11 @@ No live provider was called in this phase.
 
 ## 2. Result
 
-**308 passed, 0 failed, 0 skipped in 223.54 s.**
+**309 passed, 0 failed, 0 skipped in 257.45 s.**
 
 | Suite | Tests | Result |
 | --- | --- | --- |
-| `test_p0_6_9_universal_finops.py` (new) | 14 | passed |
+| `test_p0_6_9_universal_finops.py` (new) | 15 | passed |
 | `test_p0_6_8_contract_first.py` | 44 | passed |
 | `test_p0_6_7_autonomous_closure.py` | 24 | passed |
 | `test_p0_6_6_execution_reliability.py` | 27 | passed |
@@ -48,9 +48,9 @@ No live provider was called in this phase.
 | `test_phase_9_7_enterprise_finops.py` | 20 | passed |
 | `test_phase_12_1_1_identity_finops_production.py` | 5 | passed |
 | bridge suites (8 files) | 63 | passed |
-| **Total** | **308** | **308 passed** |
+| **Total** | **309** | **309 passed** |
 
-The P0.6.8 final baseline was 293; P0.6.9 adds 14 accounting tests and one net
+The P0.6.8 final baseline was 293; P0.6.9 adds 15 accounting tests and one net
 acceptance-gate test.
 
 ## 3. Universal-accounting evidence
@@ -127,6 +127,25 @@ Modified: `src/orchestration/model_adapter.py`, `src/llm/factory.py`,
 `scripts/secret_scan_p0_6_6.py` over every changed source/test/harness file:
 **0 real hits**. One reviewed false positive remains the in-memory approval
 token variable in `orchestrator.py`.
+
+## 8b. Post-live ordering fix (offline only)
+
+The one live run (`live9`) left one auxiliary reservation `in_flight`: the
+bridge finalized the evidence manifest before running the governed title call,
+the harness treated the manifest as turn-terminal, stopped the app, and killed
+the call mid-flight. Reservation-before-dispatch was correct; settlement never
+happened.
+
+Committed after the run:
+
+- the governed title call now runs **before** `_finalize_evidence` in the main
+  turn path, so the manifest cannot declare completion before accounting;
+- the harness waits up to 90 s for a terminal auxiliary invocation record
+  (`wait_for_auxiliary_accounting`) **before** stopping the app;
+- a test covers the wait helper.
+
+The final offline battery is **309 passed, 0 failed**. This fix is not
+live-proven: no second live run was performed.
 
 ## 9. Known limitations
 

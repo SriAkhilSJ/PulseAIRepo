@@ -1,0 +1,53 @@
+{
+  "accounting": {
+    "task_id": "turn_turn-b140891f7ce64116b0589aa724bbb485",
+    "budget_inr": 5.0,
+    "spent_inr": 0.092296,
+    "spent_usd": 0.000998,
+    "reserved_inr": 0.0,
+    "reserved_usd": 0.0,
+    "token_budget": 150000,
+    "tokens_consumed": 5894,
+    "reserved_tokens": 0,
+    "input_tokens": 1201,
+    "output_tokens": 4693,
+    "cached_tokens": 0,
+    "tool_execution_seconds": 0.0,
+    "test_execution_seconds": 0.0,
+    "calls_count": 2,
+    "is_breached": false,
+    "breach_reason": null
+  },
+  "active_reservations": {},
+  "uncertain_reservations": {},
+  "settled_reservations": {
+    "res_68c66c229dcb": {
+      "reservation_id": "res_68c66c229dcb",
+      "task_id": "turn_turn-b140891f7ce64116b0589aa724bbb485",
+      "amount_inr": 0.161378,
+      "amount_usd": 0.001745,
+      "tokens": 10323,
+      "purpose": "node_task_duration",
+      "created_at": 1794118221.5106473,
+      "is_committed": true,
+      "is_released": false,
+      "canonical_reservation_id": "4995682e-e1a9-4f",
+      "canonical_amount_usd": 0.001876,
+      "status": "reconciled"
+    },
+    "res_738c31ef60ba": {
+      "reservation_id": "res_738c31ef60ba",
+      "task_id": "turn_turn-b140891f7ce64116b0589aa724bbb485",
+      "amount_inr": 0.162857,
+      "amount_usd": 0.001761,
+      "tokens": 10654,
+      "purpose": "node_task_tests_test_duration",
+      "created_at": 1794118243.8966641,
+      "is_committed": true,
+      "is_released": false,
+      "canonical_reservation_id": "3fd33519-2a64-43",
+      "canonical_amount_usd": 0.001893,
+      "status": "reconciled"
+    }
+  }
+}
