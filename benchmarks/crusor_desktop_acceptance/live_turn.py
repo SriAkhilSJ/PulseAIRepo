@@ -519,7 +519,9 @@ def read_orchestration_lifecycle(workspace: str | Path) -> dict[str, Any]:
     root = Path(workspace) / ".crusorai"
     journals = sorted(root.rglob("orchestration_journal.jsonl")) if root.exists() else []
     out: dict[str, Any] = {"available": False, "tests": [], "repairs": [],
-                           "diagnoses": [], "completion": None, "completion_ok": False}
+                           "diagnoses": [], "completion": None, "completion_ok": False,
+                           "contract": None, "assignment": None, "plan": None,
+                           "cross_file": None, "test_repairs": []}
     if not journals:
         return out
     try:
@@ -549,6 +551,16 @@ def read_orchestration_lifecycle(workspace: str | Path) -> dict[str, Any]:
         elif kind == "TASK_DELIVERED":
             out["delivery"] = details
             out["requirement_verification"] = details.get("requirement_verification") or []
+        elif kind == "CONTRACT_EXTRACTED":
+            out["contract"] = details
+        elif kind == "FILES_ASSIGNED":
+            out["assignment"] = details
+        elif kind == "PLAN_VALIDATED":
+            out["plan"] = details
+        elif kind == "CROSS_FILE_VALIDATED":
+            out["cross_file"] = details
+        elif kind == "TEST_REPAIR_APPLIED":
+            out["test_repairs"].append(details)
     out["available"] = True
     out["path"] = str(journals[-1])
     out["event_types"] = [e.get("event_type") for e in events]

@@ -575,32 +575,59 @@ class LiveAcceptance:
             and int(final_run.get("errors") or 0) == 0
             and "pytest" in str(final_run.get("command") or "")
         )
-        repair_exercised = bool(in_turn.get("repairs"))
         completion_ok = bool(in_turn.get("completion_ok"))
         dispatches_reconciled = (
             int(guard.get("dispatches_used") or 0) == int(fin.get("calls_count") or 0)
         )
+        contract = in_turn.get("contract") or {}
+        assignment = in_turn.get("assignment") or {}
+        plan_report = in_turn.get("plan") or {}
+        cross = in_turn.get("cross_file") or {}
+        components = contract.get("components") or []
+        roles = [c.get("role") for c in components]
+        req_ids = {
+            rid for component in components
+            for rid in (component.get("requirement_ids") or [])
+        }
+        req_map = assignment.get("requirement_map") or {}
+        contract_ok = (
+            bool(contract.get("contract_hash"))
+            and len(components) >= 2
+            and "SOURCE" in roles
+            and "TEST" in roles
+            and bool(req_ids)
+            and all(bool(req_map.get(rid)) for rid in req_ids)
+            and not (contract.get("ambiguities") or [])
+        )
+        plan_ok = (
+            bool(plan_report.get("ok"))
+            and int(plan_report.get("work_units") or 0) == 2
+            and int(plan_report.get("demand") or 0) == 2
+        )
+        cross_ok = bool(cross.get("ok"))
         ok = (
             bool(guard.get("ok"))
             and bool(fin.get("ok"))
             and dispatches_reconciled
+            and contract_ok
+            and plan_ok
+            and cross_ok
             and bool(verification.get("module_exists"))
             and bool(verification.get("ast_ok"))
             and verification.get("pytest_returncode") == 0
             and bool((verification.get("independent_smoke") or {}).get("ok"))
             and in_turn_tests_ok
             and completion_ok
-            and repair_exercised
             and terminal.get("status") == "completed"
             and renderer_console.get("unhandled_errors", 0) == 0
             and bool(self.state.get("correlation"))
         )
         if ok:
-            return "P0.6.7_ACCEPTANCE_PASSED"
+            return "P0.6.8_ACCEPTANCE_PASSED"
         completion = in_turn.get("completion") or {}
         if in_turn.get("available") and completion.get("blocked"):
-            return "P0.6.7_ACCEPTANCE_BLOCKED"
-        return "P0.6.7_ACCEPTANCE_FAILED"
+            return "P0.6.8_ACCEPTANCE_BLOCKED"
+        return "P0.6.8_ACCEPTANCE_FAILED"
 
     def _finalise(self, app, client, console_samples) -> dict[str, Any]:
         if client is not None:
