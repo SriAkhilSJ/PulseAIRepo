@@ -69,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
         if state.get("stopped_before_submit"):
             print("stopped before submit (provider-free preflight)")
             return 0
-        return 0 if state.get("verdict") == "P0.6.5_DESKTOP_ACCEPTED" else 1
+        # Accept every token the current harness can emit; a stale token here
+        # turns an accepted run into exit code 1 for scripting and CI.
+        accepted = {
+            "P0.6.6_LIVE_ACCEPTED",
+            "P0.6.5_DESKTOP_ACCEPTED",  # historical evidence only
+        }
+        return 0 if state.get("verdict") in accepted else 1
 
     options = HarnessOptions(
         evidence_dir=args.evidence_dir,

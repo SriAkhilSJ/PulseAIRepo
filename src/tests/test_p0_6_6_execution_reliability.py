@@ -8,9 +8,9 @@ Covers the three defects from P0.6.5:
   2. Planner dispatch budget: plans are coalesced into the available
      dispatches, requirements are never dropped, over-budget plans are
      refused before any provider request.
-  3. Output ceiling: the per-node ceiling is configurable (4096 justified by
-     measurement) and flows into the provider kwargs; P0.5.1 fail-closed
-     validation is unchanged.
+  3. Output ceiling: the per-node ceiling is configurable (8192, measured --
+     see ExecutionLimits.max_output_tokens_per_node) and flows into the
+     provider kwargs; P0.5.1 fail-closed validation is unchanged.
 
 No provider is called: fakes are used for the adapter and planner where the
 real component would need the network.
@@ -334,7 +334,7 @@ class TestCeiling(unittest.TestCase):
         response = MagicMock()
         response.response_metadata = {"finish_reason": "length"}
         response.content = "def broken(:"
-        response.usage_metadata = {"input_tokens": 10, "output_tokens": 4096, "total_tokens": 4106}
+        response.usage_metadata = {"input_tokens": 10, "output_tokens": 8192, "total_tokens": 8202}
         with self.assertRaises(IncompleteModelOutputError):
             assert_provider_output_complete(response, "src/x.py")
 
