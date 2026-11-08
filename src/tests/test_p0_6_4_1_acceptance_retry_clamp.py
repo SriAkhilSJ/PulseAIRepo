@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+from src.finops.invocation_context import invocation_scope
 from src.llm.acceptance_guard import (
     AcceptanceBudgetExceeded,
     AcceptanceDisciplineError,
@@ -85,7 +86,9 @@ class TestAcceptanceClamp(unittest.TestCase):
         with acceptance_mode("run_t2", max_dispatches=5):
             proxy = RetryLLMProxy(inner, max_attempts=5)
             with self.assertRaises(ConnectionError):
-                proxy.invoke([{"role": "user", "content": "hi"}])
+                with invocation_scope(subsystem="test", reservation_id="res-t2",
+                                      operation_type="implementation"):
+                    proxy.invoke([{"role": "user", "content": "hi"}])
         self.assertEqual(inner.calls, 1, "a retryable error must not trigger a second request")
 
     def test_3_sdk_retries_are_forced_to_zero(self) -> None:
@@ -115,11 +118,13 @@ class TestAcceptanceClamp(unittest.TestCase):
         inner = _CountingLLM()
         with acceptance_mode("run_t4", max_dispatches=5) as guard:
             proxy = RetryLLMProxy(inner, max_attempts=5)
-            for _ in range(5):
-                proxy.invoke([{"role": "user", "content": "step"}])
-            self.assertEqual(inner.calls, 5)
-            with self.assertRaises(AcceptanceBudgetExceeded):
-                proxy.invoke([{"role": "user", "content": "sixth"}])
+            with invocation_scope(subsystem="test", reservation_id="res-t4",
+                                  operation_type="implementation"):
+                for _ in range(5):
+                    proxy.invoke([{"role": "user", "content": "step"}])
+                self.assertEqual(inner.calls, 5)
+                with self.assertRaises(AcceptanceBudgetExceeded):
+                    proxy.invoke([{"role": "user", "content": "sixth"}])
             self.assertEqual(inner.calls, 5, "the sixth request must never reach the provider")
             self.assertEqual(guard.used, 5)
             self.assertEqual(guard.remaining, 0)
@@ -143,17 +148,19 @@ class TestAcceptanceClamp(unittest.TestCase):
                 RetryLLMProxy(implementer, max_attempts=5),
                 RetryLLMProxy(aux, max_attempts=5),
             ]
-            proxies[0].invoke([{"role": "user", "content": "plan"}])
-            proxies[1].invoke([{"role": "user", "content": "implement"}])
-            proxies[1].invoke([{"role": "user", "content": "implement-2"}])
-            proxies[2].invoke([{"role": "user", "content": "aux"}])
-            proxies[0].invoke([{"role": "user", "content": "plan-2"}])
-            self.assertEqual((planner.calls, implementer.calls, aux.calls), (2, 2, 1))
-            self.assertEqual(guard.used, 5)
-            # Any further dispatch from ANY proxy (any stage) is refused.
-            for proxy in proxies:
-                with self.assertRaises(AcceptanceBudgetExceeded):
-                    proxy.invoke([{"role": "user", "content": "more"}])
+            with invocation_scope(subsystem="test", reservation_id="res-t6",
+                                  operation_type="implementation"):
+                proxies[0].invoke([{"role": "user", "content": "plan"}])
+                proxies[1].invoke([{"role": "user", "content": "implement"}])
+                proxies[1].invoke([{"role": "user", "content": "implement-2"}])
+                proxies[2].invoke([{"role": "user", "content": "aux"}])
+                proxies[0].invoke([{"role": "user", "content": "plan-2"}])
+                self.assertEqual((planner.calls, implementer.calls, aux.calls), (2, 2, 1))
+                self.assertEqual(guard.used, 5)
+                # Any further dispatch from ANY proxy (any stage) is refused.
+                for proxy in proxies:
+                    with self.assertRaises(AcceptanceBudgetExceeded):
+                        proxy.invoke([{"role": "user", "content": "more"}])
             self.assertEqual(planner.calls + implementer.calls + aux.calls, 5)
 
     def test_6b_claims_are_recorded_with_stage_and_sequence(self) -> None:

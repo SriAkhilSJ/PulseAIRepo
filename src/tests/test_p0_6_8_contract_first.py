@@ -744,24 +744,24 @@ class TestExactHistoricalLifecycle(unittest.TestCase):
 class TestAcceptanceIsolation(unittest.TestCase):
     """P0.6.8 live finding: auxiliary calls must not claim acceptance dispatches."""
 
-    def test_acceptance_env_disables_autotitle(self) -> None:
+    def test_acceptance_env_no_longer_disables_autotitle(self) -> None:
         from benchmarks.crusor_desktop_acceptance.live_turn import build_acceptance_env
 
         env = build_acceptance_env(run_id="r", evidence_dir=Path(tempfile.mkdtemp()))
-        self.assertEqual(env["CRUSORAI_AUTOTITLE"], "off")
+        self.assertNotEqual(env.get("CRUSORAI_AUTOTITLE", ""), "off")
 
-    def test_bridge_refuses_auxiliary_llm_in_acceptance(self) -> None:
+    def test_bridge_allows_governed_auxiliary_llm_in_acceptance(self) -> None:
         from unittest.mock import patch
 
         from src.bridge.__main__ import BridgeServer
 
         server = object.__new__(BridgeServer)
-        with patch.dict(os.environ, {"CRUSORAI_ACCEPTANCE_RUN_ID": "run"}, clear=False):
-            self.assertFalse(server._auxiliary_llm_allowed())
-        with patch.dict(os.environ, {"CRUSORAI_ACCEPTANCE_RUN_ID": "", "CRUSORAI_AUTOTITLE": "off"}, clear=False):
-            self.assertFalse(server._auxiliary_llm_allowed())
-        with patch.dict(os.environ, {"CRUSORAI_ACCEPTANCE_RUN_ID": "", "CRUSORAI_AUTOTITLE": ""}, clear=False):
+        with patch.dict(os.environ, {"CRUSORAI_ACCEPTANCE_RUN_ID": "run",
+                                     "CRUSORAI_AUTOTITLE": ""}, clear=False):
             self.assertTrue(server._auxiliary_llm_allowed())
+        with patch.dict(os.environ, {"CRUSORAI_ACCEPTANCE_RUN_ID": "run",
+                                     "CRUSORAI_AUTOTITLE": "off"}, clear=False):
+            self.assertFalse(server._auxiliary_llm_allowed())
 
 
 if __name__ == "__main__":

@@ -299,22 +299,22 @@ class TestVerdictGates(unittest.TestCase):
     def _instance(self):
         from benchmarks.crusor_desktop_acceptance.live_acceptance import LiveAcceptance, LiveTurnOptions
 
-        tmp = Path(tempfile.mkdtemp(prefix="p0_6_7_verdict_"))
+        tmp = Path(tempfile.mkdtemp(prefix="p0_6_9_verdict_"))
         return LiveAcceptance(LiveTurnOptions(
             evidence_dir=tmp / "ev", workspace=tmp / "ws", prompt="p", max_dispatches=5,
         ))
 
     @staticmethod
-    def _in_turn(*, completion_ok: bool = True, repairs: bool = False) -> dict:
-        final = {"total": 6, "failed": 0, "errors": 0,
+    def _in_turn() -> dict:
+        final = {"total": 10, "failed": 0, "errors": 0,
                  "command": "python -m pytest -q tests/test_duration.py"}
         return {
             "available": True,
             "tests": [final],
             "final_test_run": final,
-            "repairs": [{"attempt": 1}] if repairs else [],
-            "completion_ok": completion_ok,
-            "completion": {"ok": completion_ok, "blocked": not completion_ok},
+            "repairs": [],
+            "completion_ok": True,
+            "completion": {"ok": True, "blocked": False},
             "contract": {
                 "contract_hash": "a" * 64,
                 "ambiguities": [],
@@ -333,118 +333,113 @@ class TestVerdictGates(unittest.TestCase):
             "cross_file": {"ok": True, "errors": []},
         }
 
-    def test_10_missing_correlation_cannot_pass(self) -> None:
-        acc = self._instance()
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        verdict = acc._verdict(
-            {"ok": True},
-            {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10b_full_chain_passes_the_gate_math(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r", "session_id": "s", "turn_id": "t", "workspace_id": "w"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        verdict = acc._verdict(
-            {"ok": True},
-            {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_PASSED")
-
-    def test_10c_guard_or_finance_failure_blocks_acceptance(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        good_verify = {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-                       "independent_smoke": {"ok": True}}
-        self.assertEqual(acc._verdict({"ok": False}, {"ok": True}, good_verify), "P0.6.8_ACCEPTANCE_FAILED")
-        self.assertEqual(acc._verdict({"ok": True}, {"ok": False}, good_verify), "P0.6.8_ACCEPTANCE_FAILED")
-        self.assertEqual(acc._verdict({"ok": True}, {"ok": True},
-                                      {"module_exists": True, "ast_ok": True, "pytest_returncode": 1,
-                                       "independent_smoke": {"ok": True}}),
-                         "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10d_a_turn_without_in_turn_tests_cannot_pass(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = {"available": True, "tests": [], "completion_ok": True}
-        verdict = acc._verdict(
-            {"ok": True}, {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10e_contract_evidence_is_required(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        acc.state["in_turn"]["contract"] = None
-        verdict = acc._verdict(
-            {"ok": True}, {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10h_wrong_plan_shape_fails(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        acc.state["in_turn"]["plan"] = {"ok": True, "work_units": 3, "demand": 3}
-        verdict = acc._verdict(
-            {"ok": True}, {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10g_unaccounted_dispatch_cannot_pass(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = self._in_turn()
-        verdict = acc._verdict(
-            {"ok": True, "dispatches_used": 4},
-            {"ok": True, "calls_count": 3},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
-             "independent_smoke": {"ok": True}},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_FAILED")
-
-    def test_10f_blocked_completion_is_reported_as_blocked(self) -> None:
-        acc = self._instance()
-        acc.state["correlation"] = {"run_id": "r"}
-        acc.state["stages"] = {"turn_terminal": {"status": "failed"}}
-        acc.state["renderer_console"] = {"unhandled_errors": 0}
-        acc.state["in_turn"] = {
-            "available": True, "tests": [], "final_test_run": {},
-            "repairs": [], "completion_ok": False,
-            "completion": {"ok": False, "blocked": True},
+    @staticmethod
+    def _invocations(*, aux_status: str = "settled") -> dict:
+        records = [
+            {"subsystem": "engineering", "status": "settled", "actual_cost_inr": 0.10,
+             "model": "z-ai/glm-5.3-flash", "provider": "custom"},
+            {"subsystem": "engineering", "status": "settled", "actual_cost_inr": 0.02,
+             "model": "z-ai/glm-5.3-flash", "provider": "custom"},
+            {"subsystem": "session_titling", "status": aux_status, "actual_cost_inr": 0.01,
+             "model": "qwen/qwen3.7-flash", "provider": "cheap"},
+        ]
+        settled = sum(1 for r in records if r["status"] == "settled")
+        return {
+            "available": True,
+            "records": records,
+            "summary": {
+                "total_calls": 3,
+                "settled_calls": settled,
+                "uncertain_calls": 0 if settled == 3 else 1,
+                "total_cost_inr": 0.13,
+            },
         }
-        verdict = acc._verdict(
-            {"ok": True}, {"ok": True},
-            {"module_exists": True, "ast_ok": True, "pytest_returncode": 0},
-        )
-        self.assertEqual(verdict, "P0.6.8_ACCEPTANCE_BLOCKED")
+
+    def _apply(self, acc, *, aux_status: str = "settled", title: str = "Duration parser") -> None:
+        acc.state["correlation"] = {"run_id": "r", "session_id": "s", "turn_id": "t"}
+        acc.state["stages"] = {"turn_terminal": {"status": "completed"}}
+        acc.state["renderer_console"] = {"unhandled_errors": 0}
+        acc.state["in_turn"] = self._in_turn()
+        acc.state["invocations"] = self._invocations(aux_status=aux_status)
+        acc.state["session_financials"] = {
+            "calls_count": 3, "settled_count": 3, "uncertain_count": 0,
+            "active_count": 0, "spent_inr": 0.13,
+        }
+        acc.state["session_title"] = title
+
+    @staticmethod
+    def _guard(used: int = 3) -> dict:
+        return {"ok": True, "dispatches_used": used}
+
+    @staticmethod
+    def _fin() -> dict:
+        return {"ok": True, "calls_count": 2}
+
+    @staticmethod
+    def _verify() -> dict:
+        return {"module_exists": True, "ast_ok": True, "pytest_returncode": 0,
+                "independent_smoke": {"ok": True}}
+
+    def test_11_full_chain_with_settled_auxiliary_passes(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_PASSED")
+
+    def test_12_missing_correlation_cannot_pass(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        acc.state["correlation"] = None
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_13_unsettled_auxiliary_call_fails(self) -> None:
+        acc = self._instance()
+        self._apply(acc, aux_status="uncertain")
+        self.assertEqual(acc._verdict(self._guard(used=3), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_14_guard_claim_mismatch_fails(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        self.assertEqual(acc._verdict(self._guard(used=4), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_15_session_cost_mismatch_fails(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        acc.state["session_financials"]["spent_inr"] = 0.20
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_16_missing_title_fails(self) -> None:
+        acc = self._instance()
+        self._apply(acc, title="")
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_17_contract_evidence_is_required(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        acc.state["in_turn"]["contract"] = None
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_18_wrong_plan_shape_fails(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        acc.state["in_turn"]["plan"] = {"ok": True, "work_units": 3, "demand": 3}
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_FAILED")
+
+    def test_19_blocked_completion_reports_blocked(self) -> None:
+        acc = self._instance()
+        self._apply(acc)
+        acc.state["stages"] = {"turn_terminal": {"status": "failed"}}
+        acc.state["in_turn"]["completion"] = {"ok": False, "blocked": True}
+        acc.state["in_turn"]["completion_ok"] = False
+        self.assertEqual(acc._verdict(self._guard(), self._fin(), self._verify()),
+                         "P0.6.9_ACCEPTANCE_BLOCKED")
 
 
 class TestDiscoveryGitBounded(unittest.TestCase):
