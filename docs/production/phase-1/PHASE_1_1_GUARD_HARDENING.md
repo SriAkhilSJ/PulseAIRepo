@@ -145,8 +145,11 @@ FAIL and import errors to WARN, preserving the optional-dependency distinction.
 | Existing | import purity, full import, sanitizer, checkup guard |
 
 ```text
-34 passed, 1 skipped (os.fork is POSIX-only) in 35.35 s
+34 passed, 1 skipped (os.fork is POSIX-only) in 34.08 s
 ```
+
+The skip is `test_process_guard_blocks_fork`; `os.fork` is unavailable on
+Windows. All other synthetic guard tests executed.
 
 ## 6. Full guarded import
 
@@ -163,7 +166,39 @@ returncode      0
 The complete configured surface imported in a fresh child with no process
 launch, external write or Windows security API access.
 
-## 7. Other verification
+## 7. Final validation (2026-11-08)
+
+All four required commands were run from the project virtual environment on
+HEAD `bb94f7409ca05c14507fe164ad8c6f5b11514170`. The expected baseline
+`7a714e2496199b4d3925003bbb0a404a1ac6e31e` is the parent of this commit; no
+history was rewritten.
+
+| Command | Result | Exit |
+|---|---|---|
+| AST validation of changed Python files | `AST OK` | 0 |
+| `pytest src/tests/test_security_containment.py -q` | **34 passed, 1 skipped** in 34.08 s | 0 |
+| `python scripts/agent_core_checkup.py` | **57 pass, 5 warn, 0 fail, 3 noted** | 0 |
+| `pytest src/tests/test_agent_core_checkup.py -q` | **19 passed** in 154.76 s | 0 |
+
+The 5 checkup WARNs are pre-existing design observations (guarded imports of
+missing optional `hermes_state`/`agent.errors`, key presence, tool-result token
+bound, cost leg, compaction/cache interaction). No FAIL.
+
+### Evidence logs
+
+Unique directory:
+
+```text
+C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_1_final_20261108_110636\
+  01_ast.log
+  02_security_tests.log
+  03_standalone_checkup.log
+  04_checkup_tests.log
+```
+
+These are outside the repository; no existing evidence file was overwritten.
+
+## 8. Other verification
 
 | Command | Result |
 |---|---|
@@ -175,15 +210,18 @@ The standalone checkup's WARNs are pre-existing design observations (guarded
 imports of missing optional `hermes_state`/`agent.errors`, key presence, tool
 result token bound, cost leg, compaction/cache interaction). No FAIL.
 
-## 8. CI results
+## 9. CI results
 
 **NOT RUN in CI.** All results above are local Windows, provider-free runs. No
 CI job was triggered by this phase. The existing
 `.github/workflows/agent-core-checkup.yml` will exercise the guarded checkup on
 a future push; its result is not claimed here.
 
-## 9. Remaining limitations
+## 10. Remaining limitations and uncovered bypasses
 
+- `os.replace` / `os.rename` destinations are not intercepted; a file created
+  inside the repository could be moved outside by a payload that avoids
+  `open`/`write`.
 - `os.fdopen` on an already-open fd, `os.link`/`os.symlink`, and native C
   extension writes can bypass the Python-level write wrappers.
 - The ctypes guard covers the listed security names only. A different API name
