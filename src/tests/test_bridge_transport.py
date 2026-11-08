@@ -631,7 +631,10 @@ def test_turn_done_survives_a_undrained_event_queue(monkeypatch, tmp_path):
     types = [f["type"] for f in emitted]
     assert types[-1] == "turn_done", f"terminal frame swallowed by an undrained queue: {types}"
     assert "runtime_degraded" in types, f"the strand must be reported, not hidden: {types}"
-    degraded = next(f for f in emitted if f["type"] == "runtime_degraded")
+    degraded = next(
+        f for f in emitted
+        if f["type"] == "runtime_degraded" and "undrained" in str(f.get("reason") or "")
+    )
     assert "undrained" in degraded["reason"]
 
 

@@ -127,6 +127,12 @@ class BridgeServer:
         # Exactly-once submission boundary (Live11): durable, workspace-scoped.
         self._reconciled_workspaces: set[str] = set()
         self._known_workspaces: set[str] = set()
+        # The engine build id is probed once at startup and cached. Protocol
+        # emission must never spawn Git or block on a subprocess (LIVE12).
+        self._engine_build_value = "unknown"
+        self._engine_build_resolved = False
+        self._engine_build_lock = threading.Lock()
+        self._engine_build_timeout_s = 2.5
         # P0.6.4.1: a desktop acceptance session runs ONE turn under a hard
         # single-attempt, five-dispatch budget. Opt-in via
         # CRUSORAI_ACCEPTANCE_RUN_ID; ordinary sessions are untouched.
@@ -146,9 +152,11 @@ class BridgeServer:
 
     def emit(self, frame: dict) -> None:
         if frame.get("type") == "session_info":
-            # The renderer paints the engine build on its status chip — a
+            # The renderer paints the engine build on its status chip - a
             # stale engine is visible IN THE PANEL, not just in stderr.
-            frame = {**frame, "build": self._engine_build()}
+            # P0.6.9/LIVE12: emission must never launch Git or block on a
+            # subprocess. The build id is probed once at startup and cached.
+            frame = {**frame, "build": self._engine_build_cached()}
         with self._write_lock:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
@@ -2831,13 +2839,60 @@ class BridgeServer:
         )
 
     def _engine_build(self) -> str:
-        """The exact build this engine process runs ("<sha> <date>")."""
+        """Resolve the exact build once, bounded, and cache it.
+
+        The probe runs in a daemon thread with a hard wall-clock cap. Even if
+        the underlying Git/subprocess reader hangs (Windows pipe inheritance),
+        startup returns and every later ``session_info`` uses the cached value.
+        """
+        if getattr(self, "_engine_build_resolved", False):
+            return getattr(self, "_engine_build_value", "unknown") or "unknown"
+        lock = getattr(self, "_engine_build_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._engine_build_lock = lock
+        with lock:
+            if getattr(self, "_engine_build_resolved", False):
+                return getattr(self, "_engine_build_value", "unknown") or "unknown"
+            self._engine_build_value = self._probe_engine_build()
+            self._engine_build_resolved = True
+            return self._engine_build_value
+
+    def _engine_build_cached(self) -> str:
+        """Frame-emission read: never probes, never blocks, never spawns."""
+        value = getattr(self, "_engine_build_value", "unknown")
+        return value if value else "unknown"
+
+    def _probe_engine_build(self) -> str:
+        value: dict[str, str] = {}
+
+        def _probe() -> None:
+            value["build"] = self._read_git_build()
+
+        thread = threading.Thread(
+            target=_probe, name="engine-build-probe", daemon=True,
+        )
+        thread.start()
+        timeout_s = float(getattr(self, "_engine_build_timeout_s", 2.5) or 2.5)
+        thread.join(max(0.05, timeout_s))
+        if thread.is_alive():
+            # Deterministic unknown; the daemon thread cannot hold the process
+            # or frame emission open.
+            return "unknown"
+        return str(value.get("build") or "unknown").strip() or "unknown"
+
+    def _read_git_build(self) -> str:
         try:
             import subprocess
+
             engine_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            kwargs: dict = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.run(
                 ["git", "log", "-1", "--format=%h %ci"],
-                capture_output=True, text=True, timeout=3, cwd=engine_root,
+                capture_output=True, text=True, timeout=2.0, cwd=engine_root,
+                stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs,
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 return proc.stdout.strip()

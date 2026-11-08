@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
-from src.orchestration.finops_governor import OrchestrationFinOpsGovernor
-
 _PROCESS_START = time.time()
 
 
@@ -70,6 +68,8 @@ def reconcile_workspace_finops(workspace_root: str | Path, *, reason: str = "pro
         budget = float(accounting.get("budget_inr") or 0.0)
         tokens = int(accounting.get("token_budget") or 150000)
         try:
+            from src.orchestration.finops_governor import OrchestrationFinOpsGovernor
+
             governor = OrchestrationFinOpsGovernor(
                 task_id,
                 budget_inr=budget,
