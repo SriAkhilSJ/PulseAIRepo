@@ -212,12 +212,29 @@ result token bound, cost leg, compaction/cache interaction). No FAIL.
 
 ## 9. CI results
 
-**NOT RUN in CI.** All results above are local Windows, provider-free runs. No
-CI job was triggered by this phase. The existing
-`.github/workflows/agent-core-checkup.yml` will exercise the guarded checkup on
-a future push; its result is not claimed here.
+Actual GitHub Actions results for the Phase 1.1 implementation commit
+`bb94f7409ca05c14507fe164ad8c6f5b11514170`:
+
+| Workflow | Platform / jobs | Result | Run |
+|---|---|---|---|
+| Agent-core body checkup | `ubuntu-latest` (`checkup`) | **success** | 42512697497 |
+| Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` (`Target contracts`) | **success** (all three) | 42512697504 |
+
+The subsequent docs-only commit `2204e320` did not touch `src/**` or
+`scripts/agent_core_checkup.py`, so the path-filtered Agent-core checkup did not
+run for it. Its Host compatibility run succeeded on all three platforms
+(run 42513837736).
+
+These are CI results for the implementation commit; the local test counts in
+this document are separate local Windows runs.
 
 ## 10. Remaining limitations and uncovered bypasses
+
+> **Phase 1.2 update:** the fail-open containment path, the nested-opener
+> bypass, `dir_fd` writes, and `os.replace` / `os.rename` / `os.link` /
+> `os.symlink` are now guarded. See `PHASE_1_2_FILESYSTEM_GUARD.md` for the
+> current state. The list below records the Phase 1.1 limitations; items not
+> superseded by Phase 1.2 remain.
 
 - `os.replace` / `os.rename` destinations are not intercepted; a file created
   inside the repository could be moved outside by a payload that avoids

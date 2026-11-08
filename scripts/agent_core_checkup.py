@@ -189,13 +189,24 @@ _real_os_open = os.open
 _real_path_open = pathlib.Path.open
 _real_write_text = pathlib.Path.write_text
 _real_write_bytes = pathlib.Path.write_bytes
-_write_depth = 0
+_real_os_replace = os.replace
+_real_os_rename = os.rename
+_real_os_link = getattr(os, "link", None)
+_real_os_symlink = getattr(os, "symlink", None)
 
 def _inside_root(path):
     try:
-        target = os.path.normcase(os.path.realpath(os.fspath(path)))
-    except (TypeError, ValueError, OSError):
-        return True
+        raw = os.fspath(path)
+    except (TypeError, ValueError):
+        return False
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+    if not os.path.isabs(raw):
+        raw = os.path.join(_root, raw)
+    try:
+        target = os.path.normcase(os.path.realpath(raw))
+    except (OSError, ValueError):
+        return False
     try:
         return os.path.commonpath([_root, target]) == _root
     except ValueError:
@@ -208,72 +219,73 @@ def _ensure_inside(path):
 def _write_mode(mode):
     return any(ch in str(mode) for ch in "wax+")
 
+def _reject_dir_fd(kwargs):
+    if any(kwargs.get(name) is not None for name in
+           ("dir_fd", "src_dir_fd", "dst_dir_fd")):
+        _record("write:dir_fd")
+
 def _guarded_open(file, mode="r", *args, **kwargs):
-    global _write_depth
-    if _write_mode(mode) and not _write_depth:
-        _write_depth += 1
-        try:
-            _ensure_inside(file)
-            return _real_builtins_open(file, mode, *args, **kwargs)
-        finally:
-            _write_depth -= 1
+    if _write_mode(mode):
+        _ensure_inside(file)
     return _real_builtins_open(file, mode, *args, **kwargs)
 
 def _guarded_io_open(file, mode="r", *args, **kwargs):
-    global _write_depth
-    if _write_mode(mode) and not _write_depth:
-        _write_depth += 1
-        try:
-            _ensure_inside(file)
-            return _real_io_open(file, mode, *args, **kwargs)
-        finally:
-            _write_depth -= 1
+    if _write_mode(mode):
+        _ensure_inside(file)
     return _real_io_open(file, mode, *args, **kwargs)
 
 def _guarded_os_open(path, flags, *args, **kwargs):
-    global _write_depth
     write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
-    if (flags & write_flags) and not _write_depth:
-        _write_depth += 1
-        try:
-            _ensure_inside(path)
-            return _real_os_open(path, flags, *args, **kwargs)
-        finally:
-            _write_depth -= 1
+    if flags & write_flags:
+        _reject_dir_fd(kwargs)
+        _ensure_inside(path)
     return _real_os_open(path, flags, *args, **kwargs)
 
 def _guarded_path_open(self, mode="r", *args, **kwargs):
-    global _write_depth
-    if _write_mode(mode) and not _write_depth:
-        _write_depth += 1
-        try:
-            _ensure_inside(self)
-            return _real_path_open(self, mode, *args, **kwargs)
-        finally:
-            _write_depth -= 1
+    if _write_mode(mode):
+        _ensure_inside(self)
     return _real_path_open(self, mode, *args, **kwargs)
 
 def _guarded_write_text(self, data, *args, **kwargs):
-    global _write_depth
-    if _write_depth:
-        return _real_write_text(self, data, *args, **kwargs)
-    _write_depth += 1
-    try:
-        _ensure_inside(self)
-        return _real_write_text(self, data, *args, **kwargs)
-    finally:
-        _write_depth -= 1
+    _ensure_inside(self)
+    return _real_write_text(self, data, *args, **kwargs)
 
 def _guarded_write_bytes(self, data, *args, **kwargs):
-    global _write_depth
-    if _write_depth:
-        return _real_write_bytes(self, data, *args, **kwargs)
-    _write_depth += 1
+    _ensure_inside(self)
+    return _real_write_bytes(self, data, *args, **kwargs)
+
+def _guarded_os_replace(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_replace(src, dst, *args, **kwargs)
+
+def _guarded_os_rename(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_rename(src, dst, *args, **kwargs)
+
+def _guarded_os_link(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_link(src, dst, *args, **kwargs)
+
+def _guarded_os_symlink(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(dst)
     try:
-        _ensure_inside(self)
-        return _real_write_bytes(self, data, *args, **kwargs)
-    finally:
-        _write_depth -= 1
+        src_path = os.fspath(src)
+    except (TypeError, ValueError):
+        src_path = None
+    if src_path is not None:
+        if isinstance(src_path, bytes):
+            src_path = os.fsdecode(src_path)
+        if not os.path.isabs(src_path):
+            src_path = os.path.join(os.path.dirname(os.path.abspath(dst)), src_path)
+        _ensure_inside(src_path)
+    return _real_os_symlink(src, dst, *args, **kwargs)
 
 builtins.open = _guarded_open
 io.open = _guarded_io_open
@@ -281,6 +293,12 @@ os.open = _guarded_os_open
 pathlib.Path.open = _guarded_path_open
 pathlib.Path.write_text = _guarded_write_text
 pathlib.Path.write_bytes = _guarded_write_bytes
+os.replace = _guarded_os_replace
+os.rename = _guarded_os_rename
+if _real_os_link is not None:
+    os.link = _guarded_os_link
+if _real_os_symlink is not None:
+    os.symlink = _guarded_os_symlink
 
 # --- import surface --------------------------------------------------------
 try:
@@ -338,6 +356,7 @@ def run_guarded_import_probe(
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
     env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     probe_tmp = tempfile.mkdtemp(prefix=".guard-import-", dir=str(ROOT))
     env["TMP"] = env["TEMP"] = env["TMPDIR"] = probe_tmp
     try:
