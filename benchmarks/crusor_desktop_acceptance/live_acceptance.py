@@ -54,6 +54,7 @@ from benchmarks.crusor_desktop_acceptance.live_turn import (
     read_financial_state,
     read_mutation_ledger,
     read_orchestration_finops,
+    read_orchestration_lifecycle,
     refresh_manifest,
     type_prompt,
     wait_for_engine_ready,
@@ -71,14 +72,18 @@ from benchmarks.crusor_desktop_acceptance.renderer_observer import (
 )
 
 DEFAULT_PROMPT = (
-    "Create src/email_validator.py with exactly one public function "
-    "validate_email(address). It must return True for a plausible email (one '@' with "
-    "non-empty local and domain parts and a dot in the domain), return False for any "
-    "invalid string, raise TypeError when address is not a string, and carry a short "
-    "docstring. Keep the module under 30 lines: no classes, no CLI, no examples. "
-    "Then create tests/test_email_validator.py with four pytest tests (valid address, "
-    "invalid string, non-string raises TypeError, missing '@'). Every test must pass "
-    "when run with pytest. Do not modify unrelated files."
+    "Create src/duration.py with exactly one public function parse_duration(value). "
+    "It parses a duration string into whole seconds. Supported units: h, m, s. "
+    "Input may contain multiple components in any order (for example '1h30m' or "
+    "'2m 15s'), optional spaces, and no duplicate units. Return an int. "
+    "Raise ValueError for an empty string, unknown units, duplicate units, missing "
+    "numbers, or negative values. Do not accept floats. Raise TypeError when value "
+    "is not a string. Then create tests/test_duration.py with pytest tests for: "
+    "'1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate "
+    "'1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, "
+    "non-string raises TypeError. The test file must import the function exactly as "
+    "`from src.duration import parse_duration`. Run pytest and make every test pass. "
+    "Do not modify unrelated files."
 )
 
 
@@ -465,12 +470,30 @@ class LiveAcceptance:
 
         verification = self._verify_artifacts()
         self.state["verification"] = verification
+
+        # In-turn evidence: the engine must have discovered, executed and (on a
+        # natural failure) repaired tests BEFORE the turn ended.
+        in_turn = read_orchestration_lifecycle(self.workspace)
+        reports = self.workspace / ".crusorai" / "test_reports"
+        if reports.exists():
+            target = self.evidence_dir / "test_reports"
+            target.mkdir(parents=True, exist_ok=True)
+            for report in reports.glob("*"):
+                if report.is_file():
+                    shutil.copy2(report, target / report.name)
+            in_turn["evidence_dir"] = str(target)
+        self.state["in_turn"] = in_turn
+        if in_turn.get("path"):
+            try:
+                shutil.copy2(in_turn["path"], self.evidence_dir / "orchestration_journal.jsonl")
+            except OSError:
+                pass
         self.state["verdict"] = self._verdict(guard_final, orch_class, verification)
         return self._finalise(None, None, [])
 
     def _verify_artifacts(self) -> dict[str, Any]:
-        module = self.workspace / "src" / "email_validator.py"
-        tests = self.workspace / "tests" / "test_email_validator.py"
+        module = self.workspace / "src" / "duration.py"
+        tests = self.workspace / "tests" / "test_duration.py"
         out: dict[str, Any] = {
             "module_exists": module.exists(),
             "tests_exist": tests.exists(),
@@ -484,13 +507,13 @@ class LiveAcceptance:
             except SyntaxError as exc:
                 out["ast_ok"] = False
                 out["ast_error"] = str(exc)
-            out["has_validate_email"] = "def validate_email" in source
+            out["has_parse_duration"] = "def parse_duration" in source
             out["independent_smoke"] = self._independent_smoke(module)
         if tests.exists():
             out["tests_sha256"] = hashlib.sha256(tests.read_bytes()).hexdigest()
             try:
                 done = subprocess.run(
-                    [sys.executable, "-m", "pytest", "-q", "tests/test_email_validator.py"],
+                    [sys.executable, "-m", "pytest", "-q", "tests/test_duration.py"],
                     cwd=str(self.workspace), capture_output=True, text=True, timeout=300,
                 )
                 out["pytest_returncode"] = done.returncode
@@ -501,28 +524,31 @@ class LiveAcceptance:
 
     @staticmethod
     def _independent_smoke(module_path: Path) -> dict[str, Any]:
-        """The harness's own contract check — never the agent's tests.
-
-        Imports the saved module in a subprocess (isolated from the engine) and
-        exercises the agreed behaviour. This is the authoritative verification
-        of the artifact; the agent's own test run is reported separately.
-        """
+        """The harness's own contract check — never the agent's tests."""
         script = (
             "import json, sys\n"
             "from importlib.util import spec_from_file_location, module_from_spec\n"
-            f"spec = spec_from_file_location('ev', r'{module_path}')\n"
-            "mod = module_from_spec(spec); sys.modules['ev'] = mod; spec.loader.exec_module(mod)\n"
-            "fn = mod.validate_email\n"
+            f"spec = spec_from_file_location('dur', r'{module_path}')\n"
+            "mod = module_from_spec(spec); sys.modules['dur'] = mod; spec.loader.exec_module(mod)\n"
+            "fn = mod.parse_duration\n"
             "res = {}\n"
-            "res['valid'] = fn('alice@example.com') is True\n"
-            "res['invalid_string'] = fn('not-an-email') is False\n"
-            "try:\n"
-            "    fn(None)\n"
-            "    res['non_string_typeerror'] = False\n"
-            "except TypeError:\n"
-            "    res['non_string_typeerror'] = True\n"
-            "except Exception:\n"
-            "    res['non_string_typeerror'] = False\n"
+            "res['1h30m'] = fn('1h30m') == 5400\n"
+            "res['2m_15s'] = fn('2m 15s') == 135\n"
+            "res['45s'] = fn('45s') == 45\n"
+            "res['1h_30m_15s'] = fn('1h 30m 15s') == 5415\n"
+            "def raises(exc, arg):\n"
+            "    try:\n"
+            "        fn(arg)\n"
+            "    except exc:\n"
+            "        return True\n"
+            "    except Exception:\n"
+            "        return False\n"
+            "    return False\n"
+            "res['duplicate_valueerror'] = raises(ValueError, '1h1h')\n"
+            "res['unknown_valueerror'] = raises(ValueError, '1d')\n"
+            "res['empty_valueerror'] = raises(ValueError, '')\n"
+            "res['negative_valueerror'] = raises(ValueError, '-1h')\n"
+            "res['non_string_typeerror'] = raises(TypeError, 42)\n"
             "print(json.dumps(res))\n"
         )
         try:
@@ -539,18 +565,42 @@ class LiveAcceptance:
     def _verdict(self, guard: dict[str, Any], fin: dict[str, Any], verification: dict[str, Any]) -> str:
         terminal = (self.state.get("stages", {}).get("turn_terminal") or {})
         renderer_console = self.state.get("renderer_console") or {}
+        in_turn = self.state.get("in_turn") or {}
+        final_run = (in_turn.get("final_test_run") or {})
+        in_turn_tests_ok = (
+            bool(in_turn.get("available"))
+            and bool(in_turn.get("tests"))
+            and int(final_run.get("total") or 0) > 0
+            and int(final_run.get("failed") or 0) == 0
+            and int(final_run.get("errors") or 0) == 0
+            and "pytest" in str(final_run.get("command") or "")
+        )
+        repair_exercised = bool(in_turn.get("repairs"))
+        completion_ok = bool(in_turn.get("completion_ok"))
+        dispatches_reconciled = (
+            int(guard.get("dispatches_used") or 0) == int(fin.get("calls_count") or 0)
+        )
         ok = (
             bool(guard.get("ok"))
             and bool(fin.get("ok"))
+            and dispatches_reconciled
             and bool(verification.get("module_exists"))
             and bool(verification.get("ast_ok"))
             and verification.get("pytest_returncode") == 0
             and bool((verification.get("independent_smoke") or {}).get("ok"))
+            and in_turn_tests_ok
+            and completion_ok
+            and repair_exercised
             and terminal.get("status") == "completed"
             and renderer_console.get("unhandled_errors", 0) == 0
             and bool(self.state.get("correlation"))
         )
-        return "P0.6.6_LIVE_ACCEPTED" if ok else "P0.6.6_LIVE_FAILED"
+        if ok:
+            return "P0.6.7_ACCEPTANCE_PASSED"
+        completion = in_turn.get("completion") or {}
+        if in_turn.get("available") and completion.get("blocked"):
+            return "P0.6.7_ACCEPTANCE_BLOCKED"
+        return "P0.6.7_ACCEPTANCE_FAILED"
 
     def _finalise(self, app, client, console_samples) -> dict[str, Any]:
         if client is not None:

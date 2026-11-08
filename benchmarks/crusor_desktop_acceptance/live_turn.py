@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +60,10 @@ def build_acceptance_env(
         # The bridge's own watchdog: a turn that wedges prints every thread's
         # stack after 60 s, which is the only way to see WHERE it is stuck.
         "CRUSORAI_BRIDGE_DIAGNOSTICS": "1",
+        # The engine executes the task's tests with this interpreter. Pinning it
+        # keeps the workspace's pytest resolution out of the guessing game when
+        # the desktop bridge runs under a launcher shim.
+        "CRUSORAI_TEST_PYTHON": sys.executable,
     }
 
 
@@ -502,6 +507,53 @@ def read_acceptance_ledger(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         return {"available": False, "path": str(path), "error": str(exc)}
     return {"available": True, "path": str(path), **data}
+
+
+def read_orchestration_lifecycle(workspace: str | Path) -> dict[str, Any]:
+    """Read the orchestrator journal for IN-TURN test and repair evidence.
+
+    This is the authoritative record that the engine executed tests inside the
+    task, diagnosed failures, spent an authorized repair dispatch, re-executed,
+    and evaluated the completion gate — all before the turn ended.
+    """
+    root = Path(workspace) / ".crusorai"
+    journals = sorted(root.rglob("orchestration_journal.jsonl")) if root.exists() else []
+    out: dict[str, Any] = {"available": False, "tests": [], "repairs": [],
+                           "diagnoses": [], "completion": None, "completion_ok": False}
+    if not journals:
+        return out
+    try:
+        lines = journals[-1].read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return {**out, "error": str(exc)}
+    events: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    for event in events:
+        kind = event.get("event_type")
+        details = event.get("details") or {}
+        if kind in {"TESTS_EXECUTED", "TESTS_REEXECUTED"}:
+            out["tests"].append(details.get("run") or {})
+            if details.get("evidence"):
+                out.setdefault("test_evidence", []).append(details["evidence"])
+        elif kind == "FAILURES_CLASSIFIED":
+            out["diagnoses"].append(details)
+        elif kind == "REPAIR_DISPATCHED":
+            out["repairs"].append(details)
+        elif kind == "COMPLETION_EVALUATED":
+            out["completion"] = details
+            out["completion_ok"] = bool(details.get("ok"))
+        elif kind == "TASK_DELIVERED":
+            out["delivery"] = details
+            out["requirement_verification"] = details.get("requirement_verification") or []
+    out["available"] = True
+    out["path"] = str(journals[-1])
+    out["event_types"] = [e.get("event_type") for e in events]
+    out["final_test_run"] = out["tests"][-1] if out["tests"] else None
+    return out
 
 
 def classify_guard(
