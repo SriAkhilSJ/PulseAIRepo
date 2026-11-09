@@ -17,6 +17,14 @@ database, Electron or ACL operation was changed.
 | Origin at start | identical |
 | Pre-existing dirty entries | 175, preserved |
 
+### Delivery commits
+
+| Stage | Commit |
+|---|---|
+| Start HEAD | `3c954480b66c32526e243eb25259662f10e14856` |
+| Implementation | `4a9e2adebc5156f38d1d6edd5b9461516045ba83` |
+| CI portability fix | `3450c790d808aab5a9d988d687d50355c2962e30` |
+
 ## 2. Vulnerabilities addressed
 
 The Phase 1.3 checker validated ordinary `Assign` nodes by attribute name and
@@ -74,11 +82,16 @@ matched security APIs by final method name. It missed:
 New `Security guard` workflow:
 
 - matrix `ubuntu-latest`, `windows-latest`, `macos-latest`;
-- Python 3.11;
+- Python `3.14` (see §6.1 for why 3.11 is unsuitable on the Windows runner);
 - keyless dependency install;
 - runs `python -m pytest src/tests/test_security_containment.py -q`;
 - path filters for the test, checkup, sandbox and workflow files;
 - `fail-fast: false`, `contents: read`.
+
+`src/tests/test_security_containment.py` (portability fix)
+
+- The Windows-only sanitizer test is skipped when `ctypes.WinDLL` does not
+  exist, instead of failing with `AttributeError` on POSIX runners.
 
 ## 4. Adversarial tests
 
@@ -117,9 +130,11 @@ New `Security guard` workflow:
 | Agent-core checkup tests | **19 passed** in 86.46 s | 0 |
 | CI-parity run (clean 3.14 venv, CI dependency set only) | **88 passed, 3 skipped** in 15.87 s | 0 |
 
-Skips on Windows: `os.fork`, external-directory `os.open(dir_fd=...)`,
-`os.fchdir`. On Linux/macOS the Windows-only `ctypes.WinDLL` tests are also
-skipped, so the same suite reports 87 passed / 4 skipped there.
+Skips on Windows locally: `os.fork`, external-directory `os.open(dir_fd=...)`,
+`os.fchdir`. On Linux/macOS the Windows-only `ctypes.WinDLL` probes and the
+drive-letter probe are also skipped. The CI runners report 87 passed / 4
+skipped on Ubuntu and macOS, and 85 passed / 6 skipped on Windows, where three
+cross-drive probes skip because the checkout is on `D:` and temp is on `C:`.
 
 The 5 checkup WARNs are the same pre-existing design observations. No FAIL.
 
@@ -164,11 +179,20 @@ process spawn.
 
 ### 6.2 Final run
 
-| Job | Platform | Result | Run |
+Workflow `Security guard`, commit `3450c790d808aab5a9d988d687d50355c2962e30`,
+run `42559738964`, **success**:
+
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `128973309878` | **success** — 87 passed, 4 skipped in 10.04 s |
+| Security containment (windows-latest) | Windows | `128973309915` | **success** — 85 passed, 6 skipped in 8.55 s |
+| Security containment (macos-latest) | macOS | `128973309693` | **success** — 87 passed, 4 skipped in 9.55 s |
+
+All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
+drive-letter probes; Windows additionally skips the three cross-drive probes
+because the checkout is on `D:` while the runner temp directory is on `C:`.
+No test failed, no platform was skipped wholesale, and the guarded import
+surface passed on every runner.
 
 Unrelated Host compatibility target-contract jobs are not security-test
 evidence.
