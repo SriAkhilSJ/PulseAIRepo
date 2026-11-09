@@ -1,7 +1,6 @@
 # Agent interface — r2
 
-Surfaces: `screenshots/01_workbench_startup.png`,
-`02_approval_dock_fixed_299px.png`, `03_approval_allowed.png`,
+Surfaces: `screenshots/02_approval_dock_fixed_299px.png`, `03_approval_allowed.png`,
 `05_ui_startup_cancelled.png`, `06_cancelled_then_completed.png`,
 `07_warm_replay_no_duplicates.png`, `10_worker_recovery.png`.
 
