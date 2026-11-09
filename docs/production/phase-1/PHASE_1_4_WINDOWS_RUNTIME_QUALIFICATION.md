@@ -482,10 +482,36 @@ allocation denial under the configured job limit.
 | 4 TMP contract documented and tested | PASS - package-local AC temp |
 | 5 Memory enforcement understood or bounded | PASS (bounded) - denial observed; peak accounting limitation retained |
 | 6 Existing security tests passing | PASS - 232 passed, 3 skipped on 3.11 and 3.14 |
-| 7 CI evidence for exact commit | pending final run |
+| 7 CI evidence for exact commit | PASS - security run `42654054565`, Windows runtime run `42654054623` |
 | 8 Limitations disclosed | PASS |
 
 Runtime harness: **21 passed** with AppContainer opt-in.
+
+### CI evidence for the final closure commit
+
+Commit `0bf14d9c7500714b5f2c4fb663a22219adff5e39`.
+
+**Security guard** run `42654054565`, Python 3.14.10:
+
+| Platform | Job ID | Result |
+|---|---|---|
+| Ubuntu | `129287687682` | 231 passed, 4 skipped in 8.17 s |
+| Windows | `129287687039` | 229 passed, 6 skipped in 14.63 s |
+| macOS | `129287687623` | 231 passed, 4 skipped in 8.09 s |
+
+**Windows runtime qualification** run `42654054623`, job
+`Windows sandbox runtime` `129287686824`, Python 3.14.10:
+
+```text
+collected 21 items
+21 passed in 27.93s
+```
+
+This CI job ran the actual runtime harness with
+`CRUSOR_RUN_APPCONTAINER_RUNTIME=1`, including the native network probe (the
+GitHub Windows runner supplied `gcc`), the AppContainer token/DACL tests, Job
+Object limits, output bounds, cancellation and cleanup. No runtime test was
+skipped.
 
 ### Release decision
 
