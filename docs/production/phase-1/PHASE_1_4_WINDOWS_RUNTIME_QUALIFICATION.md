@@ -617,8 +617,34 @@ harness.
 
 ### CI results
 
-Security guard and Windows runtime qualification are pending on the correction
-commit. The Windows runtime workflow is a Python 3.11/3.14 matrix.
+Security guard run `42661726444` on `5a51897c`, Python 3.14.10:
+
+| Platform | Job ID | Result |
+|---|---|---|
+| Ubuntu | `129314746085` | 231 passed, 4 skipped in 10.03 s |
+| Windows | `129314746216` | 229 passed, 6 skipped in 14.79 s |
+| macOS | `129314746483` | 231 passed, 4 skipped in 9.35 s |
+
+Windows runtime qualification run `42661726660` on `5a51897c`:
+
+| Job | Python | Job ID | Result |
+|---|---|---|---|
+| Windows sandbox runtime (Python 3.14) | 3.14.10 | `129314745800` | 27 passed in 24.16 s |
+| Windows sandbox runtime (Python 3.11) | 3.11.9 | `129314746236` | 27 passed in 24.54 s |
+
+No runtime test was skipped. The 3.11/3.14 matrix continuously exercises the
+declared Python contract.
+
+### Final verdict
+
+**WINDOWS SECURITY QUALIFIED** for the declared Windows 11 + Python 3.11/3.14
+contract. AppContainer startup is fail-closed, silent security downgrades are
+removed, capability reporting is accurate, and the failure-injection tests pass
+in CI on both Python versions.
+
+This is not whole-product production readiness. The TCP-loopback network denial
+is silent (no Winsock error), UDP/DNS/non-loopback is not claimed, and Job
+Object peak-memory accounting remains a documented limitation.
 
 ### Remaining limitations
 
