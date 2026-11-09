@@ -113,254 +113,555 @@ def _call_qualified_name(call: ast.Call) -> str | None:
     return _qualified_name(call.func)
 
 
-def _value_matches(value: ast.AST, kind: str, expected: object) -> bool:
+# Names whose binding changes what an approved security call means. The
+# documented module already binds them; any *additional* binding, or any local
+# binding in an enclosing scope, fails closed.
+_PROTECTED_NAMES = frozenset({
+    "_advapi32",
+    "_kernel32",
+    "ctypes",
+    "EXPLICIT_ACCESS_W",
+    "GENERIC_ALL",
+    "GRANT_ACCESS",
+    "NO_INHERITANCE",
+    "TRUSTEE_IS_NAME",
+    "TRUSTEE_IS_WELL_KNOWN_GROUP",
+    "SE_WINDOW_OBJECT",
+    "DACL_SECURITY_INFORMATION",
+})
+
+_EXPECTED_CONSTANTS = {
+    "GENERIC_ALL": 0x10000000,
+    "GRANT_ACCESS": 1,
+    "NO_INHERITANCE": 0,
+    "TRUSTEE_IS_NAME": 1,
+    "TRUSTEE_IS_WELL_KNOWN_GROUP": 5,
+    "SE_WINDOW_OBJECT": 7,
+    "DACL_SECURITY_INFORMATION": 4,
+}
+
+_GET_SECURITY_INFO_ARGS: tuple[tuple[str, object], ...] = (
+    ("name", "handle"),
+    ("name", "SE_WINDOW_OBJECT"),
+    ("name", "DACL_SECURITY_INFORMATION"),
+    ("none", None),
+    ("none", None),
+    ("byref", "p_dacl"),
+    ("none", None),
+    ("byref", "p_sec_desc"),
+)
+
+_SET_ENTRIES_ARGS: tuple[tuple[str, object], ...] = (
+    ("const", 1),
+    ("byref", "ea"),
+    ("name", "p_dacl"),
+    ("byref", "p_new_dacl"),
+)
+
+_SET_SECURITY_ARGS: tuple[tuple[str, object], ...] = (
+    ("name", "handle"),
+    ("name", "SE_WINDOW_OBJECT"),
+    ("name", "DACL_SECURITY_INFORMATION"),
+    ("none", None),
+    ("none", None),
+    ("name", "p_new_dacl"),
+    ("none", None),
+)
+
+_GRANT_ASSIGNMENTS: tuple[tuple[str, tuple], ...] = (
+    ("ea", ("call", "EXPLICIT_ACCESS_W")),
+    ("ea.grfAccessPermissions", ("name", "GENERIC_ALL")),
+    ("ea.grfAccessMode", ("name", "GRANT_ACCESS")),
+    ("ea.grfInheritance", ("name", "NO_INHERITANCE")),
+    ("ea.Trustee.pMultipleTrustee", ("none", None)),
+    ("ea.Trustee.MultipleTrusteeOperation", ("const", 0)),
+    ("ea.Trustee.TrusteeForm", ("name", "TRUSTEE_IS_NAME")),
+    ("ea.Trustee.TrusteeType", ("name", "TRUSTEE_IS_WELL_KNOWN_GROUP")),
+    ("ea.Trustee.ptstrName", ("const", "ALL APPLICATION PACKAGES")),
+    ("p_dacl", ("call", "ctypes.c_void_p")),
+    ("p_sec_desc", ("call", "ctypes.c_void_p")),
+)
+
+
+def _arg_matches(node: ast.AST, spec: tuple[str, object]) -> bool:
+    kind, value = spec
     if kind == "name":
-        return isinstance(value, ast.Name) and value.id == expected
-    if kind == "const":
-        return isinstance(value, ast.Constant) and value.value == expected
+        return isinstance(node, ast.Name) and node.id == value
     if kind == "none":
-        return _is_none(value)
-    if kind == "call":
+        return isinstance(node, ast.Constant) and node.value is None
+    if kind == "const":
         return (
-            isinstance(value, ast.Call)
-            and _call_qualified_name(value) == expected
+            isinstance(node, ast.Constant)
+            and type(node.value) is int
+            and node.value == value
         )
+    if kind == "byref":
+        if not isinstance(node, ast.Call):
+            return False
+        if _call_qualified_name(node) != "ctypes.byref":
+            return False
+        if node.keywords or len(node.args) != 1:
+            return False
+        inner = node.args[0]
+        return isinstance(inner, ast.Name) and inner.id == value
     return False
 
 
-def _arg_name(call: ast.Call, index: int) -> str | None:
-    if index >= len(call.args):
-        return None
-    arg = call.args[index]
-    return arg.id if isinstance(arg, ast.Name) else None
+def _call_with_args(
+    node: ast.AST,
+    qualified: str,
+    args: tuple[tuple[str, object], ...],
+) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if _call_qualified_name(node) != qualified:
+        return False
+    if node.keywords or len(node.args) != len(args):
+        return False
+    return all(_arg_matches(arg, spec) for arg, spec in zip(node.args, args))
 
 
-def _is_none(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and node.value is None
+def _matches_value(node: ast.AST, spec: tuple) -> bool:
+    kind = spec[0]
+    if kind == "name":
+        return isinstance(node, ast.Name) and node.id == spec[1]
+    if kind == "const":
+        expected = spec[1]
+        if isinstance(expected, int):
+            return (
+                isinstance(node, ast.Constant)
+                and type(node.value) is int
+                and node.value == expected
+            )
+        return isinstance(node, ast.Constant) and node.value == expected
+    if kind == "none":
+        return isinstance(node, ast.Constant) and node.value is None
+    if kind == "call":
+        args = spec[2] if len(spec) > 2 else ()
+        return _call_with_args(node, str(spec[1]), args)
+    return False
 
 
-def _byref_name(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Call) or _call_qualified_name(node) != "ctypes.byref":
-        return None
-    if len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
-        return None
-    return node.args[0].id
+def _simple_assignment(
+    stmt: ast.stmt,
+    path: str,
+    spec: tuple,
+) -> bool:
+    return (
+        isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and _target_path(stmt.targets[0]) == path
+        and _matches_value(stmt.value, spec)
+    )
 
 
-def _inside_ret2_zero_if(function: ast.AST, *calls: ast.Call) -> bool:
-    wanted = set(calls)
-    for node in ast.walk(function):
-        if not isinstance(node, ast.If):
-            continue
-        test = node.test
-        if not (
-            isinstance(test, ast.Compare)
-            and isinstance(test.left, ast.Name)
-            and test.left.id == "ret2"
-            and len(test.ops) == 1
-            and isinstance(test.ops[0], ast.Eq)
-            and len(test.comparators) == 1
-            and isinstance(test.comparators[0], ast.Constant)
-            and test.comparators[0].value == 0
+def _is_int_compare(
+    node: ast.AST,
+    name: str,
+    op: type[ast.cmpop],
+    value: int,
+) -> bool:
+    return (
+        isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Name)
+        and node.left.id == name
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], op)
+        and len(node.comparators) == 1
+        and isinstance(node.comparators[0], ast.Constant)
+        and type(node.comparators[0].value) is int
+        and node.comparators[0].value == value
+    )
+
+
+def _expr_call(
+    stmt: ast.stmt,
+    qualified: str,
+    args: tuple[tuple[str, object], ...],
+) -> bool:
+    return (
+        isinstance(stmt, ast.Expr)
+        and _call_with_args(stmt.value, qualified, args)
+    )
+
+
+def _grant_body_ok(body: list[ast.stmt]) -> bool:
+    """Require the exact eighteen-statement documented function body.
+
+    Anything extra - an alias, a rebinding, a loop, a with-as, a walrus, a
+    nested def/class, a second call, a changed argument, a changed branch or a
+    changed return - makes the body stop matching and fails closed.
+    """
+    if len(body) != 18:
+        return False
+
+    for index, (path, spec) in enumerate(_GRANT_ASSIGNMENTS):
+        if not _simple_assignment(body[index], path, spec):
+            return False
+
+    if not _simple_assignment(
+        body[11],
+        "ret",
+        ("call", "_advapi32.GetSecurityInfo", _GET_SECURITY_INFO_ARGS),
+    ):
+        return False
+
+    failure_branch = body[12]
+    if not (
+        isinstance(failure_branch, ast.If)
+        and _is_int_compare(failure_branch.test, "ret", ast.NotEq, 0)
+        and not failure_branch.orelse
+        and len(failure_branch.body) == 1
+        and isinstance(failure_branch.body[0], ast.Return)
+        and isinstance(failure_branch.body[0].value, ast.Constant)
+        and failure_branch.body[0].value.value is False
+    ):
+        return False
+
+    if not _simple_assignment(
+        body[13],
+        "p_new_dacl",
+        ("call", "ctypes.c_void_p"),
+    ):
+        return False
+
+    if not _simple_assignment(
+        body[14],
+        "ret2",
+        ("call", "_advapi32.SetEntriesInAclW", _SET_ENTRIES_ARGS),
+    ):
+        return False
+
+    success_branch = body[15]
+    if not (
+        isinstance(success_branch, ast.If)
+        and _is_int_compare(success_branch.test, "ret2", ast.Eq, 0)
+        and not success_branch.orelse
+        and len(success_branch.body) == 2
+        and _expr_call(
+            success_branch.body[0],
+            "_advapi32.SetSecurityInfo",
+            _SET_SECURITY_ARGS,
+        )
+        and _expr_call(
+            success_branch.body[1],
+            "_kernel32.LocalFree",
+            (("name", "p_new_dacl"),),
+        )
+    ):
+        return False
+
+    if not _expr_call(
+        body[16],
+        "_kernel32.LocalFree",
+        (("name", "p_sec_desc"),),
+    ):
+        return False
+
+    final_return = body[17]
+    return (
+        isinstance(final_return, ast.Return)
+        and _is_int_compare(final_return.value, "ret2", ast.Eq, 0)
+    )
+
+
+def _grant_signature_ok(function: ast.FunctionDef) -> bool:
+    args = function.args
+    if function.decorator_list:
+        return False
+    if function.type_comment:
+        return False
+    if args.posonlyargs or args.kwonlyargs or args.vararg or args.kwarg:
+        return False
+    if len(args.args) != 1 or args.args[0].arg != "handle":
+        return False
+    if args.args[0].annotation is not None:
+        return False
+    if args.defaults or args.kw_defaults:
+        return False
+    returns = function.returns
+    return returns is None or (
+        isinstance(returns, ast.Name) and returns.id == "bool"
+    )
+
+
+def _target_names(target: ast.AST) -> list[str]:
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: list[str] = []
+        for element in target.elts:
+            names.extend(_target_names(element))
+        return names
+    if isinstance(target, ast.Starred):
+        return _target_names(target.value)
+    return []
+
+
+def _scope_walk(scope: ast.AST):
+    """Yield nodes in one scope, never descending into a nested scope."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda),
         ):
             continue
-        found = {candidate for candidate in ast.walk(node) if isinstance(candidate, ast.Call)}
-        if wanted.issubset(found):
-            return True
-    return False
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _binding_entries(scope: ast.AST):
+    for node in _scope_walk(scope):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                for name in _target_names(target):
+                    yield name, node, "assign"
+        elif isinstance(node, ast.AnnAssign):
+            for name in _target_names(node.target):
+                yield name, node, "annassign"
+        elif isinstance(node, ast.AugAssign):
+            for name in _target_names(node.target):
+                yield name, node, "augassign"
+        elif isinstance(node, ast.Delete):
+            for target in node.targets:
+                for name in _target_names(target):
+                    yield name, node, "delete"
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            for name in _target_names(node.target):
+                yield name, node, "for"
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is None:
+                    continue
+                for name in _target_names(item.optional_vars):
+                    yield name, node, "with"
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                yield (alias.asname or alias.name.split(".")[0]), node, "import"
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node.name, node, "def"
+        elif isinstance(node, ast.ClassDef):
+            yield node.name, node, "class"
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                yield name, node, "global"
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            yield node.name, node, "except"
+        elif isinstance(node, ast.NamedExpr):
+            for name in _target_names(node.target):
+                yield name, node, "walrus"
+        elif isinstance(node, ast.comprehension):
+            for name in _target_names(node.target):
+                yield name, node, "comprehension"
+        elif isinstance(node, ast.arg):
+            yield node.arg, node, "param"
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            yield node.name, node, "match"
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            yield node.rest, node, "match"
+
+
+def _canonical_constant(node: ast.AST, name: str) -> bool:
+    return (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and _target_path(node.targets[0]) == name
+        and isinstance(node.value, ast.Constant)
+        and type(node.value.value) is int
+        and node.value.value == _EXPECTED_CONSTANTS[name]
+    )
+
+
+def _canonical_windll(node: ast.AST, name: str) -> bool:
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        return False
+    if _target_path(node.targets[0]) != name:
+        return False
+    value = node.value
+    if isinstance(value, ast.IfExp):
+        if not (
+            isinstance(value.orelse, ast.Constant)
+            and value.orelse.value is None
+        ):
+            return False
+        value = value.body
+    if not isinstance(value, ast.Call):
+        return False
+    if _call_qualified_name(value) != "ctypes.WinDLL":
+        return False
+    if not value.args:
+        return False
+    if len(value.keywords) > 1:
+        return False
+    if value.keywords and value.keywords[0].arg != "use_last_error":
+        return False
+    expected = "kernel32" if name == "_kernel32" else "advapi32"
+    first = value.args[0]
+    return isinstance(first, ast.Constant) and first.value == expected
+
+
+def _canonical_explicit_access(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.ClassDef)
+        and node.name == "EXPLICIT_ACCESS_W"
+        and not node.decorator_list
+        and len(node.bases) == 1
+        and _target_path(node.bases[0]) == "ctypes.Structure"
+    )
+
+
+def _module_bindings_ok(module: ast.Module) -> bool:
+    grouped: dict[str, list[tuple[ast.AST, str]]] = {}
+    for name, node, kind in _binding_entries(module):
+        if name in _PROTECTED_NAMES:
+            grouped.setdefault(name, []).append((node, kind))
+
+    for name, entries in grouped.items():
+        if len(entries) != 1:
+            return False
+        node, kind = entries[0]
+        if name == "ctypes":
+            if kind != "import" or not isinstance(node, ast.Import):
+                return False
+            if len(node.names) != 1:
+                return False
+            alias = node.names[0]
+            if alias.name != "ctypes" or alias.asname is not None:
+                return False
+        elif name in {"_advapi32", "_kernel32"}:
+            if kind != "assign" or not _canonical_windll(node, name):
+                return False
+        elif name == "EXPLICIT_ACCESS_W":
+            if kind != "class" or not _canonical_explicit_access(node):
+                return False
+        else:
+            if kind != "assign" or not _canonical_constant(node, name):
+                return False
+    return True
+
+
+def _target_root(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return _target_root(node.value)
+    if isinstance(node, ast.Subscript):
+        return _target_root(node.value)
+    return None
+
+
+def _module_shape_ok(module: ast.Module) -> bool:
+    """Allow only docstrings, imports, simple assignments and definitions."""
+    for stmt in module.body:
+        if isinstance(
+            stmt,
+            (
+                ast.Import,
+                ast.ImportFrom,
+                ast.ClassDef,
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+            ),
+        ):
+            continue
+        if isinstance(stmt, ast.Assign):
+            if any(
+                isinstance(target, (ast.Attribute, ast.Subscript))
+                for target in stmt.targets
+            ):
+                return False
+            continue
+        if isinstance(stmt, ast.AnnAssign):
+            if isinstance(stmt.target, (ast.Attribute, ast.Subscript)):
+                return False
+            continue
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
+            if isinstance(stmt.value.value, str):
+                continue
+        return False
+    return True
+
+
+def _attribute_mutations_ok(module: ast.Module) -> bool:
+    """Reject monkeypatching protected receivers or their callables."""
+    protected_roots = {"ctypes", "_advapi32", "_kernel32", "EXPLICIT_ACCESS_W"}
+    for node in ast.walk(module):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Delete)):
+            if isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                targets = [node.target]
+            elif isinstance(node, ast.Delete):
+                targets = list(node.targets)
+            else:
+                targets = list(node.targets)
+            for target in targets:
+                if not isinstance(target, (ast.Attribute, ast.Subscript)):
+                    continue
+                root = _target_root(target)
+                if root in protected_roots:
+                    return False
+        if isinstance(node, ast.Call):
+            last = (_call_qualified_name(node) or "").split(".")[-1]
+            if last in {"setattr", "__setattr__"}:
+                return False
+    return True
+
+
+def _local_bindings_ok(module: ast.Module) -> bool:
+    """Reject protected bindings in any function or class scope.
+
+    The documented module binds these names once at module scope. A local
+    rebinding, parameter, nested def/class, import alias, loop target,
+    with-as target, walrus, or match binding would shadow that meaning.
+    """
+    for node in ast.walk(module):
+        if not isinstance(
+            node,
+            (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef),
+        ):
+            continue
+        for name, _binding_node, _kind in _binding_entries(node):
+            if name in _PROTECTED_NAMES:
+                return False
+    return True
 
 
 def _security_call_lines(path: Path) -> set[int]:
     """Allow only the exact documented AppContainer operation.
 
-    Exact assignment targets, exact values, exact receivers, exact arguments,
-    an exact call set, allocation and free order, and the ret2 success branch
-    are all required. Any alternative mutation form (AnnAssign, AugAssign,
-    Delete, setattr, subscript, second assignment, dynamic call or fake
-    receiver) fails closed.
+    This is an exact structural whitelist, not a permissive traversal. The
+    function must have the documented signature and its body must be exactly
+    the eighteen documented statements. Protected names may not be rebound or
+    shadowed at module scope, in an enclosing scope, or inside the function.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef) or node.name != "_grant_to_object":
-            continue
 
-        allowed_assignments: dict[str, tuple[str, object]] = {
-            "ea": ("call", "EXPLICIT_ACCESS_W"),
-            "ea.grfAccessPermissions": ("name", "GENERIC_ALL"),
-            "ea.grfAccessMode": ("name", "GRANT_ACCESS"),
-            "ea.grfInheritance": ("name", "NO_INHERITANCE"),
-            "ea.Trustee.pMultipleTrustee": ("none", None),
-            "ea.Trustee.MultipleTrusteeOperation": ("const", 0),
-            "ea.Trustee.TrusteeForm": ("name", "TRUSTEE_IS_NAME"),
-            "ea.Trustee.TrusteeType": ("name", "TRUSTEE_IS_WELL_KNOWN_GROUP"),
-            "ea.Trustee.ptstrName": ("const", "ALL APPLICATION PACKAGES"),
-            "p_dacl": ("call", "ctypes.c_void_p"),
-            "p_sec_desc": ("call", "ctypes.c_void_p"),
-            "ret": ("call", "_advapi32.GetSecurityInfo"),
-            "p_new_dacl": ("call", "ctypes.c_void_p"),
-            "ret2": ("call", "_advapi32.SetEntriesInAclW"),
-        }
-        protected_roots = {"ea", "p_dacl", "p_sec_desc", "ret", "p_new_dacl", "ret2"}
+    functions = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_grant_to_object"
+    ]
+    if len(functions) != 1:
+        return set()
+    function = functions[0]
 
-        assigns: dict[str, list[tuple[str, ast.AST]]] = {}
-        calls: list[ast.Call] = []
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Call):
-                calls.append(sub)
-                if (_call_qualified_name(sub) or "").split(".")[-1] in {
-                    "setattr", "__setattr__",
-                }:
-                    return set()
-            if isinstance(sub, (ast.AnnAssign, ast.AugAssign, ast.Delete)):
-                return set()
-            if isinstance(sub, ast.Assign):
-                for target in sub.targets:
-                    path = _target_path(target)
-                    if path is None:
-                        # Subscript/dynamic mutation (for example ea.__dict__[...])
-                        if isinstance(target, ast.Subscript):
-                            return set()
-                        continue
-                    if (
-                        path in protected_roots
-                        or path.startswith("ea.")
-                        or path in allowed_assignments
-                    ):
-                        assigns.setdefault(path, []).append(("assign", sub.value))
+    if not _grant_signature_ok(function):
+        return set()
+    if not _grant_body_ok(function.body):
+        return set()
+    if not _module_shape_ok(tree):
+        return set()
+    if not _module_bindings_ok(tree):
+        return set()
+    if not _local_bindings_ok(tree):
+        return set()
+    if not _attribute_mutations_ok(tree):
+        return set()
 
-        for path, (kind, expected) in allowed_assignments.items():
-            entries = assigns.get(path, [])
-            if not entries:
-                return set()
-            if len(entries) != 1:
-                return set()
-            if entries[0][0] != "assign" or not _value_matches(
-                entries[0][1], kind, expected
-            ):
-                return set()
-
-        for path in assigns:
-            if path in allowed_assignments:
-                continue
-            if (
-                path in protected_roots
-                or path.startswith("ea.")
-                or path.startswith("ea.Trustee.")
-            ):
-                return set()
-
-        security_last_names = {
-            "SetSecurityInfo",
-            "SetNamedSecurityInfoW",
-            "SetNamedSecurityInfoA",
-            "SetKernelObjectSecurity",
-            "SetUserObjectSecurity",
-            "NtSetSecurityObject",
-        }
-        for call in calls:
-            qualified = _call_qualified_name(call) or ""
-            last = qualified.split(".")[-1]
-            if last in security_last_names and qualified not in {
-                "_advapi32.SetSecurityInfo",
-                "_advapi32.SetEntriesInAclW",
-            }:
-                return set()
-            if last == "LocalFree" and qualified != "_kernel32.LocalFree":
-                return set()
-            if last in {"byref", "c_void_p"} and qualified != f"ctypes.{last}":
-                return set()
-
-        # Exact call set: no extra, dynamic, aliased or helper call may run
-        # inside the security operation.
-        allowed_call_counts = {
-            "EXPLICIT_ACCESS_W": 1,
-            "ctypes.c_void_p": 3,
-            "ctypes.byref": 4,
-            "_advapi32.GetSecurityInfo": 1,
-            "_advapi32.SetEntriesInAclW": 1,
-            "_advapi32.SetSecurityInfo": 1,
-            "_kernel32.LocalFree": 2,
-        }
-        for call in calls:
-            if _call_qualified_name(call) not in allowed_call_counts:
-                return set()
-        for qualified, expected_count in allowed_call_counts.items():
-            count = sum(
-                1 for call in calls
-                if _call_qualified_name(call) == qualified
-            )
-            if count != expected_count:
-                return set()
-
-        entries_calls = [
-            call for call in calls
-            if _call_qualified_name(call) == "_advapi32.SetEntriesInAclW"
-        ]
-        security_calls = [
-            call for call in calls
-            if _call_qualified_name(call) == "_advapi32.SetSecurityInfo"
-        ]
-        if len(entries_calls) != 1 or len(security_calls) != 1:
-            return set()
-        entries_call = entries_calls[0]
-        security_call = security_calls[0]
-
-        if len(entries_call.args) != 4:
-            return set()
-        if not (
-            isinstance(entries_call.args[0], ast.Constant)
-            and entries_call.args[0].value == 1
-        ):
-            return set()
-        if _byref_name(entries_call.args[1]) != "ea":
-            return set()
-        if _arg_name(entries_call, 2) != "p_dacl":
-            return set()
-        if _byref_name(entries_call.args[3]) != "p_new_dacl":
-            return set()
-
-        if len(security_call.args) != 7:
-            return set()
-        expected_args: list[str | None] = [
-            "handle",
-            "SE_WINDOW_OBJECT",
-            "DACL_SECURITY_INFORMATION",
-            None,
-            None,
-            "p_new_dacl",
-            None,
-        ]
-        for index, expected in enumerate(expected_args):
-            arg = security_call.args[index]
-            if expected is None:
-                if not _is_none(arg):
-                    return set()
-            elif not (isinstance(arg, ast.Name) and arg.id == expected):
-                return set()
-
-        frees = [
-            call for call in calls
-            if _call_qualified_name(call) == "_kernel32.LocalFree"
-            and len(call.args) == 1
-            and isinstance(call.args[0], ast.Name)
-            and call.args[0].id == "p_new_dacl"
-        ]
-        if len(frees) != 1:
-            return set()
-
-        pnew_value = assigns["p_new_dacl"][0][1]
-        if not (
-            _value_matches(pnew_value, "call", "ctypes.c_void_p")
-            and pnew_value.lineno < entries_call.lineno
-        ):
-            return set()
-        if not (entries_call.lineno < security_call.lineno < frees[0].lineno):
-            return set()
-        if not _inside_ret2_zero_if(node, security_call, frees[0]):
-            return set()
-
-        return {security_call.lineno}
-    return set()
+    security_call = function.body[15].body[0].value
+    return {security_call.lineno}
 
 
 def _sandbox_allowed_lines() -> set[int]:
@@ -392,11 +693,18 @@ def test_static_guard_rejects_removed_payloads() -> None:
     assert not findings, "forbidden security payload returned:\n" + "\n".join(findings)
 
 
-def _documented_grant_source(extra: str = "") -> str:
+def _documented_grant_source(
+    extra: str = "",
+    *,
+    before: str = "",
+    module_prefix: str = "",
+) -> str:
     return (
-        "def _ensure():\n"
+        module_prefix
+        + "def _ensure():\n"
         "    def _grant_to_object(handle):\n"
-        "        ea = EXPLICIT_ACCESS_W()\n"
+        + before
+        + "        ea = EXPLICIT_ACCESS_W()\n"
         "        ea.grfAccessPermissions = GENERIC_ALL\n"
         "        ea.grfAccessMode = GRANT_ACCESS\n"
         "        ea.grfInheritance = NO_INHERITANCE\n"
@@ -1274,3 +1582,451 @@ def test_documented_grant_remains_accepted(tmp_path: Path) -> None:
         if "_advapi32.SetSecurityInfo" in line
     )
     assert _security_call_lines(sample) == {expected}
+
+# ---------------------------------------------------------------------------
+# Phase 1.3.2: alias, binding, shadowing and full-contract validation
+# ---------------------------------------------------------------------------
+
+_GET_INFO_LINE = (
+    "        ret = _advapi32.GetSecurityInfo(handle, SE_WINDOW_OBJECT, "
+    "DACL_SECURITY_INFORMATION, None, None, ctypes.byref(p_dacl), None, "
+    "ctypes.byref(p_sec_desc))\n"
+)
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "        ea_alias = ea\n"
+        "        ea_alias.Trustee.ptstrName = 'Everyone'\n",
+        "        trustee = ea.Trustee\n"
+        "        trustee.ptstrName = 'Everyone'\n",
+        "        advapi_alias = _advapi32\n"
+        "        advapi_alias.SetSecurityInfo(handle, SE_WINDOW_OBJECT, "
+        "DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n",
+        "        kernel_alias = _kernel32\n"
+        "        kernel_alias.LocalFree(p_new_dacl)\n",
+        "        ctypes_alias = ctypes\n"
+        "        ctypes_alias.byref(ea)\n",
+        "        pnew_alias = p_new_dacl\n"
+        "        pnew_alias = p_other\n",
+    ],
+)
+def test_sandbox_rejects_protected_object_aliases(
+    tmp_path: Path,
+    snippet: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(snippet),
+        "protected_alias",
+    )
+
+
+@pytest.mark.parametrize("name", ["_advapi32", "_kernel32", "ctypes"])
+def test_sandbox_rejects_receiver_rebinding(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(before=f"        {name} = evil\n"),
+        "receiver_rebind",
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "EXPLICIT_ACCESS_W",
+        "GENERIC_ALL",
+        "GRANT_ACCESS",
+        "NO_INHERITANCE",
+        "TRUSTEE_IS_NAME",
+        "TRUSTEE_IS_WELL_KNOWN_GROUP",
+        "SE_WINDOW_OBJECT",
+        "DACL_SECURITY_INFORMATION",
+    ],
+)
+def test_sandbox_rejects_constant_or_constructor_rebinding(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(before=f"        {name} = evil\n"),
+        "constant_rebind",
+    )
+
+
+def test_sandbox_rejects_nested_constructor_shadowing(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    def EXPLICIT_ACCESS_W():\n"
+        "        return evil\n"
+        "    def _grant_to_object(handle):",
+    )
+    _assert_grant_rejected(tmp_path, source, "nested_constructor")
+
+
+def test_sandbox_rejects_nested_function_shadowing(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    def _advapi32():\n"
+        "        return evil\n"
+        "    def _grant_to_object(handle):",
+    )
+    _assert_grant_rejected(tmp_path, source, "nested_function")
+
+
+def test_sandbox_rejects_nested_class_shadowing(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    class ctypes:\n"
+        "        pass\n"
+        "    def _grant_to_object(handle):",
+    )
+    _assert_grant_rejected(tmp_path, source, "nested_class")
+
+
+def test_sandbox_rejects_module_receiver_rebinding(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix="_advapi32 = evil\n"),
+        "module_receiver",
+    )
+
+
+def test_sandbox_rejects_module_constant_rebinding(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix="GENERIC_ALL = 0\n"),
+        "module_constant",
+    )
+
+
+def test_sandbox_rejects_module_ctypes_rebinding(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix="ctypes = evil\n"),
+        "module_ctypes",
+    )
+
+
+def test_sandbox_rejects_import_alias_shadowing_in_enclosing_scope(
+    tmp_path: Path,
+) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    import evil as _advapi32\n"
+        "    def _grant_to_object(handle):",
+    )
+    _assert_grant_rejected(tmp_path, source, "import_alias_local")
+
+
+def test_sandbox_rejects_module_import_alias_shadowing(tmp_path: Path) -> None:
+    _assert_rejected_module_prefix(
+        tmp_path,
+        "import evil as ctypes\n",
+        "import_alias_module",
+    )
+
+
+def test_sandbox_rejects_module_from_import_shadowing(tmp_path: Path) -> None:
+    _assert_rejected_module_prefix(
+        tmp_path,
+        "from evil import _advapi32\n",
+        "from_import_module",
+    )
+
+
+def _assert_rejected_module_prefix(
+    tmp_path: Path,
+    prefix: str,
+    name: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix=prefix),
+        name,
+    )
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "        ea.Trustee.ptstrName, = ('Everyone',)\n",
+        "        [ea.Trustee.ptstrName] = ['Everyone']\n",
+        "        ea, = (evil,)\n",
+        "        [ea] = [evil]\n",
+    ],
+)
+def test_sandbox_rejects_destructuring_mutation(
+    tmp_path: Path,
+    snippet: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(snippet),
+        "destructuring",
+    )
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "        (ea := evil)\n",
+        "        (ret2 := 0)\n",
+        "        (ctypes := evil)\n",
+    ],
+)
+def test_sandbox_rejects_named_expression_mutation(
+    tmp_path: Path,
+    snippet: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(snippet),
+        "walrus",
+    )
+
+
+def test_sandbox_rejects_walrus_in_success_test(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "        if ret2 == 0:",
+        "        if (ret2 := 0) == 0:",
+    )
+    _assert_grant_rejected(tmp_path, source, "walrus_branch")
+
+
+def test_sandbox_rejects_loop_target_binding(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            "        for ea in [evil]:\n"
+            "            pass\n"
+        ),
+        "loop_target",
+    )
+
+
+def test_sandbox_rejects_context_manager_binding(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            "        with open('x') as ctypes:\n"
+            "            pass\n"
+        ),
+        "with_target",
+    )
+
+
+_GET_INFO_ARGS = [
+    "handle",
+    "SE_WINDOW_OBJECT",
+    "DACL_SECURITY_INFORMATION",
+    "None",
+    "None",
+    "ctypes.byref(p_dacl)",
+    "None",
+    "ctypes.byref(p_sec_desc)",
+]
+
+_WRONG_GET_INFO_ARGS = [
+    "evil_handle",
+    "SE_KERNEL_OBJECT",
+    "OWNER_SECURITY_INFORMATION",
+    "p_owner",
+    "p_group",
+    "ctypes.byref(p_other)",
+    "p_sacl",
+    "ctypes.byref(p_other)",
+]
+
+
+@pytest.mark.parametrize(
+    "index",
+    list(range(len(_GET_INFO_ARGS))),
+)
+def test_sandbox_rejects_each_changed_getsecurity_argument(
+    tmp_path: Path,
+    index: int,
+) -> None:
+    changed = list(_GET_INFO_ARGS)
+    changed[index] = _WRONG_GET_INFO_ARGS[index]
+    source = _documented_grant_source().replace(
+        _GET_INFO_LINE,
+        "        ret = _advapi32.GetSecurityInfo("
+        + ", ".join(changed)
+        + ")\n",
+    )
+    _assert_grant_rejected(
+        tmp_path,
+        source,
+        f"get_info_arg_{index}",
+    )
+
+
+def test_sandbox_rejects_wrong_second_localfree_argument(
+    tmp_path: Path,
+) -> None:
+    source = _documented_grant_source().replace(
+        "        _kernel32.LocalFree(p_sec_desc)\n",
+        "        _kernel32.LocalFree(p_new_dacl)\n",
+    )
+    _assert_grant_rejected(tmp_path, source, "second_free_arg")
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("        if ret != 0:\n", "        if ret == 0:\n"),
+        (
+            "        if ret != 0:\n            return False\n",
+            "        if ret != 0:\n            return True\n",
+        ),
+    ],
+)
+def test_sandbox_rejects_changed_failure_branch(
+    tmp_path: Path,
+    old: str,
+    new: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source().replace(old, new),
+        "failure_branch",
+    )
+
+
+def test_sandbox_rejects_changed_success_branch(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "        if ret2 == 0:",
+        "        if ret2 != 0:",
+    )
+    _assert_grant_rejected(tmp_path, source, "success_branch")
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        ("        return ret2 == 0\n", "        return True\n"),
+        ("        return ret2 == 0\n", "        return ret2 != 0\n"),
+    ],
+)
+def test_sandbox_rejects_changed_return_behavior(
+    tmp_path: Path,
+    old: str,
+    new: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source().replace(old, new),
+        "return_behavior",
+    )
+
+
+def test_sandbox_rejects_allocation_after_entries_call(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "        p_new_dacl = ctypes.c_void_p()\n"
+        "        ret2 = _advapi32.SetEntriesInAclW(1, ctypes.byref(ea), p_dacl, ctypes.byref(p_new_dacl))\n",
+        "        ret2 = _advapi32.SetEntriesInAclW(1, ctypes.byref(ea), p_dacl, ctypes.byref(p_new_dacl))\n"
+        "        p_new_dacl = ctypes.c_void_p()\n",
+    )
+    _assert_grant_rejected(tmp_path, source, "allocation_order")
+
+
+def test_sandbox_rejects_signature_change(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    def _grant_to_object(handle, extra):",
+    )
+    _assert_grant_rejected(tmp_path, source, "signature_change")
+
+
+def test_sandbox_rejects_decorated_grant(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "    def _grant_to_object(handle):",
+        "    @evil\n"
+        "    def _grant_to_object(handle):",
+    )
+    _assert_grant_rejected(tmp_path, source, "decorated_grant")
+
+
+def test_sandbox_rejects_duplicate_grant_function(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "def _ensure():",
+        "def _grant_to_object(handle):\n"
+        "    pass\n\n"
+        "def _ensure():",
+    )
+    _assert_grant_rejected(tmp_path, source, "duplicate_grant")
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "def _advapi32():\n    return evil\n",
+        "def EXPLICIT_ACCESS_W():\n    return evil\n",
+        "class ctypes:\n    pass\n",
+        "class GENERIC_ALL:\n    pass\n",
+    ],
+)
+def test_sandbox_rejects_module_function_or_class_shadowing(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    _assert_rejected_module_prefix(
+        tmp_path,
+        prefix,
+        "module_shadow",
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "ctypes.byref = evil\n",
+        "ctypes.c_void_p = evil\n",
+        "_advapi32.SetSecurityInfo = evil\n",
+        "_kernel32.LocalFree = evil\n",
+        "del ctypes.byref\n",
+        "setattr(ctypes, 'byref', evil)\n",
+        "globals()['ctypes'] = evil\n",
+    ],
+)
+def test_sandbox_rejects_protected_attribute_monkeypatching(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    _assert_rejected_module_prefix(
+        tmp_path,
+        prefix,
+        "attribute_patch",
+    )
+
+
+def test_sandbox_rejects_attribute_monkeypatch_in_sibling_scope(
+    tmp_path: Path,
+) -> None:
+    source = _documented_grant_source(
+        "\n"
+        "def helper():\n"
+        "    ctypes.byref = evil\n"
+    )
+    _assert_grant_rejected(tmp_path, source, "sibling_attribute_patch")
+
+def test_sandbox_rejects_wrong_first_localfree_argument(
+    tmp_path: Path,
+) -> None:
+    source = _documented_grant_source().replace(
+        "            _kernel32.LocalFree(p_new_dacl)\n",
+        "            _kernel32.LocalFree(p_sec_desc)\n",
+    )
+    _assert_grant_rejected(tmp_path, source, "first_free_arg")
+
+def test_sandbox_rejects_any_extra_statement(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        unused = 1\n"),
+        "extra_statement",
+    )
