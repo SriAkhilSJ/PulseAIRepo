@@ -353,13 +353,18 @@ Windows ACL operation is performed. The positive control on the real
 
 ### CI results
 
-Workflow `Security guard`, correction commit: pending.
+Workflow `Security guard`, correction commit
+`3cc3c3743561b636a6eb3c7fd2637363a9720e0b`, run `42583627343`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129048047073` | 230 passed, 4 skipped in 9.13 s |
+| Security containment (windows-latest) | Windows | `129048047146` | 228 passed, 6 skipped in 14.03 s |
+| Security containment (macos-latest) | macOS | `129048046882` | 230 passed, 4 skipped in 10.87 s |
+
+All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
+drive-letter probes; Windows additionally skips three cross-drive probes. No
+test failed and no platform was skipped wholesale.
 
 ### Residual limitations
 
