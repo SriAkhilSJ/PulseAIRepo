@@ -173,10 +173,11 @@ def _inside_ret2_zero_if(function: ast.AST, *calls: ast.Call) -> bool:
 def _security_call_lines(path: Path) -> set[int]:
     """Allow only the exact documented AppContainer operation.
 
-    Exact assignment targets, exact receivers, exact arguments, allocation and
-    free order, and the ret2 success branch are all required. Any alternative
-    mutation form (AnnAssign, AugAssign, Delete, setattr, subscript, second
-    assignment, or fake receiver) fails closed.
+    Exact assignment targets, exact values, exact receivers, exact arguments,
+    an exact call set, allocation and free order, and the ret2 success branch
+    are all required. Any alternative mutation form (AnnAssign, AugAssign,
+    Delete, setattr, subscript, second assignment, dynamic call or fake
+    receiver) fails closed.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
@@ -199,7 +200,6 @@ def _security_call_lines(path: Path) -> set[int]:
             "p_new_dacl": ("call", "ctypes.c_void_p"),
             "ret2": ("call", "_advapi32.SetEntriesInAclW"),
         }
-        optional = {"p_sec_desc", "ret"}
         protected_roots = {"ea", "p_dacl", "p_sec_desc", "ret", "p_new_dacl", "ret2"}
 
         assigns: dict[str, list[tuple[str, ast.AST]]] = {}
@@ -231,8 +231,6 @@ def _security_call_lines(path: Path) -> set[int]:
         for path, (kind, expected) in allowed_assignments.items():
             entries = assigns.get(path, [])
             if not entries:
-                if path in optional:
-                    continue
                 return set()
             if len(entries) != 1:
                 return set()
@@ -270,6 +268,28 @@ def _security_call_lines(path: Path) -> set[int]:
             if last == "LocalFree" and qualified != "_kernel32.LocalFree":
                 return set()
             if last in {"byref", "c_void_p"} and qualified != f"ctypes.{last}":
+                return set()
+
+        # Exact call set: no extra, dynamic, aliased or helper call may run
+        # inside the security operation.
+        allowed_call_counts = {
+            "EXPLICIT_ACCESS_W": 1,
+            "ctypes.c_void_p": 3,
+            "ctypes.byref": 4,
+            "_advapi32.GetSecurityInfo": 1,
+            "_advapi32.SetEntriesInAclW": 1,
+            "_advapi32.SetSecurityInfo": 1,
+            "_kernel32.LocalFree": 2,
+        }
+        for call in calls:
+            if _call_qualified_name(call) not in allowed_call_counts:
+                return set()
+        for qualified, expected_count in allowed_call_counts.items():
+            count = sum(
+                1 for call in calls
+                if _call_qualified_name(call) == qualified
+            )
+            if count != expected_count:
                 return set()
 
         entries_calls = [
@@ -1223,6 +1243,25 @@ def test_sandbox_rejects_extra_unapproved_mutation(tmp_path: Path) -> None:
         tmp_path,
         _documented_grant_source("        ea.grfAccessMode = DENY_ACCESS\n"),
         "extra_mode",
+    )
+
+
+def test_sandbox_rejects_extra_unapproved_call(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        helper()\n"),
+        "extra_call",
+    )
+
+
+def test_sandbox_rejects_dynamic_security_call(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            "        getattr(_advapi32, 'SetSecurityInfo')"
+            "(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n"
+        ),
+        "dynamic_call",
     )
 
 
