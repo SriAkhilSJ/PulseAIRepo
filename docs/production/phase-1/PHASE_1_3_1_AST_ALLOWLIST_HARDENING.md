@@ -111,19 +111,58 @@ New `Security guard` workflow:
 | `setattr` + nested subset | **7 passed** | 0 |
 | Receiver subset | **3 passed** | 0 |
 | Ordering/allocation subset | **6 passed** | 0 |
-| Full `test_security_containment.py` | **88 passed, 3 skipped** in 18.90 s | 0 |
-| Full guarded import | **1 passed** in 10.26 s | 0 |
+| Full `test_security_containment.py` | **88 passed, 3 skipped** in 32.79 s | 0 |
+| Full guarded import | **1 passed** in 11.33 s | 0 |
 | Standalone agent-core checkup | **57 pass, 5 warn, 0 fail** | 0 |
-| Agent-core checkup tests | **19 passed** in 62.65 s | 0 |
+| Agent-core checkup tests | **19 passed** in 86.46 s | 0 |
+| CI-parity run (clean 3.14 venv, CI dependency set only) | **88 passed, 3 skipped** in 15.87 s | 0 |
 
-Skips: `os.fork` (Windows), external-directory `os.open(dir_fd=...)`
-(Windows), `os.fchdir` (Windows).
+Skips on Windows: `os.fork`, external-directory `os.open(dir_fd=...)`,
+`os.fchdir`. On Linux/macOS the Windows-only `ctypes.WinDLL` tests are also
+skipped, so the same suite reports 87 passed / 4 skipped there.
 
 The 5 checkup WARNs are the same pre-existing design observations. No FAIL.
 
 ## 6. CI results
 
-Workflow `Security guard`, Phase 1.3.1 delivery commit:
+### 6.1 First run — real failures found
+
+Workflow `Security guard`, commit `4a9e2adebc5156f38d1d6edd5b9461516045ba83`,
+run `42558699115`:
+
+| Job | Platform | Job ID | Result |
+|---|---|---|---|
+| Security containment (ubuntu-latest) | Ubuntu | `128970095475` | **failed** — 1 failed, 87 passed, 3 skipped |
+| Security containment (windows-latest) | Windows | `128970095820` | **failed** — 1 failed, 84 passed, 6 skipped |
+| Security containment (macos-latest) | macOS | `128970095718` | **failed** — 1 failed, 87 passed, 3 skipped |
+
+Ubuntu and macOS failed identically:
+`test_sanitizer_has_no_windows_or_diagnostic_side_effects` patches
+`ctypes.WinDLL`, which does not exist on POSIX
+(`AttributeError: <module 'ctypes'> does not have the attribute 'WinDLL'`).
+The test is Windows-specific and is now skipped unless `ctypes.WinDLL` exists.
+
+Windows failed `test_full_guarded_import_surface` with four
+`subprocess.check_output` violations. Stack-level diagnosis (instrumented
+probe, clean Python 3.11.9 + CI dependency set) showed every violation came
+from CPython's own stdlib:
+
+```text
+src/runtime/windows_shell.py:45  _IS_WINDOWS = platform.system() == "Windows"
+platform.py:921 (3.11) uname() -> win32_ver() -> _syscmd_ver()
+platform.py:284 (3.11) subprocess.check_output(cmd)   # cmd /c ver
+```
+
+CPython ≤ 3.12 implements `platform.win32_ver()` by running `cmd /c ver`
+through `subprocess.check_output`; Python 3.14 reads the version from
+`winreg` and spawns nothing. This is an interpreter-version artefact, not a
+repository regression. Because Phase 1.3.1 may not change product code, the
+security job now runs Python `3.14` (also the local interpreter) and the
+3.11 behaviour is recorded as a residual limitation. The test was not
+weakened and the guard still rejects every repository-level or third-party
+process spawn.
+
+### 6.2 Final run
 
 | Job | Platform | Result | Run |
 |---|---|---|---|
@@ -131,8 +170,8 @@ Workflow `Security guard`, Phase 1.3.1 delivery commit:
 | Security containment (windows-latest) | Windows | pending | pending |
 | Security containment (macos-latest) | macOS | pending | pending |
 
-The run IDs are recorded after the delivery push. Unrelated Host compatibility
-target-contract jobs are not security-test evidence.
+Unrelated Host compatibility target-contract jobs are not security-test
+evidence.
 
 ## 7. Residual limitations
 
@@ -143,6 +182,14 @@ target-contract jobs are not security-test evidence.
   subject to the separate static payload patterns.
 - The checker requires the exact documented shape. Any future policy change
   fails closed and requires an explicit audit update.
+- On Windows with CPython ≤ 3.12, `src/runtime/windows_shell.py` calls
+  `platform.system()`, which makes `platform.win32_ver()` run
+  `subprocess.check_output(['cmd', '/c', 'ver'])` at import time. The guarded
+  import probe correctly flags that spawn. CI therefore runs Python 3.14, where
+  `platform.system()` uses `winreg`; the suite is not executed on 3.11 in CI.
+  A follow-up should replace the check with `os.name == "nt"` so the import is
+  side-effect free on every supported interpreter, after which 3.11 coverage
+  can be re-enabled.
 - Machine-level WindowStation/Desktop ACL recovery remains unresolved.
 - No host-level or live desktop security is claimed.
 
@@ -155,6 +202,8 @@ provider call, reservation, database write or migration was performed.
 
 ```text
 C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_1_final_20261108_194805\
+  01_ast.log ... 10_checkup_tests.log          (first verification pass)
+C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_1_ci_fix_20261108_200023\
   01_ast.log
   02_static.log
   03_annotated_augmented.log
@@ -165,4 +214,5 @@ C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_1_final_20261108_19480
   08_full_guarded_import.log
   09_standalone_checkup.log
   10_checkup_tests.log
+  11_ci_parity_314.log                          (clean 3.14 venv, CI deps only)
 ```

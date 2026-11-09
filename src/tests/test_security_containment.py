@@ -6,6 +6,7 @@ security API call, no write outside the repository.
 from __future__ import annotations
 
 import ast
+import ctypes
 import importlib.util
 import os
 import re
@@ -534,6 +535,7 @@ def test_sanitizer_is_fail_closed() -> None:
     assert "AKIAIOSFODNN7EXAMPLE" not in str(excinfo.value)
 
 
+@pytest.mark.skipif(not hasattr(ctypes, "WinDLL"), reason="Windows-only ctypes loader")
 def test_sanitizer_has_no_windows_or_diagnostic_side_effects() -> None:
     from src.context.engine import sanitize_memory_context
 

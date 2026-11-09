@@ -30,9 +30,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Python 3.14: on Windows, CPython <= 3.12 implements
+      # platform.win32_ver() by running `cmd /c ver` through
+      # subprocess.check_output. src/runtime/windows_shell.py calls
+      # platform.system() at import time, so the guarded import probe would
+      # correctly flag an import-time process spawn that comes from the
+      # standard library, not from a security regression. Python 3.14 reads
+      # the version from winreg and spawns nothing, so the probe tests the
+      # repository instead of the interpreter. The 3.11 behaviour is recorded
+      # as a residual limitation in the Phase 1.3.1 document.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Install test dependencies
         shell: bash
