@@ -1,0 +1,70 @@
+# Electron launch evidence — r2
+
+Baseline: `feat/prompt-cache-stabilization`, start `165dc16f`, origin identical.
+Runtime: `desktop/vscode/.build/electron/CrusorAI.exe` (Chrome/148, Electron/42.8.1)
+with the freshly compiled `desktop/vscode/out` (`npm run compile-client` exit 0,
+144.33 s; `scripts/emit-crusorai-bundle.mjs` re-emitted `SOURCES_HASH`).
+
+## Isolation applied to every launch
+
+```
+USERPROFILE, HOME, HOMEDRIVE, HOMEPATH, APPDATA, LOCALAPPDATA -> <TEMP>\p2r2-<run>\...
+--user-data-dir, --extensions-dir, workspace                   -> disposable dirs
+CRUSORAI_ALLOW_LIVE_AGENT_TEST removed
+```
+
+Each run's Python `Path.home()` resolved inside the disposable home and created
+its own `.crusorai` store there (verified on disk). The real
+`%USERPROFILE%\.crusorai` was not written by any isolated launch; see
+`logs/profile-isolation.txt`.
+
+## Launch A — approval dock, dark theme (stub engine)
+
+| Item | Value |
+|---|---|
+| Main PID | 19572 |
+| Window | `workspace - CrusorAI IDE Dev` |
+| Debug port | 9333 |
+| Engine root | `<TEMP>\p2r2-stub-engine`, `CRUSORAI_PYTHON_PATH` = repo `.venv` python |
+| Result | workbench + Agent render; dock measured; allow path executed |
+
+## Launch B — approval dock, built-in light theme (stub engine)
+
+| Item | Value |
+|---|---|
+| Main PID | 17812 |
+| Theme | `Default Light Modern` written to the disposable profile **before** launch |
+| Workbench class | `vs ... light_modern` (theme actually applied) |
+| Result | dock fits at 299 px; the Crusor pane itself still paints black (visual defect) |
+
+## Launch C — cancellation UI, cold restart, worker recovery (real bridge)
+
+| Item | Value |
+|---|---|
+| Main PID | 27180, later 16664 (cold restart, same profile) |
+| Bridge | real `python -m src.bridge`, `CRUSORAI_BRIDGE_RUNNER=echo`, `CRUSORAI_TURN_STARTUP_BARRIER_MS=4000` |
+| Result | startup Stop cancelled with no echo; completed turn; warm replay clean; Manager renders; worker kill recovered |
+
+## Startup diagnostics (same four as r1)
+
+| Message | Classification |
+|---|---|
+| `Cannot find module './build/Release/iselevated'` | expected in this checkout (optional native module unbuilt); non-blocking |
+| `Unable to create workbench contribution 'chat.contextContributions' ... chatSessionRoutingProviderService` | product defect in the built-in chat contribution; non-blocking for Crusor |
+| `Unknown channel: agentHostClientProxy` | non-blocking IPC probe |
+| crashpad `CreateFile: The system cannot find the file specified` | environment/crash-reporter registration; non-blocking |
+
+No renderer crash, no boot loop, no fatal startup exception in any launch.
+
+## Ctrl/Cmd+L — not proven (environment limitation)
+
+- `WScript.Shell.AppActivate(pid)` and by title both returned **False**.
+- `SetForegroundWindow(MainWindowHandle)` succeeded (foreground == target), but
+  `SendKeys("^l")` did not open the pane; a **control** chord `Ctrl+Shift+P`
+  also did nothing through the same path, so OS input injection is not reaching
+  the app in this session.
+- CDP `Control+l` also did not open the pane; the command palette
+  `Crusor: Open Agent` did.
+- The keybinding is registered (`KeyMod.CtrlCmd | KeyCode.KeyL`,
+  `WorkbenchContrib`); its behaviour could not be confirmed through a genuine
+  input path here. Recorded as NOT PROVEN, not as a confirmed defect.

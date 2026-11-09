@@ -1,0 +1,8 @@
+
+[main 2026-11-09T19:13:40.052Z] StorageMainService: creating application shared storage
+[main 2026-11-09T19:13:40.144Z] [CSS_DEV] DONE, 452 css modules (78ms)
+[main 2026-11-09T19:13:40.224Z] update#setState disabled
+[main 2026-11-09T19:13:40.252Z] [shared storage] Creating shared storage database at '<TEMP>\p2r2-light\home\.crusorai-ide-shared\sharedStorage\state.vscdb' (wasCreated: true)
+[main 2026-11-09T19:13:40.254Z] [shared storage] Initializing fallback application storage (path: <TEMP>\p2r2-light\userdata\User\globalStorage\state.vscdb)
+[main 2026-11-09T19:13:40.263Z] [shared storage] Fallback application storage initialized with 3 items
+[main 2026-11-09T19:13:42.753Z] AgentHostProcessManager: agent host started

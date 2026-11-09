@@ -1,0 +1,30 @@
+{
+  "session_id": "probe-cancel-001",
+  "barrier_ms": "4000",
+  "sequence": [
+    "session_info",
+    "workspace.bound",
+    "workspace.bound",
+    "session_info",
+    "turn_started",
+    "turn_done"
+  ],
+  "cancel_acks": [
+    {
+      "cancel_requested": true
+    }
+  ],
+  "token_texts": [],
+  "terminal": {
+    "type": "turn_done",
+    "completed": false,
+    "cancelled": true,
+    "message": "Operation cancelled by the user."
+  },
+  "late_cancel_requested": false,
+  "cancel_log": [
+    "[bridge] cancel for probe-cancel-001: accepted=True pending=True turn_elapsed=None",
+    "[bridge] cancel for probe-cancel-001: accepted=False pending=False turn_elapsed=None"
+  ],
+  "bridge_exit": 0
+}

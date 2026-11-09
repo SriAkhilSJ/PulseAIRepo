@@ -1,0 +1,45 @@
+# Manager interface — r2
+
+Screenshots: `08_manager_render.png` (warm), `09_cold_manager_empty_transcript.png`
+(cold restart, same profile).
+
+## Warm (same process, after two Agent turns)
+
+```
+.crusorai-manager-sidebar
+  CONTROL PLANE / Workspaces / "Find workspace or agent"
+  workspace → Crusor session / Finished / now
+  "1 session(s) remembered · none running"
+.crusorai-manager-main
+  breadcrumb "workspace / session-0b74…"
+  tabs Session | Tools 0 | Changes | Skills
+  transcript: ui cancel probe / Operation cancelled by the user. / Run cancelled
+              replay probe / replay probe
+.crusorai-manager-inspector
+  LIVE EVIDENCE / Run inspector / PLAN 0 STEPS / VERIFICATION NOT STARTED
+  WORKBENCH CAPABILITIES 19/30 (19 available · 0 blocked)
+  USAGE Input 0 / Cache 0 / Output 0
+```
+
+The Manager lane and the Agent lane contain the same rows (5 each when both are
+mounted); neither maintains a divergent copy. The sidebar count matches the
+single workspace/session pair and says `none running`.
+
+## Cold restart (full process exit, same disposable profile)
+
+The Manager restored the workspace group and one session row
+(`workspace / session-0b74…`, `Finished`, `now`) from the durable store, then
+showed an empty transcript (`transcriptRows: []`). For echo-runner sessions this
+is expected: the seam writes the session row but no messages (see
+`session-replay.txt`). A real durable transcript cannot be produced at this HEAD
+because the graph path is blocked by the `history_shaper` import defect.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Manager renders as a native editor surface | PASS |
+| Session list from the shared store | PASS |
+| Count/state labels accurate | PASS |
+| Manager/Agent content consistent | PASS |
+| Cold transcript restore | NOT EXERCISED (echo seam has no messages; graph blocked) |

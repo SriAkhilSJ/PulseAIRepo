@@ -1,0 +1,5 @@
+node_modules: True
+electron_exe: True
+app_resources_dir: False
+out_files: 10779
+venv_python: True

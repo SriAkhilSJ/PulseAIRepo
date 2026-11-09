@@ -1,0 +1,55 @@
+# Worker and Bridge Protocol v2 — r2
+
+## Handshake
+
+The real bridge probe (`logs/probe-cancel-startup.out.txt`) completed the v2
+handshake before any turn:
+
+```
+hello.protocol = 2
+engine         = crusorai
+sequence       session_info, workspace.bound x2, session_info, turn_started, turn_done
+```
+
+`workspace.bound` carries the exact disposable workspace in `workspace`, `hops`
+and `engine_root`. The stub-engine launch logged the desktop's own frames
+(`hello`, `session_list`, `session_create`, `host_capabilities_update`,
+`prompt`, `safety_reply`) in `logs/electron-dock-stderr.log`.
+
+## Spawn chain (real bridge)
+
+```
+python.exe <REPO>\.venv\Scripts\python.exe -m src.bridge
+  cwd = <REPO>, env inherited + PYTHONUNBUFFERED=1
+```
+
+Utility-process location: the launch log reports
+`[UtilityProcessWorker]: createWorker() found an existing worker that will be
+terminated` on the restart path, then a new bridge starts and the panel returns
+to `Crusor ready` (see `worker-recovery.txt`).
+
+## Workspace identity
+
+- The bridge preview proxy line names the disposable workspace root, not the
+  repo: `preview proxy ... <TEMP>\p2r2-cancel-ui\workspace`.
+- `workspace.bound` for the same root is emitted after session creation and
+  after each handled frame.
+- Manager breadcrumb shows `workspace / session-0b74…`, matching the Agent lane.
+
+## Protocol surface observed this round
+
+`session_info`, `workspace.bound`, `turn_started`, `turn_done`,
+`safety_request` (stub), `tool_call_start/end` (stub), `token`,
+`runtime_degraded`, `turn_lifecycle`, `plan_updated`, `verification_updated`.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Worker spawns under the isolated profile | PASS |
+| v2 handshake (`hello.protocol == 2`) | PASS |
+| Session creation | PASS |
+| Workspace binding exact | PASS |
+| Python → renderer frames | PASS |
+| Provider-free | PASS (`echo`; no model call) |
+| Graph (legacy Agent Core) path | **BLOCKED** by `history_shaper` ImportError, see `approval-execution.txt` |

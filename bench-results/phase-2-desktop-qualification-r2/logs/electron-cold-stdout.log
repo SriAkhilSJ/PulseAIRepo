@@ -1,0 +1,7 @@
+
+[main 2026-11-09T19:17:18.484Z] StorageMainService: creating application shared storage
+[main 2026-11-09T19:17:18.574Z] [CSS_DEV] DONE, 452 css modules (76ms)
+[main 2026-11-09T19:17:18.636Z] update#setState disabled
+[main 2026-11-09T19:17:18.644Z] [shared storage] Creating shared storage database at '<TEMP>\p2r2-cancel-ui\home\.crusorai-ide-shared\sharedStorage\state.vscdb' (wasCreated: false)
+[main 2026-11-09T19:17:18.647Z] [shared storage] Initializing fallback application storage (path: <TEMP>\p2r2-cancel-ui\userdata\User\globalStorage\state.vscdb)
+[main 2026-11-09T19:17:18.666Z] [shared storage] Fallback application storage initialized with 48 items

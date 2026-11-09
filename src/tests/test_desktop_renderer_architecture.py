@@ -154,9 +154,15 @@ def test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native():
     css = _text("browser", "media", "crusorAI.css")
     for behavior in (
         "function planStrip", "function createActivityState", "function emptyState", "function thinkingBlock",
-        "crusorai-section-heading", "host.submitPrompt(value)", "planOpen",
+        "crusorai-section-heading", "planOpen",
     ):
         assert behavior in renderer
+    # Prompt submission carries the composer value AND its context chips. The
+    # old pin froze the zero-chip call shape; the contract is that the chips
+    # ride along when present.
+    assert re.search(r"host\.submitPrompt\(\s*value\s*(?:,\s*model\.contextChips\s*)?\)", renderer)
+    if "model.contextChips" in renderer:
+        assert re.search(r"host\.submitPrompt\(\s*value\s*,\s*model\.contextChips\s*\)", renderer)
     assert "openManager(): void" in renderer
     # Manager's popup-vs-tab routing is a deferred owner decision, so that assertion lives
     # in its own strict-xfail test at the bottom of this file: the Agent-UI lane must not
@@ -198,7 +204,16 @@ def test_execution_mode_picker_is_functional_and_theme_driven():
 	assert "setMode(mode: CrusorExecutionMode)" in renderer
 	assert "readonly mode?: CrusorExecutionMode" in protocol
 	assert "mode: this.mode" in service
-	assert "this.send({ type: 'prompt'" in service
+	# The prompt frame is built as a typed payload and then sent. Pin the
+	# contract (a prompt frame carrying the chosen mode goes out), not the
+	# inline-literal spelling the refactor replaced.
+	prompt_payload = re.search(
+		r"CrusorClientMethod\s*=\s*\{[^}]*type:\s*'prompt'[^}]*mode:\s*this\.mode",
+		service,
+		re.S,
+	)
+	assert prompt_payload, "the prompt payload must be typed and carry the picked mode"
+	assert re.search(r"this\.send\(\s*payload\s*\)", service), "the typed prompt payload must be sent"
 	assert ".crusorai-mode-menu" in css
 	for token in ("--vscode-menu-background", "--vscode-menu-foreground", "--vscode-focusBorder"):
 		assert token in css
@@ -1963,7 +1978,17 @@ def test_tool_cards_follow_opencode_basictool():
     assert "box.dataset.component = 'tool-output'" in renderer
     assert "box.dataset.scrollable = ''" in renderer
     assert "function toolArgsChips" in renderer, "OpenCode GenericTool.args chips"
-    assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer
+    # Sub-agent calls bypass the generic collapsible shell and its k=v chips:
+    # toolRow() routes the family to taskToolCard() before the chip row is
+    # assembled. Pin that route, not the retired ternary spelling.
+    assert "presentation.family === 'subagent'" in renderer
+    assert "return taskToolCard(tool, host, subAgents);" in renderer
+    subagent_route = renderer.index("if (presentation.family === 'subagent') {")
+    chips_row = renderer.index("...toolArgsChips(tool),")
+    assert subagent_route < chips_row, "subagent rows leave before generic args chips are built"
+    task_card = renderer[renderer.index("function taskToolCard("):]
+    task_card = task_card[:task_card.index("\nfunction ", 1)]
+    assert "toolArgsChips(" not in task_card, "the sub-agent card carries its own mode/type/description"
     assert "isPending ? 'crusorai-shimmer' : undefined" in renderer, (
         "pending tool title shimmers (their TextShimmer active=pending)")
     for gone in ("toolFields(", "['Path', target], ['Lines'", "'Encoding', 'UTF-8'",
@@ -2641,3 +2666,50 @@ def test_diff_preview_failure_never_paints_the_error_lane():
     open_diff = service[service.index("private async openDiff"):service.index("private readonly syntaxColorCache")]
     assert "this.error" not in open_diff, "preview failures never reach the error lane"
     assert "const reviewButton = hasFileDiff ? button('Review change'" in renderer, "Review change is offered only for file diffs"
+
+
+def _css_block(css: str, selector: str) -> str:
+    match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css, re.S)
+    assert match is not None, f"missing CSS block: {selector}"
+    return match.group(1)
+
+
+def test_context_chips_and_suggestions_use_type_tokens():
+    """The four former literal font sizes (context chips, chip remove glyph,
+    suggestion title/detail) must speak the tokenized type scale, so a host
+    font-size setting scales them and the grammar stays single-sourced."""
+    css = _text("browser", "media", "crusorAI.css")
+    ours = css.split("EXTRACTED VERBATIM", 1)[0]
+    for selector in (
+        ".crusorai-context-chip",
+        ".crusorai-chip-remove",
+        ".crusorai-suggestion-copy strong",
+        ".crusorai-suggestion-copy small",
+    ):
+        block = _css_block(ours, selector)
+        assert re.search(r"font-size:\s*var\(--crusorai-text-", block), (
+            f"{selector} must use a --crusorai-text-* token, got: {block.strip()}"
+        )
+    assert not re.findall(r"font-size:\s*[0-9.]+(?:px|rem)\b", ours)
+
+
+def test_approval_dock_fits_the_narrow_auxiliary_bar():
+    """Default auxiliary bar is ~299px. The verdict pills alone are wider
+    than that, so the strip must wrap instead of setting a min-content
+    width that pushes `Allow once` outside the panel. This pins the layout
+    contract; the r2 runtime measurement proves the rendered width."""
+    css = _text("browser", "media", "crusorAI.css")
+    bar = _css_block(css, ".crusorai-permission-bar")
+    assert "min-width: 0" in bar
+    assert "width: 100%" in bar
+    assert "box-sizing: border-box" in bar, "padding must not add to the 100% width"
+    main = _css_block(css, ".crusorai-permission-main")
+    assert "flex-wrap: wrap" in main, "question + verdicts wrap instead of clipping"
+    actions = _css_block(css, ".crusorai-permission-actions")
+    assert "flex-wrap: wrap" in actions, "verdict pills wrap inside the strip"
+    assert "flex: none" not in actions, "a none-basis action row is what forced the 120px overflow"
+    assert "max-width: 100%" in actions
+    once = _css_block(css, ".crusorai-permission-once")
+    assert "display: none" not in once, "the primary approval action is never hidden"
+    assert "padding: 6px 14px" in once, "the primary pill keeps its usable size"
+    assert "text-overflow: ellipsis" not in once

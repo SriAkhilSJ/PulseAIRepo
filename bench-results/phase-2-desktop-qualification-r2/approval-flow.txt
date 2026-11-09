@@ -1,0 +1,64 @@
+# Approval dock — r2 fix and measurements
+
+Screenshots: `02_approval_dock_fixed_299px.png` (dark),
+`04_approval_dock_light_theme.png` (light workbench),
+`03_approval_allowed.png` (after Allow once).
+
+## Defect in r1
+
+At the default auxiliary-bar width the strip was wider than its column:
+panel 299 px, dock content 419 px, `Allow once` clipped by ~119 px, question
+collapsed to a one-character column.
+
+## Change (CSS only)
+
+`desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css`:
+
+- `.crusorai-permission-bar`: `min-width: 0; width: 100%; box-sizing: border-box`
+  so padding cannot push it past the column.
+- `.crusorai-permission-main`: `flex-wrap: wrap; row-gap: 8px`.
+- `.crusorai-permission-question`: `flex: 1 1 12ch` (natural word wrap).
+- `.crusorai-permission-actions`: `flex: 0 1 auto; flex-wrap: wrap;
+  row-gap: 6px; min-width: 0; max-width: 100%` (pills drop to their own line
+  instead of clipping; no pill is shrunk or hidden).
+
+Static regression: `test_approval_dock_fits_the_narrow_auxiliary_bar`
+(in `test_desktop_renderer_architecture.py`) pins the wrap/min-width contract
+and that the primary pill keeps `padding: 6px 14px` and is never hidden.
+
+## Runtime measurement after the rebuild (299 px panel)
+
+```
+panel            299
+dock width       299        (was 419 in r1)
+scrollWidth      299
+clientWidth      299
+overflow         0          (was 120)
+question         x=1014 w=257 h=18     (one readable line)
+Deny             x=997  y=288 w=97  right=1094
+Allow always     x=1102 y=288 w=118 right=1220
+Allow once       x=997  y=326 w=148 right=1146   (own line, fully inside)
+Review change    x=1055 y=413 w=119 right=1174
+dock right edge  1284
+```
+
+Every action is inside the dock; `Allow once` keeps its 148×32 pill. Clicking it
+sent `safety_reply tool_id=tool-r2-dock-0001 approved=True` (stub log) and the
+card settled to `Approved write applied to notes.md.` with the dock removed.
+
+The same contract holds in the light-theme launch (`overflow: 0` at 299 px).
+
+## What is still unproven
+
+The dock was rendered by the deterministic engine stub (real renderer, real
+utility process, real protocol). The **real tool pipeline** that would produce
+this request is blocked at HEAD by the `history_shaper`/`compaction` ImportError
+(see `approval-execution.txt`), so "approval allows the actual mutation" remains
+NOT EXERCISED. The r1 concern about `tool_id` pairing is unchanged and passing:
+the UI replies with the exact `data-tool-id` it was given.
+
+## Residual visual note
+
+The dock itself is readable and fits. In the light theme the whole Crusor pane
+still paints black while the workbench is light — recorded in
+`visual-findings.md` as a separate theme defect.

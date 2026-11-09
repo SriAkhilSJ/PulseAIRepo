@@ -1,0 +1,17 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: <REPO>
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 82 items
+
+src\tests\test_bridge_protocol_v2.py .........                           [ 10%]
+src\tests\test_crusor_session_registration_parity.py sssss.s.....        [ 25%]
+src\tests\test_preview_contract.py ................                      [ 45%]
+src\tests\test_crusor_file_icons.py .....                                [ 51%]
+src\tests\test_turn_control_startup_cancel.py .......                    [ 59%]
+src\tests\test_scripted_model_seam.py ...                                [ 63%]
+src\tests\test_cancellation_gates.py ..............................      [100%]
+
+======================= 76 passed, 6 skipped in 29.59s ========================

@@ -1,0 +1,59 @@
+# Agent interface — r2
+
+Surfaces: `screenshots/01_workbench_startup.png`,
+`02_approval_dock_fixed_299px.png`, `03_approval_allowed.png`,
+`05_ui_startup_cancelled.png`, `06_cancelled_then_completed.png`,
+`07_warm_replay_no_duplicates.png`, `10_worker_recovery.png`.
+
+## Opening
+
+The command palette command `Crusor: Open Agent` mounts the pane reliably. The
+`Ctrl+L` path could not be proven (see `electron-launch.txt`): OS-level
+`SendKeys` never reached the app in this session (the control chord failed
+too), and CDP delivery did not open the pane. Status: NOT PROVEN.
+
+## States observed (real renderer)
+
+| State | Evidence |
+|---|---|
+| Empty | composer, Manager button, `Crusor ready`, mode chips, `Enter to send` |
+| Running | `Thinking`, `Esc to interrupt`, send becomes stop |
+| Startup-cancelled | assistant `Operation cancelled by the user.`, receipt `Run cancelled` (class `crusorai-turn-receipt is-cancelled`), no echo token |
+| Completed | echoed prompt as the assistant message, `Enter to send` restored |
+| Approval | tool card `Write / notes.md`, dock with `Allow once` fully visible |
+| Recovery | after killing the sidecar, a new prompt completes normally |
+
+Transcript after one cancelled and one completed turn (single lane, 6 rows):
+
+```
+crusorai-user-message          ui cancel probe
+crusorai-assistant-message     Operation cancelled by the user.
+crusorai-turn-receipt          Run cancelled
+crusorai-user-message          replay probe
+crusorai-assistant-message     replay probe
+crusorai-context-status-row    Agent Core evidence capture is degraded ...
+```
+
+No duplicated rows within a lane. Note on counting: once the Manager tab is
+open there are two `.crusorai-transcript-lane` nodes (Agent pane + Manager
+editor). A document-wide selector aggregates both; scoping the query to one
+lane shows 5 rows in each, not 10 in one.
+
+## Theme
+
+The built-in `Default Light Modern` theme applies to the workbench
+(`vs ... light_modern`), and the approval dock still fits at 299 px, but the
+Crusor pane background stays black (`rgb(0,0,0)`) while the rest of the
+workbench is light. Visual defect recorded in `visual-findings.md`.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Agent panel opens (command) | PASS |
+| Deterministic provider-free turn | PASS |
+| Running/completed/cancelled/approval distinguishable | PASS |
+| No duplicate rows in one lane | PASS |
+| Light theme respected by the pane | **FAIL** (pane stays dark) |
+| Ctrl/Cmd+L | NOT PROVEN |
+| Real tool call/tool result | NOT EXERCISED (graph blocked) |

@@ -1,0 +1,74 @@
+# Cancellation — startup race fixed and re-proven
+
+r1 finding: a Stop sent ~0.9 s after Send returned
+`accepted=False turn_elapsed=None` and the prompt still completed, because the
+bridge had accepted the prompt but the turn had not called
+`turn_controls.begin()` yet.
+
+## Fix
+
+`src/runtime/turn_control.py`:
+
+- `_Control` gains a **single pending slot** (`pending_since`, `startup_cancel`).
+- The bridge calls `turn_controls.mark_pending(sid)` on the main thread as soon
+  as it decides to start a turn, before warm-up imports, durable-row writes and
+  thread dispatch (`src/bridge/__main__.py`, prompt branch).
+- `cancel()` on an inactive session now accepts the Stop only while that pending
+  slot is live (`PENDING_CANCEL_TTL_S = 120 s`) and records it once.
+- `begin()` consumes the slot: a startup Stop becomes the turn's `cancel_event`
+  before any provider/tool work. `end()` clears both.
+- After `turn_started`, `_run_turn` checks `turn_controls.cancelled(sid)` and
+  emits exactly one `turn_done` with `cancelled: true` and
+  `"Operation cancelled by the user."`, then returns — no echo and no completion
+  can follow.
+- A late Stop (after the turn ended, or after the TTL) is rejected and cannot
+  poison the next turn. One slot per session; no queue; session id is the key.
+
+Bounded test seam: `CRUSORAI_TURN_STARTUP_BARRIER_MS` holds the window before
+`begin()` (capped at 30 s) so the race is reproducible without scheduler timing.
+
+## Deterministic unit regression
+
+`src/tests/test_turn_control_startup_cancel.py` — **7 passed**:
+
+| Test | Contract |
+|---|---|
+| startup cancel applied at begin | Stop accepted while pending, `cancelled()` true at begin |
+| no leak into next turn | consumed Stop cleared by `end()` |
+| cancel after completion rejected | no poisoning |
+| pending slot expires | bounded window |
+| session-scoped | pending/cancel on s1 never affects s2 |
+| active cancel fires aborts | abort handles still fire |
+| nested begin | a Stop survives the graph's nested begin |
+
+Existing `test_cancellation_gates.py` — 30 passed unchanged.
+
+## Runtime proof (real bridge, provider-free)
+
+`logs/probe-cancel-startup.py` → `logs/probe-cancel-startup.out.txt`:
+
+```
+CRUSORAI_TURN_STARTUP_BARRIER_MS=4000 ; cancel sent at ~0.9 s
+
+sequence            session_info, workspace.bound x2, session_info,
+                    turn_started, turn_done
+cancel_acks         [{"cancel_requested": true}]
+token_texts         []                              (no echoed completion)
+terminal            turn_done completed=false cancelled=true
+                    "Operation cancelled by the user."
+late cancel         cancel_requested=false          (after the turn ended)
+bridge log          cancel for probe-cancel-001: accepted=True pending=True turn_elapsed=None
+                    cancel for probe-cancel-001: accepted=False pending=False turn_elapsed=None
+bridge_exit         0
+```
+
+This is the exact r1 scenario (`accepted=False` → completed) now ending as an
+accepted startup cancellation with no completion painted.
+
+## Limits
+
+- Proven with the echo runner plus the barrier seam. Cancelling a real
+  provider/tool turn remains NOT EXERCISED because the graph path is blocked by
+  the `history_shaper`/`compaction` import defect (see
+  `approval-execution.txt`).
+- TTL is a fixed 120 s constant; not configurable.

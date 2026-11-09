@@ -1213,6 +1213,14 @@ class BridgeServer:
             )
 
         threading.Thread(target=_stall_watchdog, name="crusorai-turn-watchdog", daemon=True).start()
+        # Test seam (CRUSORAI_TURN_STARTUP_BARRIER_MS): hold the startup window
+        # deterministically so a Stop-before-begin can be exercised without
+        # racing the thread scheduler. Bounded to 30s; unset in normal runs.
+        _startup_barrier_ms = int(
+            os.environ.get("CRUSORAI_TURN_STARTUP_BARRIER_MS", "0") or "0"
+        )
+        if _startup_barrier_ms > 0:
+            threading.Event().wait(min(_startup_barrier_ms, 30_000) / 1000.0)
         # Establish active ownership before publishing turn_started. Once the
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
@@ -1224,6 +1232,27 @@ class BridgeServer:
                 "timestamp": identity.created_at,
                 "evidence": evidence_started,
             })
+            # A Stop that arrived while this prompt was starting is applied by
+            # begin(). Honour it before any provider/tool work: emit one
+            # truthful terminal frame and never paint a completion afterwards.
+            if turn_controls.cancelled(sid):
+                cancel_message = "Operation cancelled by the user."
+                _terminal.set()
+                evidence_done = self._finalize_evidence(
+                    evidence,
+                    status="cancelled",
+                    completed=False,
+                    cancelled=True,
+                    message=cancel_message,
+                    reason="user_cancelled_during_startup",
+                )
+                _emit_terminal({
+                    "type": "turn_done", **identity.event_fields(),
+                    "message": cancel_message,
+                    "completed": False, "cancelled": True, "stub": False,
+                    "evidence": evidence_done,
+                })
+                return
             if (
                 evidence_started.get("status") in {"degraded", "unavailable"}
                 and os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo"
@@ -2441,6 +2470,11 @@ class BridgeServer:
                     depth = turn_controls.queue(sid, text, effort, submission_id=submission_id)
                     self.emit({"type": "session_info", "session_id": sid, "queued": depth})
                 else:
+                    # Cover the whole startup window with the pending slot
+                    # BEFORE the warm-up imports and durable-row write: a Stop
+                    # during startup must not be dropped (r1 race).
+                    from src.runtime.turn_control import turn_controls
+                    turn_controls.mark_pending(sid)
                     # Warm the heavy turn-path imports on the MAIN thread before
                     # dispatching the worker: numpy/transformers C-extension init
                     # deadlocks when imported on a non-main thread (Windows), which
@@ -2487,6 +2521,7 @@ class BridgeServer:
             # absence proves the click never left the window; its
             # verdict proves what the engine did with it.
             print(f"[bridge] cancel for {sid}: accepted={active} "
+                  f"pending={turn_controls.pending(sid)} "
                   f"turn_elapsed={turn_controls.turn_elapsed(sid)}",
                   file=sys.stderr, flush=True)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})

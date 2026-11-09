@@ -1,0 +1,23 @@
+Isolation policy: every r2 Electron launch and every bridge probe sets
+USERPROFILE, HOME, HOMEDRIVE, HOMEPATH, APPDATA and LOCALAPPDATA to disposable
+directories before process creation. The Python sidecar's Path.home() therefore
+resolves inside <TEMP>\p2r2-*; each probe's isolated home contains its own
+.crusorai\\sessions.db, traces/ and evidence/ (verified on disk).
+
+Real owner store: <USERPROFILE>\.crusorai
+Observed 2026-11-09T10:58 local (after r2 probes):
+  sessions.db     : 2026-11-09T10:51:19  (mtimes unchanged by the isolated runs at 10:52-10:58)
+  sessions.db-wal : absent
+  traces dir      : 2026-11-09T09:56:25
+
+Caveat: the first pytest batches (before 10:52) ran with the ambient profile and
+may have touched sessions.db WAL/checkpoint metadata on import; every subsequent
+test/probe/launch used the isolated profile. No owner session row was read,
+deleted or modified by this run.
+
+Isolated stores created:
+  <TEMP>\p2r2-approve\home\.crusorai   (sessions DB, traces, evidence)
+  <TEMP>\p2r2-cancel\home\.crusorai    (sessions DB, runtime events, traces)
+  <TEMP>\p2r2-tests\home\.crusorai     (pytest runs from 10:52 on)
+  <TEMP>\p2r2-dock\home\.crusorai      (Electron dock run)
+  <TEMP>\p2r2-cancel-ui\home\.crusorai (Electron cancellation run)

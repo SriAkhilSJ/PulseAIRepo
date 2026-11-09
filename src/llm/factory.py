@@ -1234,6 +1234,20 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
     (from ``parse_reasoning_effort()``).  Provider-specific wire parameters
     are injected via ``model_kwargs``.
     """
+    # Provider-free qualification seam (desktop Phase 2): a scripted model at
+    # the model-invocation boundary, gated by BOTH CRUSORAI_TEST_MODE=1 and an
+    # inline CRUSORAI_TEST_LLM_SCRIPT. Unset in every normal run; no network.
+    try:
+        from src.llm.scripted_model import scripted_model_active, scripted_model_from_env
+
+        if scripted_model_active():
+            return scripted_model_from_env()
+    except Exception:
+        # A malformed test script must never be silently ignored: let the
+        # caller see the real build error instead of a provider call.
+        if os.environ.get("CRUSORAI_TEST_MODE", "").strip() == "1":
+            raise
+
     # Build extra model_kwargs for provider-side thinking.
     reasoning_kwargs = build_model_kwargs_for_reasoning(provider, model, reasoning_config) if reasoning_config else {}
 

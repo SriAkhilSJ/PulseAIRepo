@@ -1,0 +1,82 @@
+# Real approval execution — attempted, blocked by a pre-existing product defect
+
+Goal: prove approval through the REAL pipeline (Agent Core graph → SafeToolNode
+approval policy → mutation → bridge → renderer) with a deterministic fake at the
+model-invocation boundary. No paid provider was used.
+
+Result: **NOT EXERCISED — blocked at HEAD.** The Agent Core graph path cannot
+start because of a pre-existing import defect in committed source.
+
+## What was built for this (provider-free model boundary)
+
+`src/llm/scripted_model.py` + a two-gate branch at the top of
+`src/llm/factory.py:get_llm()`:
+
+- active only when `CRUSORAI_TEST_MODE=1` **and** `CRUSORAI_TEST_LLM_SCRIPT`
+  (inline JSON) are set;
+- returns the scripted `AIMessage` sequence (tool calls carry
+  `finish_reason=tool_calls`), `bind_tools()` returns self;
+- after the script is exhausted it returns plain text, never a repeated tool
+  call, so it cannot loop;
+- no network, no SDK, no credentials.
+
+Unit contract: `src/tests/test_scripted_model_seam.py` — 3 passed
+(gate, tool-call shape, malformed script fails loudly).
+
+## Attempt 1 — default desktop agent path (orchestrator)
+
+The bridge routes `agent` mode to `EngineeringExecutionOrchestrator` by default
+(`CRUSORAI_ORCHESTRATOR_ENGINE` unset). With
+`CRUSORAI_BRIDGE_APPROVAL_POLICY=ask` the turn still produced **no**
+`safety_request`, wrote `notes.md`, and reported an Engineering Execution Report
+with `completed=false`. Frames: `turn_started`, `runtime_degraded`,
+`turn_lifecycle*`, `plan_updated*`, `token`, `verification_updated`,
+`turn_done`.
+
+The orchestrator branch never receives `approval_channel` / `approval_policy`
+(those are handed only to `stream_agent`), so the desktop approval policy does
+not apply on this path. Evidence:
+`logs/probe-orchestrator-default.out.txt`.
+
+## Attempt 2 — legacy graph path (the real Agent Core tool pipeline)
+
+`CRUSORAI_ORCHESTRATOR_ENGINE=legacy` routes to `stream_agent`. The turn fails in
+1.7 s with:
+
+```
+[bridge] turn FAILED after 1.7s: ImportError("cannot import name
+'compact_assistant_tool_call_arguments' from 'src.context.compaction'")
+```
+
+Root cause (committed HEAD `165dc16f`, clean files):
+
+- `src/context/history_shaper.py:159-165` imports
+  `compact_assistant_tool_call_arguments` and
+  `transform_completed_tool_receipts` from `src.context.compaction`.
+- Neither name exists in `src/context/compaction.py` (or anywhere in `src`);
+  `git log -S "def compact_assistant_tool_call_arguments"` returns nothing.
+- `src/tests/test_eager_history_compaction.py` fails at collection with the
+  same ImportError, so the defect is visible without the desktop.
+
+Consequence: the graph cannot reach the ai node, SafeToolNode, the approval
+queue or the mutation broker. Approval execution and durable transcript replay
+are therefore **NOT EXERCISED** at this HEAD.
+
+Evidence: `logs/probe-approve.out.txt` (frame list ends in `turn_failed`; file
+unchanged; `session_messages` contains only the user row).
+
+## What was NOT done, and why
+
+The missing functions are not a one-line restore: no implementation exists in
+history, and ~30 assertions in `test_eager_history_compaction.py` describe their
+semantics. Implementing them is a separate, broad Agent Core change, outside
+this bounded desktop remediation. Replacing the graph with a stub or shimming
+the import would manufacture a pass and was rejected.
+
+## Impact on the desktop verdict
+
+The approval dock UI, `tool_id` pairing and allow/deny routing were already
+proven in r1 through a process-boundary stub. What remains unproven is that a
+real tool call produces the request and that approval mutates the file. That
+gap is now attributed to a specific, reproducible product defect rather than to
+the desktop layer.
