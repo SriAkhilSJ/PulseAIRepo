@@ -1305,6 +1305,180 @@ def _function_signature_ok(
     return actual_returns == returns
 
 
+def _is_name_node(node: ast.AST, name: str) -> bool:
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _is_constant_node(node: ast.AST, value: bool) -> bool:
+    return isinstance(node, ast.Constant) and node.value is value
+
+
+def _is_exact_assign(
+    stmt: ast.stmt,
+    name: str,
+    predicate,
+) -> bool:
+    return (
+        isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+        and stmt.targets[0].id == name
+        and predicate(stmt.value)
+    )
+
+
+def _is_dependency_check(node: ast.AST) -> bool:
+    if not (
+        isinstance(node, ast.BoolOp)
+        and isinstance(node.op, ast.Or)
+        and len(node.values) == 3
+    ):
+        return False
+    expected = ("_advapi32", "_user32", "_kernel32")
+    for value, name in zip(node.values, expected):
+        if not (
+            isinstance(value, ast.UnaryOp)
+            and isinstance(value.op, ast.Not)
+            and _is_name_node(value.operand, name)
+        ):
+            return False
+    return True
+
+
+def _is_thread_desktop_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    if _call_qualified_name(node) != "_user32.GetThreadDesktop":
+        return False
+    if node.keywords or len(node.args) != 1:
+        return False
+    return _call_with_args(
+        node.args[0],
+        "_kernel32.GetCurrentThreadId",
+        (),
+    )
+
+
+def _is_grant_if_expression(node: ast.AST, handle: str) -> bool:
+    if not isinstance(node, ast.IfExp):
+        return False
+    if not _is_name_node(node.test, handle):
+        return False
+    call = node.body
+    if not (
+        isinstance(call, ast.Call)
+        and _call_qualified_name(call) == "_grant_to_object"
+        and not call.keywords
+        and len(call.args) == 1
+        and _is_name_node(call.args[0], handle)
+    ):
+        return False
+    return _is_constant_node(node.orelse, False)
+
+
+def _is_ok_conjunction(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.BoolOp)
+        and isinstance(node.op, ast.And)
+        and len(node.values) == 2
+        and _is_name_node(node.values[0], "ok1")
+        and _is_name_node(node.values[1], "ok2")
+    )
+
+
+def _helper_body_ok(helper: ast.FunctionDef) -> bool:
+    """Pin the exact eleven-statement WindowStation/Desktop helper body."""
+    body = helper.body
+    if len(body) != 11:
+        return False
+
+    docstring = body[0]
+    if not (
+        isinstance(docstring, ast.Expr)
+        and isinstance(docstring.value, ast.Constant)
+        and type(docstring.value.value) is str
+        and docstring.value.value.strip()
+    ):
+        return False
+
+    global_statement = body[1]
+    if not (
+        isinstance(global_statement, ast.Global)
+        and global_statement.names == ["_winsta_desktop_granted"]
+    ):
+        return False
+
+    already_granted = body[2]
+    if not (
+        isinstance(already_granted, ast.If)
+        and _is_name_node(already_granted.test, "_winsta_desktop_granted")
+        and not already_granted.orelse
+        and len(already_granted.body) == 1
+        and isinstance(already_granted.body[0], ast.Return)
+        and _is_constant_node(already_granted.body[0].value, True)
+    ):
+        return False
+
+    dependencies = body[3]
+    if not (
+        isinstance(dependencies, ast.If)
+        and _is_dependency_check(dependencies.test)
+        and not dependencies.orelse
+        and len(dependencies.body) == 1
+        and isinstance(dependencies.body[0], ast.Return)
+        and _is_constant_node(dependencies.body[0].value, False)
+    ):
+        return False
+
+    grant = body[4]
+    if not (
+        isinstance(grant, ast.FunctionDef)
+        and grant.name == "_grant_to_object"
+    ):
+        return False
+
+    if not _is_exact_assign(
+        body[5],
+        "hwinsta",
+        lambda value: _call_with_args(
+            value,
+            "_user32.GetProcessWindowStation",
+            (),
+        ),
+    ):
+        return False
+
+    if not _is_exact_assign(body[6], "hdesk", _is_thread_desktop_call):
+        return False
+
+    if not _is_exact_assign(
+        body[7],
+        "ok1",
+        lambda value: _is_grant_if_expression(value, "hwinsta"),
+    ):
+        return False
+
+    if not _is_exact_assign(
+        body[8],
+        "ok2",
+        lambda value: _is_grant_if_expression(value, "hdesk"),
+    ):
+        return False
+
+    if not _is_exact_assign(
+        body[9],
+        "_winsta_desktop_granted",
+        _is_ok_conjunction,
+    ):
+        return False
+
+    final_return = body[10]
+    return (
+        isinstance(final_return, ast.Return)
+        and _is_name_node(final_return.value, "_winsta_desktop_granted")
+    )
+
+
 def _helper_declaration_ok(module: ast.Module) -> bool:
     helpers = [
         node
@@ -1323,6 +1497,7 @@ def _helper_declaration_ok(module: ast.Module) -> bool:
             returns,  # type: ignore[arg-type]
             decorators,
         )
+        and _helper_body_ok(helpers[0])
     )
 
 
@@ -1379,11 +1554,24 @@ def _security_call_lines(path: Path, *, full_module: bool = False) -> set[int]:
     shadowed at module scope, in an enclosing scope, or inside the function.
 
     ``full_module=True`` additionally requires the exact sandbox import
-    manifest, module declaration manifest, helper signature, manager method
-    manifest, and the complete set of ctypes structures. Synthetic snippets in
-    earlier phases use the default partial mode.
+    manifest, module declaration manifest, helper signature and body, manager
+    method manifest, and the complete set of ctypes structures. The grant
+    function must be the single direct child of the validated helper. Synthetic
+    snippets in earlier phases use the default partial mode.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    helper = None
+    if full_module:
+        helpers = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_ensure_windowstation_desktop_access"
+        ]
+        if len(helpers) != 1:
+            return set()
+        helper = helpers[0]
 
     functions = [
         node
@@ -1394,6 +1582,8 @@ def _security_call_lines(path: Path, *, full_module: bool = False) -> set[int]:
     if len(functions) != 1:
         return set()
     function = functions[0]
+    if helper is not None and function not in helper.body:
+        return set()
 
     if not _grant_signature_ok(function):
         return set()
@@ -3363,3 +3553,158 @@ def test_sandbox_rejects_duplicate_manager_class(tmp_path: Path) -> None:
         tree.body.append(copy.deepcopy(manager))
 
     _assert_full_module_rejected(tmp_path, mutate, "duplicate_manager")
+
+# Phase 1.3.4R: helper body ownership and integrity
+
+def _nested_grant(helper: ast.FunctionDef) -> ast.FunctionDef:
+    for node in helper.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "_grant_to_object":
+            return node
+    raise AssertionError("nested _grant_to_object not found")
+
+
+def _helper_assignment(helper: ast.FunctionDef, name: str) -> ast.Assign:
+    for node in helper.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            return node
+    raise AssertionError(f"helper assignment {name!r} not found")
+
+
+def test_sandbox_rejects_extra_helper_call(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.body.append(ast.parse("evil()").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_helper_call")
+
+
+def test_sandbox_rejects_extra_helper_nested_function(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.body.append(ast.parse("def extra():\n    pass").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_helper_function")
+
+
+def test_sandbox_rejects_grant_moved_into_manager(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        grant = _nested_grant(helper)
+        helper.body.remove(grant)
+        manager = _module_class(tree, "WindowsSandboxManager")
+        _manager_method(manager, "execute").body.append(grant)
+
+    _assert_full_module_rejected(tmp_path, mutate, "grant_in_manager")
+
+
+def test_sandbox_rejects_grant_moved_into_other_function(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        grant = _nested_grant(helper)
+        helper.body.remove(grant)
+        other = ast.parse("def other():\n    pass").body[0]
+        tree.body.append(other)
+        other.body.append(grant)
+
+    _assert_full_module_rejected(tmp_path, mutate, "grant_in_other")
+
+
+def test_sandbox_rejects_duplicate_grant_in_manager(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        grant = _nested_grant(helper)
+        manager = _module_class(tree, "WindowsSandboxManager")
+        _manager_method(manager, "execute").body.append(
+            copy.deepcopy(grant)
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_grant")
+
+
+def test_sandbox_rejects_missing_grant_from_helper(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.body.remove(_nested_grant(helper))
+
+    _assert_full_module_rejected(tmp_path, mutate, "missing_grant")
+
+
+def test_sandbox_rejects_missing_helper_handle_assignment(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.body.remove(_helper_assignment(helper, "hwinsta"))
+
+    _assert_full_module_rejected(tmp_path, mutate, "missing_handle")
+
+
+def test_sandbox_rejects_changed_helper_early_return(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        dependency_check = helper.body[3]
+        dependency_check.test.values.pop()
+
+    _assert_full_module_rejected(tmp_path, mutate, "helper_early_return")
+
+
+def test_sandbox_rejects_changed_helper_state_update(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        state = _helper_assignment(helper, "_winsta_desktop_granted")
+        state.value = ast.Name(id="ok1", ctx=ast.Load())
+
+    _assert_full_module_rejected(tmp_path, mutate, "helper_state")
+
+
+def test_sandbox_rejects_changed_handle_acquisition(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        window_station = _helper_assignment(helper, "hwinsta")
+        window_station.value = ast.Call(
+            func=ast.Attribute(
+                value=ast.Name(id="_user32", ctx=ast.Load()),
+                attr="GetThreadDesktop",
+                ctx=ast.Load(),
+            ),
+            args=[
+                ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id="_kernel32", ctx=ast.Load()),
+                        attr="GetCurrentThreadId",
+                        ctx=ast.Load(),
+                    ),
+                    args=[],
+                    keywords=[],
+                )
+            ],
+            keywords=[],
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "handle_acquisition")
+
+
+def test_sandbox_rejects_swapped_grant_call_handles(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        ok1 = _helper_assignment(helper, "ok1")
+        ok2 = _helper_assignment(helper, "ok2")
+        ok1.value.body.args[0] = ast.Name(id="hdesk", ctx=ast.Load())
+        ok2.value.body.args[0] = ast.Name(id="hwinsta", ctx=ast.Load())
+
+    _assert_full_module_rejected(tmp_path, mutate, "grant_call_handles")

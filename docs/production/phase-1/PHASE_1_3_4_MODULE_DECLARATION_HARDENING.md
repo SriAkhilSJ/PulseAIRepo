@@ -270,3 +270,119 @@ C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_4_20261108_223933\
   11_checkup_tests.log
   12_ci_parity.log
 ```
+
+## 13. Phase 1.3.4R correction
+
+**Starting HEAD:** `00eabb3d8bffa652e2c5e4eb4e3c32f7027d9c17`
+
+### Finding 1 - helper body was not validated
+
+Phase 1.3.4 validated the declaration and signature of
+`_ensure_windowstation_desktop_access()` but not its body. Additional executable
+statements or nested declarations could therefore be inserted inside the helper.
+
+**Correction.** `_helper_body_ok()` now pins the exact eleven-statement body:
+
+1. non-empty docstring,
+2. `global _winsta_desktop_granted`,
+3. `if _winsta_desktop_granted: return True`,
+4. `if not _advapi32 or not _user32 or not _kernel32: return False`,
+5. the nested `def _grant_to_object(handle) -> bool:`,
+6. `hwinsta = _user32.GetProcessWindowStation()`,
+7. `hdesk = _user32.GetThreadDesktop(_kernel32.GetCurrentThreadId())`,
+8. `ok1 = _grant_to_object(hwinsta) if hwinsta else False`,
+9. `ok2 = _grant_to_object(hdesk) if hdesk else False`,
+10. `_winsta_desktop_granted = ok1 and ok2`,
+11. `return _winsta_desktop_granted`.
+
+The checks pin the early-return conditions, the dependency check, the nested
+grant declaration, handle acquisition, both grant calls, the state update and
+the return. Any extra statement, nested declaration, changed handle, changed
+condition, changed call target or changed state expression fails closed.
+
+### Finding 2 - grant ownership was not enforced
+
+`_security_call_lines()` discovered `_grant_to_object` with a whole-tree search,
+so a grant defined in another function or class was still accepted.
+
+**Correction.** In full-module mode the checker now:
+
+- requires exactly one module-level
+  `_ensure_windowstation_desktop_access`,
+- requires exactly one `_grant_to_object` declaration in the whole tree,
+- requires that declaration to be a direct child of the helper's body.
+
+Relocation into `WindowsSandboxManager` methods, another module-level function,
+another nested function/class, or duplication in another scope is rejected. The
+existing exact eighteen-statement grant body remains mandatory.
+
+### Adversarial tests
+
+Eleven new AST-only regressions were added (suite 223 -> 234):
+
+| Test | Mutation |
+|---|---|
+| extra helper call | `evil()` inserted into the helper |
+| extra helper nested function | `def extra(): pass` inserted into the helper |
+| grant moved into manager | grant removed from helper, appended to `WindowsSandboxManager.execute` |
+| grant moved into another function | grant moved to a new module-level function |
+| duplicate grant in manager | grant deep-copied into `WindowsSandboxManager.execute` |
+| missing grant | nested grant removed from the helper |
+| missing handle assignment | `hwinsta` assignment removed |
+| changed early return | one dependency term removed from the `not ... or ...` check |
+| changed state update | `_winsta_desktop_granted = ok1 and ok2` changed to `ok1` |
+| changed handle acquisition | `GetProcessWindowStation()` replaced with `GetThreadDesktop(GetCurrentThreadId())` |
+| swapped grant-call handles | `ok1`/`ok2` call arguments swapped |
+
+The mutations are parsed and unparsed; no inserted call is executed and no
+Windows ACL operation is performed. The positive control on the real
+`src/security/sandbox/windows.py` still passes.
+
+### Local verification
+
+| Check | Result | Exit |
+|---|---|---|
+| AST validation | `AST OK` | 0 |
+| Helper ownership subset | **11 passed** | 0 |
+| Full static security scan | **172 passed** | 0 |
+| Full security suite | **231 passed, 3 skipped** in 90.28 s (234 collected) | 0 |
+| Full guarded import | **1 passed** in 31.32 s | 0 |
+| Standalone agent-core checkup | **57 pass, 5 warn, 0 fail** | 0 |
+| Agent-core checkup tests | **19 passed** in 204.89 s | 0 |
+| CI-parity clean 3.14 venv | **231 passed, 3 skipped** in 64.67 s | 0 |
+
+### CI results
+
+Workflow `Security guard`, correction commit: pending.
+
+| Job | Platform | Result | Run |
+|---|---|---|---|
+| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
+| Security containment (windows-latest) | Windows | pending | pending |
+| Security containment (macos-latest) | macOS | pending | pending |
+
+### Residual limitations
+
+- Static AST validation only; it is not an OS sandbox and does not prove
+  production readiness.
+- The helper body, import/declaration manifests, structure map, constants and
+  manager method signatures duplicate the real source; legitimate changes
+  require an audited update and a fresh positive control.
+- Manager method bodies remain unvalidated; only declarations are pinned.
+- Python 3.11 Windows guard coverage remains unproven because the CI job runs
+  3.14 and `platform.system()` spawns `cmd /c ver` on 3.11.
+- Machine-level WindowStation/Desktop ACL recovery remains unresolved.
+
+### Evidence logs
+
+```text
+C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_4r_20261108_235705\
+  01_ast.log
+  02_helper_ownership.log
+  03_static_scan.log
+  04_full_security.log
+  05_guarded_import.log
+  06_checkup.log
+  07_checkup_tests.log
+  08_ci_parity.log
+```
