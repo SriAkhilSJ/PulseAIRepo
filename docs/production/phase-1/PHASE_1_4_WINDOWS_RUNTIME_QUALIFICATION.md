@@ -364,13 +364,17 @@ regression in this correction.
 
 ### CI results
 
-Workflow `Security guard`, corrective commit: pending.
+Workflow `Security guard`, correction commit
+`3cc8c78072cc6ee52f52d5108f80363065634e6e`, run `42646010564`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129259325291` | 231 passed, 4 skipped in 8.19 s |
+| Security containment (windows-latest) | Windows | `129259325696` | 229 passed, 6 skipped in 15.07 s |
+| Security containment (macos-latest) | macOS | `129259325512` | 231 passed, 4 skipped in 8.68 s |
+
+All three jobs ran Python 3.14.10. The runtime harness remains Windows-only and
+local; it is not part of this CI job.
 
 ### Remaining Phase 1.4 limitations
 
