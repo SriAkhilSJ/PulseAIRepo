@@ -474,42 +474,262 @@ def _canonical_constant(node: ast.AST, name: str) -> bool:
     )
 
 
+def _is_win32_platform_test(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Compare)
+        and _target_path(node.left) == "sys.platform"
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Eq)
+        and len(node.comparators) == 1
+        and isinstance(node.comparators[0], ast.Constant)
+        and type(node.comparators[0].value) is str
+        and node.comparators[0].value == "win32"
+    )
+
+
+def _canonical_windll_value(name: str, value: ast.AST) -> bool:
+    """Require the exact documented platform-conditional DLL load."""
+    if not isinstance(value, ast.IfExp):
+        return False
+    if not _is_win32_platform_test(value.test):
+        return False
+    call = value.body
+    if not isinstance(call, ast.Call):
+        return False
+    if _call_qualified_name(call) != "ctypes.WinDLL":
+        return False
+    if len(call.args) != 1 or len(call.keywords) != 1:
+        return False
+    keyword = call.keywords[0]
+    if keyword.arg != "use_last_error":
+        return False
+    if not (
+        isinstance(keyword.value, ast.Constant)
+        and keyword.value.value is True
+    ):
+        return False
+    if not (
+        isinstance(value.orelse, ast.Constant)
+        and value.orelse.value is None
+    ):
+        return False
+    expected = name.removeprefix("_")
+    first = call.args[0]
+    return (
+        isinstance(first, ast.Constant)
+        and type(first.value) is str
+        and first.value == expected
+    )
+
+
 def _canonical_windll(node: ast.AST, name: str) -> bool:
-    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+    return (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and _target_path(node.targets[0]) == name
+        and _canonical_windll_value(name, node.value)
+    )
+
+
+# Exact ctypes.Structure layouts used by the Windows sandbox. The string on the
+# right is the normalized type expression, e.g. "ctypes.POINTER(wintypes.BYTE)".
+_EXPECTED_STRUCTURES: dict[str, tuple[tuple[str, str], ...]] = {
+    "IO_COUNTERS": (
+        ("ReadOperationCount", "ctypes.c_uint64"),
+        ("WriteOperationCount", "ctypes.c_uint64"),
+        ("OtherOperationCount", "ctypes.c_uint64"),
+        ("ReadTransferCount", "ctypes.c_uint64"),
+        ("WriteTransferCount", "ctypes.c_uint64"),
+        ("OtherTransferCount", "ctypes.c_uint64"),
+    ),
+    "JOBOBJECT_BASIC_LIMIT_INFORMATION": (
+        ("PerProcessUserTimeLimit", "ctypes.c_int64"),
+        ("PerJobUserTimeLimit", "ctypes.c_int64"),
+        ("LimitFlags", "wintypes.DWORD"),
+        ("MinimumWorkingSetSize", "ctypes.c_size_t"),
+        ("MaximumWorkingSetSize", "ctypes.c_size_t"),
+        ("ActiveProcessLimit", "wintypes.DWORD"),
+        ("Affinity", "ctypes.c_size_t"),
+        ("PriorityClass", "wintypes.DWORD"),
+        ("SchedulingClass", "wintypes.DWORD"),
+    ),
+    "JOBOBJECT_EXTENDED_LIMIT_INFORMATION": (
+        ("BasicLimitInformation", "JOBOBJECT_BASIC_LIMIT_INFORMATION"),
+        ("IoInfo", "IO_COUNTERS"),
+        ("ProcessMemoryLimit", "ctypes.c_size_t"),
+        ("JobMemoryLimit", "ctypes.c_size_t"),
+        ("PeakProcessMemoryUsed", "ctypes.c_size_t"),
+        ("PeakJobMemoryUsed", "ctypes.c_size_t"),
+    ),
+    "JOBOBJECT_CPU_RATE_CONTROL_INFORMATION": (
+        ("ControlFlags", "wintypes.DWORD"),
+        ("CpuRate", "wintypes.DWORD"),
+    ),
+    "SECURITY_ATTRIBUTES": (
+        ("nLength", "wintypes.DWORD"),
+        ("lpSecurityDescriptor", "ctypes.c_void_p"),
+        ("bInheritHandle", "wintypes.BOOL"),
+    ),
+    "SECURITY_CAPABILITIES": (
+        ("AppContainerSid", "ctypes.c_void_p"),
+        ("Capabilities", "ctypes.c_void_p"),
+        ("CapabilityCount", "wintypes.DWORD"),
+        ("Reserved", "wintypes.DWORD"),
+    ),
+    "STARTUPINFOW": (
+        ("cb", "wintypes.DWORD"),
+        ("lpReserved", "wintypes.LPWSTR"),
+        ("lpDesktop", "wintypes.LPWSTR"),
+        ("lpTitle", "wintypes.LPWSTR"),
+        ("dwX", "wintypes.DWORD"),
+        ("dwY", "wintypes.DWORD"),
+        ("dwXSize", "wintypes.DWORD"),
+        ("dwYSize", "wintypes.DWORD"),
+        ("dwXCountChars", "wintypes.DWORD"),
+        ("dwYCountChars", "wintypes.DWORD"),
+        ("dwFillAttribute", "wintypes.DWORD"),
+        ("dwFlags", "wintypes.DWORD"),
+        ("wShowWindow", "wintypes.WORD"),
+        ("cbReserved2", "wintypes.WORD"),
+        ("lpReserved2", "ctypes.POINTER(wintypes.BYTE)"),
+        ("hStdInput", "wintypes.HANDLE"),
+        ("hStdOutput", "wintypes.HANDLE"),
+        ("hStdError", "wintypes.HANDLE"),
+    ),
+    "STARTUPINFOEXW": (
+        ("StartupInfo", "STARTUPINFOW"),
+        ("lpAttributeList", "ctypes.c_void_p"),
+    ),
+    "PROCESS_INFORMATION": (
+        ("hProcess", "wintypes.HANDLE"),
+        ("hThread", "wintypes.HANDLE"),
+        ("dwProcessId", "wintypes.DWORD"),
+        ("dwThreadId", "wintypes.DWORD"),
+    ),
+    "TRUSTEE_W": (
+        ("pMultipleTrustee", "ctypes.c_void_p"),
+        ("MultipleTrusteeOperation", "wintypes.DWORD"),
+        ("TrusteeForm", "wintypes.DWORD"),
+        ("TrusteeType", "wintypes.DWORD"),
+        ("ptstrName", "wintypes.LPWSTR"),
+    ),
+    "EXPLICIT_ACCESS_W": (
+        ("grfAccessPermissions", "wintypes.DWORD"),
+        ("grfAccessMode", "wintypes.DWORD"),
+        ("grfInheritance", "wintypes.DWORD"),
+        ("Trustee", "TRUSTEE_W"),
+    ),
+}
+
+
+def _type_expression(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _type_expression(node.value)
+        return f"{base}.{node.attr}" if base else None
+    if isinstance(node, ast.Call):
+        function = _type_expression(node.func)
+        if function is None or node.keywords or not node.args:
+            return None
+        parts: list[str] = []
+        for argument in node.args:
+            part = _type_expression(argument)
+            if part is None:
+                return None
+            parts.append(part)
+        return f"{function}({','.join(parts)})"
+    return None
+
+
+def _structure_body_ok(
+    node: ast.ClassDef,
+    expected: tuple[tuple[str, str], ...],
+) -> bool:
+    """Require one exact _fields_ list and nothing else in the class body."""
+    if node.decorator_list or node.keywords:
         return False
-    if _target_path(node.targets[0]) != name:
+    if len(node.bases) != 1 or _target_path(node.bases[0]) != "ctypes.Structure":
         return False
-    value = node.value
-    if isinstance(value, ast.IfExp):
+    if len(node.body) != 1:
+        return False
+    statement = node.body[0]
+    if not (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == "_fields_"
+        and isinstance(statement.value, ast.List)
+    ):
+        return False
+    fields = statement.value.elts
+    if len(fields) != len(expected):
+        return False
+    for element, (name, type_name) in zip(fields, expected):
         if not (
-            isinstance(value.orelse, ast.Constant)
-            and value.orelse.value is None
+            isinstance(element, ast.Tuple)
+            and len(element.elts) == 2
+            and isinstance(element.elts[0], ast.Constant)
+            and type(element.elts[0].value) is str
+            and element.elts[0].value == name
+            and _type_expression(element.elts[1]) == type_name
         ):
             return False
-        value = value.body
-    if not isinstance(value, ast.Call):
-        return False
-    if _call_qualified_name(value) != "ctypes.WinDLL":
-        return False
-    if not value.args:
-        return False
-    if len(value.keywords) > 1:
-        return False
-    if value.keywords and value.keywords[0].arg != "use_last_error":
-        return False
-    expected = "kernel32" if name == "_kernel32" else "advapi32"
-    first = value.args[0]
-    return isinstance(first, ast.Constant) and first.value == expected
+    return True
 
 
 def _canonical_explicit_access(node: ast.AST) -> bool:
     return (
         isinstance(node, ast.ClassDef)
         and node.name == "EXPLICIT_ACCESS_W"
-        and not node.decorator_list
-        and len(node.bases) == 1
-        and _target_path(node.bases[0]) == "ctypes.Structure"
+        and _structure_body_ok(
+            node,
+            _EXPECTED_STRUCTURES["EXPLICIT_ACCESS_W"],
+        )
     )
+
+
+def _methods_only_class_ok(node: ast.ClassDef) -> bool:
+    """Allow a docstring and methods only; no class-level executable code."""
+    if node.decorator_list or node.keywords:
+        return False
+    for statement in node.body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if (
+            isinstance(statement, ast.Expr)
+            and isinstance(statement.value, ast.Constant)
+            and type(statement.value.value) is str
+        ):
+            continue
+        return False
+    return True
+
+
+def _module_classes_ok(module: ast.Module) -> bool:
+    """Validate every module-level class body, not just its header."""
+    seen: set[str] = set()
+    for statement in module.body:
+        if not isinstance(statement, ast.ClassDef):
+            continue
+        bases = [_target_path(base) for base in statement.bases]
+        if "ctypes.Structure" in bases:
+            expected = _EXPECTED_STRUCTURES.get(statement.name)
+            if expected is None or statement.name in seen:
+                return False
+            if not _structure_body_ok(statement, expected):
+                return False
+            seen.add(statement.name)
+            continue
+        if (
+            statement.name == "WindowsSandboxManager"
+            and bases == ["BaseSandboxManager"]
+        ):
+            if not _methods_only_class_ok(statement):
+                return False
+            continue
+        return False
+    return True
 
 
 def _module_bindings_ok(module: ast.Module) -> bool:
@@ -552,8 +772,14 @@ def _target_root(node: ast.AST) -> str | None:
     return None
 
 
+def _module_assignment_value_ok(name: str, value: ast.AST) -> bool:
+    if isinstance(value, ast.Constant):
+        return True
+    return name.startswith("_") and _canonical_windll_value(name, value)
+
+
 def _module_shape_ok(module: ast.Module) -> bool:
-    """Allow only docstrings, imports, simple assignments and definitions."""
+    """Allow only docstrings, imports, safe assignments and definitions."""
     for stmt in module.body:
         if isinstance(
             stmt,
@@ -567,14 +793,18 @@ def _module_shape_ok(module: ast.Module) -> bool:
         ):
             continue
         if isinstance(stmt, ast.Assign):
-            if any(
-                isinstance(target, (ast.Attribute, ast.Subscript))
-                for target in stmt.targets
-            ):
+            if len(stmt.targets) != 1:
+                return False
+            target = stmt.targets[0]
+            if not isinstance(target, ast.Name):
+                return False
+            if not _module_assignment_value_ok(target.id, stmt.value):
                 return False
             continue
         if isinstance(stmt, ast.AnnAssign):
-            if isinstance(stmt.target, (ast.Attribute, ast.Subscript)):
+            if not isinstance(stmt.target, ast.Name):
+                return False
+            if not isinstance(stmt.value, ast.Constant):
                 return False
             continue
         if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant):
@@ -627,6 +857,41 @@ def _local_bindings_ok(module: ast.Module) -> bool:
     return True
 
 
+_ALIASABLE_PROTECTED = frozenset({
+    "ctypes",
+    "_advapi32",
+    "_kernel32",
+    "EXPLICIT_ACCESS_W",
+})
+
+
+def _bare_protected_name(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in _ALIASABLE_PROTECTED
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return any(_bare_protected_name(element) for element in node.elts)
+    return False
+
+
+def _protected_alias_ok(module: ast.Module) -> bool:
+    """Reject copying a protected object into an untracked local alias."""
+    for node in ast.walk(module):
+        if isinstance(node, ast.Assign):
+            if not any(
+                isinstance(target, (ast.Name, ast.Tuple, ast.List))
+                for target in node.targets
+            ):
+                continue
+            if _bare_protected_name(node.value):
+                return False
+        elif isinstance(node, ast.AnnAssign):
+            if not isinstance(node.target, (ast.Name, ast.Tuple, ast.List)):
+                continue
+            if node.value is not None and _bare_protected_name(node.value):
+                return False
+    return True
+
+
 def _security_call_lines(path: Path) -> set[int]:
     """Allow only the exact documented AppContainer operation.
 
@@ -655,7 +920,11 @@ def _security_call_lines(path: Path) -> set[int]:
         return set()
     if not _module_bindings_ok(tree):
         return set()
+    if not _module_classes_ok(tree):
+        return set()
     if not _local_bindings_ok(tree):
+        return set()
+    if not _protected_alias_ok(tree):
         return set()
     if not _attribute_mutations_ok(tree):
         return set()
@@ -2029,4 +2298,247 @@ def test_sandbox_rejects_any_extra_statement(tmp_path: Path) -> None:
         tmp_path,
         _documented_grant_source("        unused = 1\n"),
         "extra_statement",
+    )
+
+# ---------------------------------------------------------------------------
+# Phase 1.3.3: class-body and module-initialisation validation
+# ---------------------------------------------------------------------------
+
+_TRUSTEE_FIELDS = [
+    ("pMultipleTrustee", "ctypes.c_void_p"),
+    ("MultipleTrusteeOperation", "wintypes.DWORD"),
+    ("TrusteeForm", "wintypes.DWORD"),
+    ("TrusteeType", "wintypes.DWORD"),
+    ("ptstrName", "wintypes.LPWSTR"),
+]
+
+_EXPLICIT_FIELDS = [
+    ("grfAccessPermissions", "wintypes.DWORD"),
+    ("grfAccessMode", "wintypes.DWORD"),
+    ("grfInheritance", "wintypes.DWORD"),
+    ("Trustee", "TRUSTEE_W"),
+]
+
+
+def _structure_class_source(
+    name: str,
+    fields: list[tuple[str, str]],
+    extra_body: str = "",
+) -> str:
+    lines = [f"class {name}(ctypes.Structure):\n"]
+    if extra_body:
+        lines.append(extra_body)
+    lines.append("    _fields_ = [\n")
+    for field_name, field_type in fields:
+        lines.append(f'        ("{field_name}", {field_type}),\n')
+    lines.append("    ]\n")
+    return "".join(lines)
+
+
+def _structures_source(
+    *,
+    explicit_fields: list[tuple[str, str]] | None = None,
+    trustee_fields: list[tuple[str, str]] | None = None,
+    extra_body: str = "",
+    extra_class: str = "",
+) -> str:
+    source = (
+        _structure_class_source(
+            "TRUSTEE_W",
+            trustee_fields if trustee_fields is not None else _TRUSTEE_FIELDS,
+        )
+        + "\n"
+        + _structure_class_source(
+            "EXPLICIT_ACCESS_W",
+            explicit_fields if explicit_fields is not None else _EXPLICIT_FIELDS,
+            extra_body,
+        )
+    )
+    if extra_class:
+        source += "\n" + extra_class
+    return source
+
+
+def test_documented_structure_classes_remain_accepted(tmp_path: Path) -> None:
+    source = _documented_grant_source(module_prefix=_structures_source())
+    sample = tmp_path / "positive_structures.py"
+    sample.write_text(source, encoding="utf-8")
+    expected = next(
+        i for i, line in enumerate(source.splitlines(), 1)
+        if "_advapi32.SetSecurityInfo" in line
+    )
+    assert _security_call_lines(sample) == {expected}
+
+
+@pytest.mark.parametrize(
+    "extra_body",
+    [
+        "    helper()\n",
+        "    exec('x = 1')\n",
+        "    s = setattr\n    s(ctypes, 'byref', evil)\n",
+        "    class Nested:\n        pass\n",
+        "    def helper(self):\n        pass\n",
+        "    c = ctypes\n    c.byref = evil\n",
+    ],
+)
+def test_sandbox_rejects_executable_structure_class_body(
+    tmp_path: Path,
+    extra_body: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(extra_body=extra_body),
+        ),
+        "structure_body",
+    )
+
+
+def test_sandbox_rejects_reordered_explicit_fields(tmp_path: Path) -> None:
+    fields = list(_EXPLICIT_FIELDS)
+    fields[0], fields[1] = fields[1], fields[0]
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(explicit_fields=fields),
+        ),
+        "field_order",
+    )
+
+
+def test_sandbox_rejects_changed_explicit_field_type(tmp_path: Path) -> None:
+    fields = list(_EXPLICIT_FIELDS)
+    fields[1] = (fields[1][0], "ctypes.c_void_p")
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(explicit_fields=fields),
+        ),
+        "field_type",
+    )
+
+
+def test_sandbox_rejects_extra_explicit_field(tmp_path: Path) -> None:
+    fields = list(_EXPLICIT_FIELDS)
+    fields.append(("Extra", "wintypes.DWORD"))
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(explicit_fields=fields),
+        ),
+        "extra_field",
+    )
+
+
+def test_sandbox_rejects_reordered_trustee_fields(tmp_path: Path) -> None:
+    fields = list(_TRUSTEE_FIELDS)
+    fields[0], fields[1] = fields[1], fields[0]
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(trustee_fields=fields),
+        ),
+        "trustee_order",
+    )
+
+
+@pytest.mark.parametrize(
+    "extra_class",
+    [
+        "class Evil:\n    evil()\n",
+        "class Evil:\n    exec('x = 1')\n",
+        "class Evil:\n    pass\n",
+    ],
+)
+def test_sandbox_rejects_extra_module_class(
+    tmp_path: Path,
+    extra_class: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            module_prefix=_structures_source(extra_class=extra_class),
+        ),
+        "extra_class",
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True) if sys.platform == "linux" else None\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True) if sys.platform == get_platform() else None\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True) if sys.platform == "win32" else 0\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", 1, use_last_error=True) if sys.platform == "win32" else None\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True, other=1) if sys.platform == "win32" else None\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=False) if sys.platform == "win32" else None\n',
+        '_advapi32 = evil.WinDLL("advapi32", use_last_error=True) if sys.platform == "win32" else None\n',
+        '_advapi32 = ctypes.WinDLL("kernel32", use_last_error=True) if sys.platform == "win32" else None\n',
+        '_advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)\n',
+        '_advapi32 = ctypes.WinDLL("advapi32") if sys.platform == "win32" else None\n',
+    ],
+)
+def test_sandbox_rejects_changed_dll_initialization(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix=prefix),
+        "dll_init",
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "c = ctypes\nc.byref = evil\n",
+        "a = _advapi32\na.SetSecurityInfo = evil\n",
+    ],
+)
+def test_sandbox_rejects_module_alias_monkeypatching(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix=prefix),
+        "module_alias_patch",
+    )
+
+
+@pytest.mark.parametrize(
+    "helper",
+    [
+        "def helper():\n    c = ctypes\n    c.byref = evil\n",
+        "def helper():\n    a = _advapi32\n    a.SetSecurityInfo = evil\n",
+    ],
+)
+def test_sandbox_rejects_sibling_alias_monkeypatching(
+    tmp_path: Path,
+    helper: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("\n" + helper),
+        "sibling_alias_patch",
+    )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "x = evil()\n",
+        "_winsta_desktop_granted = evil()\n",
+        "x = (ctypes,)\n",
+    ],
+)
+def test_sandbox_rejects_executable_module_assignment(
+    tmp_path: Path,
+    prefix: str,
+) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(module_prefix=prefix),
+        "module_expression",
     )
