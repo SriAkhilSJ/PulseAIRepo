@@ -212,16 +212,19 @@ FAIL.
 
 ## 9. CI results
 
-Workflow `Security guard`, Phase 1.3.4 delivery commit: pending.
+Workflow `Security guard`, commit `ac52ad26411aa1fda7b657b09aea8763258f933b`,
+run `42574847574`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129020138381` | 219 passed, 4 skipped in 9.23 s |
+| Security containment (windows-latest) | Windows | `129020138103` | 217 passed, 6 skipped in 13.86 s |
+| Security containment (macos-latest) | macOS | `129020138297` | 219 passed, 4 skipped in 12.36 s |
 
-The workflow runs `src/tests/test_security_containment.py` on all three hosts
-with Python 3.14. Host-compatibility jobs are not security-suite evidence.
+All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
+drive-letter probes; Windows additionally skips three cross-drive probes
+because the checkout is on `D:` and temp is on `C:`. No test failed and no
+platform was skipped wholesale.
 
 **Skipped coverage:** Windows CPython 3.11 import compatibility is not proven.
 `src/runtime/windows_shell.py` calls `platform.system()` at import time, and
