@@ -1470,17 +1470,21 @@ class TurnEvidenceRecorder:
             # receipt strict for executed turns; scope the exemption to the
             # cancelled-before-execution reasons and only when nothing ran.
             not_applicable: list[str] = []
-            if (
-                cancelled
-                and not trace.get("available")
+            no_artifacts = (
+                not trace.get("available")
                 and not report.get("available")
                 and not journal.get("tool_receipts")
-                and str(reason or "").strip()
-                in {
-                    "user_cancelled_during_startup",
-                    "user_cancelled",
-                    "echo_test_runner",
-                }
+            )
+            reason_key = str(reason or "").strip()
+            if no_artifacts and (
+                reason_key == "echo_test_runner"
+                or (
+                    cancelled
+                    and reason_key in {
+                        "user_cancelled_during_startup",
+                        "user_cancelled",
+                    }
+                )
             ):
                 exempt = {
                     "trace",

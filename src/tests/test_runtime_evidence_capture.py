@@ -1548,3 +1548,29 @@ def test_cancelled_before_execution_is_complete_not_degraded(tmp_path: Path) -> 
     assert manifest["coverage"]["missing"] == []
     assert manifest["coverage"]["not_applicable"] == ["trace", "report"]
     assert manifest["capture_status"] == "complete"
+
+
+def test_completed_echo_turn_is_not_degraded(tmp_path: Path) -> None:
+    """The echo seam runs no graph, so it produces no trace/report. That is
+    not a monitoring failure; the receipt is complete for the turn that ran."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recorder = TurnEvidenceRecorder.begin(
+        identity=_identity(workspace, "session-echo-clean"),
+        workspace=str(workspace),
+        prompt="echo me",
+        mode="agent",
+        services=_services(tmp_path),
+        root=tmp_path / "evidence",
+        build_identity=_matched_build(),
+    )
+    receipt = recorder.finalize(
+        status="completed",
+        completed=True,
+        message="echo me",
+        reason="echo_test_runner",
+    )
+    assert receipt.status == "persisted"
+    assert receipt.missing == ()
+    manifest, _ = _read_manifest(recorder)
+    assert manifest["coverage"]["not_applicable"] == ["trace", "report"]

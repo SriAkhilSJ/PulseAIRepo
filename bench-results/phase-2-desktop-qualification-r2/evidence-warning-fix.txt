@@ -45,11 +45,14 @@ manifest: capture_status = "complete"
 ```
 
 Because the receipt status is `persisted`, the renderer no longer paints the
-yellow warning for this turn. A completed real turn with a missing trace/report
-still degrades.
+yellow warning for this turn. A completed echo turn was also probed:
+`{"status": "persisted", "missing": []}`. A completed real turn with a
+missing trace/report still degrades.
 
 ## Scope
 
-The completed echo test turn (`echo_test_runner`, `cancelled=false`) keeps the
-warning: it is a test-mode turn whose receipt honestly says no graph trace
-exists. Only cancelled-before-execution turns are exempted.
+The completed echo test turn is covered too: `reason=echo_test_runner` with no
+trace/report/tool receipts marks them `not_applicable`, so a provider-free run
+does not cry wolf. A real completed turn with a missing trace/report still
+degrades, and journal/start/terminal/tool-pairing checks stay strict for every
+reason.
