@@ -936,3 +936,254 @@ def test_appcontainer_tmp_is_package_local(
     lower = result["stdout"].lower()
     assert "\\packages\\" in lower
     assert "\\ac\\temp" in lower
+
+class _Kernel32Proxy:
+    """Delegate to the real kernel32 with narrow failure injection."""
+
+    def __init__(self, real, **overrides):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_overrides", overrides)
+
+    def __getattr__(self, name):
+        overrides = object.__getattribute__(self, "_overrides")
+        if name in overrides:
+            return overrides[name]
+        return getattr(object.__getattribute__(self, "_real"), name)
+
+
+class _UserenvProxy:
+    """Delegate to userenv with a controllable profile-creation result."""
+
+    def __init__(self, real, create_result: int):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_create_result", create_result)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_real"), name)
+
+    def CreateAppContainerProfile(self, *args, **kwargs):
+        return object.__getattribute__(self, "_create_result")
+
+    def DeleteAppContainerProfile(self, *args, **kwargs):
+        return 0
+
+
+def _initialized_appcontainer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import src.security.sandbox.windows as windows
+
+    workspace, staging = _paths(tmp_path)
+    _forbid_acl_helper(monkeypatch)
+    manager = WindowsSandboxManager(use_appcontainer=True)
+    request = _request(
+        workspace,
+        ["cmd.exe", "/c", "echo", "boot"],
+        mode=ExecutionMode.READ_ONLY,
+    )
+    manager.initialize(request, staging)
+    return manager, workspace, staging, request
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_job_assignment_failure_prevents_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    manager, _workspace, staging, request = _initialized_appcontainer(
+        tmp_path, monkeypatch
+    )
+    calls = {"assign": 0, "resume": 0}
+    real = windows._kernel32
+
+    def assign_fail(*args, **kwargs):
+        calls["assign"] += 1
+        ctypes.set_last_error(5)
+        return False
+
+    def resume_spy(*args, **kwargs):
+        calls["resume"] += 1
+        return 0
+
+    proxy = _Kernel32Proxy(
+        real,
+        AssignProcessToJobObject=assign_fail,
+        ResumeThread=resume_spy,
+    )
+    try:
+        monkeypatch.setattr(windows, "_kernel32", proxy)
+        result = manager.execute(request, staging)
+        assert result["exit_code"] == 127
+        assert "assign" in result["stderr"].lower()
+        assert calls == {"assign": 1, "resume": 0}
+        assert manager._job_handle is None
+        assert manager._process_info is None
+    finally:
+        manager.cleanup(staging)
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_resume_failure_terminates_and_cleans_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    manager, _workspace, staging, request = _initialized_appcontainer(
+        tmp_path, monkeypatch
+    )
+    real = windows._kernel32
+
+    def resume_fail(*args, **kwargs):
+        ctypes.set_last_error(6)
+        return 0xFFFFFFFF
+
+    proxy = _Kernel32Proxy(real, ResumeThread=resume_fail)
+    try:
+        monkeypatch.setattr(windows, "_kernel32", proxy)
+        result = manager.execute(request, staging)
+        assert result["exit_code"] == 127
+        assert "resume" in result["stderr"].lower()
+        assert manager._job_handle is None
+        assert manager._process_info is None
+    finally:
+        manager.cleanup(staging)
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_security_capability_failure_prevents_create(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    manager, _workspace, staging, request = _initialized_appcontainer(
+        tmp_path, monkeypatch
+    )
+    real = windows._kernel32
+    calls = {"create": 0}
+
+    def update(attr_buf, flags, attribute, *args, **kwargs):
+        if attribute == windows.PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES:
+            ctypes.set_last_error(87)
+            return False
+        return real.UpdateProcThreadAttribute(
+            attr_buf, flags, attribute, *args, **kwargs
+        )
+
+    def create_spy(*args, **kwargs):
+        calls["create"] += 1
+        ctypes.set_last_error(87)
+        return False
+
+    proxy = _Kernel32Proxy(
+        real,
+        UpdateProcThreadAttribute=update,
+        CreateProcessW=create_spy,
+    )
+    try:
+        monkeypatch.setattr(windows, "_kernel32", proxy)
+        result = manager.execute(request, staging)
+        assert result["exit_code"] == 127
+        assert "security-capabilities" in result["stderr"].lower()
+        assert calls["create"] == 0
+    finally:
+        manager.cleanup(staging)
+
+
+def test_appcontainer_provisioning_failure_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    workspace, staging = _paths(tmp_path)
+    _forbid_acl_helper(monkeypatch)
+    monkeypatch.delenv("CRUSOR_ALLOW_JOB_OBJECT_FALLBACK", raising=False)
+    monkeypatch.setattr(
+        windows,
+        "_userenv",
+        _UserenvProxy(windows._userenv, 0x80070005),
+    )
+    manager = WindowsSandboxManager(use_appcontainer=True)
+    request = _request(workspace, ["cmd.exe", "/c", "echo", "boot"])
+    with pytest.raises(RuntimeError, match="provisioning failed"):
+        manager.initialize(request, staging)
+    assert manager._job_handle is None
+    assert manager._appcontainer_sid is None
+    assert manager._degraded_fallback is False
+
+
+def test_appcontainer_provisioning_degraded_fallback_is_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    workspace, staging = _paths(tmp_path)
+    _forbid_acl_helper(monkeypatch)
+    monkeypatch.setenv("CRUSOR_ALLOW_JOB_OBJECT_FALLBACK", "1")
+    monkeypatch.setattr(
+        windows,
+        "_userenv",
+        _UserenvProxy(windows._userenv, 0x80070005),
+    )
+    manager = WindowsSandboxManager(use_appcontainer=True)
+    request = _request(
+        workspace,
+        ["cmd.exe", "/c", "echo", "degraded"],
+        mode=ExecutionMode.PROPOSED_MUTATION,
+    )
+    try:
+        manager.initialize(request, staging)
+        capabilities = manager.get_capabilities()
+        assert manager._degraded_fallback is True
+        assert manager.backend_type.value == "windows_job_object_lua"
+        assert capabilities["appcontainer_isolation"] is False
+        assert capabilities["kernel_network_isolation"] is False
+        assert capabilities["kernel_filesystem_dacl_isolation"] is False
+        assert capabilities["network_denial"] is False
+        assert capabilities["low_integrity_restricted_token"] is False
+        assert capabilities["job_object_resource_limits"] is True
+
+        result = manager.execute(request, staging)
+        assert result["exit_code"] == 0
+        assert "degraded" in result["stdout"].lower()
+    finally:
+        manager.cleanup(staging)
+
+
+def test_capability_reporting_matches_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fallback = WindowsSandboxManager(use_appcontainer=False)
+    fallback_caps = fallback.get_capabilities()
+    assert fallback_caps["appcontainer_isolation"] is False
+    assert fallback_caps["kernel_network_isolation"] is False
+    assert fallback_caps["kernel_filesystem_dacl_isolation"] is False
+    assert fallback_caps["network_denial"] is False
+    assert fallback_caps["low_integrity_restricted_token"] is False
+    assert fallback_caps["job_object_resource_limits"] is True
+
+    manager, _workspace, staging, _request_obj = _initialized_appcontainer(
+        tmp_path, monkeypatch
+    )
+    try:
+        caps = manager.get_capabilities()
+        assert caps["appcontainer_isolation"] is True
+        assert caps["kernel_network_isolation"] is True
+        assert caps["kernel_filesystem_dacl_isolation"] is True
+        assert caps["network_denial"] is True
+        assert caps["low_integrity_restricted_token"] is True
+    finally:
+        manager.cleanup(staging)

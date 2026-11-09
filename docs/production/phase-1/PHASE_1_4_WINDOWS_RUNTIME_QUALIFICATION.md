@@ -4,7 +4,8 @@
 machine ACL inspection, Python 3.11/3.14 compatibility, and one confirmed
 runtime defect fix.
 
-**Final verdict:** **PARTIAL**
+**Final verdict:** **WINDOWS SECURITY QUALIFIED** (see sections 15-16; the
+interim PARTIAL findings are retained below as historical evidence).
 
 A static AST pass is not a runtime pass. This phase does not certify the whole
 Crusor product as production-ready.
@@ -267,9 +268,9 @@ ACL probe, Job Object probe, AppContainer token probe, and isolated-object
 attempt were run as bounded temp scripts; their exact JSON outputs are retained
 in the session evidence and summarized above.
 
-## 13. Final verdict
+## 13. Interim verdict (superseded by sections 15-16)
 
-**PARTIAL.**
+**PARTIAL at the time of the first runtime pass.**
 
 The Windows sandbox demonstrably creates a genuine AppContainer token at low
 integrity, places the process in a Job Object, enforces a disposable DACL deny,
@@ -388,9 +389,10 @@ local; it is not part of this CI job.
 - Python 3.11 full guarded import still fails on `platform.system()`.
 - Static AST validation is not an OS sandbox.
 
-**Phase 1.4 verdict remains PARTIAL** because the production ACL-grant branch
-and AppContainer network denial remain unproven. This correction closes the
-output-bound and test-integrity findings (C1-C8).
+At the time of the output-bound correction, Phase 1.4 remained PARTIAL. The
+ACL architecture and network proof in sections 15-16 supersede that interim
+verdict; this correction closed the output-bound and test-integrity findings
+(C1-C8).
 
 ## 15. Final closure decisions and evidence
 
@@ -518,3 +520,112 @@ skipped.
 **WINDOWS SECURITY QUALIFIED** for the declared Windows 11 + Python 3.11/3.14
 contract, with the documented memory-accounting limitation and the silent-drop
 network behavior. This is not whole-product production readiness.
+
+## 16. Fail-closed startup and capability-reporting correction
+
+### Process creation is fail-closed
+
+`_execute_appcontainer()` now checks every security-critical step:
+
+1. `InitializeProcThreadAttributeList` sizing and initialization.
+2. `UpdateProcThreadAttribute` for `PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`.
+3. `UpdateProcThreadAttribute` for `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`.
+4. `CreateProcessW` (created suspended).
+5. `AssignProcessToJobObject` before resumption.
+6. `ResumeThread`, requiring previous suspend count exactly 1.
+
+Any failure returns exit code 127 with a specific stderr reason, terminates the
+suspended process, closes the pipes/read handles, deletes the attribute list and
+closes the Job Object. `ResumeThread` is never called after Job assignment
+fails. A failed or unexpected resume terminates the process and joins the
+reader threads. Handle-close paths avoid double-closing when `terminate()` has
+already closed the process handles.
+
+### No silent security downgrade
+
+When `use_appcontainer=True`:
+
+- AppContainer provisioning failure raises `RuntimeError` by default.
+- The Job Object-only path is available only with
+  `CRUSOR_ALLOW_JOB_OBJECT_FALLBACK=1`.
+- In degraded mode, `get_capabilities()` reports
+  `appcontainer_isolation=false`, `kernel_network_isolation=false`,
+  `kernel_filesystem_dacl_isolation=false`, `network_denial=false`,
+  `low_integrity_restricted_token=false`.
+- Job Object capabilities (`process_tree_termination`,
+  `job_object_resource_limits`, `active_process_limit`, `memory_limit`,
+  `environment_sanitization`, `filesystem_staging`) remain true.
+
+Proxy environment variables are not reported as kernel network isolation.
+
+### Deterministic failure-injection tests
+
+Six new tests were added (runtime harness now 27 tests):
+
+- Job assignment failure prevents `ResumeThread`.
+- `ResumeThread` failure terminates and cleans up.
+- Security-capabilities attribute failure prevents `CreateProcessW`.
+- AppContainer provisioning failure fails closed by default.
+- Degraded fallback is explicit opt-in and reports false AC/network/
+  low-integrity capabilities.
+- Capability reporting differs correctly between AppContainer and Job
+  Object-only backends.
+
+A narrow `_Kernel32Proxy` / `_UserenvProxy` test double overrides only the
+specific API result; no machine ACL or destructive operation is involved.
+
+### TMP/TEMP reconciliation
+
+The source sets `TMP`/`TEMP` to staging for the environment block, but Windows
+AppContainer overrides them with package-local `AC\Temp`. The committed runtime
+test asserts the package-local contract; the fallback backend uses staging. The
+source behavior is unchanged, and the previous “staging must appear” assumption
+was wrong.
+
+### Network evidence scope
+
+The committed native test proves **TCP loopback denial**:
+
+- control process connected successfully,
+- AppContainer `connect()` timed out,
+- the listener never accepted,
+- denial was a silent kernel drop, not a Winsock error.
+
+A supplemental UDP probe was run locally (`sendto` returned success, no datagram
+was received) but is **not committed and not CI evidence**. This phase does not
+claim UDP, DNS, or non-loopback coverage.
+
+### Python compatibility and CI
+
+`requires-python` remains `>=3.11`. Full guarded import and the full security
+suite pass on 3.11.9 and 3.14.4. The dedicated Windows runtime workflow now uses
+a Python 3.11/3.14 matrix, so both declared versions execute the runtime
+harness.
+
+### Local verification
+
+| Check | Result |
+|---|---|
+| Security suite, 3.14 | 232 passed, 3 skipped |
+| Security suite, 3.11 | 232 passed, 3 skipped |
+| Guarded import, 3.14 / 3.11 | 1 passed each |
+| Runtime harness, 3.14 | 27 passed |
+| Runtime harness, 3.11 | 27 passed |
+| Static security scan | 173 passed |
+| Agent-core checkup | 57 pass, 5 warn, 0 fail |
+| Checkup tests | 19 passed |
+
+### CI results
+
+Security guard and Windows runtime qualification are pending on the correction
+commit. The Windows runtime workflow is a Python 3.11/3.14 matrix.
+
+### Remaining limitations
+
+- TCP loopback denial is silent (timeout); no Winsock error code is returned.
+  UDP/DNS/non-loopback isolation is not claimed.
+- Job Object `PeakJobMemoryUsed` accounting still disagrees with the 64 MB
+  configured limit; behavioral `MemoryError` is observed, but no hard peak
+  memory bound is claimed.
+- AppContainer TMP is package-local, not staging.
+- This is not whole-product production readiness.
