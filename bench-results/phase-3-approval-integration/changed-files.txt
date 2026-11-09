@@ -1,0 +1,11 @@
+src/orchestration/approval_gateway.py          (new: session/resource-scoped human approval)
+src/orchestration/orchestrator.py              (stage 9 uses the gateway; tokens passed to execution)
+src/orchestration/model_adapter.py             (approval_token per target on mutation)
+src/dashboard/event_bus.py                     (duplicate/stale resolve refused; wait_for_decision(should_stop))
+src/bridge/__main__.py                         (orchestrator constructed with approval_channel/policy/session;
+                                                orchestrator evidence reason; mock-mode env seam;
+                                                ApprovalDenied -> cancelled terminal)
+src/runtime/evidence_capture.py                (trace/report not_applicable for orchestrator/approval/echo turns)
+src/tests/test_orchestrator_approval_integration.py (new: 9 tests)
+src/tests/test_runtime_evidence_capture.py     (3 regression tests for not-applicable receipts)
+bench-results/phase-3-approval-integration/     (new evidence)

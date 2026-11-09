@@ -1390,10 +1390,26 @@ class BridgeServer:
                     mock_mode = session_info.get("mock_mode")
                     if mock_mode is None and getattr(self, "mock_mode", None) is not None:
                         mock_mode = getattr(self, "mock_mode")
+                    if (
+                        mock_mode is None
+                        and os.environ.get("CRUSORAI_ORCHESTRATOR_MOCK", "").strip() == "1"
+                    ):
+                        # Provider-free desktop smoke: deterministic local code
+                        # generation through the real orchestrator pipeline.
+                        mock_mode = True
 
                     orch = EngineeringExecutionOrchestrator(
                         workspace_root=workspace,
                         tenant_id=session_info.get("tenant_id", "default_tenant"),
+                        approval_channel=True,
+                        approval_policy=approval_policy,
+                        session_id=sid,
+                        approval_timeout_s=(
+                            float(os.environ["CRUSORAI_APPROVAL_TIMEOUT_S"])
+                            if os.environ.get("CRUSORAI_APPROVAL_TIMEOUT_S", "").strip()
+                            else None
+                        ),
+                        cancellation_checker=lambda: turn_controls.cancelled(sid),
                         limits=ExecutionLimits(
                             max_cost_inr=task_budget_inr,
                             # Acceptance runs cap the whole turn's dispatches; the
@@ -1579,17 +1595,24 @@ class BridgeServer:
                     except Exception:
                         pass
 
+                if use_orchestrator:
+                    evidence_reason = (
+                        "orchestrator_cancelled" if cancelled
+                        else ("orchestrator_completed" if task_completed
+                              else "orchestrator_incomplete")
+                    )
+                else:
+                    evidence_reason = (
+                        "user_cancelled" if cancelled
+                        else ("" if task_completed else "graph_returned_incomplete")
+                    )
                 evidence_done = self._finalize_evidence(
                     evidence,
                     status=lifecycle_status,
                     completed=task_completed and not cancelled,
                     cancelled=cancelled,
                     message=str(result),
-                    reason=(
-                        "user_cancelled"
-                        if cancelled
-                        else ("" if task_completed else "graph_returned_incomplete")
-                    ),
+                    reason=evidence_reason,
                 )
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
@@ -1661,22 +1684,64 @@ class BridgeServer:
                         "evidence": evidence_done,
                     })
                 else:
-                    self._touch_turn(sid, text)
-                    _terminal.set()
-                    evidence_done = self._finalize_evidence(
-                        evidence,
-                        status="failed",
-                        completed=False,
-                        cancelled=False,
-                        error=str(exc),
-                        reason="graph_exception",
-                    )
-                    _emit_terminal({
-                        "type": "turn_failed", **identity.event_fields(),
-                        "error": str(exc), "completed": False,
-                        "evidence": evidence_done,
-                    })
-                    print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
+                    approval_denied = False
+                    denial_reason = ""
+                    try:
+                        from src.orchestration.approval_gateway import ApprovalDenied as _ApprovalDenied
+
+                        if isinstance(exc, _ApprovalDenied):
+                            approval_denied = True
+                            denial_reason = exc.reason
+                    except Exception:
+                        approval_denied = False
+                    if approval_denied:
+                        # Fail closed: the protected mutation never ran. One
+                        # truthful cancelled terminal, distinguishable from a
+                        # completed turn and from a generic failure.
+                        denied_message = (
+                            "Operation denied by the user."
+                            if denial_reason == "user_denied"
+                            else "Approval was not granted; the operation was not executed."
+                        )
+                        self._touch_turn(sid, text)
+                        _terminal.set()
+                        evidence_done = self._finalize_evidence(
+                            evidence,
+                            status="cancelled",
+                            completed=False,
+                            cancelled=True,
+                            message=denied_message,
+                            error=str(exc),
+                            reason=f"approval_{denial_reason or 'denied'}",
+                        )
+                        _emit_terminal({
+                            "type": "turn_done", **identity.event_fields(),
+                            "message": denied_message,
+                            "completed": False, "cancelled": True, "stub": False,
+                            "evidence": evidence_done,
+                        })
+                        print(
+                            f"[bridge] turn stopped by approval ({denial_reason}) "
+                            f"after {_time.monotonic() - _turn_t0:.1f}s",
+                            file=sys.stderr, flush=True,
+                        )
+                    else:
+                        self._touch_turn(sid, text)
+                        _terminal.set()
+                        evidence_done = self._finalize_evidence(
+                            evidence,
+                            status="failed",
+                            completed=False,
+                            cancelled=False,
+                            error=str(exc),
+                            reason="graph_exception",
+                        )
+                        _emit_terminal({
+                            "type": "turn_failed", **identity.event_fields(),
+                            "error": str(exc), "completed": False,
+                            "evidence": evidence_done,
+                        })
+                        print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
         except Exception as exc:  # noqa: BLE001 - terminal boundary
             # Setup/import/echo-seam failures occur outside the graph try block
             # above. They still own a durable failed receipt and one terminal

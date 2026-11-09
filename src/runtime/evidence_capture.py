@@ -1478,11 +1478,14 @@ class TurnEvidenceRecorder:
             reason_key = str(reason or "").strip()
             if no_artifacts and (
                 reason_key == "echo_test_runner"
+                or reason_key.startswith("orchestrator_")
+                or reason_key.startswith("approval_")
                 or (
                     cancelled
                     and reason_key in {
                         "user_cancelled_during_startup",
                         "user_cancelled",
+                        "user_cancelled_during_exception",
                     }
                 )
             ):

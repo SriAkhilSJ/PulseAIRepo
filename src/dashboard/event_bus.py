@@ -168,7 +168,13 @@ class ApprovalQueue:
     ) -> bool:
         with self._lock:
             item = self._pending.get(tool_id)
-            if item is None or (session_id and item["session_id"] != session_id):
+            if (
+                item is None
+                or item.get("status") != "pending"
+                or (session_id and item["session_id"] != session_id)
+            ):
+                # Duplicate/stale replies (already resolved or consumed) and
+                # wrong-session replies are refused, never re-applied.
                 return False
             item.update(status="resolved", decision=bool(approved), always_allow=bool(always_allow))
             self._conditions.setdefault(tool_id, threading.Condition(self._lock)).notify_all()
@@ -177,6 +183,7 @@ class ApprovalQueue:
     def wait_for_decision(
         self, tool_id: str, timeout: float | None = None,
         *, heartbeat=None, heartbeat_interval: float = 30.0,
+        should_stop=None,
     ) -> dict | None:
         """Wait for the human's verdict on one queued request.
 
@@ -204,6 +211,22 @@ class ApprovalQueue:
                     self._pending.pop(tool_id, None)
                     self._conditions.pop(tool_id, None)
                     return result
+                # A turn Stop (or worker shutdown) must wake an outstanding
+                # approval: an unanswered dock can otherwise hold the turn
+                # forever (the desktop contract has no timeout). The caller
+                # supplies a cheap predicate; it is polled at most every
+                # 100 ms so the wait stays interruptible without a second
+                # notification mechanism.
+                if should_stop is not None and should_stop():
+                    if item:
+                        item.update(
+                            status="resolved", decision=False, cancelled=True,
+                        )
+                        result = dict(item)
+                        self._pending.pop(tool_id, None)
+                        self._conditions.pop(tool_id, None)
+                        return result
+                    return None
                 now = time.monotonic()
                 if deadline is not None:
                     remaining = deadline - now
@@ -222,6 +245,8 @@ class ApprovalQueue:
                     wait_for = (
                         heartbeat_interval if heartbeat is not None else None
                     )
+                if should_stop is not None:
+                    wait_for = 0.1 if wait_for is None else min(wait_for, 0.1)
                 condition.wait(timeout=wait_for)
                 if heartbeat is not None:
                     item = self._pending.get(tool_id)

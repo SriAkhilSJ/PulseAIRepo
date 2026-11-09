@@ -65,6 +65,10 @@ from src.regression.models import RegressionReport, RegressionStatus
 from src.verification.engine import IndependentVerificationEngine
 from src.verification.models import VerificationVerdict
 from src.workspace.mutation_broker import WorkspaceMutationBroker
+from src.orchestration.approval_gateway import (
+    ApprovalDenied,
+    OrchestratorApprovalGateway,
+)
 
 log = logging.getLogger("crusor.orchestration.orchestrator")
 
@@ -84,6 +88,12 @@ class EngineeringExecutionOrchestrator:
         mock_mode: Optional[bool] = None,
         provider: Optional[str] = None,
         model: Optional[str] = None,
+        approval_channel: bool = False,
+        approval_policy: str = "ask",
+        session_id: str = "default",
+        approval_queue=None,
+        approval_timeout_s: Optional[float] = None,
+        cancellation_checker: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
@@ -118,6 +128,21 @@ class EngineeringExecutionOrchestrator:
             model=model,
         )
         self.production_engine = ProductionReadinessEngine(str(self.workspace_root), tenant_id=tenant_id, storage_dir=storage_dir)
+        # Human approval is opt-in per execution channel. The desktop bridge
+        # turns it on and supplies the session id; headless callers keep the
+        # historical supervision-gate behaviour unless they opt in too.
+        self.approval_gateway: Optional[OrchestratorApprovalGateway] = None
+        if approval_channel:
+            self.approval_gateway = OrchestratorApprovalGateway(
+                workspace_root=str(self.workspace_root),
+                session_id=session_id,
+                task_id=f"orchestrator-{tenant_id}",
+                policy=approval_policy,
+                queue=approval_queue,
+                timeout_s=approval_timeout_s,
+                cancellation_checker=cancellation_checker,
+            )
+        self._approval_tokens: Dict[tuple[str, str], str] = {}
 
     # -- dispatch budget ---------------------------------------------------
 
@@ -648,20 +673,61 @@ class EngineeringExecutionOrchestrator:
         state_machine.transition_to(TaskExecutionState.READY_TO_IMPLEMENT, "Checking required permissions & supervision")
         lifecycle.begin_stage(TaskLifecycleStage.APPROVAL_AND_PERMISSION_CHECK, {})
         emit_progress("APPROVAL_AND_PERMISSION_CHECK")
-        # Check if any task node has destructive keyword or critical risk
-        for node in plan_dag.nodes.values():
-            appr_req = self.supervision_gate.requires_approval_for_operation(
-                task_id=tid,
-                operation_name=node.description,
-                target_path=node.target_files[0] if node.target_files else None,
-                risk_level=node.risk_level,
+        # Human approval path (desktop default): every protected resource is
+        # asked through the shared session ApprovalQueue; NOTHING is granted
+        # automatically. The returned risk token is bound to the exact task,
+        # workspace, path and operation and is consumed at the mutation
+        # boundary. Denial/timeout/cancel raises before implementation.
+        self._approval_tokens = {}
+        if self.approval_gateway is not None:
+            approvals = 0
+            for node in plan_dag.nodes.values():
+                if node.node_id == "task_verification" or not node.target_files:
+                    continue
+                raw_risk = getattr(node, "risk_level", "LOW")
+                risk_name = str(getattr(raw_risk, "value", raw_risk))
+                for target in node.target_files:
+                    auth = self.approval_gateway.authorize(
+                        node_id=node.node_id,
+                        path=target,
+                        risk_level=risk_name,
+                        reason=node.description,
+                        task_id=tid,
+                    )
+                    if auth is not None:
+                        approvals += 1
+                        state_machine.transition_to(
+                            TaskExecutionState.APPROVAL_REQUIRED,
+                            f"Human approval required for {target}",
+                        )
+                        emit_progress("APPROVAL_REQUIRED")
+                        self._approval_tokens[
+                            (node.node_id, Path(target).as_posix())
+                        ] = auth.token
+                        state_machine.transition_to(
+                            TaskExecutionState.READY_TO_IMPLEMENT,
+                            "Approval granted",
+                        )
+            lifecycle.complete_stage(
+                {"approved": True, "mode": "human", "approvals": approvals}
             )
-            if appr_req:
-                state_machine.transition_to(TaskExecutionState.APPROVAL_REQUIRED, f"Approval required for node {node.node_id}")
-                emit_progress("APPROVAL_REQUIRED")
-                token = self.supervision_gate.grant_approval(appr_req.approval_id, "APPROVE")
-                state_machine.transition_to(TaskExecutionState.READY_TO_IMPLEMENT, "Approval granted")
-        lifecycle.complete_stage({"approved": True})
+        else:
+            # Headless/offline compatibility: no desktop channel is attached,
+            # so the historical supervision gate runs as before. The desktop
+            # bridge always passes approval_channel=True.
+            for node in plan_dag.nodes.values():
+                appr_req = self.supervision_gate.requires_approval_for_operation(
+                    task_id=tid,
+                    operation_name=node.description,
+                    target_path=node.target_files[0] if node.target_files else None,
+                    risk_level=node.risk_level,
+                )
+                if appr_req:
+                    state_machine.transition_to(TaskExecutionState.APPROVAL_REQUIRED, f"Approval required for node {node.node_id}")
+                    emit_progress("APPROVAL_REQUIRED")
+                    self.supervision_gate.grant_approval(appr_req.approval_id, "APPROVE")
+                    state_machine.transition_to(TaskExecutionState.READY_TO_IMPLEMENT, "Approval granted")
+            lifecycle.complete_stage({"approved": True, "mode": "supervision"})
 
         # STAGE 10: IMPLEMENTATION (Phase 11.6 Implementation Engine)
         state_machine.transition_to(TaskExecutionState.IMPLEMENTING, "Executing code implementation")
@@ -679,6 +745,7 @@ class EngineeringExecutionOrchestrator:
                 finops=finops,
                 reasoning_loop=reasoning_loop,
                 cancellation_checker=cancellation_checker,
+                approval_tokens=self._approval_tokens,
             )
 
         exec_func = custom_executor or default_executor

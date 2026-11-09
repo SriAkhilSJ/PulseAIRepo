@@ -1,0 +1,66 @@
+{
+  "mode": "deny",
+  "session_id": "p31-final-deny",
+  "workspace": "<TEMP>\\p31-final-deny\\workspace",
+  "sequence": [
+    "session_info",
+    "workspace.bound",
+    "workspace.bound",
+    "turn_started",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "turn_lifecycle",
+    "plan_updated",
+    "turn_lifecycle",
+    "plan_updated",
+    "turn_lifecycle",
+    "plan_updated",
+    "safety_request",
+    "session_info",
+    "turn_done"
+  ],
+  "approvals": [
+    {
+      "tool_id": "orch-orchestrator-default_tenant-1794256471057-1976",
+      "name": "write_file",
+      "arguments": {
+        "path": "notes.md",
+        "operation": "CREATE",
+        "node_id": "task_notes",
+        "task_id": "turn_turn-370d7f3e657b45a381cfcef49abdbbe8",
+        "workspace": "<TEMP>\\p31-final-deny\\workspace"
+      },
+      "warning": "DOCUMENTATION notes.md: notes"
+    }
+  ],
+  "terminal": {
+    "type": "turn_done",
+    "completed": false,
+    "cancelled": true,
+    "message": "Operation denied by the user.",
+    "error": null
+  },
+  "files": [],
+  "notes_exists": false,
+  "notes_head": null,
+  "cancel_sent": false,
+  "approval_log": [
+    "[bridge] turn stopped by approval (user_denied) after 1.2s"
+  ],
+  "stderr_tail": [
+    "[bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+    "[settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+    "[bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+    "[bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+    "[bridge] engine build: unknown",
+    "[bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) \u2014 panel is current",
+    "[bridge] turn stopped by approval (user_denied) after 1.2s"
+  ],
+  "bridge_exit": 0
+}

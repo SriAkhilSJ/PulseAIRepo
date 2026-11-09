@@ -736,6 +736,7 @@ class ModelExecutionAdapter:
         reasoning_loop: BoundedAutonomousReasoningLoop,
         cancellation_checker: Optional[Callable[[], bool]] = None,
         custom_code_generator: Optional[Callable[[EngineeringTaskNode, str], str]] = None,
+        approval_tokens: Optional[Dict[Tuple[str, str], str]] = None,
     ) -> bool:
         """
         Executes a single engineering task node by generating real code and applying mutations.
@@ -840,6 +841,9 @@ class ModelExecutionAdapter:
                 node=node,
                 rel_path=target_file,
                 content=code_content,
+                approval_token=(approval_tokens or {}).get(
+                    (node.node_id, Path(target_file).as_posix())
+                ),
             )
             reasoning_loop.record_action(files_modified=1, tokens_used=300)
 
@@ -1516,5 +1520,8 @@ class ModelExecutionAdapter:
             node=node,
             rel_path=target_file,
             content=code_content,
+            approval_token=(approval_tokens or {}).get(
+                (node.node_id, Path(target_file).as_posix())
+            ),
         )
         return True

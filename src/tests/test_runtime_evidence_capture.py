@@ -1574,3 +1574,56 @@ def test_completed_echo_turn_is_not_degraded(tmp_path: Path) -> None:
     assert receipt.missing == ()
     manifest, _ = _read_manifest(recorder)
     assert manifest["coverage"]["not_applicable"] == ["trace", "report"]
+
+
+def test_orchestrator_turn_is_not_degraded(tmp_path: Path) -> None:
+    """The default orchestrator engine does not emit graph trace/report
+    artifacts; that is not a monitoring failure for its own turn."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recorder = TurnEvidenceRecorder.begin(
+        identity=_identity(workspace, "session-orchestrator"),
+        workspace=str(workspace),
+        prompt="create a file",
+        mode="agent",
+        services=_services(tmp_path),
+        root=tmp_path / "evidence",
+        build_identity=_matched_build(),
+    )
+    receipt = recorder.finalize(
+        status="completed",
+        completed=True,
+        message="done",
+        reason="orchestrator_completed",
+    )
+    assert receipt.status == "persisted"
+    assert receipt.missing == ()
+    manifest, _ = _read_manifest(recorder)
+    assert manifest["coverage"]["not_applicable"] == ["trace", "report"]
+
+
+def test_approval_denial_is_not_degraded(tmp_path: Path) -> None:
+    """A denied/timed-out approval stops before any work; no trace/report is
+    expected and the receipt is complete for what happened."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recorder = TurnEvidenceRecorder.begin(
+        identity=_identity(workspace, "session-approval-denied"),
+        workspace=str(workspace),
+        prompt="mutation denied",
+        mode="agent",
+        services=_services(tmp_path),
+        root=tmp_path / "evidence",
+        build_identity=_matched_build(),
+    )
+    receipt = recorder.finalize(
+        status="cancelled",
+        completed=False,
+        cancelled=True,
+        message="Operation denied by the user.",
+        reason="approval_user_denied",
+    )
+    assert receipt.status == "persisted"
+    assert receipt.missing == ()
+    manifest, _ = _read_manifest(recorder)
+    assert manifest["coverage"]["not_applicable"] == ["trace", "report"]

@@ -1,0 +1,53 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: <REPO>
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 133 items
+
+src\tests\test_orchestrator_approval_integration.py .........            [  6%]
+src\tests\test_approval_testimony.py ...                                 [  9%]
+src\tests\test_approval_detection.py ....F.............                  [ 22%]
+src\tests\test_bridge_transport.py ...............                       [ 33%]
+src\tests\test_bridge_orchestrator_protocol.py ....                      [ 36%]
+src\tests\test_bridge_protocol_v2.py .........                           [ 43%]
+src\tests\test_phase_11_3_workspace_discipline.py ...................... [ 60%]
+............                                                             [ 69%]
+src\tests\test_p0_3_orchestrator_integration.py .......                  [ 74%]
+src\tests\test_runtime_evidence_capture.py .....F.......F............F.. [ 96%]
+.....                                                                    [100%]
+
+================================== FAILURES ===================================
+_______________________ test_hardline_refused_pre_spawn _______________________
+src\tests\test_approval_detection.py:49: in test_hardline_refused_pre_spawn
+    assert "never-run floor" in out
+E   AssertionError: assert 'never-run floor' in '\u26d4 Terminal safety restriction (PROHIBITED): Blocked destructive command: Recursive forced deletion can permanently destroy files. Explicit authorization required.'
+____ test_event_journal_chain_detects_payload_tampering_and_is_not_healed _____
+src\tests\test_runtime_evidence_capture.py:238: in test_event_journal_chain_detects_payload_tampering_and_is_not_healed
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+E   AssertionError: assert (16895 & 511) == 448
+E    +  where 16895 = os.stat_result(st_mode=16895, st_ino=3940649676874829, st_dev=4197560638563347249, st_nlink=1, st_uid=0, st_gid=0, st_size=4096, st_atime=1794256939, st_mtime=1794256939, st_ctime=1794256939).st_mode
+E    +    where os.stat_result(st_mode=16895, st_ino=3940649676874829, st_dev=4197560638563347249, st_nlink=1, st_uid=0, st_gid=0, st_size=4096, st_atime=1794256939, st_mtime=1794256939, st_ctime=1794256939) = stat()
+E    +      where stat = WindowsPath('<USERPROFILE>/AppData/Local/Temp/pytest-of-Administrator/pytest-1265/test_event_journal_chain_detec0').stat
+E    +        where WindowsPath('<USERPROFILE>/AppData/Local/Temp/pytest-of-Administrator/pytest-1265/test_event_journal_chain_detec0') = WindowsPath('<USERPROFILE>/AppData/Local/Temp/pytest-of-Administrator/pytest-1265/test_event_journal_chain_detec0/events.db').parent
+___ test_completed_manifest_binds_identity_tools_verification_and_artifacts ___
+src\tests\test_runtime_evidence_capture.py:728: in test_completed_manifest_binds_identity_tools_verification_and_artifacts
+    assert journal_parent.stat().st_mode & 0o777 == 0o751
+E   AssertionError: assert (16895 & 511) == 489
+E    +  where 16895 = os.stat_result(st_mode=16895, st_ino=4503599630296174, st_dev=4197560638563347249, st_nlink=1, st_uid=0, st_gid=0, st_size=4096, st_atime=1794256940, st_mtime=1794256939, st_ctime=1794256939).st_mode
+E    +    where os.stat_result(st_mode=16895, st_ino=4503599630296174, st_dev=4197560638563347249, st_nlink=1, st_uid=0, st_gid=0, st_size=4096, st_atime=1794256940, st_mtime=1794256939, st_ctime=1794256939) = stat()
+E    +      where stat = WindowsPath('<USERPROFILE>/AppData/Local/Temp/pytest-of-Administrator/pytest-1265/test_completed_manifest_binds_0').stat
+________ test_bridge_turn_continues_when_capture_service_cannot_start _________
+src\tests\test_runtime_evidence_capture.py:1297: in test_bridge_turn_continues_when_capture_service_cannot_start
+    assert any(
+E   assert False
+E    +  where False = any(<generator object test_bridge_turn_continues_when_capture_service_cannot_start.<locals>.<genexpr> at 0x0000020134222A70>)
+---------------------------- Captured stderr call -----------------------------
+[bridge] evidence capture unavailable at turn start: OSError('evidence disk unavailable')
+=========================== short test summary info ===========================
+FAILED src/tests/test_approval_detection.py::test_hardline_refused_pre_spawn
+FAILED src/tests/test_runtime_evidence_capture.py::test_event_journal_chain_detects_payload_tampering_and_is_not_healed
+FAILED src/tests/test_runtime_evidence_capture.py::test_completed_manifest_binds_identity_tools_verification_and_artifacts
+FAILED src/tests/test_runtime_evidence_capture.py::test_bridge_turn_continues_when_capture_service_cannot_start
+================== 4 failed, 129 passed in 213.34s (0:03:33) ==================
