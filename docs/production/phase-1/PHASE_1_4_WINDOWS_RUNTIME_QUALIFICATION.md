@@ -183,17 +183,17 @@ Environment: Windows 11 build 26200; local Python 3.14.4; Python 3.11.9 venv.
 
 ## 7. CI results
 
-Workflow `Security guard`, delivery commit: pending.
+Workflow `Security guard`, commit
+`838857eeaa09288a51c37b846ffd4f76a303332a`, run `42618095589`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129162931614` | 231 passed, 4 skipped in 12.59 s |
+| Security containment (windows-latest) | Windows | `129162931217` | 229 passed, 6 skipped in 13.79 s |
+| Security containment (macos-latest) | macOS | `129162931678` | 231 passed, 4 skipped in 10.37 s |
 
-The workflow runs `src/tests/test_security_containment.py` on Python 3.14. The
-new runtime harness is local-only and Windows-only; it is not part of this CI
-job.
+All three jobs ran Python 3.14.10. The new runtime harness is local-only and
+Windows-only; it is not part of this CI job.
 
 ## 8. Acceptance criteria
 
