@@ -454,13 +454,18 @@ never executed. The synchronous positive control still passes.
 
 ### CI results
 
-Workflow `Security guard`, async-counting commit: pending.
+Workflow `Security guard`, commit
+`90a2d2d172ef4be82fe1626320b0aa824d056331`, run `42611296402`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129140099931` | 231 passed, 4 skipped in 9.69 s |
+| Security containment (windows-latest) | Windows | `129140099362` | 229 passed, 6 skipped in 14.79 s |
+| Security containment (macos-latest) | macOS | `129140099833` | 231 passed, 4 skipped in 10.18 s |
+
+All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
+drive-letter probes; Windows additionally skips three cross-drive probes. No
+test failed and no platform was skipped wholesale.
 
 ### Residual limitations
 
