@@ -1,0 +1,75 @@
+# Manager interface evidence
+
+Surface: full-width editor tab (`crusorai-manager-editor` → `.crusorai-manager-shell`),
+opened with `Open Crusor Manager`. Visuals: `screenshots/04_manager_open.png`
+(populated), `screenshots/11_cold_manager.png` (cold start).
+
+## Layout
+
+Three panes render, all native DOM inside the workbench editor part:
+
+```
+.crusorai-manager-sidebar   CONTROL PLANE / Workspaces / "Find workspace or agent"
+                            workspace → Crusor session / Finished / 1m
+                            "1 session(s) remembered · none running"
+.crusorai-manager-main      breadcrumb "workspace / session-eee1"
+                            tabs: Session | Tools 0 | Changes | Skills
+                            transcript mirror, composer, mode chips
+.crusorai-manager-inspector LIVE EVIDENCE / Run inspector
+                            PLAN 0 STEPS, VERIFICATION NOT STARTED
+                            WORKBENCH CAPABILITIES 19/30 (19 available · 0 blocked)
+                            USAGE Input 0 / Cache 0 / Output 0
+```
+
+## Shared session store
+
+- The Manager row was created by the same session the Agent panel had just
+  used (`session-eee1` family). The Manager transcript mirrored the Agent
+  transcript exactly (one user row, one assistant echo row, one evidence
+  warning row) — no second copy and no divergent text.
+- The Manager row's title was `phase2 qualification ping` (the first prompt,
+  used as the session title) while the sidebar row label was the generic
+  `Crusor session`. Title and row agree on workspace and recency (`1m`).
+- Sidebar footer count was `1 session(s) remembered · none running` while no
+  turn was active, which matched the transcript state.
+
+## Cold start
+
+After a full quit and relaunch (disposable profile preserved), the Manager
+restored the workspace grouping and one remembered session:
+
+```
+CONTROL PLANE
+  workspace
+    Crusor session
+    workspace
+    1m
+1 session(s) remembered · none running
+workspace / session-6737...
+```
+
+The session row came from the durable store across process restart. The
+transcript pane for that row was empty because the echo-runner turns did not
+write durable messages (see `session-replay.txt`), not because the Manager
+dropped them.
+
+## Visual observations
+
+- Layout is stable at 1878 px window width: no clipping, no horizontal
+  overflow, inspector separated by a border, tabs and breadcrumb aligned.
+- Dark theme only (light theme not exercised).
+- Manager and Agent did not maintain independent session copies: the session id,
+  workspace and transcript content matched.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Manager opens as a visible native desktop surface | PASS |
+| Sessions appear from the shared store | PASS (warm and cold) |
+| Active-session information accurate | PASS (`none running`, `Finished`) |
+| Session counts/state labels correct | PASS |
+| Manager/Agent session copies consistent | PASS |
+| Populated transcript restored cold | NOT EXERCISED for real turns (echo seam has no durable messages) |
+
+Visual acceptance is supported by real screenshots, not DOM assertions alone.

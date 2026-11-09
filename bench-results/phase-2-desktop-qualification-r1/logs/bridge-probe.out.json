@@ -1,0 +1,96 @@
+{
+  "session_id": "probe-83ac48b9bcd04848",
+  "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+  "hello": {
+    "type": "hello",
+    "protocol": 2,
+    "engine": "crusorai",
+    "engine_version": "0.2.0-runtime",
+    "capabilities": [
+      "cancel",
+      "checkpoint_list",
+      "checkpoint_restore",
+      "clarify_reply",
+      "events_replay",
+      "host_capabilities_update",
+      "host_tool_result",
+      "inline_completion",
+      "next_edit_suggestions",
+      "oneshot",
+      "prompt",
+      "queue",
+      "safety_reply",
+      "session_archive",
+      "session_create",
+      "session_delete",
+      "session_fork",
+      "session_list",
+      "session_load",
+      "session_messages",
+      "session_pin",
+      "session_rename",
+      "session_resume",
+      "skills_hub_op",
+      "steer",
+      "subagent_cancel",
+      "subagent_launch",
+      "subagent_list",
+      "subagent_result",
+      "subagent_status",
+      "voice_transcribe"
+    ]
+  },
+  "session_create": [
+    {
+      "type": "session_info",
+      "session_id": "probe-83ac48b9bcd04848",
+      "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+      "stored_session_id": "probe-83ac48b9bcd04848",
+      "lazy": true,
+      "info": {
+        "model": "",
+        "cwd": "<TEMP>\\p2-qual-iso\\workspace",
+        "source": "desktop",
+        "lazy": true
+      },
+      "prior_checkpoints": 0,
+      "build": "unknown"
+    }
+  ],
+  "turn_types": [
+    "workspace.bound",
+    "error"
+  ],
+  "turn_done": null,
+  "errors": [
+    {
+      "type": "error",
+      "message": "workspace required: open a project folder before starting a Crusor session",
+      "fatal": false
+    }
+  ],
+  "workspace_bound": {
+    "type": "workspace.bound",
+    "session_id": "probe-83ac48b9bcd04848",
+    "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+    "hops": "<TEMP>\\p2-qual-iso\\workspace",
+    "engine_root": "<TEMP>\\p2-qual-iso\\workspace"
+  },
+  "token_count": 0,
+  "token_text": null,
+  "replay_event_count": 0,
+  "replay_event_id_count": 0,
+  "replay_duplicate_event_ids": 0,
+  "session_message_count": 0,
+  "session_message_roles": [],
+  "bridge_exit_code": 0,
+  "stderr_tail": [
+    "[bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+    "[settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+    "[bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+    "[bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+    "[bridge] engine build: unknown",
+    "[bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) \u2014 panel is current",
+    "[preview] preview proxy already serving <TEMP>\\p2-qual-iso\\workspace at http://127.0.0.1:8931 \u2014 reusing it"
+  ]
+}

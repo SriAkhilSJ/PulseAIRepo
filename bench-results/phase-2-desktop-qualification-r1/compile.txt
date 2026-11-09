@@ -1,0 +1,56 @@
+node.exe : npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See
+`npm help npmrc` for supported config options.
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "<USERPROFILE>\AppData\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm
+help npmrc` for supported config options.
+npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm notice run crusorai-dev@1.134.0 compile-client
+npm notice run npm run gulp compile
+npm warn Unknown env config "build-from-source". This will error in a future major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown env config "disturl". This will error in a future major version of npm. See `npm help npmrc` for
+supported config options.
+npm warn Unknown env config "ms-build-id". This will error in a future major version of npm. See `npm help npmrc` for
+supported config options.
+npm warn Unknown env config "runtime". This will error in a future major version of npm. See `npm help npmrc` for
+supported config options.
+npm warn Unknown env config "target". This will error in a future major version of npm. See `npm help npmrc` for
+supported config options.
+npm warn Unknown env config "timeout". This will error in a future major version of npm. See `npm help npmrc` for
+supported config options.
+npm warn Unknown project config "disturl". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "target". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "ms_build_id". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "runtime". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm warn Unknown project config "build_from_source". This will stop working in the next major version of npm. See `npm
+help npmrc` for supported config options.
+npm warn Unknown project config "timeout". This will stop working in the next major version of npm. See `npm help
+npmrc` for supported config options.
+npm notice run crusorai-dev@1.134.0 gulp
+npm notice run node --experimental-strip-types --max-old-space-size=8192 ./node_modules/gulp/bin/gulp.js compile
+[[90m09:41:52[39m] Using gulpfile ~\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\gulpfile.mjs
+[[90m09:41:52[39m] Starting 'compile'...
+[crusorai-compile] typescript -> out/ (this takes MINUTES; do not abort on silence)
+[crusorai-compile] using node_modules/typescript/bin/tsc6 (child heap: --max-old-space-size=8192)
+[crusorai-compile] tsc finished
+[crusorai-compile] resources copied: 731 files (css / ttf / wasm / html / media)
+[crusorai-compile] done: out/ is ready ΓÇö fully quit the app and reopen it
+[[90m09:51:46[39m] Finished 'compile' after 9.9 min
+COMPILE_EXIT=0
+COMPILE_SECONDS=597.99

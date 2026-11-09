@@ -1,0 +1,52 @@
+# Worker recovery evidence
+
+Launch 2 (real bridge, echo runner, isolated home). The Python sidecar was killed
+deliberately; no unrelated process was touched. Screenshots:
+`screenshots/09_worker_killed.png`, `screenshots/10_after_recovery_turn.png`.
+
+## Kill
+
+```
+taskkill /PID 9140 /T /F     (parent: python -m src.bridge; child: uv python)
+```
+
+## Observed recovery
+
+| Moment | Observation |
+|---|---|
+| before kill | pane status `Crusor ready`, transcript present |
+| +4 s | pane status `Engine starting`; no crash dialog; transcript still visible |
+| +18 s | new bridge processes appeared (`10592` + child `14692`), bridge env/config log lines replayed |
+| +19 s | pane status back to `Crusor ready` |
+| next prompt | `post-recovery probe` echoed and rendered; transcript lane grew to 10 rows |
+
+The restart was a single supervised restart of the sidecar. No repeated
+crash/restart loop was observed, and the workbench window stayed alive.
+
+## What is proven
+
+- The utility-process owner detects the sidecar exit and starts a new worker.
+- Protocol v2 handshake is re-established (the panel only shows `Crusor ready`
+  after `hello` with protocol 2).
+- A subsequent turn succeeds on the new worker.
+- Session transcript already painted in the renderer is preserved (it is not
+  destroyed by the crash), so the user does not lose the visible conversation.
+
+## What is not proven
+
+- Backoff bounds, maximum restart attempts, and restart-loop suppression were
+  not measured (one kill only).
+- Whether an in-flight turn is retried or marked failed after a worker crash was
+  not exercised (the kill happened while idle).
+- The durable transcript for the echo turns is empty, so "recovered session
+  content" is renderer-held rather than store-held in this run.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Bounded restart behaviour | PASS (one restart, no loop) |
+| Recovery reporting to the UI | PASS (`Engine starting` → `Crusor ready`) |
+| Post-recovery turn succeeds | PASS |
+| In-flight turn recovery | NOT EXERCISED |
+| Restart backoff/attempt cap | NOT MEASURED |

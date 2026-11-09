@@ -1,0 +1,121 @@
+{
+  "session_id": "probe-36e00c45d65e4e56",
+  "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+  "hello": {
+    "type": "hello",
+    "protocol": 2,
+    "engine": "crusorai",
+    "engine_version": "0.2.0-runtime",
+    "capabilities": [
+      "cancel",
+      "checkpoint_list",
+      "checkpoint_restore",
+      "clarify_reply",
+      "events_replay",
+      "host_capabilities_update",
+      "host_tool_result",
+      "inline_completion",
+      "next_edit_suggestions",
+      "oneshot",
+      "prompt",
+      "queue",
+      "safety_reply",
+      "session_archive",
+      "session_create",
+      "session_delete",
+      "session_fork",
+      "session_list",
+      "session_load",
+      "session_messages",
+      "session_pin",
+      "session_rename",
+      "session_resume",
+      "skills_hub_op",
+      "steer",
+      "subagent_cancel",
+      "subagent_launch",
+      "subagent_list",
+      "subagent_result",
+      "subagent_status",
+      "voice_transcribe"
+    ]
+  },
+  "session_create": [
+    {
+      "type": "session_info",
+      "session_id": "probe-36e00c45d65e4e56",
+      "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+      "stored_session_id": "probe-36e00c45d65e4e56",
+      "lazy": true,
+      "info": {
+        "model": "",
+        "cwd": "<TEMP>\\p2-qual-iso\\workspace",
+        "source": "desktop",
+        "lazy": true
+      },
+      "prior_checkpoints": 0,
+      "build": "unknown"
+    }
+  ],
+  "turn_types": [
+    "workspace.bound",
+    "workspace.bound",
+    "turn_started",
+    "runtime_degraded",
+    "token",
+    "turn_done"
+  ],
+  "turn_done": {
+    "type": "turn_done",
+    "session_id": "probe-36e00c45d65e4e56",
+    "runtime_session_id": "runtime-88e0b93b13c54ccda4b62d9d3e54d72e",
+    "lineage_root_id": "probe-36e00c45d65e4e56",
+    "workspace_id": "ws-d3292f8e8acb7a1e",
+    "turn_id": "turn-83d17def7b914c1e9b2859deea0c13a7",
+    "message": "bridge protocol probe",
+    "completed": true,
+    "stub": false,
+    "evidence": {
+      "status": "degraded",
+      "evidence_id": "evidence-turn-83d17def7b914c1e9b2859deea0c13a7",
+      "lifecycle_status": "completed",
+      "manifest_path": "<TEMP>\\p2-qual-iso\\home\\.crusorai\\evidence\\turns\\probe-36e00c45d65e4e56\\turn-83d17def7b914c1e9b2859deea0c13a7.json",
+      "manifest_sha256": "c6a0279019f34dac7c658024738c6b2f14c2c9e93485ed8873bcf2c55d718ea9",
+      "journal_terminal_seq": 8,
+      "journal_chain_valid": true,
+      "missing": [
+        "trace",
+        "report",
+        "trace_finalization",
+        "trace_verdict",
+        "report_verdict"
+      ],
+      "error": null
+    }
+  },
+  "errors": [],
+  "workspace_bound": {
+    "type": "workspace.bound",
+    "session_id": "probe-36e00c45d65e4e56",
+    "workspace": "<TEMP>\\p2-qual-iso\\workspace",
+    "hops": "<TEMP>\\p2-qual-iso\\workspace",
+    "engine_root": "<TEMP>\\p2-qual-iso\\workspace"
+  },
+  "token_count": 1,
+  "token_text": "bridge protocol probe",
+  "replay_event_count": 2,
+  "replay_event_id_count": 2,
+  "replay_duplicate_event_ids": 0,
+  "session_message_count": 0,
+  "session_message_roles": [],
+  "bridge_exit_code": 0,
+  "stderr_tail": [
+    "[bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+    "[settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+    "[bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+    "[bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+    "[bridge] engine build: unknown",
+    "[bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) \u2014 panel is current",
+    "[preview] preview proxy already serving <TEMP>\\p2-qual-iso\\workspace at http://127.0.0.1:8931 \u2014 reusing it"
+  ]
+}

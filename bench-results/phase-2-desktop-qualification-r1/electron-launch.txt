@@ -1,0 +1,96 @@
+# Actual Electron launch evidence — Phase 2 desktop qualification r1
+
+Baseline: branch `feat/prompt-cache-stabilization`, HEAD
+`e9b6ee02dbe75497353f4d62b12d5ff38ac4b5d3` (origin identical).
+
+Runtime: `desktop/vscode/.build/electron/CrusorAI.exe` (Chrome/148.0.7778.280,
+Electron/42.8.1, product `crusorai-dev` 1.134.0). It is the raw Electron binary
+plus the freshly compiled `desktop/vscode/out`; `.build/electron/resources/app`
+does not exist, so the app is launched with `.` as the app path.
+
+No production source was changed. `desktop/vscode/out/**` was rebuilt by
+`npm run compile-client` for this qualification and the 15 tracked build
+artifacts the compile rewrote were restored afterwards, returning the tree to
+its pre-run 184 entries.
+
+## Common launch shape
+
+```
+cwd        <REPO>\desktop\vscode
+exe        <REPO>\desktop\vscode\.build\electron\CrusorAI.exe
+argv       . --user-data-dir=<TEMP>\<profile>\userdata
+             --extensions-dir=<TEMP>\<profile>\extensions
+             --remote-debugging-port=9333 --disable-workspace-trust
+             --skip-welcome --skip-release-notes --new-window <TEMP>\<profile>\workspace
+env        VSCODE_DEV=1 NODE_ENV=development VSCODE_CLI=1 CRUSORAI_DEV=1
+           ELECTRON_ENABLE_LOGGING=1 ELECTRON_ENABLE_STACK_DUMPING=1
+           CRUSORAI_ENGINE_ROOT=<REPO>
+           (launch 1-2) CRUSORAI_BRIDGE_RUNNER=echo
+           (launch 2)   CRUSORAI_ECHO_DELAY_MS=6000
+           (launch 3)   CRUSORAI_ENGINE_ROOT=<TEMP>\p2-stub-engine
+                        CRUSORAI_PYTHON_PATH=<REPO>\.venv\Scripts\python.exe
+           USERPROFILE=<TEMP>\<profile>\home  HOME=<TEMP>\<profile>\home  (launch 2-3)
+child env  CRUSORAI_ALLOW_LIVE_AGENT_TEST removed; ELECTRON_RUN_AS_NODE removed
+profile    disposable workspace/user-data/extensions directories; no owner profile used
+```
+
+`CRUSORAI_BRIDGE_RUNNER=echo` is confirmed in `src/bridge/__main__.py` (echo
+branch at the prompt handler). It performs no model call and emits a
+`runtime_degraded` notice plus a `token` frame carrying `test_runner: "echo"`.
+`CRUSORAI_ECHO_DELAY_MS` is the documented test seam for an in-flight turn.
+
+## Launch 1 — default Python home (reconnaissance)
+
+| Item | Value |
+|---|---|
+| Main PID | 7512 |
+| Window title | `workspace - CrusorAI IDE Dev` |
+| Debug port | 9222 (`DevToolsActivePort`), page target present |
+| Workbench parts | titlebar, activitybar, sidebar, editor, panel, statusbar all present |
+| Result | launched, Crusor contribution activated, echo turn rendered, Manager opened |
+
+Note: the Python sidecar resolves its durable store from `Path.home()`, so
+launch 1 wrote to the machine's real `%USERPROFILE%\.crusorai` (sessions.db-WAL
+and `traces/` timestamps changed). Launches 2-3 were re-run with
+`USERPROFILE`/`HOME` pointed at a disposable directory so no further owner data
+was touched. See the limitation in `verdict.md`.
+
+## Launch 2 — isolated home, echo + cancel + replay + recovery
+
+| Item | Value |
+|---|---|
+| Main PID | 16328 |
+| Window title | `workspace - CrusorAI IDE Dev` |
+| Debug port | 9333 |
+| Workbench usable | about 20 s after spawn (cold Python import included) |
+| Bridge PID | 9140 (`python -m src.bridge`), later restarted as 10592 |
+| Result | full scenario set executed (see sibling evidence files) |
+
+## Launch 3 — approval test double at the process boundary
+
+| Item | Value |
+|---|---|
+| Main PID | 19588 |
+| Window title | `workspace - CrusorAI IDE Dev` |
+| Debug port | 9333 |
+| Engine root | `<TEMP>\p2-stub-engine` (a 1-file protocol stub, `src/bridge/__main__.py`) |
+| Result | real utility process spawned it; `hello`/protocol 2 handshake accepted; approval allow and deny paths both executed |
+
+The stub is a test double for the engine process only. The Electron renderer,
+the utility-process worker service, the stdio framing, the renderer protocol
+handler and the approval UI are the real production code.
+
+## Startup diagnostics observed (non-fatal)
+
+These appeared on every launch and did not stop the workbench:
+
+| Message | Assessment |
+|---|---|
+| `Cannot find module './build/Release/iselevated'` (`native-is-elevated`) | optional native module not built in this checkout; isAdmin probe degrades, app continues |
+| `Unable to create workbench contribution 'chat.contextContributions' ... chatSessionRoutingProviderService` | built-in chat contribution DI error; unrelated to the Crusor panel, which activates |
+| `Unknown channel: agentHostClientProxy` | agent-host IPC probe without a handler; non-fatal |
+| crashpad `CreateFile: The system cannot find the file specified` | crash-reporter registration in the disposable profile; non-fatal |
+
+No renderer crash, no boot loop, no fatal startup exception was observed. The
+full stdout/stderr captures are `logs/electron-*-stdout.log` and
+`logs/electron-*-stderr.log`.

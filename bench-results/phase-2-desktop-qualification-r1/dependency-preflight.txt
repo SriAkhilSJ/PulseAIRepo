@@ -1,0 +1,11 @@
+node_modules: True
+out_files: 10779
+electron_exe: True
+electron_exe_sha256: 49486B2EF4D940BDBF9985811A8ED2C808551D6E1353D1B3CF3A4C5B8C4FD6D4
+electron_exe_mtime: 2026-11-08T07:29:24.9365460-08:00
+app_resources_dir: False
+package_version: 1.134.0
+product_nameShort: CrusorAI
+requires-python: requires-python = ">=3.11"
+venv_python: True
+tsc_js: False

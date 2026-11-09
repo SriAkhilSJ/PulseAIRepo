@@ -1,0 +1,7 @@
+OS: Microsoft Windows 11 Pro 10.0.26200 build 26200
+Architecture: 64-bit
+Node: v24.18.0
+npm: 12.0.2
+Python: Python 3.14.4
+Git: git version 2.55.0.windows.5
+DiskFreeGB: 1.37
