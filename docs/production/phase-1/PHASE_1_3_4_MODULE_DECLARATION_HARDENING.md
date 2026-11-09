@@ -391,3 +391,98 @@ C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_4r_20261108_235705\
   07_checkup_tests.log
   08_ci_parity.log
 ```
+
+## 14. Async grant declaration correction
+
+**Starting HEAD:** `85192f8754baabde151bfb08ee4e7375983ed3f1`
+
+### Finding
+
+`_security_call_lines()` counted `_grant_to_object` declarations with
+`isinstance(node, ast.FunctionDef)` only. Python represents asynchronous
+functions as `ast.AsyncFunctionDef`, so an additional async
+`_grant_to_object` nested inside a manager method body was invisible to the
+uniqueness check.
+
+### Correction
+
+The whole-tree search now counts both `ast.FunctionDef` and
+`ast.AsyncFunctionDef`. The checker requires exactly one declaration named
+`_grant_to_object`, then requires that declaration to be:
+
+- synchronous (`ast.FunctionDef`),
+- a direct child of `_ensure_windowstation_desktop_access`,
+- valid under the existing exact signature and eighteen-statement body checks.
+
+The real synchronous grant remains the only accepted declaration. Manager
+method bodies are still not validated or whitelisted.
+
+### Regression
+
+One AST-only test inserts this function inside
+`WindowsSandboxManager.execute()`:
+
+```python
+async def _grant_to_object(handle) -> bool:
+    return True
+```
+
+Diagnostic evidence on the mutated module:
+
+```text
+sync-only grant count:  1
+sync+async grant count: 2
+full checker result:    set()
+```
+
+The old `FunctionDef`-only search would have seen one declaration; the corrected
+search sees two and rejects. The inserted async function is parsed and unparsed,
+never executed. The synchronous positive control still passes.
+
+### Local verification
+
+| Check | Result | Exit |
+|---|---|---|
+| AST validation | `AST OK` | 0 |
+| Async regression + positive control | **2 passed** | 0 |
+| Full static security scan | **173 passed** | 0 |
+| Full security suite | **232 passed, 3 skipped** in 43.72 s (235 collected) | 0 |
+| Full guarded import | **1 passed** in 14.68 s | 0 |
+| Standalone agent-core checkup | **57 pass, 5 warn, 0 fail** | 0 |
+| Agent-core checkup tests | **19 passed** in 109.46 s | 0 |
+| CI-parity clean 3.14 venv | **232 passed, 3 skipped** in 31.21 s | 0 |
+
+### CI results
+
+Workflow `Security guard`, async-counting commit: pending.
+
+| Job | Platform | Result | Run |
+|---|---|---|---|
+| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
+| Security containment (windows-latest) | Windows | pending | pending |
+| Security containment (macos-latest) | macOS | pending | pending |
+
+### Residual limitations
+
+- Static AST validation only; it is not an OS sandbox and does not prove
+  production readiness.
+- The async-counting fix closes the declaration-uniqueness gap only; helper and
+  manager method bodies remain governed by their existing narrow checks.
+- The manifests, helper body and structure map duplicate the real source;
+  legitimate changes require an audited update and a fresh positive control.
+- Python 3.11 Windows guard coverage remains unproven.
+- Machine-level WindowStation/Desktop ACL recovery remains unresolved.
+
+### Evidence logs
+
+```text
+C:\Users\Administrator\AppData\Local\Temp\crusor_async_grant_20261109_033817\
+  01_ast.log
+  02_async_regression.log
+  03_static_scan.log
+  04_full_security.log
+  05_guarded_import.log
+  06_checkup.log
+  07_checkup_tests.log
+  08_ci_parity.log
+```

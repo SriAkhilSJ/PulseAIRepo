@@ -1576,12 +1576,14 @@ def _security_call_lines(path: Path, *, full_module: bool = False) -> set[int]:
     functions = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name == "_grant_to_object"
     ]
     if len(functions) != 1:
         return set()
     function = functions[0]
+    if not isinstance(function, ast.FunctionDef):
+        return set()
     if helper is not None and function not in helper.body:
         return set()
 
@@ -3708,3 +3710,16 @@ def test_sandbox_rejects_swapped_grant_call_handles(
         ok2.value.body.args[0] = ast.Name(id="hwinsta", ctx=ast.Load())
 
     _assert_full_module_rejected(tmp_path, mutate, "grant_call_handles")
+
+def test_sandbox_rejects_async_grant_in_manager(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        manager = _module_class(tree, "WindowsSandboxManager")
+        execute = _manager_method(manager, "execute")
+        execute.body.append(
+            ast.parse(
+                "async def _grant_to_object(handle) -> bool:\n"
+                "    return True"
+            ).body[0]
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "async_grant")
