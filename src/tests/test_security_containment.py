@@ -6,6 +6,7 @@ security API call, no write outside the repository.
 from __future__ import annotations
 
 import ast
+import copy
 import ctypes
 import importlib.util
 import os
@@ -706,7 +707,11 @@ def _methods_only_class_ok(node: ast.ClassDef) -> bool:
     return True
 
 
-def _module_classes_ok(module: ast.Module) -> bool:
+def _module_classes_ok(
+    module: ast.Module,
+    *,
+    require_all: bool = False,
+) -> bool:
     """Validate every module-level class body, not just its header."""
     seen: set[str] = set()
     for statement in module.body:
@@ -728,6 +733,8 @@ def _module_classes_ok(module: ast.Module) -> bool:
             if not _methods_only_class_ok(statement):
                 return False
             continue
+        return False
+    if require_all and seen != set(_EXPECTED_STRUCTURES):
         return False
     return True
 
@@ -892,13 +899,489 @@ def _protected_alias_ok(module: ast.Module) -> bool:
     return True
 
 
-def _security_call_lines(path: Path) -> set[int]:
+_EXPECTED_IMPORTS: tuple[
+    tuple[str, str, int, tuple[tuple[str, str | None], ...]],
+    ...,
+] = (
+    ("from", "__future__", 0, (("annotations", None),)),
+    ("import", "", 0, (("ctypes", None),)),
+    ("import", "", 0, (("os", None),)),
+    ("import", "", 0, (("re", None),)),
+    ("import", "", 0, (("shlex", None),)),
+    ("import", "", 0, (("shutil", None),)),
+    ("import", "", 0, (("subprocess", None),)),
+    ("import", "", 0, (("sys", None),)),
+    ("import", "", 0, (("threading", None),)),
+    ("import", "", 0, (("time", None),)),
+    ("import", "", 0, (("uuid", None),)),
+    ("from", "ctypes", 0, (("wintypes", None),)),
+    ("from", "pathlib", 0, (("Path", None),)),
+    (
+        "from",
+        "typing",
+        0,
+        (
+            ("Any", None),
+            ("Dict", None),
+            ("List", None),
+            ("Optional", None),
+            ("Tuple", None),
+        ),
+    ),
+    (
+        "from",
+        "src.security.contracts",
+        0,
+        (
+            ("ExecutionMode", None),
+            ("ExecutionRequest", None),
+            ("SAFE_ENVIRONMENT_KEYS", None),
+            ("SENSITIVE_SECRET_PATTERNS", None),
+            ("SandboxBackendType", None),
+            ("SecurityViolationType", None),
+        ),
+    ),
+    (
+        "from",
+        "src.security.sandbox.base",
+        0,
+        (("BaseSandboxManager", None),),
+    ),
+)
+
+_EXPECTED_WINDLL_DECLARATIONS = (
+    "_kernel32",
+    "_advapi32",
+    "_userenv",
+    "_user32",
+)
+
+_EXPECTED_MODULE_CONSTANTS: tuple[tuple[str, int], ...] = (
+    ("JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE", 8192),
+    ("JOB_OBJECT_LIMIT_ACTIVE_PROCESS", 8),
+    ("JOB_OBJECT_LIMIT_JOB_MEMORY", 512),
+    ("JobObjectExtendedLimitInformation", 9),
+    ("JOB_OBJECT_CPU_RATE_CONTROL_ENABLE", 1),
+    ("JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP", 4),
+    ("JobObjectCpuRateControlInformation", 15),
+    ("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", 131074),
+    ("PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES", 131081),
+    ("EXTENDED_STARTUPINFO_PRESENT", 524288),
+    ("CREATE_NO_WINDOW", 134217728),
+    ("CREATE_SUSPENDED", 4),
+    ("STARTF_USESTDHANDLES", 256),
+    ("GENERIC_ALL", 0x10000000),
+    ("GENERIC_WRITE", 0x40000000),
+    ("GENERIC_READ", 0x80000000),
+    ("FILE_SHARE_READ", 1),
+    ("FILE_SHARE_WRITE", 2),
+    ("CREATE_ALWAYS", 2),
+    ("OPEN_EXISTING", 3),
+    ("FILE_ATTRIBUTE_NORMAL", 0x80),
+    ("SE_WINDOW_OBJECT", 7),
+    ("DACL_SECURITY_INFORMATION", 4),
+    ("GRANT_ACCESS", 1),
+    ("NO_INHERITANCE", 0),
+    ("TRUSTEE_IS_NAME", 1),
+    ("TRUSTEE_IS_WELL_KNOWN_GROUP", 5),
+)
+
+_EXPECTED_STRUCTURE_ORDER = (
+    "IO_COUNTERS",
+    "JOBOBJECT_BASIC_LIMIT_INFORMATION",
+    "JOBOBJECT_EXTENDED_LIMIT_INFORMATION",
+    "JOBOBJECT_CPU_RATE_CONTROL_INFORMATION",
+    "SECURITY_ATTRIBUTES",
+    "SECURITY_CAPABILITIES",
+    "STARTUPINFOW",
+    "STARTUPINFOEXW",
+    "PROCESS_INFORMATION",
+    "TRUSTEE_W",
+    "EXPLICIT_ACCESS_W",
+)
+
+_EXPECTED_DECLARATIONS: tuple[tuple[str, str | None], ...] = (
+    ("docstring", None),
+    *[("import", None)] * len(_EXPECTED_IMPORTS),
+    *[("assign", name) for name in _EXPECTED_WINDLL_DECLARATIONS],
+    *[("assign", name) for name, _value in _EXPECTED_MODULE_CONSTANTS],
+    *[("class", name) for name in _EXPECTED_STRUCTURE_ORDER],
+    ("assign", "_winsta_desktop_granted"),
+    ("function", "_ensure_windowstation_desktop_access"),
+    ("class", "WindowsSandboxManager"),
+)
+
+_HELPER_SPEC = (
+    "_ensure_windowstation_desktop_access",
+    (),
+    "bool",
+    (),
+)
+
+_MANAGER_DOCSTRING = (
+    "\n"
+    "    Windows execution sandbox enforcing:\n"
+    "    1. AppContainer Token Isolation: kernel-enforced network denial "
+    "(0 capabilities) and NTFS DACL jailing.\n"
+    "    2. Windows Job Object: process tree termination (KILL_ON_JOB_CLOSE), "
+    "active process cap, memory limits, CPU hard cap.\n"
+    "    3. Minimal Allowlisted Environment: stripping all API keys, SSH keys, "
+    "cloud credentials.\n"
+    "    4. Output Byte Capping: Preventing memory exhaustion via excessive "
+    "stdout/stderr (1MB cap).\n"
+    "    5. Fallback Protection: Fail-closed fallback to Job Object isolation "
+    "if AppContainer is unavailable.\n"
+    "    "
+)
+
+_MANAGER_METHOD_SPECS: tuple[
+    tuple[
+        str,
+        tuple[tuple[str, str | None, str | None], ...],
+        str,
+        tuple[str, ...],
+    ],
+    ...,
+] = (
+    (
+        "__init__",
+        (
+            ("self", None, None),
+            ("use_appcontainer", "bool", "True"),
+        ),
+        "None",
+        (),
+    ),
+    (
+        "backend_type",
+        (("self", None, None),),
+        "SandboxBackendType",
+        ("property",),
+    ),
+    (
+        "appcontainer_sid_str",
+        (("self", None, None),),
+        "Optional[str]",
+        ("property",),
+    ),
+    (
+        "get_capabilities",
+        (("self", None, None),),
+        "Dict[str, bool]",
+        (),
+    ),
+    (
+        "initialize",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+        ),
+        "None",
+        (),
+    ),
+    (
+        "_sanitize_environment",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+        ),
+        "Dict[str, str]",
+        (),
+    ),
+    (
+        "_inspect_filesystem_safety",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+        ),
+        "Tuple[bool, Optional[str]]",
+        (),
+    ),
+    (
+        "execute",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+            ("abort_event", "Optional[Any]", "None"),
+        ),
+        "Dict[str, Any]",
+        (),
+    ),
+    (
+        "_execute_appcontainer",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+            ("cwd", "str", None),
+            ("env", "Dict[str, str]", None),
+            ("abort_event", "Optional[Any]", None),
+        ),
+        "Dict[str, Any]",
+        (),
+    ),
+    (
+        "_execute_job_object_fallback",
+        (
+            ("self", None, None),
+            ("request", "ExecutionRequest", None),
+            ("staging_dir", "Path", None),
+            ("cwd", "str", None),
+            ("env", "Dict[str, str]", None),
+            ("abort_event", "Optional[Any]", None),
+        ),
+        "Dict[str, Any]",
+        (),
+    ),
+    (
+        "_query_job_counters",
+        (("self", None, None),),
+        "None",
+        (),
+    ),
+    (
+        "terminate",
+        (("self", None, None),),
+        "None",
+        (),
+    ),
+    (
+        "cleanup",
+        (
+            ("self", None, None),
+            ("staging_dir", "Path", None),
+        ),
+        "str",
+        (),
+    ),
+)
+
+
+def _import_spec(
+    node: ast.stmt,
+) -> tuple[str, str, int, tuple[tuple[str, str | None], ...]] | None:
+    if isinstance(node, ast.Import):
+        return (
+            "import",
+            "",
+            0,
+            tuple((alias.name, alias.asname) for alias in node.names),
+        )
+    if isinstance(node, ast.ImportFrom):
+        return (
+            "from",
+            node.module or "",
+            node.level,
+            tuple((alias.name, alias.asname) for alias in node.names),
+        )
+    return None
+
+
+def _module_declarations_ok(module: ast.Module) -> bool:
+    """Require the exact declaration sequence, identity, type and order."""
+    if len(module.body) != len(_EXPECTED_DECLARATIONS):
+        return False
+    constants = dict(_EXPECTED_MODULE_CONSTANTS)
+    windll_names = set(_EXPECTED_WINDLL_DECLARATIONS)
+    import_index = 0
+
+    for stmt, (kind, name) in zip(module.body, _EXPECTED_DECLARATIONS):
+        if kind == "docstring":
+            if not (
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Constant)
+                and type(stmt.value.value) is str
+            ):
+                return False
+            continue
+
+        if kind == "import":
+            if import_index >= len(_EXPECTED_IMPORTS):
+                return False
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                if any(alias.name == "*" for alias in stmt.names):
+                    return False
+            if _import_spec(stmt) != _EXPECTED_IMPORTS[import_index]:
+                return False
+            import_index += 1
+            continue
+
+        if kind == "assign":
+            if not (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and stmt.targets[0].id == name
+            ):
+                return False
+            if name in windll_names:
+                if not _canonical_windll_value(name, stmt.value):
+                    return False
+            elif name in constants:
+                if not (
+                    isinstance(stmt.value, ast.Constant)
+                    and type(stmt.value.value) is int
+                    and stmt.value.value == constants[name]
+                ):
+                    return False
+            elif name == "_winsta_desktop_granted":
+                if not (
+                    isinstance(stmt.value, ast.Constant)
+                    and stmt.value.value is False
+                ):
+                    return False
+            else:
+                return False
+            continue
+
+        if kind == "class":
+            if not (
+                isinstance(stmt, ast.ClassDef)
+                and stmt.name == name
+            ):
+                return False
+            continue
+
+        if kind == "function":
+            if not (
+                isinstance(stmt, ast.FunctionDef)
+                and stmt.name == name
+            ):
+                return False
+            continue
+
+        return False
+
+    return import_index == len(_EXPECTED_IMPORTS)
+
+
+def _function_signature_ok(
+    node: ast.AST,
+    params: tuple[tuple[str, str | None, str | None], ...],
+    returns: str,
+    decorators: tuple[str, ...],
+) -> bool:
+    if not isinstance(node, ast.FunctionDef):
+        return False
+    if getattr(node, "type_params", []):
+        return False
+    if node.type_comment:
+        return False
+    if [ast.unparse(item) for item in node.decorator_list] != list(decorators):
+        return False
+
+    args = node.args
+    if args.posonlyargs or args.kwonlyargs or args.vararg or args.kwarg:
+        return False
+    if len(args.args) != len(params):
+        return False
+    for argument, (name, annotation, _default) in zip(args.args, params):
+        if argument.arg != name:
+            return False
+        actual_annotation = (
+            ast.unparse(argument.annotation)
+            if argument.annotation is not None
+            else None
+        )
+        if actual_annotation != annotation:
+            return False
+
+    expected_defaults = [
+        default for (_name, _annotation, default) in params
+        if default is not None
+    ]
+    if [ast.unparse(item) for item in args.defaults] != expected_defaults:
+        return False
+    if args.kw_defaults:
+        return False
+
+    actual_returns = (
+        ast.unparse(node.returns) if node.returns is not None else None
+    )
+    return actual_returns == returns
+
+
+def _helper_declaration_ok(module: ast.Module) -> bool:
+    helpers = [
+        node
+        for node in module.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_ensure_windowstation_desktop_access"
+    ]
+    if len(helpers) != 1:
+        return False
+    name, params, returns, decorators = _HELPER_SPEC
+    return (
+        helpers[0].name == name
+        and _function_signature_ok(
+            helpers[0],
+            params,  # type: ignore[arg-type]
+            returns,  # type: ignore[arg-type]
+            decorators,
+        )
+    )
+
+
+def _manager_declaration_ok(module: ast.Module) -> bool:
+    managers = [
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "WindowsSandboxManager"
+    ]
+    if len(managers) != 1:
+        return False
+    node = managers[0]
+    if node.decorator_list or node.keywords:
+        return False
+    if getattr(node, "type_params", []):
+        return False
+    if [ast.unparse(base) for base in node.bases] != ["BaseSandboxManager"]:
+        return False
+    if not node.body:
+        return False
+    docstring = node.body[0]
+    if not (
+        isinstance(docstring, ast.Expr)
+        and isinstance(docstring.value, ast.Constant)
+        and docstring.value.value == _MANAGER_DOCSTRING
+    ):
+        return False
+    methods = node.body[1:]
+    if len(methods) != len(_MANAGER_METHOD_SPECS):
+        return False
+    for method, spec in zip(methods, _MANAGER_METHOD_SPECS):
+        if not isinstance(method, ast.FunctionDef):
+            return False
+        name, params, returns, decorators = spec
+        if method.name != name:
+            return False
+        if not _function_signature_ok(
+            method,
+            params,
+            returns,
+            decorators,
+        ):
+            return False
+    return True
+
+
+def _security_call_lines(path: Path, *, full_module: bool = False) -> set[int]:
     """Allow only the exact documented AppContainer operation.
 
     This is an exact structural whitelist, not a permissive traversal. The
     function must have the documented signature and its body must be exactly
     the eighteen documented statements. Protected names may not be rebound or
     shadowed at module scope, in an enclosing scope, or inside the function.
+
+    ``full_module=True`` additionally requires the exact sandbox import
+    manifest, module declaration manifest, helper signature, manager method
+    manifest, and the complete set of ctypes structures. Synthetic snippets in
+    earlier phases use the default partial mode.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
 
@@ -920,7 +1403,7 @@ def _security_call_lines(path: Path) -> set[int]:
         return set()
     if not _module_bindings_ok(tree):
         return set()
-    if not _module_classes_ok(tree):
+    if not _module_classes_ok(tree, require_all=full_module):
         return set()
     if not _local_bindings_ok(tree):
         return set()
@@ -928,6 +1411,13 @@ def _security_call_lines(path: Path) -> set[int]:
         return set()
     if not _attribute_mutations_ok(tree):
         return set()
+    if full_module:
+        if not _module_declarations_ok(tree):
+            return set()
+        if not _helper_declaration_ok(tree):
+            return set()
+        if not _manager_declaration_ok(tree):
+            return set()
 
     security_call = function.body[15].body[0].value
     return {security_call.lineno}
@@ -939,7 +1429,7 @@ def _sandbox_allowed_lines() -> set[int]:
     text = SANDBOX.read_text(encoding="utf-8")
     if "ALL APPLICATION PACKAGES" not in text or "WD)(A;OICI;GA" in text:
         return set()
-    return _security_call_lines(SANDBOX)
+    return _security_call_lines(SANDBOX, full_module=True)
 
 
 def test_static_guard_rejects_removed_payloads() -> None:
@@ -2542,3 +3032,334 @@ def test_sandbox_rejects_executable_module_assignment(
         _documented_grant_source(module_prefix=prefix),
         "module_expression",
     )
+
+# ---------------------------------------------------------------------------
+# Phase 1.3.4: module declaration integrity
+# ---------------------------------------------------------------------------
+
+def _sandbox_tree() -> ast.Module:
+    return ast.parse(SANDBOX.read_text(encoding="utf-8"))
+
+
+def _mutated_sandbox_source(mutate) -> str:
+    tree = _sandbox_tree()
+    mutate(tree)
+    return ast.unparse(tree)
+
+
+def _assert_full_module_rejected(
+    tmp_path: Path,
+    mutate,
+    name: str,
+) -> None:
+    sample = tmp_path / f"{name}.py"
+    sample.write_text(_mutated_sandbox_source(mutate), encoding="utf-8")
+    assert _security_call_lines(sample, full_module=True) == set()
+
+
+def _module_import(tree: ast.Module, name: str) -> ast.Import:
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            if any(alias.name == name for alias in node.names):
+                return node
+    raise AssertionError(f"import {name!r} not found")
+
+
+def _module_from_import(tree: ast.Module, module: str) -> ast.ImportFrom:
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == module:
+            return node
+    raise AssertionError(f"from-import {module!r} not found")
+
+
+def _module_class(tree: ast.Module, name: str) -> ast.ClassDef:
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return node
+    raise AssertionError(f"class {name!r} not found")
+
+
+def _module_function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"function {name!r} not found")
+
+
+def _manager_method(cls: ast.ClassDef, name: str) -> ast.FunctionDef:
+    for node in cls.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"method {name!r} not found")
+
+
+def _evil_call() -> ast.Call:
+    return ast.Call(
+        func=ast.Name(id="evil", ctx=ast.Load()),
+        args=[],
+        keywords=[],
+    )
+
+
+def test_full_sandbox_module_remains_accepted() -> None:
+    text = SANDBOX.read_text(encoding="utf-8")
+    expected = next(
+        i for i, line in enumerate(text.splitlines(), 1)
+        if "_advapi32.SetSecurityInfo" in line
+    )
+    assert _security_call_lines(SANDBOX, full_module=True) == {expected}
+
+
+def test_sandbox_rejects_arbitrary_import(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.insert(1, ast.parse("import json").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "arbitrary_import")
+
+
+def test_sandbox_rejects_star_import(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.insert(1, ast.parse("from os import *").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "star_import")
+
+
+def test_sandbox_rejects_unexpected_import_alias(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_import(tree, "ctypes").names[0].asname = "c"
+
+    _assert_full_module_rejected(tmp_path, mutate, "import_alias")
+
+
+def test_sandbox_rejects_duplicate_import(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        duplicate = copy.deepcopy(_module_import(tree, "ctypes"))
+        tree.body.insert(3, duplicate)
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_import")
+
+
+def test_sandbox_rejects_changed_import_source(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_from_import(tree, "pathlib").module = "pathlib2"
+
+    _assert_full_module_rejected(tmp_path, mutate, "changed_import_source")
+
+
+def test_sandbox_rejects_additional_module_function(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.append(ast.parse("def helper():\n    pass").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_function")
+
+
+def test_sandbox_rejects_duplicate_helper(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        tree.body.append(copy.deepcopy(helper))
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_helper")
+
+
+def test_sandbox_rejects_decorated_helper(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.decorator_list.append(ast.Name(id="evil", ctx=ast.Load()))
+
+    _assert_full_module_rejected(tmp_path, mutate, "decorated_helper")
+
+
+def test_sandbox_rejects_helper_decorator_call(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.decorator_list.append(_evil_call())
+
+    _assert_full_module_rejected(tmp_path, mutate, "helper_decorator_call")
+
+
+def test_sandbox_rejects_executable_helper_default(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.args.args.append(
+            ast.arg(arg="value", annotation=None, type_comment=None)
+        )
+        helper.args.defaults.append(_evil_call())
+
+    _assert_full_module_rejected(tmp_path, mutate, "helper_default")
+
+
+def test_sandbox_rejects_async_helper(tmp_path: Path) -> None:
+    source = SANDBOX.read_text(encoding="utf-8").replace(
+        "def _ensure_windowstation_desktop_access() -> bool:",
+        "async def _ensure_windowstation_desktop_access() -> bool:",
+        1,
+    )
+    sample = tmp_path / "async_helper.py"
+    sample.write_text(source, encoding="utf-8")
+    assert _security_call_lines(sample, full_module=True) == set()
+
+
+def test_sandbox_rejects_additional_manager_class(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.append(
+            ast.parse(
+                "class ExtraManager(BaseSandboxManager):\n    pass"
+            ).body[0]
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_manager")
+
+
+def test_sandbox_rejects_duplicate_initialize(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        method = _manager_method(cls, "initialize")
+        cls.body.insert(cls.body.index(method) + 1, copy.deepcopy(method))
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_initialize")
+
+
+def test_sandbox_rejects_additional_manager_method(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        cls.body.append(ast.parse("def extra(self):\n    pass").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_method")
+
+
+def test_sandbox_rejects_executable_method_decorator(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        _manager_method(cls, "terminate").decorator_list.append(_evil_call())
+
+    _assert_full_module_rejected(tmp_path, mutate, "method_decorator")
+
+
+def test_sandbox_rejects_executable_method_default(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        _manager_method(cls, "__init__").args.defaults = [_evil_call()]
+
+    _assert_full_module_rejected(tmp_path, mutate, "method_default")
+
+
+def test_sandbox_rejects_manager_class_assignment(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        cls.body.insert(1, ast.parse("extra = 1").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "manager_assignment")
+
+
+def test_sandbox_rejects_manager_nested_class(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "WindowsSandboxManager")
+        cls.body.insert(1, ast.parse("class Nested:\n    pass").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "manager_nested_class")
+
+
+def test_sandbox_rejects_missing_structure(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.remove(_module_class(tree, "IO_COUNTERS"))
+
+    _assert_full_module_rejected(tmp_path, mutate, "missing_structure")
+
+
+def test_sandbox_rejects_duplicate_structure(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.append(copy.deepcopy(_module_class(tree, "IO_COUNTERS")))
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_structure")
+
+
+def test_sandbox_rejects_changed_structure_order(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        first = _module_class(tree, "IO_COUNTERS")
+        second = _module_class(tree, "JOBOBJECT_BASIC_LIMIT_INFORMATION")
+        first_index = tree.body.index(first)
+        second_index = tree.body.index(second)
+        tree.body[first_index], tree.body[second_index] = second, first
+
+    _assert_full_module_rejected(tmp_path, mutate, "structure_order")
+
+
+def test_sandbox_rejects_changed_structure_fields(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        cls = _module_class(tree, "EXPLICIT_ACCESS_W")
+        fields = cls.body[0].value.elts
+        fields[0], fields[1] = fields[1], fields[0]
+
+    _assert_full_module_rejected(tmp_path, mutate, "structure_fields")
+
+
+def test_sandbox_rejects_additional_structure_subclass(
+    tmp_path: Path,
+) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.append(
+            ast.parse(
+                "class Extra(ctypes.Structure):\n"
+                "    _fields_ = [('x', ctypes.c_int)]"
+            ).body[0]
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "extra_structure")
+
+
+def test_sandbox_rejects_changed_structure_base(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_class(tree, "IO_COUNTERS").bases = [
+            ast.Name(id="object", ctx=ast.Load())
+        ]
+
+    _assert_full_module_rejected(tmp_path, mutate, "structure_base")
+
+
+def test_sandbox_rejects_structure_class_expression(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_class(tree, "EXPLICIT_ACCESS_W").body.append(
+            ast.parse("evil()").body[0]
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "structure_expression")
+
+
+def test_sandbox_rejects_structure_class_method(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_class(tree, "EXPLICIT_ACCESS_W").body.append(
+            ast.parse("def extra(self):\n    pass").body[0]
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "structure_method")
+
+def test_sandbox_rejects_changed_import_level(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        _module_from_import(tree, "ctypes").level = 1
+
+    _assert_full_module_rejected(tmp_path, mutate, "import_level")
+
+
+def test_sandbox_rejects_unapproved_from_import(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        tree.body.insert(1, ast.parse("from os import path").body[0])
+
+    _assert_full_module_rejected(tmp_path, mutate, "unapproved_from_import")
+
+
+def test_sandbox_rejects_changed_helper_signature(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        helper = _module_function(tree, "_ensure_windowstation_desktop_access")
+        helper.args.args.append(
+            ast.arg(arg="value", annotation=None, type_comment=None)
+        )
+
+    _assert_full_module_rejected(tmp_path, mutate, "helper_signature")
+
+
+def test_sandbox_rejects_duplicate_manager_class(tmp_path: Path) -> None:
+    def mutate(tree: ast.Module) -> None:
+        manager = _module_class(tree, "WindowsSandboxManager")
+        tree.body.append(copy.deepcopy(manager))
+
+    _assert_full_module_rejected(tmp_path, mutate, "duplicate_manager")
