@@ -277,3 +277,113 @@ sanitizes secrets, enforces Job process/memory limits, caps output after the
 fix, and cleans up. It does not yet have proof for the machine ACL-grant branch,
 AppContainer network denial, Python 3.11 full guarded import, or the AppContainer
 staging-TMP contract.
+
+## 14. Corrective follow-up - bounded output and test integrity
+
+**Starting HEAD:** `7e0b83ff6fb4aa58f2dfef0677c6cfcc414e9128`
+
+### Findings
+
+1. **AppContainer output was not genuinely bounded.** The AppContainer path
+   wrote stdout/stderr to temporary files, then called `read_bytes()` and
+   truncated the returned string. A child could grow the temp files without a
+   retention bound, and the parent could allocate the whole file in memory.
+2. **Fallback output used `readline()`.** The retention cap was applied only
+   after an arbitrarily large line had already been materialized in the parent.
+3. **The DACL test could pass on process-start failure.** It asserted only
+   "non-zero exit" for the denied operation.
+4. **The process-limit test accepted any exception**, not the specific Windows
+   denial.
+5. **The memory test did not distinguish job-limit denial from unrelated
+   failure**, and did not record peak memory.
+
+### Corrections
+
+`src/security/sandbox/windows.py`
+
+- AppContainer now uses anonymous pipes created with `CreatePipe`, not temp
+  files. Only the child-side write handles are inheritable; the parent read
+  handles are non-inheritable.
+- Two reader threads drain stdout/stderr with 64 KiB `ReadFile` chunks. They
+  retain at most **1 MiB per stream**, continue draining excess, and record
+  retained and total bytes separately.
+- The parent decodes retained UTF-8 bytes once at the end, so chunk boundaries
+  cannot split a sequence incorrectly. Truncation markers name the exact cap.
+- The fallback now uses binary `Popen` pipes and fixed 64 KiB `.read()` chunks.
+  It never calls `readline()` and never materializes an unbounded line.
+- Both streams have independent 1 MiB retention budgets; excess is drained so
+  the child cannot block on a full pipe.
+- No temporary output files are created by either backend.
+
+`src/tests/test_windows_sandbox_runtime.py`
+
+- DACL test now proves the AppContainer child **started** (`APPCONTAINER_STARTED`
+  baseline), then asserts the denied operation returned exit code 1 with
+  "Access is denied" and no spawn failure. The secret is not disclosed and the
+  write target is not created.
+- Process-limit test asserts `OSError` with **WinError 1816** specifically.
+- Memory test first proves a 128 MB allocation succeeds under a 512 MB job
+  limit, then proves it raises `MemoryError` under a 64 MB limit. Configured
+  limit and observed peak are recorded; no strict peak claim is made.
+- Added output-bound tests for both backends: one enormous line without a
+  newline, multiple lines, separate stdout/stderr overflow, UTF-8 at the cap
+  boundary, and continuous output until timeout.
+- Added fallback and opt-in AppContainer cancellation tests.
+
+### Verification
+
+| Check | Result | Exit |
+|---|---|---|
+| AST validation | `AST OK` | 0 |
+| Full security suite | 232 passed, 3 skipped in 22.75 s | 0 |
+| Full static security scan | 173 passed in 5.52 s | 0 |
+| Full guarded import | 1 passed in 10.28 s | 0 |
+| Agent-core checkup | 57 pass, 5 warn, 0 fail | 0 |
+| Agent-core checkup tests | 19 passed in 63.25 s | 0 |
+| Windows runtime harness (AppContainer opt-in) | **19 passed in 15.44 s** | 0 |
+| Python 3.11 containment subset | 231 passed, 3 skipped in 13.97 s | 0 |
+| Python 3.11 full guarded import | 1 failed in 2.89 s | 1 |
+
+The 3.11 failure is the known `platform.system()` → `cmd /c ver` spawn, not a
+regression in this correction.
+
+### Acceptance criteria
+
+| ID | Status | Evidence |
+|---|---|---|
+| C1 AppContainer retention bounded | PASS | 1 MiB per pipe, 64 KiB chunks |
+| C2 AppContainer temp storage bounded | PASS | no temp files; pipes only |
+| C3 Fallback enormous lines bounded | PASS | binary fixed-chunk reader |
+| C4 Independent stream limits | PASS | separate stdout/stderr budgets |
+| C5 DACL denial proof | PASS | baseline start + exit 1 + Access denied |
+| C6 Process-limit denial | PASS | WinError 1816 asserted |
+| C7 Memory evidence classified | PASS | 512 MB control vs 64 MB MemoryError; peak recorded |
+| C8 Timeout/cancellation/cleanup | PASS | output timeout, fallback + AC cancellation, cleanup |
+| C9 Security suite | PASS | 232 passed, 3 skipped |
+| C10 Limitations disclosed | PASS | Phase 1.4 limitations retained below |
+
+### CI results
+
+Workflow `Security guard`, corrective commit: pending.
+
+| Job | Platform | Result | Run |
+|---|---|---|---|
+| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
+| Security containment (windows-latest) | Windows | pending | pending |
+| Security containment (macos-latest) | macOS | pending | pending |
+
+### Remaining Phase 1.4 limitations
+
+- Production WindowStation/Desktop ACL-grant branch: **NOT RUN** (WinError 5,
+  no `SeTcbPrivilege`; no machine ACL modified).
+- AppContainer network denial: **NOT RUN** (network-capable binaries fail to
+  initialize with `0xC0000142` when the ACL helper is skipped).
+- AppContainer TMP is package-local, not staging; contract mismatch.
+- Job memory peak accounting reported ~140 MB under a 64 MB limit; behavioral
+  `MemoryError` observed, hard-cap accounting needs review.
+- Python 3.11 full guarded import still fails on `platform.system()`.
+- Static AST validation is not an OS sandbox.
+
+**Phase 1.4 verdict remains PARTIAL** because the production ACL-grant branch
+and AppContainer network denial remain unproven. This correction closes the
+output-bound and test-integrity findings (C1-C8).

@@ -108,8 +108,8 @@ def _request(
 def _paths(tmp_path: Path) -> tuple[Path, Path]:
     workspace = tmp_path / "workspace"
     staging = tmp_path / "staging"
-    workspace.mkdir()
-    staging.mkdir()
+    workspace.mkdir(parents=True)
+    staging.mkdir(parents=True)
     return workspace, staging
 
 
@@ -244,8 +244,10 @@ def test_active_process_limit_denies_grandchild(tmp_path: Path) -> None:
         " subprocess.run([os.environ.get('COMSPEC','cmd.exe'),'/c','echo','grandchild'],"
         "capture_output=True,timeout=5);"
         " print('GRANDCHILD_OK')\n"
+        "except OSError as e:\n"
+        " print('GRANDCHILD_DENIED='+type(e).__name__+':winerror='+str(e.winerror))\n"
         "except BaseException as e:\n"
-        " print('GRANDCHILD_DENIED='+type(e).__name__)\n"
+        " print('UNEXPECTED='+type(e).__name__)\n"
     )
     result, limits = _run_job_case(
         workspace,
@@ -256,18 +258,36 @@ def test_active_process_limit_denies_grandchild(tmp_path: Path) -> None:
     )
     assert limits["active_process_limit"] == 1
     assert result["exit_code"] == 0
-    assert "GRANDCHILD_DENIED" in result["stdout"], result["stdout"]
+    assert "GRANDCHILD_DENIED=OSError:winerror=1816" in result["stdout"], result["stdout"]
     assert "GRANDCHILD_OK" not in result["stdout"]
+    assert "UNEXPECTED=" not in result["stdout"]
 
 
 def test_memory_limit_denies_large_allocation(tmp_path: Path) -> None:
-    workspace, staging = _paths(tmp_path)
     code = (
         "try:\n"
         " b=bytearray(128*1024*1024); print('MEMORY_OK')\n"
         "except BaseException as e:\n"
         " print('MEMORY_DENIED='+type(e).__name__)\n"
     )
+
+    control_root = tmp_path / "control"
+    control_root.mkdir()
+    control_workspace, control_staging = _paths(control_root)
+    control_result, control_limits = _run_job_case(
+        control_workspace,
+        control_staging,
+        [CHILD_PY, "-c", code],
+        max_processes=4,
+        max_memory_mb=512,
+    )
+    assert control_limits["job_memory_limit"] == 512 * 1024 * 1024
+    assert control_result["exit_code"] == 0
+    assert "MEMORY_OK" in control_result["stdout"], control_result["stdout"]
+
+    limited_root = tmp_path / "limited"
+    limited_root.mkdir()
+    workspace, staging = _paths(limited_root)
     result, limits = _run_job_case(
         workspace,
         staging,
@@ -276,7 +296,11 @@ def test_memory_limit_denies_large_allocation(tmp_path: Path) -> None:
         max_memory_mb=64,
     )
     assert limits["job_memory_limit"] == 64 * 1024 * 1024
-    assert "MEMORY_DENIED" in result["stdout"] or result["exit_code"] != 0
+    assert result["exit_code"] == 0
+    assert "MEMORY_DENIED=MemoryError" in result["stdout"], result["stdout"]
+    assert result["peak_memory_bytes"] > 0
+    # The behavioral denial is observed. Peak accounting is recorded, not
+    # asserted below the configured limit (Phase 1.4 observed ~140 MB).
 
 
 def test_output_cap_is_strict_for_one_large_line(tmp_path: Path) -> None:
@@ -290,7 +314,90 @@ def test_output_cap_is_strict_for_one_large_line(tmp_path: Path) -> None:
         max_memory_mb=256,
     )
     assert result["exit_code"] == 0
-    assert result["stdout_bytes"] <= 1024 * 1024
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+
+def test_output_cap_multiple_lines(tmp_path: Path) -> None:
+    workspace, staging = _paths(tmp_path)
+    code = "import sys\nfor _ in range(30): sys.stdout.write('x' * 100000)"
+    result, _limits_out = _run_job_case(
+        workspace,
+        staging,
+        [CHILD_PY, "-c", code],
+        max_processes=4,
+        max_memory_mb=256,
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+
+def test_output_cap_separate_streams(tmp_path: Path) -> None:
+    workspace, staging = _paths(tmp_path)
+    code = (
+        "import sys;"
+        "sys.stdout.buffer.write(b'x' * 1500000);"
+        "sys.stdout.flush();"
+        "sys.stderr.buffer.write(b'y' * 1500000);"
+        "sys.stderr.flush()"
+    )
+    result, _limits_out = _run_job_case(
+        workspace,
+        staging,
+        [CHILD_PY, "-c", code],
+        max_processes=4,
+        max_memory_mb=256,
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert result["stderr_bytes"] == 1024 * 1024
+    assert "stdout truncated at" in result["stdout"]
+    assert "stderr truncated at" in result["stderr"]
+
+
+def test_output_cap_utf8_boundary(tmp_path: Path) -> None:
+    workspace, staging = _paths(tmp_path)
+    code = (
+        "import sys;"
+        "sys.stdout.buffer.write(b'a' * (1024*1024 - 2));"
+        "sys.stdout.buffer.write('é'.encode('utf-8'));"
+        "sys.stdout.buffer.write(b'z' * 100);"
+        "sys.stdout.flush()"
+    )
+    result, _limits_out = _run_job_case(
+        workspace,
+        staging,
+        [CHILD_PY, "-c", code],
+        max_processes=4,
+        max_memory_mb=256,
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "é" in result["stdout"]
+    assert "\ufffd" not in result["stdout"]
+    assert "truncated at" in result["stdout"]
+
+
+def test_output_cap_continuous_until_timeout(tmp_path: Path) -> None:
+    workspace, staging = _paths(tmp_path)
+    code = (
+        "import sys\n"
+        "while True:\n"
+        " sys.stdout.write('x' * 1024)\n"
+        " sys.stdout.flush()\n"
+    )
+    result, _limits_out = _run_job_case(
+        workspace,
+        staging,
+        [CHILD_PY, "-c", code],
+        max_processes=4,
+        max_memory_mb=256,
+        timeout_s=2.0,
+    )
+    assert result["timed_out"] is True
+    assert result["exit_code"] == 124
+    assert result["stdout_bytes"] == 1024 * 1024
     assert "truncated at" in result["stdout"]
 
 
@@ -469,6 +576,18 @@ def test_appcontainer_denies_disposable_denied_directory(
         manager.initialize(request, staging)
         sid = manager.appcontainer_sid_str
         assert sid
+
+        baseline = manager.execute(
+            _request(
+                workspace,
+                ["cmd.exe", "/c", "echo", "APPCONTAINER_STARTED"],
+            ),
+            staging,
+        )
+        assert baseline["exit_code"] == 0
+        assert "APPCONTAINER_STARTED" in baseline["stdout"]
+        assert "Failed to spawn AppContainer worker process" not in baseline["stderr"]
+
         denied_acl = subprocess.run(
             ["icacls", str(denied), "/deny", f"*{sid}:(OI)(CI)(F)"],
             capture_output=True,
@@ -481,7 +600,9 @@ def test_appcontainer_denies_disposable_denied_directory(
             staging,
         )
         assert "PHASE14_SECRET_VALUE" not in result["stdout"]
-        assert result["exit_code"] != 0
+        assert result["exit_code"] == 1
+        assert "access is denied" in result["stderr"].lower()
+        assert "Failed to spawn AppContainer worker process" not in result["stderr"]
 
         result = manager.execute(
             _request(
@@ -491,6 +612,229 @@ def test_appcontainer_denies_disposable_denied_directory(
             staging,
         )
         assert not target.exists()
-        assert result["exit_code"] != 0
+        assert result["exit_code"] == 1
+        assert "access is denied" in result["stderr"].lower()
+        assert "Failed to spawn AppContainer worker process" not in result["stderr"]
+    finally:
+        manager.cleanup(staging)
+
+def _run_appcontainer_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command_builder,
+    *,
+    files: dict[str, bytes] | None = None,
+    timeout_s: float = 20.0,
+):
+    import src.security.sandbox.windows as windows
+
+    workspace, staging = _paths(tmp_path)
+    for name, data in (files or {}).items():
+        (workspace / name).write_bytes(data)
+    monkeypatch.setattr(
+        windows,
+        "_ensure_windowstation_desktop_access",
+        lambda: True,
+    )
+    manager = WindowsSandboxManager(use_appcontainer=True)
+    request = _request(
+        workspace,
+        command_builder(workspace),
+        timeout_s=timeout_s,
+        mode=ExecutionMode.READ_ONLY,
+    )
+    try:
+        manager.initialize(request, staging)
+        assert manager.appcontainer_sid_str
+        return manager.execute(request, staging)
+    finally:
+        manager.cleanup(staging)
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_output_cap_single_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_appcontainer_case(
+        tmp_path,
+        monkeypatch,
+        lambda workspace: ["cmd.exe", "/c", "type", str(workspace / "big.txt")],
+        files={"big.txt": b"x" * 2000000},
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_output_cap_multiple_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = b"\n".join(b"x" * 200 for _ in range(20000))
+    result = _run_appcontainer_case(
+        tmp_path,
+        monkeypatch,
+        lambda workspace: ["cmd.exe", "/c", "type", str(workspace / "lines.txt")],
+        files={"lines.txt": data},
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_output_cap_separate_streams(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out_result = _run_appcontainer_case(
+        tmp_path / "stdout",
+        monkeypatch,
+        lambda workspace: ["cmd.exe", "/c", "type", str(workspace / "out.txt")],
+        files={"out.txt": b"o" * 1500000},
+    )
+    assert out_result["exit_code"] == 0
+    assert out_result["stdout_bytes"] == 1024 * 1024
+    assert "stdout truncated at" in out_result["stdout"]
+
+    err_result = _run_appcontainer_case(
+        tmp_path / "stderr",
+        monkeypatch,
+        lambda workspace: [
+            "cmd.exe",
+            "/c",
+            f"type {workspace / 'err.txt'} 1>&2",
+        ],
+        files={"err.txt": b"e" * 1500000},
+    )
+    assert err_result["exit_code"] == 0
+    assert err_result["stderr_bytes"] == 1024 * 1024
+    assert "stderr truncated at" in err_result["stderr"]
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_output_cap_utf8_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = b"a" * (1024 * 1024 - 2) + "é".encode("utf-8") + b"z" * 100
+    result = _run_appcontainer_case(
+        tmp_path,
+        monkeypatch,
+        lambda workspace: ["cmd.exe", "/c", "type", str(workspace / "utf8.txt")],
+        files={"utf8.txt": data},
+    )
+    assert result["exit_code"] == 0
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_output_cap_continuous_until_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_appcontainer_case(
+        tmp_path,
+        monkeypatch,
+        lambda workspace: [
+            "cmd.exe",
+            "/c",
+            f'for /l %i in (1,1,100000000) do @type {workspace / "big.txt"}',
+        ],
+        files={"big.txt": b"x" * 2000000},
+        timeout_s=3.0,
+    )
+    assert result["timed_out"] is True
+    assert result["exit_code"] == 124
+    assert result["stdout_bytes"] == 1024 * 1024
+    assert "truncated at" in result["stdout"]
+
+def test_cancellation_stops_process(tmp_path: Path) -> None:
+    workspace, staging = _paths(tmp_path)
+    manager = WindowsSandboxManager(use_appcontainer=False)
+    request = _request(
+        workspace,
+        [CHILD_PY, "-c", "import time; time.sleep(30)"],
+        timeout_s=60.0,
+    )
+    manager.initialize(request, staging)
+    abort = threading.Event()
+    holder: dict = {}
+
+    def run() -> None:
+        holder["result"] = manager.execute(request, staging, abort_event=abort)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    time.sleep(1.0)
+    abort.set()
+    thread.join(timeout=10)
+    assert thread.is_alive() is False
+    result = holder["result"]
+    assert result["cancelled"] is True
+    assert result["exit_code"] == 130
+    assert manager._process is not None
+    assert manager._process.poll() is not None
+    assert manager.cleanup(staging) == "CLEANUP_SUCCESS"
+
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_cancellation_stops_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.security.sandbox.windows as windows
+
+    workspace, staging = _paths(tmp_path)
+    monkeypatch.setattr(
+        windows,
+        "_ensure_windowstation_desktop_access",
+        lambda: True,
+    )
+    manager = WindowsSandboxManager(use_appcontainer=True)
+    request = _request(
+        workspace,
+        ["cmd.exe", "/c", "for /l %i in (1,1,100000000) do @rem"],
+        timeout_s=60.0,
+    )
+    abort = threading.Event()
+    holder: dict = {}
+
+    def run() -> None:
+        holder["result"] = manager.execute(request, staging, abort_event=abort)
+
+    try:
+        manager.initialize(request, staging)
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        time.sleep(1.5)
+        abort.set()
+        thread.join(timeout=10)
+        assert thread.is_alive() is False
+        result = holder["result"]
+        assert result["cancelled"] is True
+        assert result["exit_code"] == 130
+        assert manager._job_handle is None
     finally:
         manager.cleanup(staging)

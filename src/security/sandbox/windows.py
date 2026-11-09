@@ -536,20 +536,55 @@ class WindowsSandboxManager(BaseSandboxManager):
         abort_event: Optional[Any],
     ) -> Dict[str, Any]:
         """Execute inside genuine OS-level Windows AppContainer combined with Job Object."""
-        stdout_file = staging_dir / f"_crusor_stdout_{uuid.uuid4().hex[:8]}.txt"
-        stderr_file = staging_dir / f"_crusor_stderr_{uuid.uuid4().hex[:8]}.txt"
-
+        output_cap_bytes = 1 * 1024 * 1024
+        output_chunk_bytes = 64 * 1024
         sa = SECURITY_ATTRIBUTES()
         sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
         sa.lpSecurityDescriptor = None
         sa.bInheritHandle = True
 
-        h_out = _kernel32.CreateFileW(
-            str(stdout_file), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ctypes.byref(sa), CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, None
-        )
-        h_err = _kernel32.CreateFileW(
-            str(stderr_file), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ctypes.byref(sa), CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, None
-        )
+        read_out = wintypes.HANDLE()
+        write_out = wintypes.HANDLE()
+        read_err = wintypes.HANDLE()
+        write_err = wintypes.HANDLE()
+        if not (
+            _kernel32.CreatePipe(
+                ctypes.byref(read_out),
+                ctypes.byref(write_out),
+                ctypes.byref(sa),
+                0,
+            )
+            and _kernel32.CreatePipe(
+                ctypes.byref(read_err),
+                ctypes.byref(write_err),
+                ctypes.byref(sa),
+                0,
+            )
+        ):
+            err = ctypes.get_last_error()
+            for handle in (read_out, write_out, read_err, write_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": f"Failed to create AppContainer output pipes: WinError {err}",
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
+
+        # Only the child-side write handles may be inherited.
+        _kernel32.SetHandleInformation(read_out, 0x00000001, 0)
+        _kernel32.SetHandleInformation(read_err, 0x00000001, 0)
+
+        h_out = write_out
+        h_err = write_err
 
         sec_caps = SECURITY_CAPABILITIES()
         sec_caps.AppContainerSid = self._appcontainer_sid
@@ -612,8 +647,9 @@ class WindowsSandboxManager(BaseSandboxManager):
 
         if not res_cp:
             err = ctypes.get_last_error()
-            _kernel32.CloseHandle(h_out)
-            _kernel32.CloseHandle(h_err)
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
             _kernel32.DeleteProcThreadAttributeList(attr_buf)
             return {
                 "exit_code": 127,
@@ -635,9 +671,49 @@ class WindowsSandboxManager(BaseSandboxManager):
         # Resume thread
         _kernel32.ResumeThread(pi.hThread)
 
-        # Close child handles on parent side so child can flush
+        # Close child handles on parent side so child can flush.
         _kernel32.CloseHandle(h_out)
         _kernel32.CloseHandle(h_err)
+
+        stdout_buf = bytearray()
+        stderr_buf = bytearray()
+        pipe_stats = {"stdout": [0, 0], "stderr": [0, 0]}
+
+        def _read_pipe(handle, buf: bytearray, key: str) -> None:
+            chunk = ctypes.create_string_buffer(output_chunk_bytes)
+            bytes_read = wintypes.DWORD(0)
+            total = 0
+            retained = 0
+            try:
+                while _kernel32.ReadFile(
+                    handle,
+                    ctypes.cast(chunk, ctypes.c_void_p),
+                    output_chunk_bytes,
+                    ctypes.byref(bytes_read),
+                    None,
+                ):
+                    data = chunk.raw[: bytes_read.value]
+                    total += len(data)
+                    if retained < output_cap_bytes:
+                        take = min(len(data), output_cap_bytes - retained)
+                        buf.extend(data[:take])
+                        retained += take
+            finally:
+                pipe_stats[key] = [retained, total]
+                _kernel32.CloseHandle(handle)
+
+        reader_out = threading.Thread(
+            target=_read_pipe,
+            args=(read_out, stdout_buf, "stdout"),
+            daemon=True,
+        )
+        reader_err = threading.Thread(
+            target=_read_pipe,
+            args=(read_err, stderr_buf, "stderr"),
+            daemon=True,
+        )
+        reader_out.start()
+        reader_err.start()
 
         start_time = time.monotonic()
         timeout_deadline = start_time + request.timeout_s
@@ -683,34 +759,25 @@ class WindowsSandboxManager(BaseSandboxManager):
         elif cancelled:
             code_val = 130
 
-        # Read streams
-        max_bytes_per_stream = 1 * 1024 * 1024
-        final_stdout = ""
-        final_stderr = ""
-        stdout_bytes = 0
-        stderr_bytes = 0
+        # Drain and decode bounded output.
+        reader_out.join(timeout=5.0)
+        reader_err.join(timeout=5.0)
 
-        if stdout_file.exists():
-            try:
-                raw_out = stdout_file.read_bytes()
-                stdout_bytes = len(raw_out)
-                final_stdout = raw_out[:max_bytes_per_stream].decode("utf-8", errors="replace")
-                if stdout_bytes >= max_bytes_per_stream:
-                    final_stdout += f"\n... [stdout truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-                stdout_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+        stdout_bytes, stdout_total = pipe_stats["stdout"]
+        stderr_bytes, stderr_total = pipe_stats["stderr"]
+        final_stdout = bytes(stdout_buf).decode("utf-8", errors="replace")
+        final_stderr = bytes(stderr_buf).decode("utf-8", errors="replace")
 
-        if stderr_file.exists():
-            try:
-                raw_err = stderr_file.read_bytes()
-                stderr_bytes = len(raw_err)
-                final_stderr = raw_err[:max_bytes_per_stream].decode("utf-8", errors="replace")
-                if stderr_bytes >= max_bytes_per_stream:
-                    final_stderr += f"\n... [stderr truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-                stderr_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+        if stdout_total > output_cap_bytes:
+            final_stdout += (
+                f"\n... [stdout truncated at {output_cap_bytes} bytes "
+                "by Crusor sandbox]"
+            )
+        if stderr_total > output_cap_bytes:
+            final_stderr += (
+                f"\n... [stderr truncated at {output_cap_bytes} bytes "
+                "by Crusor sandbox]"
+            )
 
         return {
             "exit_code": code_val,
@@ -735,6 +802,8 @@ class WindowsSandboxManager(BaseSandboxManager):
         abort_event: Optional[Any],
     ) -> Dict[str, Any]:
         """Fallback execution using Windows Job Object alone."""
+        output_cap_bytes = 1 * 1024 * 1024
+        output_chunk_bytes = 64 * 1024
         argv = request.argv if request.argv else request.command
         use_shell = isinstance(argv, str)
 
@@ -742,11 +811,13 @@ class WindowsSandboxManager(BaseSandboxManager):
         cancelled = False
         start_time = time.monotonic()
 
-        stdout_buf: List[str] = []
-        stderr_buf: List[str] = []
-        max_bytes_per_stream = 1 * 1024 * 1024
+        stdout_buf: bytearray = bytearray()
+        stderr_buf: bytearray = bytearray()
+        max_bytes_per_stream = output_cap_bytes
         stdout_bytes = 0
         stderr_bytes = 0
+        stdout_total = 0
+        stderr_total = 0
 
         try:
             self._process = subprocess.Popen(
@@ -757,9 +828,6 @@ class WindowsSandboxManager(BaseSandboxManager):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
 
@@ -787,25 +855,24 @@ class WindowsSandboxManager(BaseSandboxManager):
                 "security_violations": list(self._violations),
             }
 
-        def _consume(line: str, buf: List[str], used: int) -> int:
-            encoded = line.encode("utf-8")
-            remaining = max_bytes_per_stream - used
-            if remaining <= 0:
-                return used
-            if len(encoded) <= remaining:
-                buf.append(line)
-                return used + len(encoded)
-            buf.append(encoded[:remaining].decode("utf-8", errors="ignore"))
-            return max_bytes_per_stream
-
-        def _read_stream(stream, buf, is_stdout):
-            nonlocal stdout_bytes, stderr_bytes
-            for line in iter(stream.readline, ""):
-                if is_stdout:
-                    stdout_bytes = _consume(line, buf, stdout_bytes)
-                else:
-                    stderr_bytes = _consume(line, buf, stderr_bytes)
+        def _read_stream(stream, buf: bytearray, is_stdout: bool) -> None:
+            nonlocal stdout_bytes, stderr_bytes, stdout_total, stderr_total
+            total = 0
+            retained = 0
+            while True:
+                data = stream.read(output_chunk_bytes)
+                if not data:
+                    break
+                total += len(data)
+                if retained < max_bytes_per_stream:
+                    take = min(len(data), max_bytes_per_stream - retained)
+                    buf.extend(data[:take])
+                    retained += take
             stream.close()
+            if is_stdout:
+                stdout_bytes, stdout_total = retained, total
+            else:
+                stderr_bytes, stderr_total = retained, total
 
         t_out = threading.Thread(target=_read_stream, args=(self._process.stdout, stdout_buf, True), daemon=True)
         t_err = threading.Thread(target=_read_stream, args=(self._process.stderr, stderr_buf, False), daemon=True)
@@ -843,13 +910,19 @@ class WindowsSandboxManager(BaseSandboxManager):
         elif exit_code is None:
             exit_code = 1
 
-        final_stdout = "".join(stdout_buf)
-        final_stderr = "".join(stderr_buf)
+        final_stdout = bytes(stdout_buf).decode("utf-8", errors="replace")
+        final_stderr = bytes(stderr_buf).decode("utf-8", errors="replace")
 
-        if stdout_bytes >= max_bytes_per_stream:
-            final_stdout += f"\n... [stdout truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-        if stderr_bytes >= max_bytes_per_stream:
-            final_stderr += f"\n... [stderr truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
+        if stdout_total > max_bytes_per_stream:
+            final_stdout += (
+                f"\n... [stdout truncated at {max_bytes_per_stream} bytes "
+                "by Crusor sandbox]"
+            )
+        if stderr_total > max_bytes_per_stream:
+            final_stderr += (
+                f"\n... [stderr truncated at {max_bytes_per_stream} bytes "
+                "by Crusor sandbox]"
+            )
 
         return {
             "exit_code": exit_code,
