@@ -24,6 +24,7 @@ database, Electron or ACL operation was changed.
 | Start HEAD | `3c954480b66c32526e243eb25259662f10e14856` |
 | Implementation | `4a9e2adebc5156f38d1d6edd5b9461516045ba83` |
 | CI portability fix | `3450c790d808aab5a9d988d687d50355c2962e30` |
+| Exact-call hardening | `de4f8c0d3530ce46caab67e87fa73b42a00dd662` |
 
 ## 2. Vulnerabilities addressed
 
@@ -70,6 +71,12 @@ matched security APIs by final method name. It missed:
   - `EXPLICIT_ACCESS_W` for `ea`
 - Exact `SetEntriesInAclW` arguments and exact seven `SetSecurityInfo`
   arguments.
+- Exact call set inside `_grant_to_object`:
+  `EXPLICIT_ACCESS_W` ×1, `ctypes.c_void_p` ×3, `ctypes.byref` ×4,
+  `_advapi32.GetSecurityInfo` ×1, `_advapi32.SetEntriesInAclW` ×1,
+  `_advapi32.SetSecurityInfo` ×1 and `_kernel32.LocalFree` ×2. Any extra,
+  aliased, helper or dynamic call (`getattr(...)(...)`) fails closed, so an
+  unapproved call cannot hide next to the documented operation.
 - Allocation/order/flow:
   - `p_new_dacl = ctypes.c_void_p()` before `SetEntriesInAclW`;
   - `SetEntriesInAclW` before `SetSecurityInfo`;
@@ -112,6 +119,8 @@ New `Security guard` workflow:
 | fake `ctypes.c_void_p` receiver | rejected |
 | `LocalFree` before `SetSecurityInfo` | rejected |
 | extra unapproved mutation | rejected |
+| extra unapproved call | rejected |
+| dynamic `getattr(...)(...)` security call | rejected |
 | exact documented implementation | **accepted** |
 
 ## 5. Results
@@ -119,21 +128,21 @@ New `Security guard` workflow:
 | Check | Result | Exit |
 |---|---|---|
 | AST validation | `AST OK` | 0 |
-| Static scan subset | **30 passed** | 0 |
+| Static scan subset | **32 passed** | 0 |
 | Annotated + augmented subset | **2 passed** | 0 |
 | `setattr` + nested subset | **7 passed** | 0 |
 | Receiver subset | **3 passed** | 0 |
-| Ordering/allocation subset | **6 passed** | 0 |
-| Full `test_security_containment.py` | **88 passed, 3 skipped** in 32.79 s | 0 |
-| Full guarded import | **1 passed** in 11.33 s | 0 |
+| Ordering/allocation subset | **7 passed** | 0 |
+| Full `test_security_containment.py` | **90 passed, 3 skipped** in 38.38 s | 0 |
+| Full guarded import | **1 passed** in 22.92 s | 0 |
 | Standalone agent-core checkup | **57 pass, 5 warn, 0 fail** | 0 |
-| Agent-core checkup tests | **19 passed** in 86.46 s | 0 |
-| CI-parity run (clean 3.14 venv, CI dependency set only) | **88 passed, 3 skipped** in 15.87 s | 0 |
+| Agent-core checkup tests | **19 passed** in 153.93 s | 0 |
+| CI-parity run (clean 3.14 venv, CI dependency set only) | **90 passed, 3 skipped** in 21.55 s | 0 |
 
 Skips on Windows locally: `os.fork`, external-directory `os.open(dir_fd=...)`,
 `os.fchdir`. On Linux/macOS the Windows-only `ctypes.WinDLL` probes and the
-drive-letter probe are also skipped. The CI runners report 87 passed / 4
-skipped on Ubuntu and macOS, and 85 passed / 6 skipped on Windows, where three
+drive-letter probe are also skipped. The CI runners report 89 passed / 4
+skipped on Ubuntu and macOS, and 87 passed / 6 skipped on Windows, where three
 cross-drive probes skip because the checkout is on `D:` and temp is on `C:`.
 
 The 5 checkup WARNs are the same pre-existing design observations. No FAIL.
@@ -179,14 +188,14 @@ process spawn.
 
 ### 6.2 Final run
 
-Workflow `Security guard`, commit `3450c790d808aab5a9d988d687d50355c2962e30`,
-run `42559738964`, **success**:
+Workflow `Security guard`, commit `de4f8c0d3530ce46caab67e87fa73b42a00dd662`,
+run `42560871135`, **success**:
 
 | Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | `128973309878` | **success** — 87 passed, 4 skipped in 10.04 s |
-| Security containment (windows-latest) | Windows | `128973309915` | **success** — 85 passed, 6 skipped in 8.55 s |
-| Security containment (macos-latest) | macOS | `128973309693` | **success** — 87 passed, 4 skipped in 9.55 s |
+| Security containment (ubuntu-latest) | Ubuntu | `128976770082` | **success** — 89 passed, 4 skipped in 6.05 s |
+| Security containment (windows-latest) | Windows | `128976769886` | **success** — 87 passed, 6 skipped in 9.27 s |
+| Security containment (macos-latest) | macOS | `128976770003` | **success** — 89 passed, 4 skipped in 11.21 s |
 
 All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
 drive-letter probes; Windows additionally skips the three cross-drive probes
@@ -239,4 +248,6 @@ C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_1_ci_fix_20261108_2000
   09_standalone_checkup.log
   10_checkup_tests.log
   11_ci_parity_314.log                          (clean 3.14 venv, CI deps only)
+C:\Users\Administrator\AppData\Local\Temp\crusor_phase1_3_1_ci_fix_20261108_201024\
+  01_ast.log ... 11_ci_parity_314.log          (post exact-call hardening)
 ```
