@@ -1464,8 +1464,47 @@ class TurnEvidenceRecorder:
             build = self._manifest.get("build") or {}
             if not build_identity_is_complete(build):
                 missing.append("build_identity")
+            # A turn cancelled before any model/tool work has no trace and no
+            # report BY CONSTRUCTION. Marking that "degraded" painted a yellow
+            # warning on a clean Stop (owner screenshot 2026-11-09). Keep the
+            # receipt strict for executed turns; scope the exemption to the
+            # cancelled-before-execution reasons and only when nothing ran.
+            not_applicable: list[str] = []
+            if (
+                cancelled
+                and not trace.get("available")
+                and not report.get("available")
+                and not journal.get("tool_receipts")
+                and str(reason or "").strip()
+                in {
+                    "user_cancelled_during_startup",
+                    "user_cancelled",
+                    "echo_test_runner",
+                }
+            ):
+                exempt = {
+                    "trace",
+                    "report",
+                    "trace_empty",
+                    "trace_parse_errors",
+                    "trace_finalization",
+                    "trace_verdict",
+                    "report_verdict",
+                    "report_fields",
+                    "report_tool_count",
+                    "report_tool_count_mismatch",
+                    "verification_event",
+                }
+                if any(item in exempt for item in missing):
+                    not_applicable = ["trace", "report"]
+                missing = [item for item in missing if item not in exempt]
             self._manifest["coverage"] = {
                 "missing": missing,
+                **(
+                    {"not_applicable": not_applicable}
+                    if not_applicable
+                    else {}
+                ),
                 "tool_pairs_complete": not bool(
                     journal.get("unmatched_intents")
                     or journal.get("orphan_results")

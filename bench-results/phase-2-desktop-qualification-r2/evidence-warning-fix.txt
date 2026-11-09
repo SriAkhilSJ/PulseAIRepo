@@ -1,0 +1,55 @@
+# Evidence warning on a clean Stop — fixed
+
+Owner report (2026-11-09, screenshot): after cancelling a turn the panel showed a
+yellow row
+
+```
+Agent Core evidence capture is degraded. Missing: trace, report. The runtime
+result is shown, but this turn's monitoring receipt is incomplete.
+```
+
+## Cause
+
+`TurnEvidenceRecorder.finalize()` appended `trace`/`report` to `missing`
+whenever those artifacts were unavailable, and set `capture_status=degraded`
+whenever `missing` was non-empty. A turn cancelled before any model/tool work
+never produces a trace or a report, so every clean Stop was labelled degraded.
+The renderer paints the yellow row for any evidence status other than
+`persisted`.
+
+## Fix
+
+`src/runtime/evidence_capture.py`: when the turn is cancelled, no trace/report
+exists, there are no tool receipts, and the reason is a cancellation/echo-seam
+reason (`user_cancelled_during_startup`, `user_cancelled`,
+`echo_test_runner`), the trace/report-only items are removed from `missing` and
+recorded as `coverage.not_applicable = ["trace","report"]`. Start/terminal/
+journal-chain/tool-pairing checks remain strict, and executed turns keep the
+original degraded rule.
+
+Regression: `test_cancelled_before_execution_is_complete_not_degraded`
+(`src/tests/test_runtime_evidence_capture.py`).
+
+## Runtime proof
+
+Isolated bridge probe (`probe-cancel-startup.py`, barrier 3000 ms), startup Stop:
+
+```json
+terminal: {"type":"turn_done","completed":false,"cancelled":true,
+           "message":"Operation cancelled by the user."}
+sequence: [..., "turn_started", "turn_done"]          (no runtime_degraded)
+manifest: capture_status = "complete"
+          lifecycle.status = "cancelled", cancelled = true
+          coverage.missing = []
+          coverage.not_applicable = ["trace","report"]
+```
+
+Because the receipt status is `persisted`, the renderer no longer paints the
+yellow warning for this turn. A completed real turn with a missing trace/report
+still degrades.
+
+## Scope
+
+The completed echo test turn (`echo_test_runner`, `cancelled=false`) keeps the
+warning: it is a test-mode turn whose receipt honestly says no graph trace
+exists. Only cancelled-before-execution turns are exempted.

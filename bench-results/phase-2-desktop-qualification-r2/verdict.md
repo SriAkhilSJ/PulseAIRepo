@@ -1,4 +1,4 @@
-# Phase 2 desktop remediation r2 — verdict
+﻿# Phase 2 desktop remediation r2 â€” verdict
 
 **Verdict: `DESKTOP_PARTIAL`**
 
@@ -73,7 +73,7 @@ This is outside the desktop remediation and was not patched. Details:
 Fixed:
 
 1. Renderer tests: prompt submission with context chips, typed prompt payload,
-   subagent routing, tokenized typography — now pinned semantically.
+   subagent routing, tokenized typography â€” now pinned semantically.
 2. Four raw `font-size` literals replaced with existing tokens; new selector
    regression.
 3. Approval dock: `min-width: 0/width: 100%/box-sizing`, wrapping question and
@@ -82,14 +82,18 @@ Fixed:
    before warm-up/dispatch, consumed by `begin()`, early cancelled terminal
    before any provider/echo work; bounded by a 120 s TTL; deterministic barrier
    seam for tests; 7 unit tests + runtime proof.
+5. False yellow evidence warning on a clean Stop: cancelled-before-execution
+   receipts now record `not_applicable: [trace, report]` and stay `persisted`;
+   verified in the UI (`11_cancelled_no_warning.png`, zero warning rows).
+   See `evidence-warning-fix.txt`.
 
 Open:
 
-5. **Agent Core graph unusable at HEAD** — missing compaction functions
+5. **Agent Core graph unusable at HEAD** â€” missing compaction functions
    (critical, pre-existing, blocks approval and durable replay).
-6. **Light theme ignored by the Crusor pane** — black pane on a light workbench
+6. **Light theme ignored by the Crusor pane** â€” black pane on a light workbench
    (medium, visual).
-7. **Ctrl/Cmd+L not proven** — OS input injection did not reach the app in this
+7. **Ctrl/Cmd+L not proven** â€” OS input injection did not reach the app in this
    session (control chord also ignored); command palette works. Environment
    limitation, not confirmed product defect.
 8. Default orchestrator path issues no approval for writes; not qualified.
@@ -120,7 +124,7 @@ Open:
 6. Light theme pane defect (above).
 7. Ctrl/Cmd+L unproven through a genuine input path.
 8. Startup DI/optional-module errors remain (see `visual-findings.md`).
-9. `CRUSORAI_TURN_STARTUP_BARRIER_MS` is a bounded test-only seam (≤30 s).
+9. `CRUSORAI_TURN_STARTUP_BARRIER_MS` is a bounded test-only seam (â‰¤30 s).
 
 ## Evidence hygiene
 

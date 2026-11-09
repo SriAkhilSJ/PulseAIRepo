@@ -1516,3 +1516,35 @@ def test_restart_recovers_terminal_row_and_immutable_artifacts(
     assert validation.capture_complete is False
     second.interrupt_if_open("test_cleanup")
     services.journal.close()
+
+
+def test_cancelled_before_execution_is_complete_not_degraded(tmp_path: Path) -> None:
+    """Owner screenshot 2026-11-09: a clean Stop painted a yellow
+    "evidence capture is degraded / Missing: trace, report" warning. A turn
+    cancelled before any model/tool work has no trace or report by
+    construction; its receipt is complete for what happened. Executed turns
+    keep the strict check."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    recorder = TurnEvidenceRecorder.begin(
+        identity=_identity(workspace, "session-cancelled-clean"),
+        workspace=str(workspace),
+        prompt="stop before doing anything",
+        mode="agent",
+        services=_services(tmp_path),
+        root=tmp_path / "evidence",
+        build_identity=_matched_build(),
+    )
+    receipt = recorder.finalize(
+        status="cancelled",
+        completed=False,
+        cancelled=True,
+        message="Operation cancelled by the user.",
+        reason="user_cancelled_during_startup",
+    )
+    assert receipt.status == "persisted"
+    assert receipt.missing == ()
+    manifest, _ = _read_manifest(recorder)
+    assert manifest["coverage"]["missing"] == []
+    assert manifest["coverage"]["not_applicable"] == ["trace", "report"]
+    assert manifest["capture_status"] == "complete"
