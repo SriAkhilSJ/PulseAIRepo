@@ -178,17 +178,22 @@ observations; no FAIL.
 
 ## 6. CI results
 
-Workflow `Security guard`, Phase 1.3.3 delivery commit: pending.
+Workflow `Security guard`, commit `1264d9904a78a53fa4b4d83bd46e035cf74dd909`,
+run `42571837431`, **success**:
 
-| Job | Platform | Result | Run |
+| Job | Platform | Job ID | Result |
 |---|---|---|---|
-| Security containment (ubuntu-latest) | Ubuntu | pending | pending |
-| Security containment (windows-latest) | Windows | pending | pending |
-| Security containment (macos-latest) | macOS | pending | pending |
+| Security containment (ubuntu-latest) | Ubuntu | `129010742092` | 188 passed, 4 skipped in 8.16 s |
+| Security containment (windows-latest) | Windows | `129010742187` | 186 passed, 6 skipped in 12.30 s |
+| Security containment (macos-latest) | macOS | `129010741861` | 188 passed, 4 skipped in 7.59 s |
 
-The run IDs are recorded after the delivery push. The Python 3.11 Windows
-`platform.system()` issue remains a separate documented limitation; the 3.14
-results are not evidence of 3.11 Windows coverage.
+All three jobs ran Python 3.14.10. Ubuntu/macOS skip the four Windows-only or
+drive-letter probes; Windows additionally skips three cross-drive probes
+because the checkout is on `D:` and temp is on `C:`. No test failed and no
+platform was skipped wholesale.
+
+The Python 3.11 Windows `platform.system()` issue remains a separate documented
+limitation; the 3.14 results are not evidence of 3.11 Windows coverage.
 
 ## 7. Residual limitations
 
