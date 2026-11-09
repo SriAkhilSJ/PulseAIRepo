@@ -133,11 +133,14 @@ checkup; its Host compatibility run succeeded on all three platforms
 
 ## 7. Remaining bypasses and limitations
 
+> **Phase 1.3 update:** `os.chdir`/`os.fchdir`, directory creation/deletion,
+> `os.truncate`/`os.ftruncate`, writable `os.fdopen`, and a strict AppContainer
+> allowlist are now covered. See `PHASE_1_3_FINAL_GUARD_HARDENING.md`.
+
 - Native C extensions and arbitrary OS calls are not contained. The guard only
   wraps Python-visible entry points.
-- `os.fdopen` on an already-open descriptor, `os.truncate`/`ftruncate`,
-  `os.unlink`/`rmdir`, and directory creation are not intercepted. This is a
-  **write** guard, not a complete filesystem policy.
+- `os.write` / `os.pwrite` descriptor writes, `os.sendfile`, and native
+  extension writes remain outside the Python-level guard.
 - The ctypes guard covers the listed security mutation names; other native
   security APIs are not intercepted.
 - `multiprocessing` guards `Process.start`; bespoke native launchers are not

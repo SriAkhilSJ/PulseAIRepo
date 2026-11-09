@@ -193,6 +193,21 @@ _real_os_replace = os.replace
 _real_os_rename = os.rename
 _real_os_link = getattr(os, "link", None)
 _real_os_symlink = getattr(os, "symlink", None)
+_real_os_chdir = os.chdir
+_real_os_fchdir = getattr(os, "fchdir", None)
+_real_os_chroot = getattr(os, "chroot", None)
+_real_os_mkdir = os.mkdir
+_real_os_makedirs = os.makedirs
+_real_os_unlink = os.unlink
+_real_os_remove = os.remove
+_real_os_rmdir = os.rmdir
+_real_os_removedirs = os.removedirs
+_real_os_truncate = os.truncate
+_real_os_ftruncate = getattr(os, "ftruncate", None)
+_real_os_fdopen = os.fdopen
+_real_path_mkdir = pathlib.Path.mkdir
+_real_path_unlink = pathlib.Path.unlink
+_real_path_rmdir = pathlib.Path.rmdir
 
 def _inside_root(path):
     try:
@@ -201,9 +216,8 @@ def _inside_root(path):
         return False
     if isinstance(raw, bytes):
         raw = os.fsdecode(raw)
-    if not os.path.isabs(raw):
-        raw = os.path.join(_root, raw)
     try:
+        # Resolve exactly as the OS would: relative paths use the real CWD.
         target = os.path.normcase(os.path.realpath(raw))
     except (OSError, ValueError):
         return False
@@ -287,6 +301,64 @@ def _guarded_os_symlink(src, dst, *args, **kwargs):
         _ensure_inside(src_path)
     return _real_os_symlink(src, dst, *args, **kwargs)
 
+def _guarded_chdir(path):
+    _record("chdir:" + str(path))
+
+def _guarded_fchdir(fd):
+    _record("chdir:fd:" + str(fd))
+
+def _guarded_chroot(path):
+    _record("chroot:" + str(path))
+
+def _guarded_mkdir(path, mode=0o777, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_mkdir(path, mode, *args, **kwargs)
+
+def _guarded_makedirs(name, mode=0o777, exist_ok=False):
+    _ensure_inside(name)
+    return _real_os_makedirs(name, mode, exist_ok=exist_ok)
+
+def _guarded_unlink(path, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_unlink(path, *args, **kwargs)
+
+def _guarded_rmdir(path, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_rmdir(path, *args, **kwargs)
+
+def _guarded_removedirs(name):
+    _ensure_inside(name)
+    return _real_os_removedirs(name)
+
+def _guarded_truncate(path, length):
+    if isinstance(path, int):
+        _record("write:fd:" + str(path))
+    _ensure_inside(path)
+    return _real_os_truncate(path, length)
+
+def _guarded_ftruncate(fd, length):
+    _record("write:fd:" + str(fd))
+
+def _guarded_fdopen(fd, mode="r", *args, **kwargs):
+    if _write_mode(mode):
+        _record("write:fd:" + str(fd))
+    return _real_os_fdopen(fd, mode, *args, **kwargs)
+
+def _guarded_path_mkdir(self, mode=0o777, parents=False, exist_ok=False):
+    _ensure_inside(self)
+    return _real_path_mkdir(self, mode, parents=parents, exist_ok=exist_ok)
+
+def _guarded_path_unlink(self, missing_ok=False):
+    _ensure_inside(self)
+    return _real_path_unlink(self, missing_ok=missing_ok)
+
+def _guarded_path_rmdir(self):
+    _ensure_inside(self)
+    return _real_path_rmdir(self)
+
 builtins.open = _guarded_open
 io.open = _guarded_io_open
 os.open = _guarded_os_open
@@ -299,6 +371,24 @@ if _real_os_link is not None:
     os.link = _guarded_os_link
 if _real_os_symlink is not None:
     os.symlink = _guarded_os_symlink
+os.chdir = _guarded_chdir
+if _real_os_fchdir is not None:
+    os.fchdir = _guarded_fchdir
+if _real_os_chroot is not None:
+    os.chroot = _guarded_chroot
+os.mkdir = _guarded_mkdir
+os.makedirs = _guarded_makedirs
+os.unlink = _guarded_unlink
+os.remove = _guarded_unlink
+os.rmdir = _guarded_rmdir
+os.removedirs = _guarded_removedirs
+os.truncate = _guarded_truncate
+if _real_os_ftruncate is not None:
+    os.ftruncate = _guarded_ftruncate
+os.fdopen = _guarded_fdopen
+pathlib.Path.mkdir = _guarded_path_mkdir
+pathlib.Path.unlink = _guarded_path_unlink
+pathlib.Path.rmdir = _guarded_path_rmdir
 
 # --- import surface --------------------------------------------------------
 try:
@@ -359,6 +449,11 @@ def run_guarded_import_probe(
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     probe_tmp = tempfile.mkdtemp(prefix=".guard-import-", dir=str(ROOT))
     env["TMP"] = env["TEMP"] = env["TMPDIR"] = probe_tmp
+    env["HOME"] = probe_tmp
+    env["USERPROFILE"] = probe_tmp
+    _home_drive, _home_path = os.path.splitdrive(probe_tmp)
+    env["HOMEDRIVE"] = _home_drive
+    env["HOMEPATH"] = _home_path
     try:
         try:
             proc = subprocess.run(

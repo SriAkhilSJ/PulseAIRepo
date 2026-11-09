@@ -9,6 +9,7 @@ import ast
 import importlib.util
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -97,50 +98,193 @@ def _assignment_values(function: ast.AST, attr_name: str) -> list[ast.AST]:
     return values
 
 
-def _security_call_lines(path: Path) -> set[int]:
-    """Allow only the documented AppContainer SetSecurityInfo call.
+def _assignments_to(function: ast.AST, name: str) -> list[ast.Assign]:
+    found: list[ast.Assign] = []
+    for node in ast.walk(function):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == name:
+                    found.append(node)
+    return found
 
-    The enclosing ``_grant_to_object`` must build an EXPLICIT_ACCESS_W with
-    GENERIC_ALL for ALL APPLICATION PACKAGES, call SetEntriesInAclW, contain
-    exactly one SetSecurityInfo call, and pass the documented handle/object
-    arguments. Anything else - including a second mutation inside the same
-    function - returns an empty allowlist so the scanner rejects it.
+
+def _single_name(function: ast.AST, attr_name: str, expected: str) -> bool:
+    values = _assignment_values(function, attr_name)
+    return (
+        len(values) == 1
+        and isinstance(values[0], ast.Name)
+        and values[0].id == expected
+    )
+
+
+def _single_constant(function: ast.AST, attr_name: str, expected: str) -> bool:
+    values = _assignment_values(function, attr_name)
+    return (
+        len(values) == 1
+        and isinstance(values[0], ast.Constant)
+        and values[0].value == expected
+    )
+
+
+def _call_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
+def _arg_name(call: ast.Call, index: int) -> str | None:
+    if index >= len(call.args):
+        return None
+    arg = call.args[index]
+    return arg.id if isinstance(arg, ast.Name) else None
+
+
+def _is_none(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _byref_name(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "byref":
+        return None
+    if len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
+        return None
+    return node.args[0].id
+
+
+def _inside_ret2_zero_if(function: ast.AST, call: ast.Call) -> bool:
+    for node in ast.walk(function):
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if not (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "ret2"
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Eq)
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value == 0
+        ):
+            continue
+        if any(candidate is call for candidate in ast.walk(node)):
+            return True
+    return False
+
+
+def _security_call_lines(path: Path) -> set[int]:
+    """Allow only the exact documented AppContainer operation.
+
+    Every security-relevant property must have exactly one assignment with the
+    documented value. The SetEntriesInAclW and SetSecurityInfo calls, the
+    p_new_dacl allocation/free flow, and the ret2 guard are all validated.
+    Any second assignment, extra mutation, or changed argument fails closed.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or node.name != "_grant_to_object":
             continue
-        perms = _assignment_values(node, "grfAccessPermissions")
-        trustees = _assignment_values(node, "ptstrName")
-        has_entries = any(
-            isinstance(sub, ast.Call)
-            and isinstance(sub.func, ast.Attribute)
-            and sub.func.attr == "SetEntriesInAclW"
-            for sub in ast.walk(node)
-        )
-        calls = [
-            sub for sub in ast.walk(node)
-            if isinstance(sub, ast.Call)
-            and isinstance(sub.func, ast.Attribute)
-            and sub.func.attr == "SetSecurityInfo"
+
+        required = {
+            "grfAccessPermissions": "GENERIC_ALL",
+            "grfAccessMode": "GRANT_ACCESS",
+            "grfInheritance": "NO_INHERITANCE",
+            "TrusteeForm": "TRUSTEE_IS_NAME",
+            "TrusteeType": "TRUSTEE_IS_WELL_KNOWN_GROUP",
+        }
+        for attr, expected in required.items():
+            if not _single_name(node, attr, expected):
+                return set()
+        if not _single_constant(node, "ptstrName", "ALL APPLICATION PACKAGES"):
+            return set()
+
+        calls = [sub for sub in ast.walk(node) if isinstance(sub, ast.Call)]
+        entries = [call for call in calls if _call_name(call) == "SetEntriesInAclW"]
+        if len(entries) != 1:
+            return set()
+        entries_call = entries[0]
+        if len(entries_call.args) != 4:
+            return set()
+        if not (
+            isinstance(entries_call.args[0], ast.Constant)
+            and entries_call.args[0].value == 1
+        ):
+            return set()
+        if _byref_name(entries_call.args[1]) != "ea":
+            return set()
+        if _arg_name(entries_call, 2) != "p_dacl":
+            return set()
+        if _byref_name(entries_call.args[3]) != "p_new_dacl":
+            return set()
+
+        ret2_assigns = _assignments_to(node, "ret2")
+        if len(ret2_assigns) != 1:
+            return set()
+        if not (
+            isinstance(ret2_assigns[0].value, ast.Call)
+            and _call_name(ret2_assigns[0].value) == "SetEntriesInAclW"
+        ):
+            return set()
+
+        pnew_assigns = _assignments_to(node, "p_new_dacl")
+        if len(pnew_assigns) != 1:
+            return set()
+        pnew_value = pnew_assigns[0].value
+        if not (
+            isinstance(pnew_value, ast.Call)
+            and isinstance(pnew_value.func, ast.Attribute)
+            and pnew_value.func.attr == "c_void_p"
+        ):
+            return set()
+
+        mutation_names = {
+            "SetSecurityInfo",
+            "SetNamedSecurityInfoW",
+            "SetNamedSecurityInfoA",
+            "SetKernelObjectSecurity",
+            "SetUserObjectSecurity",
+            "NtSetSecurityObject",
+        }
+        mutations = [call for call in calls if _call_name(call) in mutation_names]
+        if len(mutations) != 1 or _call_name(mutations[0]) != "SetSecurityInfo":
+            return set()
+        security_call = mutations[0]
+
+        if len(security_call.args) != 7:
+            return set()
+        expected_args: list[str | None] = [
+            "handle",
+            "SE_WINDOW_OBJECT",
+            "DACL_SECURITY_INFORMATION",
+            None,
+            None,
+            "p_new_dacl",
+            None,
         ]
-        documented = (
-            any(isinstance(v, ast.Name) and v.id == "GENERIC_ALL" for v in perms)
-            and any(
-                isinstance(v, ast.Constant) and v.value == "ALL APPLICATION PACKAGES"
-                for v in trustees
-            )
-            and has_entries
-            and len(calls) == 1
-            and len(calls[0].args) == 7
-            and isinstance(calls[0].args[0], ast.Name)
-            and calls[0].args[0].id == "handle"
-            and isinstance(calls[0].args[1], ast.Name)
-            and calls[0].args[1].id == "SE_WINDOW_OBJECT"
-            and isinstance(calls[0].args[5], ast.Name)
-            and calls[0].args[5].id == "p_new_dacl"
-        )
-        return {calls[0].lineno} if documented else set()
+        for index, expected in enumerate(expected_args):
+            arg = security_call.args[index]
+            if expected is None:
+                if not _is_none(arg):
+                    return set()
+            elif not (isinstance(arg, ast.Name) and arg.id == expected):
+                return set()
+
+        if not _inside_ret2_zero_if(node, security_call):
+            return set()
+
+        frees = [
+            call for call in calls
+            if _call_name(call) == "LocalFree"
+            and len(call.args) == 1
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "p_new_dacl"
+        ]
+        if len(frees) != 1:
+            return set()
+
+        return {security_call.lineno}
     return set()
 
 
@@ -179,10 +323,16 @@ def _documented_grant_source(extra: str = "") -> str:
         "    def _grant_to_object(handle):\n"
         "        ea = EXPLICIT_ACCESS_W()\n"
         "        ea.grfAccessPermissions = GENERIC_ALL\n"
+        "        ea.grfAccessMode = GRANT_ACCESS\n"
+        "        ea.grfInheritance = NO_INHERITANCE\n"
+        "        ea.Trustee.TrusteeForm = TRUSTEE_IS_NAME\n"
+        "        ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP\n"
         "        ea.Trustee.ptstrName = 'ALL APPLICATION PACKAGES'\n"
-        "        ret2 = _advapi32.SetEntriesInAclW(1, byref(ea), p_dacl, byref(p_new_dacl))\n"
+        "        p_new_dacl = ctypes.c_void_p()\n"
+        "        ret2 = _advapi32.SetEntriesInAclW(1, ctypes.byref(ea), p_dacl, ctypes.byref(p_new_dacl))\n"
         "        if ret2 == 0:\n"
         "            _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n"
+        "            _kernel32.LocalFree(p_new_dacl)\n"
         + extra
     )
 
@@ -584,3 +734,306 @@ def test_external_source_move_into_repo_blocked(tmp_path: Path) -> None:
     )
     assert any(str(outside_src) in item for item in result["violations"]), result
     assert not local_dst.exists()
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.3: CWD, filesystem mutation, strict AppContainer allowlist
+# ---------------------------------------------------------------------------
+
+def test_chdir_escape_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "cwd_outside"
+    outside.mkdir()
+    code = (
+        "import os\n"
+        f"os.chdir({str(outside)!r})\n"
+        "open('escape.txt', 'w').write('x')\n"
+    )
+    try:
+        result = _probe(tmp_path, "cwd_chdir", code)
+        assert any(item.startswith("chdir:") for item in result["violations"]), result
+        assert not (outside / "escape.txt").exists()
+        assert not (ROOT / "escape.txt").exists()
+    finally:
+        (ROOT / "escape.txt").unlink(missing_ok=True)
+
+
+@pytest.mark.skipif(not hasattr(os, "fchdir"), reason="os.fchdir unavailable")
+def test_fchdir_escape_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "fchdir_outside"
+    outside.mkdir()
+    code = (
+        "import os\n"
+        f"fd = os.open({str(outside)!r}, os.O_RDONLY)\n"
+        "try:\n"
+        "    os.fchdir(fd)\n"
+        "finally:\n"
+        "    os.close(fd)\n"
+    )
+    result = _probe(tmp_path, "cwd_fchdir", code)
+    assert any(item.startswith("chdir:") for item in result["violations"]), result
+
+
+def _relative_outside(tmp_path: Path, name: str) -> tuple[str, Path] | None:
+    target = tmp_path / name
+    try:
+        return os.path.relpath(target, ROOT), target
+    except ValueError:
+        return None
+
+
+def test_relative_replace_escape_blocked(tmp_path: Path) -> None:
+    pair = _relative_outside(tmp_path, "relative_replace.txt")
+    if pair is None:
+        pytest.skip("target is on a different drive")
+    rel, target = pair
+    result = _probe(
+        tmp_path, "rel_replace",
+        f"import os\nos.replace('local_src', {rel!r})\n",
+    )
+    assert any(str(target) in item or rel in item for item in result["violations"]), result
+    assert not target.exists()
+
+
+def test_relative_rename_escape_blocked(tmp_path: Path) -> None:
+    pair = _relative_outside(tmp_path, "relative_rename.txt")
+    if pair is None:
+        pytest.skip("target is on a different drive")
+    rel, target = pair
+    result = _probe(
+        tmp_path, "rel_rename",
+        f"import os\nos.rename('local_src', {rel!r})\n",
+    )
+    assert any(str(target) in item or rel in item for item in result["violations"]), result
+    assert not target.exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="os.symlink unavailable")
+def test_relative_symlink_escape_blocked(tmp_path: Path) -> None:
+    pair = _relative_outside(tmp_path, "relative_symlink.txt")
+    if pair is None:
+        pytest.skip("target is on a different drive")
+    rel, target = pair
+    result = _probe(
+        tmp_path, "rel_symlink",
+        f"import os\nos.symlink('target', {rel!r})\n",
+    )
+    assert any(str(target) in item or rel in item for item in result["violations"]), result
+    assert not target.exists()
+
+
+def test_external_mkdir_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "new_dir"
+    result = _probe(tmp_path, "mkdir_ext", f"import os\nos.mkdir({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert not outside.exists()
+
+
+def test_external_makedirs_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "new_tree" / "nested"
+    result = _probe(tmp_path, "makedirs_ext", f"import os\nos.makedirs({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert not outside.exists()
+
+
+def test_external_path_mkdir_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "path_new_dir"
+    result = _probe(
+        tmp_path, "path_mkdir_ext",
+        f"from pathlib import Path\nPath({str(outside)!r}).mkdir()\n",
+    )
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert not outside.exists()
+
+
+def test_external_unlink_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "delete_me.txt"
+    outside.write_text("keep", encoding="utf-8")
+    result = _probe(tmp_path, "unlink_ext", f"import os\nos.unlink({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def test_external_remove_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "remove_me.txt"
+    outside.write_text("keep", encoding="utf-8")
+    result = _probe(tmp_path, "remove_ext", f"import os\nos.remove({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+
+
+def test_external_path_unlink_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "path_delete.txt"
+    outside.write_text("keep", encoding="utf-8")
+    result = _probe(
+        tmp_path, "path_unlink_ext",
+        f"from pathlib import Path\nPath({str(outside)!r}).unlink()\n",
+    )
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+
+
+def test_external_rmdir_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "delete_dir"
+    outside.mkdir()
+    result = _probe(tmp_path, "rmdir_ext", f"import os\nos.rmdir({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+
+
+def test_external_removedirs_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "removedirs_tree"
+    outside.mkdir()
+    result = _probe(tmp_path, "removedirs_ext", f"import os\nos.removedirs({str(outside)!r})\n")
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+
+
+def test_external_path_rmdir_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "path_delete_dir"
+    outside.mkdir()
+    result = _probe(
+        tmp_path, "path_rmdir_ext",
+        f"from pathlib import Path\nPath({str(outside)!r}).rmdir()\n",
+    )
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.exists()
+
+
+def test_external_truncate_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "truncate.txt"
+    outside.write_text("keep", encoding="utf-8")
+    result = _probe(
+        tmp_path, "truncate_ext",
+        f"import os\nos.truncate({str(outside)!r}, 0)\n",
+    )
+    assert any(str(outside) in item for item in result["violations"]), result
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.skipif(not hasattr(os, "ftruncate"), reason="os.ftruncate unavailable")
+def test_descriptor_truncate_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "fd_truncate.txt"
+    outside.write_text("keep", encoding="utf-8")
+    code = (
+        "import os\n"
+        f"fd = os.open({str(outside)!r}, os.O_RDONLY)\n"
+        "try:\n"
+        "    os.ftruncate(fd, 0)\n"
+        "finally:\n"
+        "    os.close(fd)\n"
+    )
+    result = _probe(tmp_path, "fd_truncate", code)
+    assert any(item.startswith("write:fd:") for item in result["violations"]), result
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def test_writable_fdopen_blocked(tmp_path: Path) -> None:
+    outside = tmp_path / "fdopen.txt"
+    outside.write_text("keep", encoding="utf-8")
+    code = (
+        "import os\n"
+        f"fd = os.open({str(outside)!r}, os.O_RDONLY)\n"
+        "try:\n"
+        "    os.fdopen(fd, 'w')\n"
+        "finally:\n"
+        "    os.close(fd)\n"
+    )
+    result = _probe(tmp_path, "fdopen_write", code)
+    assert any(item.startswith("write:fd:") for item in result["violations"]), result
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def test_local_filesystem_mutations_allowed(tmp_path: Path) -> None:
+    base = ROOT / f".guard_fs_{tmp_path.name}"
+    code = (
+        "import os\n"
+        f"base = {str(base)!r}\n"
+        "os.mkdir(base)\n"
+        "p = os.path.join(base, 'x.txt')\n"
+        "with open(p, 'w') as f:\n"
+        "    f.write('ok')\n"
+        "os.unlink(p)\n"
+        "os.rmdir(base)\n"
+    )
+    try:
+        result = _probe(tmp_path, "local_fs", code)
+        assert result["violations"] == [], result
+        assert not base.exists()
+    finally:
+        if base.exists():
+            shutil.rmtree(base, ignore_errors=True)
+
+
+def _assert_grant_rejected(tmp_path: Path, source: str, name: str) -> None:
+    sample = tmp_path / f"{name}.py"
+    sample.write_text(source, encoding="utf-8")
+    assert _security_call_lines(sample) == set()
+
+
+def test_sandbox_rejects_trustee_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.Trustee.ptstrName = 'Everyone'\n"),
+        "trustee_reassign",
+    )
+
+
+def test_sandbox_rejects_permission_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.grfAccessPermissions = GENERIC_READ\n"),
+        "permission_reassign",
+    )
+
+
+def test_sandbox_rejects_trustee_type_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.Trustee.TrusteeType = TRUSTEE_IS_USER\n"),
+        "trustee_type_reassign",
+    )
+
+
+def test_sandbox_rejects_changed_information_flags(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "DACL_SECURITY_INFORMATION", "OWNER_SECURITY_INFORMATION",
+    )
+    _assert_grant_rejected(tmp_path, source, "changed_flags")
+
+
+def test_sandbox_rejects_changed_owner_group_dacl_sacl(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "None, None, p_new_dacl, None",
+        "p_owner, p_group, p_other, p_sacl",
+    )
+    _assert_grant_rejected(tmp_path, source, "changed_args")
+
+
+def test_sandbox_rejects_extra_security_mutation(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            "        _advapi32.SetNamedSecurityInfoW(handle, SE_WINDOW_OBJECT, 0, None, None, None, None)\n"
+        ),
+        "extra_mutation",
+    )
+
+
+def test_sandbox_rejects_changed_entries_flow(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "ctypes.byref(p_new_dacl)", "p_other",
+    )
+    _assert_grant_rejected(tmp_path, source, "entries_flow")
+
+
+def test_sandbox_rejects_missing_local_free(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "            _kernel32.LocalFree(p_new_dacl)\n", "",
+    )
+    _assert_grant_rejected(tmp_path, source, "missing_free")
+
+
+def test_sandbox_rejects_missing_ret2_guard(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace("if ret2 == 0:", "if True:")
+    _assert_grant_rejected(tmp_path, source, "missing_ret2")
