@@ -787,18 +787,24 @@ class WindowsSandboxManager(BaseSandboxManager):
                 "security_violations": list(self._violations),
             }
 
+        def _consume(line: str, buf: List[str], used: int) -> int:
+            encoded = line.encode("utf-8")
+            remaining = max_bytes_per_stream - used
+            if remaining <= 0:
+                return used
+            if len(encoded) <= remaining:
+                buf.append(line)
+                return used + len(encoded)
+            buf.append(encoded[:remaining].decode("utf-8", errors="ignore"))
+            return max_bytes_per_stream
+
         def _read_stream(stream, buf, is_stdout):
             nonlocal stdout_bytes, stderr_bytes
             for line in iter(stream.readline, ""):
-                line_bytes = len(line.encode("utf-8"))
                 if is_stdout:
-                    if stdout_bytes < max_bytes_per_stream:
-                        buf.append(line)
-                        stdout_bytes += line_bytes
+                    stdout_bytes = _consume(line, buf, stdout_bytes)
                 else:
-                    if stderr_bytes < max_bytes_per_stream:
-                        buf.append(line)
-                        stderr_bytes += line_bytes
+                    stderr_bytes = _consume(line, buf, stderr_bytes)
             stream.close()
 
         t_out = threading.Thread(target=_read_stream, args=(self._process.stdout, stdout_buf, True), daemon=True)
