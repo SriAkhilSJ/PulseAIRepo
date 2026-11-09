@@ -133,15 +133,19 @@ cost leg, compaction/cache interaction). No FAIL.
 
 ## 6. CI results
 
+Phase 1.3 implementation commit `c9b909d2`:
+
+| Workflow | Platform / jobs | Result | Run |
+|---|---|---|---|
+| Agent-core body checkup | `ubuntu-latest` (`checkup`) | **success** | 42556850534 |
+| Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` (`Target contracts`) | **success** (all three) | 42556850658 |
+
 Phase 1.2 implementation commit `c32582db`:
 
 | Workflow | Platform / jobs | Result |
 |---|---|---|
 | Agent-core body checkup | `ubuntu-latest` | **success** |
 | Host compatibility | `windows-latest`, `macos-latest`, `ubuntu-latest` | **success** (all three) |
-
-Phase 1.3 CI is triggered by the delivery commit and is not claimed until the
-push completes; the final report records the observed result.
 
 ## 7. Residual limitations
 
