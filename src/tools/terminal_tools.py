@@ -1,5 +1,4 @@
 import os
-import platform
 import re
 import subprocess
 import threading
@@ -20,7 +19,7 @@ from src.runtime.windows_shell import select_shell
 # paths (MSYS) and keeps temp dirs under its own cache, never /tmp. We detect
 # the dialect mismatch BEFORE spawning and return a typed pivot so the loop
 # learns the environment, not just the error.
-_IS_WINDOWS = platform.system() == "Windows"
+_IS_WINDOWS = os.name == "nt"
 
 #: Timeout/cancellation cleanup is a single wall-clock budget shared by all
 #: reader threads and the process reap, not one timeout per stream.

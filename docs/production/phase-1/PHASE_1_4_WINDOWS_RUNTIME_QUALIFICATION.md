@@ -391,3 +391,104 @@ local; it is not part of this CI job.
 **Phase 1.4 verdict remains PARTIAL** because the production ACL-grant branch
 and AppContainer network denial remain unproven. This correction closes the
 output-bound and test-integrity findings (C1-C8).
+
+## 15. Final closure decisions and evidence
+
+### A. WindowStation/Desktop ACL architecture
+
+**Decision:** remove the automatic ACL grant from production initialization.
+`initialize()` no longer calls `_ensure_windowstation_desktop_access()`.
+
+- The AppContainer worker is exercised without changing any WindowStation or
+  Desktop DACL.
+- The runtime tests replace the helper with a function that raises if called;
+  all AppContainer tests pass, proving the production path does not invoke it.
+- On a host whose existing WindowStation/Desktop does not permit
+  `ALL APPLICATION PACKAGES`, process creation fails closed with the normal
+  `CreateProcessW` error. It does not rewrite machine ACLs.
+- `_ensure_windowstation_desktop_access()` remains defined for audited,
+  explicit operator provisioning only. It is never called automatically.
+
+This is the verified alternative to the unsafe global permission change. The
+developer's normal `WinSta0`/`Default` objects are untouched.
+
+### B. AppContainer network isolation
+
+A native Winsock probe (`src/tests/native/net_probe.c`) was compiled with MinGW
+`gcc` and tested in two steps:
+
+1. **Control:** a normal process connected to a disposable `127.0.0.1` TCP
+   listener; the probe printed `CONNECT_OK` and the listener accepted.
+2. **AppContainer:** the same probe ran inside the AppContainer with zero
+   capabilities; it printed `CONNECT_TIMEOUT` after a 3-second nonblocking
+   connect, and the listener had no pending connection.
+
+The OS did **not** return a Winsock access-denied code for loopback TCP; it
+silently dropped the connection. A supplemental UDP probe also returned
+`UDP_SENT=1` from `sendto`, but the listener received no datagram. The denial is
+therefore silent kernel-level dropping, not an application-level check.
+
+The runtime test asserts:
+
+- the control connection succeeded,
+- the AppContainer process actually started,
+- no `CONNECT_OK` came from the AppContainer,
+- the result was `CONNECT_TIMEOUT` or an allowed denial code,
+- the listener never became readable.
+
+### C. Python compatibility
+
+**Decision:** Python 3.11 remains supported (`requires-python >=3.11`).
+
+- `src/runtime/windows_shell.py` and `src/tools/terminal_tools.py` used
+  `platform.system()` at import time. Both now use `os.name == "nt"`.
+- Python 3.11.9: full security suite **232 passed, 3 skipped**.
+- Python 3.14.4: full security suite **232 passed, 3 skipped**.
+- Full guarded import passes on both versions.
+
+No packaging metadata change was needed.
+
+### D. AppContainer temporary directory
+
+**Decision:** package-local temporary storage is the intended AppContainer
+contract. The package `AC\Temp` directory is isolated per AppContainer profile
+and removed with the profile. Staging remains the file-delivery root; it is not
+the AppContainer `TMP`.
+
+A runtime test (`test_appcontainer_tmp_is_package_local`) asserts the child sees
+`\Packages\...\AC\Temp`. The fallback backend continues to use the staging
+directory. The previous assumption that `TMP` must equal staging is removed.
+
+### E. Job Object memory accounting
+
+- The flag is `JOB_OBJECT_LIMIT_JOB_MEMORY` (`0x200`); `JobMemoryLimit` is in
+  bytes.
+- Control: a 128 MB allocation succeeds under a 512 MB job limit.
+- Limited: the same allocation raises `MemoryError` under a 64 MB limit.
+- `PeakJobMemoryUsed` still reported ~140 MB under the 64 MB limit.
+
+The behavioral denial is real, but the peak field does not agree with the
+configured limit. The cause is not established. The limitation is retained:
+**do not claim a hard 64 MB peak-memory bound**; claim only the observed
+allocation denial under the configured job limit.
+
+### Final acceptance
+
+| Criterion | Status |
+|---|---|
+| 1 ACL architecture approved/safely qualified | PASS - automatic ACL change removed; fail-closed alternative verified |
+| 2 AppContainer network isolation runtime evidence | PASS - control success, AppContainer timeout, no listener accept |
+| 3 Every declared Python version passes guarded import | PASS - 3.11 and 3.14 |
+| 4 TMP contract documented and tested | PASS - package-local AC temp |
+| 5 Memory enforcement understood or bounded | PASS (bounded) - denial observed; peak accounting limitation retained |
+| 6 Existing security tests passing | PASS - 232 passed, 3 skipped on 3.11 and 3.14 |
+| 7 CI evidence for exact commit | pending final run |
+| 8 Limitations disclosed | PASS |
+
+Runtime harness: **21 passed** with AppContainer opt-in.
+
+### Release decision
+
+**WINDOWS SECURITY QUALIFIED** for the declared Windows 11 + Python 3.11/3.14
+contract, with the documented memory-accounting limitation and the silent-drop
+network behavior. This is not whole-product production readiness.

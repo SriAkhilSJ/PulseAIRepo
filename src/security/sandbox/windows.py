@@ -343,10 +343,14 @@ class WindowsSandboxManager(BaseSandboxManager):
             ctypes.sizeof(cpu_info),
         )
 
-        # 4. Provision AppContainer profile if enabled
+        # 4. Provision AppContainer profile if enabled.
+        # Do not rewrite the machine WindowStation/Desktop DACL here. The
+        # execution host must already permit ALL APPLICATION PACKAGES for the
+        # worker's window station/desktop; otherwise process creation fails
+        # closed. The legacy helper remains defined for audited, explicit
+        # provisioning by an operator, but is never called automatically.
         if self._use_appcontainer and _userenv and _advapi32:
             try:
-                _ensure_windowstation_desktop_access()
                 clean_id = re.sub(r"[^a-zA-Z0-9_.-]", "", request.execution_id)[:16] or uuid.uuid4().hex[:12]
                 self._appcontainer_profile_name = f"Crusor.Sandbox.{clean_id}"
 

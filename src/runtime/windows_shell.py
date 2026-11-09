@@ -17,10 +17,9 @@ rule); only the PATH probe below it is cached per process.
 from __future__ import annotations
 
 import os
-import platform
 import shutil
 
-_IS_WINDOWS = platform.system() == "Windows"
+_IS_WINDOWS = os.name == "nt"
 
 # Standard Git-for-Windows installs (hermes' setup expects git-bash on
 # Windows; every machine that clones the repo has at least one of these).

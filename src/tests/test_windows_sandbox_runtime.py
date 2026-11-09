@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import ctypes
 import os
+import select
+import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -41,6 +44,23 @@ pytestmark = pytest.mark.skipif(
 
 CHILD_PY = getattr(sys, "_base_executable", sys.executable)
 RUN_APPCONTAINER = os.environ.get("CRUSOR_RUN_APPCONTAINER_RUNTIME") == "1"
+NATIVE_NET_PROBE = Path(__file__).parent / "native" / "net_probe.c"
+
+
+def _forbid_acl_helper(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prove the production path never rewrites machine WindowStation ACLs."""
+    import src.security.sandbox.windows as windows
+
+    def _forbidden():
+        raise AssertionError(
+            "_ensure_windowstation_desktop_access must not run automatically"
+        )
+
+    monkeypatch.setattr(
+        windows,
+        "_ensure_windowstation_desktop_access",
+        _forbidden,
+    )
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -480,11 +500,7 @@ def test_appcontainer_token_is_low_integrity_and_in_job(
     import src.security.sandbox.windows as windows
 
     workspace, staging = _paths(tmp_path)
-    monkeypatch.setattr(
-        windows,
-        "_ensure_windowstation_desktop_access",
-        lambda: True,
-    )
+    _forbid_acl_helper(monkeypatch)
     manager = WindowsSandboxManager(use_appcontainer=True)
     request = _request(
         workspace,
@@ -565,11 +581,7 @@ def test_appcontainer_denies_disposable_denied_directory(
     secret = denied / "secret.txt"
     secret.write_text("PHASE14_SECRET_VALUE", encoding="utf-8")
     target = denied / "poison.txt"
-    monkeypatch.setattr(
-        windows,
-        "_ensure_windowstation_desktop_access",
-        lambda: True,
-    )
+    _forbid_acl_helper(monkeypatch)
     manager = WindowsSandboxManager(use_appcontainer=True)
     request = _request(workspace, ["cmd.exe", "/c", "echo", "boot"])
     try:
@@ -631,11 +643,7 @@ def _run_appcontainer_case(
     workspace, staging = _paths(tmp_path)
     for name, data in (files or {}).items():
         (workspace / name).write_bytes(data)
-    monkeypatch.setattr(
-        windows,
-        "_ensure_windowstation_desktop_access",
-        lambda: True,
-    )
+    _forbid_acl_helper(monkeypatch)
     manager = WindowsSandboxManager(use_appcontainer=True)
     request = _request(
         workspace,
@@ -807,11 +815,7 @@ def test_appcontainer_cancellation_stops_process(
     import src.security.sandbox.windows as windows
 
     workspace, staging = _paths(tmp_path)
-    monkeypatch.setattr(
-        windows,
-        "_ensure_windowstation_desktop_access",
-        lambda: True,
-    )
+    _forbid_acl_helper(monkeypatch)
     manager = WindowsSandboxManager(use_appcontainer=True)
     request = _request(
         workspace,
@@ -838,3 +842,97 @@ def test_appcontainer_cancellation_stops_process(
         assert manager._job_handle is None
     finally:
         manager.cleanup(staging)
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_network_denial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gcc = shutil.which("gcc")
+    if not gcc:
+        pytest.skip("gcc is required to build the native network probe")
+    exe = tmp_path / "net_probe.exe"
+    compile_result = subprocess.run(
+        [
+            gcc,
+            "-O2",
+            "-static",
+            "-o",
+            str(exe),
+            str(NATIVE_NET_PROBE),
+            "-lws2_32",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert compile_result.returncode == 0, compile_result.stderr
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    server.listen(1)
+    try:
+        control = subprocess.run(
+            [str(exe), str(port)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert control.returncode == 0, control
+        assert "CONNECT_OK" in control.stdout, control.stdout
+        accepted, _ = server.accept()
+        accepted.close()
+
+        workspace, staging = _paths(tmp_path / "appcontainer")
+        probe = workspace / "net_probe.exe"
+        shutil.copy2(exe, probe)
+        _forbid_acl_helper(monkeypatch)
+        manager = WindowsSandboxManager(use_appcontainer=True)
+        request = _request(
+            workspace,
+            [str(probe), str(port)],
+            mode=ExecutionMode.READ_ONLY,
+        )
+        try:
+            manager.initialize(request, staging)
+            assert manager.appcontainer_sid_str
+            result = manager.execute(request, staging)
+        finally:
+            manager.cleanup(staging)
+
+        assert result["exit_code"] in {67, 68}, result
+        assert "CONNECT_OK" not in result["stdout"], result["stdout"]
+        if "CONNECT_DENIED=" in result["stdout"]:
+            denied_code = int(
+                result["stdout"].split("CONNECT_DENIED=", 1)[1].split()[0]
+            )
+            assert denied_code in {10013, 10050, 10051, 10065}, result["stdout"]
+        else:
+            assert "CONNECT_TIMEOUT" in result["stdout"], result["stdout"]
+
+        readable, _writable, _errors = select.select([server], [], [], 0.5)
+        assert not readable, "AppContainer connection reached the listener"
+    finally:
+        server.close()
+
+@pytest.mark.skipif(
+    not RUN_APPCONTAINER,
+    reason="set CRUSOR_RUN_APPCONTAINER_RUNTIME=1 to run AppContainer runtime tests",
+)
+def test_appcontainer_tmp_is_package_local(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _run_appcontainer_case(
+        tmp_path,
+        monkeypatch,
+        lambda workspace: ["cmd.exe", "/c", "echo", "%TMP%"],
+    )
+    assert result["exit_code"] == 0
+    lower = result["stdout"].lower()
+    assert "\\packages\\" in lower
+    assert "\\ac\\temp" in lower
