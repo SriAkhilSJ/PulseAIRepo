@@ -88,48 +88,43 @@ def _iter_scripts():
         yield path
 
 
-def _assignment_values(function: ast.AST, attr_name: str) -> list[ast.AST]:
-    values: list[ast.AST] = []
-    for node in ast.walk(function):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Attribute) and target.attr == attr_name:
-                    values.append(node.value)
-    return values
-
-
-def _assignments_to(function: ast.AST, name: str) -> list[ast.Assign]:
-    found: list[ast.Assign] = []
-    for node in ast.walk(function):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == name:
-                    found.append(node)
-    return found
-
-
-def _single_name(function: ast.AST, attr_name: str, expected: str) -> bool:
-    values = _assignment_values(function, attr_name)
-    return (
-        len(values) == 1
-        and isinstance(values[0], ast.Name)
-        and values[0].id == expected
-    )
-
-
-def _single_constant(function: ast.AST, attr_name: str, expected: str) -> bool:
-    values = _assignment_values(function, attr_name)
-    return (
-        len(values) == 1
-        and isinstance(values[0], ast.Constant)
-        and values[0].value == expected
-    )
-
-
-def _call_name(call: ast.Call) -> str | None:
-    if isinstance(call.func, ast.Attribute):
-        return call.func.attr
+def _target_path(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _target_path(node.value)
+        if base:
+            return f"{base}.{node.attr}"
     return None
+
+
+def _qualified_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _qualified_name(node.value)
+        if base:
+            return f"{base}.{node.attr}"
+    return None
+
+
+def _call_qualified_name(call: ast.Call) -> str | None:
+    return _qualified_name(call.func)
+
+
+def _value_matches(value: ast.AST, kind: str, expected: object) -> bool:
+    if kind == "name":
+        return isinstance(value, ast.Name) and value.id == expected
+    if kind == "const":
+        return isinstance(value, ast.Constant) and value.value == expected
+    if kind == "none":
+        return _is_none(value)
+    if kind == "call":
+        return (
+            isinstance(value, ast.Call)
+            and _call_qualified_name(value) == expected
+        )
+    return False
 
 
 def _arg_name(call: ast.Call, index: int) -> str | None:
@@ -144,16 +139,15 @@ def _is_none(node: ast.AST) -> bool:
 
 
 def _byref_name(node: ast.AST) -> str | None:
-    if not isinstance(node, ast.Call):
-        return None
-    if not isinstance(node.func, ast.Attribute) or node.func.attr != "byref":
+    if not isinstance(node, ast.Call) or _call_qualified_name(node) != "ctypes.byref":
         return None
     if len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
         return None
     return node.args[0].id
 
 
-def _inside_ret2_zero_if(function: ast.AST, call: ast.Call) -> bool:
+def _inside_ret2_zero_if(function: ast.AST, *calls: ast.Call) -> bool:
+    wanted = set(calls)
     for node in ast.walk(function):
         if not isinstance(node, ast.If):
             continue
@@ -169,7 +163,8 @@ def _inside_ret2_zero_if(function: ast.AST, call: ast.Call) -> bool:
             and test.comparators[0].value == 0
         ):
             continue
-        if any(candidate is call for candidate in ast.walk(node)):
+        found = {candidate for candidate in ast.walk(node) if isinstance(candidate, ast.Call)}
+        if wanted.issubset(found):
             return True
     return False
 
@@ -177,34 +172,118 @@ def _inside_ret2_zero_if(function: ast.AST, call: ast.Call) -> bool:
 def _security_call_lines(path: Path) -> set[int]:
     """Allow only the exact documented AppContainer operation.
 
-    Every security-relevant property must have exactly one assignment with the
-    documented value. The SetEntriesInAclW and SetSecurityInfo calls, the
-    p_new_dacl allocation/free flow, and the ret2 guard are all validated.
-    Any second assignment, extra mutation, or changed argument fails closed.
+    Exact assignment targets, exact receivers, exact arguments, allocation and
+    free order, and the ret2 success branch are all required. Any alternative
+    mutation form (AnnAssign, AugAssign, Delete, setattr, subscript, second
+    assignment, or fake receiver) fails closed.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or node.name != "_grant_to_object":
             continue
 
-        required = {
-            "grfAccessPermissions": "GENERIC_ALL",
-            "grfAccessMode": "GRANT_ACCESS",
-            "grfInheritance": "NO_INHERITANCE",
-            "TrusteeForm": "TRUSTEE_IS_NAME",
-            "TrusteeType": "TRUSTEE_IS_WELL_KNOWN_GROUP",
+        allowed_assignments: dict[str, tuple[str, object]] = {
+            "ea": ("call", "EXPLICIT_ACCESS_W"),
+            "ea.grfAccessPermissions": ("name", "GENERIC_ALL"),
+            "ea.grfAccessMode": ("name", "GRANT_ACCESS"),
+            "ea.grfInheritance": ("name", "NO_INHERITANCE"),
+            "ea.Trustee.pMultipleTrustee": ("none", None),
+            "ea.Trustee.MultipleTrusteeOperation": ("const", 0),
+            "ea.Trustee.TrusteeForm": ("name", "TRUSTEE_IS_NAME"),
+            "ea.Trustee.TrusteeType": ("name", "TRUSTEE_IS_WELL_KNOWN_GROUP"),
+            "ea.Trustee.ptstrName": ("const", "ALL APPLICATION PACKAGES"),
+            "p_dacl": ("call", "ctypes.c_void_p"),
+            "p_sec_desc": ("call", "ctypes.c_void_p"),
+            "ret": ("call", "_advapi32.GetSecurityInfo"),
+            "p_new_dacl": ("call", "ctypes.c_void_p"),
+            "ret2": ("call", "_advapi32.SetEntriesInAclW"),
         }
-        for attr, expected in required.items():
-            if not _single_name(node, attr, expected):
-                return set()
-        if not _single_constant(node, "ptstrName", "ALL APPLICATION PACKAGES"):
-            return set()
+        optional = {"p_sec_desc", "ret"}
+        protected_roots = {"ea", "p_dacl", "p_sec_desc", "ret", "p_new_dacl", "ret2"}
 
-        calls = [sub for sub in ast.walk(node) if isinstance(sub, ast.Call)]
-        entries = [call for call in calls if _call_name(call) == "SetEntriesInAclW"]
-        if len(entries) != 1:
+        assigns: dict[str, list[tuple[str, ast.AST]]] = {}
+        calls: list[ast.Call] = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                calls.append(sub)
+                if (_call_qualified_name(sub) or "").split(".")[-1] in {
+                    "setattr", "__setattr__",
+                }:
+                    return set()
+            if isinstance(sub, (ast.AnnAssign, ast.AugAssign, ast.Delete)):
+                return set()
+            if isinstance(sub, ast.Assign):
+                for target in sub.targets:
+                    path = _target_path(target)
+                    if path is None:
+                        # Subscript/dynamic mutation (for example ea.__dict__[...])
+                        if isinstance(target, ast.Subscript):
+                            return set()
+                        continue
+                    if (
+                        path in protected_roots
+                        or path.startswith("ea.")
+                        or path in allowed_assignments
+                    ):
+                        assigns.setdefault(path, []).append(("assign", sub.value))
+
+        for path, (kind, expected) in allowed_assignments.items():
+            entries = assigns.get(path, [])
+            if not entries:
+                if path in optional:
+                    continue
+                return set()
+            if len(entries) != 1:
+                return set()
+            if entries[0][0] != "assign" or not _value_matches(
+                entries[0][1], kind, expected
+            ):
+                return set()
+
+        for path in assigns:
+            if path in allowed_assignments:
+                continue
+            if (
+                path in protected_roots
+                or path.startswith("ea.")
+                or path.startswith("ea.Trustee.")
+            ):
+                return set()
+
+        security_last_names = {
+            "SetSecurityInfo",
+            "SetNamedSecurityInfoW",
+            "SetNamedSecurityInfoA",
+            "SetKernelObjectSecurity",
+            "SetUserObjectSecurity",
+            "NtSetSecurityObject",
+        }
+        for call in calls:
+            qualified = _call_qualified_name(call) or ""
+            last = qualified.split(".")[-1]
+            if last in security_last_names and qualified not in {
+                "_advapi32.SetSecurityInfo",
+                "_advapi32.SetEntriesInAclW",
+            }:
+                return set()
+            if last == "LocalFree" and qualified != "_kernel32.LocalFree":
+                return set()
+            if last in {"byref", "c_void_p"} and qualified != f"ctypes.{last}":
+                return set()
+
+        entries_calls = [
+            call for call in calls
+            if _call_qualified_name(call) == "_advapi32.SetEntriesInAclW"
+        ]
+        security_calls = [
+            call for call in calls
+            if _call_qualified_name(call) == "_advapi32.SetSecurityInfo"
+        ]
+        if len(entries_calls) != 1 or len(security_calls) != 1:
             return set()
-        entries_call = entries[0]
+        entries_call = entries_calls[0]
+        security_call = security_calls[0]
+
         if len(entries_call.args) != 4:
             return set()
         if not (
@@ -218,39 +297,6 @@ def _security_call_lines(path: Path) -> set[int]:
             return set()
         if _byref_name(entries_call.args[3]) != "p_new_dacl":
             return set()
-
-        ret2_assigns = _assignments_to(node, "ret2")
-        if len(ret2_assigns) != 1:
-            return set()
-        if not (
-            isinstance(ret2_assigns[0].value, ast.Call)
-            and _call_name(ret2_assigns[0].value) == "SetEntriesInAclW"
-        ):
-            return set()
-
-        pnew_assigns = _assignments_to(node, "p_new_dacl")
-        if len(pnew_assigns) != 1:
-            return set()
-        pnew_value = pnew_assigns[0].value
-        if not (
-            isinstance(pnew_value, ast.Call)
-            and isinstance(pnew_value.func, ast.Attribute)
-            and pnew_value.func.attr == "c_void_p"
-        ):
-            return set()
-
-        mutation_names = {
-            "SetSecurityInfo",
-            "SetNamedSecurityInfoW",
-            "SetNamedSecurityInfoA",
-            "SetKernelObjectSecurity",
-            "SetUserObjectSecurity",
-            "NtSetSecurityObject",
-        }
-        mutations = [call for call in calls if _call_name(call) in mutation_names]
-        if len(mutations) != 1 or _call_name(mutations[0]) != "SetSecurityInfo":
-            return set()
-        security_call = mutations[0]
 
         if len(security_call.args) != 7:
             return set()
@@ -271,17 +317,25 @@ def _security_call_lines(path: Path) -> set[int]:
             elif not (isinstance(arg, ast.Name) and arg.id == expected):
                 return set()
 
-        if not _inside_ret2_zero_if(node, security_call):
-            return set()
-
         frees = [
             call for call in calls
-            if _call_name(call) == "LocalFree"
+            if _call_qualified_name(call) == "_kernel32.LocalFree"
             and len(call.args) == 1
             and isinstance(call.args[0], ast.Name)
             and call.args[0].id == "p_new_dacl"
         ]
         if len(frees) != 1:
+            return set()
+
+        pnew_value = assigns["p_new_dacl"][0][1]
+        if not (
+            _value_matches(pnew_value, "call", "ctypes.c_void_p")
+            and pnew_value.lineno < entries_call.lineno
+        ):
+            return set()
+        if not (entries_call.lineno < security_call.lineno < frees[0].lineno):
+            return set()
+        if not _inside_ret2_zero_if(node, security_call, frees[0]):
             return set()
 
         return {security_call.lineno}
@@ -325,14 +379,23 @@ def _documented_grant_source(extra: str = "") -> str:
         "        ea.grfAccessPermissions = GENERIC_ALL\n"
         "        ea.grfAccessMode = GRANT_ACCESS\n"
         "        ea.grfInheritance = NO_INHERITANCE\n"
+        "        ea.Trustee.pMultipleTrustee = None\n"
+        "        ea.Trustee.MultipleTrusteeOperation = 0\n"
         "        ea.Trustee.TrusteeForm = TRUSTEE_IS_NAME\n"
         "        ea.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP\n"
         "        ea.Trustee.ptstrName = 'ALL APPLICATION PACKAGES'\n"
+        "        p_dacl = ctypes.c_void_p()\n"
+        "        p_sec_desc = ctypes.c_void_p()\n"
+        "        ret = _advapi32.GetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, ctypes.byref(p_dacl), None, ctypes.byref(p_sec_desc))\n"
+        "        if ret != 0:\n"
+        "            return False\n"
         "        p_new_dacl = ctypes.c_void_p()\n"
         "        ret2 = _advapi32.SetEntriesInAclW(1, ctypes.byref(ea), p_dacl, ctypes.byref(p_new_dacl))\n"
         "        if ret2 == 0:\n"
         "            _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n"
         "            _kernel32.LocalFree(p_new_dacl)\n"
+        "        _kernel32.LocalFree(p_sec_desc)\n"
+        "        return ret2 == 0\n"
         + extra
     )
 
@@ -362,7 +425,7 @@ def test_sandbox_allowlist_does_not_hide_calls_elsewhere(tmp_path: Path) -> None
 
 def test_sandbox_allowlist_rejects_second_mutation_inside_grant(tmp_path: Path) -> None:
     source = _documented_grant_source(
-        "            _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_other, None)\n"
+        "        _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_other, None)\n"
     )
     sample = tmp_path / "sample.py"
     sample.write_text(source, encoding="utf-8")
@@ -1037,3 +1100,136 @@ def test_sandbox_rejects_missing_local_free(tmp_path: Path) -> None:
 def test_sandbox_rejects_missing_ret2_guard(tmp_path: Path) -> None:
     source = _documented_grant_source().replace("if ret2 == 0:", "if True:")
     _assert_grant_rejected(tmp_path, source, "missing_ret2")
+
+
+# Phase 1.3.1: alternate AST mutation forms and receiver validation
+
+def test_sandbox_rejects_annotated_trustee_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.Trustee.ptstrName: str = 'Everyone'\n"),
+        "ann_trustee",
+    )
+
+
+def test_sandbox_rejects_augmented_permissions(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.grfAccessPermissions |= GENERIC_READ\n"),
+        "aug_permissions",
+    )
+
+
+def test_sandbox_rejects_setattr_trustee(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        setattr(ea.Trustee, 'ptstrName', 'Everyone')\n"),
+        "setattr_trustee",
+    )
+
+
+def test_sandbox_rejects_pmultiple_trustee_mutation(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.Trustee.pMultipleTrustee = p_evil\n"),
+        "pmultiple",
+    )
+
+
+def test_sandbox_rejects_multiple_trustee_operation_mutation(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.Trustee.MultipleTrusteeOperation = 1\n"),
+        "multiple_op",
+    )
+
+
+def test_sandbox_rejects_p_new_dacl_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        p_new_dacl = p_other\n"),
+        "pnew_reassign",
+    )
+
+
+def test_sandbox_rejects_p_new_dacl_annotated(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        p_new_dacl: int = 0\n"),
+        "pnew_ann",
+    )
+
+
+def test_sandbox_rejects_ea_reassignment(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea = other_ea\n"),
+        "ea_reassign",
+    )
+
+
+def test_sandbox_rejects_subscript_mutation(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source(
+            "        ea.__dict__['grfAccessPermissions'] = GENERIC_READ\n"
+        ),
+        "subscript_mutation",
+    )
+
+
+def test_sandbox_rejects_fake_setsecurity_receiver(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "_advapi32.SetSecurityInfo", "evil.SetSecurityInfo",
+    )
+    _assert_grant_rejected(tmp_path, source, "fake_setsecurity")
+
+
+def test_sandbox_rejects_fake_setentries_receiver(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "_advapi32.SetEntriesInAclW", "evil.SetEntriesInAclW",
+    )
+    _assert_grant_rejected(tmp_path, source, "fake_setentries")
+
+
+def test_sandbox_rejects_fake_byref_receiver(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "ctypes.byref(ea)", "evil.byref(ea)",
+    )
+    _assert_grant_rejected(tmp_path, source, "fake_byref")
+
+
+def test_sandbox_rejects_fake_c_void_p_receiver(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "p_new_dacl = ctypes.c_void_p()", "p_new_dacl = evil.c_void_p()",
+    )
+    _assert_grant_rejected(tmp_path, source, "fake_cvoidp")
+
+
+def test_sandbox_rejects_localfree_before_setsecurity(tmp_path: Path) -> None:
+    source = _documented_grant_source().replace(
+        "            _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n"
+        "            _kernel32.LocalFree(p_new_dacl)\n",
+        "            _kernel32.LocalFree(p_new_dacl)\n"
+        "            _advapi32.SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, None, None, p_new_dacl, None)\n",
+    )
+    _assert_grant_rejected(tmp_path, source, "free_before_security")
+
+
+def test_sandbox_rejects_extra_unapproved_mutation(tmp_path: Path) -> None:
+    _assert_grant_rejected(
+        tmp_path,
+        _documented_grant_source("        ea.grfAccessMode = DENY_ACCESS\n"),
+        "extra_mode",
+    )
+
+
+def test_documented_grant_remains_accepted(tmp_path: Path) -> None:
+    source = _documented_grant_source()
+    sample = tmp_path / "positive.py"
+    sample.write_text(source, encoding="utf-8")
+    expected = next(
+        i for i, line in enumerate(source.splitlines(), 1)
+        if "_advapi32.SetSecurityInfo" in line
+    )
+    assert _security_call_lines(sample) == {expected}
