@@ -423,10 +423,16 @@ class RequirementExtractor:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+|;", prompt) if s.strip()]
         for sent in sentences:
             lowered = sent.lower()
-            verbs = ["add", "create", "build", "generate", "implement", "support", "allow", "enable", "include", "provide", "handle", "integrate", "update"]
+            verbs = [
+                "add", "create", "build", "generate", "implement", "support",
+                "allow", "enable", "include", "provide", "handle", "integrate",
+                "update", "fix", "repair", "refactor", "clean", "remove",
+                "delete", "rename", "move", "improve", "migrate", "optimize",
+                "replace", "extend", "reduce",
+            ]
             if any(verb in lowered for verb in verbs):
                 # Avoid capturing the entire text if it's just a general statement
-                if len(sent) > 10 and not any(sent.lower() == t[0].lower() for t in KNOWN_FRAMEWORKS_AND_TECHS.values()):
+                if len(sent) >= 6 and not any(sent.lower() == t[0].lower() for t in KNOWN_FRAMEWORKS_AND_TECHS.values()):
                     items.append(
                         RequirementItem(
                             id=f"REQ-{c:03d}",

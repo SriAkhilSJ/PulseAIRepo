@@ -110,6 +110,10 @@ def detect_file_role(path: str, intent: Optional[FileRole] = None) -> FileRole:
         return FileRole.CONFIGURATION
     if name in _BUILD_NAMES or name.startswith("dockerfile"):
         return FileRole.BUILD
+    if "build" in dirs and ext in {".py", ".sh", ".ps1", ".mk"}:
+        return FileRole.BUILD
+    if "config" in dirs and ext in {".json", ".yaml", ".yml", ".toml"}:
+        return FileRole.CONFIGURATION
     looks_like_test = (
         name.startswith("test_") or stem.endswith("_test")
         or ".test." in name or ".spec." in name
@@ -126,14 +130,29 @@ def detect_file_role(path: str, intent: Optional[FileRole] = None) -> FileRole:
 
 
 def requirement_intent(description: str) -> FileRole:
+    """Classify a requirement's FILE role from its wording.
+
+    The verb "build" is product language ("build an app/store") and must not
+    turn a normal feature requirement into a BUILD-file requirement; only
+    build-system nouns do. Same for bare "setup" (a business setup is not
+    setup.py). This was the root of the Phase 11.6 REQ-001 failures.
+    """
     lowered = (description or "").lower()
     if re.search(r"\b(?:tests?|pytest|unittest|specs?|coverage|fixtures?|assertions?)\b", lowered):
         return FileRole.TEST
-    if re.search(r"\b(?:pytest\.ini|pyproject|package\.json|tsconfig|config|configuration|setup)\b", lowered):
+    if re.search(
+        r"\b(?:pytest\.ini|pyproject|package\.json|tsconfig|config(?:uration)?|"
+        r"setup\.py|setup\.cfg|dotenv|\.env)\b",
+        lowered,
+    ):
         return FileRole.CONFIGURATION
     if re.search(r"\b(?:readme|documentation|docs?|docstring)\b", lowered):
         return FileRole.DOCUMENTATION
-    if re.search(r"\b(?:makefile|dockerfile|build|requirements\.txt)\b", lowered):
+    if re.search(
+        r"\b(?:makefile|dockerfile|docker-compose|build system|build script|"
+        r"build pipeline|ci build|requirements\.txt|setup\.py)\b",
+        lowered,
+    ):
         return FileRole.BUILD
     return FileRole.SOURCE
 
@@ -433,6 +452,20 @@ def _slug(text: str) -> str:
     return cleaned or "task"
 
 
+def _synthesize_target(intent: FileRole, requirement_id: str) -> str:
+    """Deterministic, role-appropriate path for a necessary inferred file."""
+    slug = _slug(requirement_id)
+    if intent == FileRole.CONFIGURATION:
+        return f"config/{slug}.yaml"
+    if intent == FileRole.DOCUMENTATION:
+        return f"docs/{slug}.md"
+    if intent == FileRole.BUILD:
+        return f"build/{slug}.py"
+    if intent == FileRole.TEST:
+        return f"tests/test_{slug}.py"
+    return f"src/{slug}_module.py"
+
+
 def extract_contract(
     prompt: str,
     requirements: Iterable[Any],
@@ -494,6 +527,9 @@ def extract_contract(
     for req in mandatory:
         rid = _requirement_id(req)
         description = _requirement_description(req)
+        if not str(description or "").strip():
+            ambiguities.append(f"{rid} has no description and no target can be inferred")
+            continue
         intent = requirement_intent(description)
         explicit = _mentioned_files(description)
         target: Optional[str] = None
@@ -558,14 +594,14 @@ def extract_contract(
             target = f"src/{_slug(rid)}_module.py"
             role = FileRole.SOURCE
         elif target is None:
-            # Config/doc/build with no matching file: keep responsibility on the
-            # nearest source component rather than inventing a path.
-            if assigned_sources:
-                target = assigned_sources[0]
-                role = FileRole.SOURCE
-                ambiguities.append(
-                    f"{rid} ({intent.value}) has no matching file; attached to {target}"
-                )
+            # Config/doc/build with no explicit or requested file: a necessary
+            # role-appropriate artifact is safer than attaching the requirement
+            # to an unrelated source file (which produced a role conflict and
+            # rejected the whole plan). The path is deterministic per
+            # requirement id, so contract hashes stay stable and traceability is
+            # preserved. No arbitrary file is invented for SOURCE/TEST.
+            target = _synthesize_target(intent, rid)
+            role = intent
 
         if target is None:
             ambiguities.append(f"{rid} could not be assigned any target file")
