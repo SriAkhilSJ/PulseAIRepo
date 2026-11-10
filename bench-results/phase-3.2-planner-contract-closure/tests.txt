@@ -1,0 +1,67 @@
+# Verification results
+
+## The eight previously failing cases
+
+```
+pytest test_phase_11_6_autonomous_execution.py -q \
+  -k "test_02_complex or test_04_nontechnical or test_05_essential or \
+      test_11_architecture or test_26_pre_existing or test_38_scenario_b or \
+      test_40_scenario_d or test_42_scenario_f"
+=> 8 passed, 36 deselected
+```
+
+## Full Phase 11.6
+
+```
+pytest test_phase_11_6_autonomous_execution.py -q
+=> 44 passed
+```
+
+Log: `logs/phase116-full.txt`.
+
+## New regression tests
+
+`src/tests/test_contract_assignment_reliability.py` — **14 passed**:
+
+SOURCE/TEST/CONFIG/DOC/BUILD synthesis; product “build” wording is SOURCE;
+shared target coalescing; explicit source+test mapping; user-named authority;
+optional suggestion exclusion; empty description remains ambiguous and blocks;
+no duplicate work units; dispatch budget; deterministic contract hash.
+
+## Contract / planner / approval verification
+
+```
+pytest test_p0_6_8_contract_first.py test_phase_11_1_requirement_understanding.py \
+       test_planner_manual.py test_planner_phatic_gate.py \
+       test_contract_assignment_reliability.py \
+       test_orchestrator_approval_integration.py test_bridge_protocol_v2.py \
+       --deselect ...::test_historical_failure_is_diagnosed_and_repaired
+=> 118 passed, 1 deselected
+```
+
+Log: `logs/verification-tests.txt`.
+
+The deselected test is a pre-existing failure: it fails identically with HEAD
+`contract.py` and `requirement_extractor.py` restored (verified by temporary
+restore; `logs/contract-planner-tests.txt` keeps the raw failure). It is the
+historical repair-lifecycle case, failing before the approval/contract stages
+(`2 cross-file contract violations, 2 tests failing, 0 repair attempts`).
+
+## Phase 3.1 approval behaviour
+
+`test_orchestrator_approval_integration.py` — **11 passed** inside the batch
+above. Deny/timeout/cancel/shutdown/token-scope paths unchanged.
+
+## Known pre-existing reds (not in touched files)
+
+- `test_p0_6_8_contract_first.py::TestExactHistoricalLifecycle::test_historical_failure_is_diagnosed_and_repaired`
+  (verified pre-existing at HEAD).
+- Three POSIX/echo evidence tests and one terminal message-text mismatch
+  documented in Phase 3.1.
+- `test_plan_approval.py` import failure (B-DESK-001).
+
+## Provider calls
+
+Zero. All runs are provider-free: pytest uses the deterministic test mode, and
+no `llm.request` / `llm.response` frames appear. No keys inspected or changed;
+no tournament or benchmark executed.

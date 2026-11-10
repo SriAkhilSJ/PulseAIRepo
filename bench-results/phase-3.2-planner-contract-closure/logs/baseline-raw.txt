@@ -1,0 +1,467 @@
+.\.venv\Scripts\python.exe : [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash'
+CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'
+At line:9 char:231
++ ... alappdata"; .\.venv\Scripts\python.exe bench-results/phase-3.2-planne ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([settings] load...//velona.in/v1':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+Task node task_main failed with exception: Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR
+0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)
+Wave 1 experienced failures: {'task_main'}. Halting pipeline.
+Task node task_auth_bug failed with exception: Operation rejected: estimated cost INR 0.1558 exceeds remaining budget
+INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)
+Wave 1 experienced failures: {'task_auth_bug'}. Halting pipeline.
+Task node task_main failed with exception: Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR
+0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)
+Wave 1 experienced failures: {'task_main'}. Halting pipeline.
+[
+  {
+    "test": "test_02_complex_product_request",
+    "prompt": "Build a multi-tier ecommerce store with catalog, checkout, and inventory modules",
+    "task_id": "t02",
+    "outcome": "FAIL",
+    "error_type": "PlanValidationError",
+    "error": "plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file",
+    "traceback_tail": [
+      "    ...<2 lines>...",
+      "        requested_files=requested_files,",
+      "    )",
+      "  File \"<REPO>\\src\\orchestration\\contract.py\", line 779, in validate_contract_plan",
+      "    raise PlanValidationError(reasons, work_units=len(units), demand=demand)",
+      "src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Build a multi-tier ecommerce store with catalog, checkout, and inventory modules",
+        "classification_raw": "EXPLICIT",
+        "contract_classification": "EXPLICIT",
+        "intent": "BUILD",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Implement Product Catalog: Browse, search, and filter available products",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-003",
+        "description": "Implement Shopping Cart: Add, update quantities, and remove items before checkout",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-004",
+        "description": "Implement Checkout & Payments: Secure payment authorization and order generation",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-005",
+        "description": "Implement Order History: Review past orders and track shipment status",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-006",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-007",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [
+        "REQ-001 could not be assigned any target file"
+      ],
+      "components": []
+    }
+  },
+  {
+    "test": "test_04_nontechnical_user_request",
+    "prompt": "Build an online marketplace for my new pottery business",
+    "task_id": "t04",
+    "outcome": "FAIL",
+    "error_type": "PlanValidationError",
+    "error": "plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file",
+    "traceback_tail": [
+      "    ...<2 lines>...",
+      "        requested_files=requested_files,",
+      "    )",
+      "  File \"<REPO>\\src\\orchestration\\contract.py\", line 779, in validate_contract_plan",
+      "    raise PlanValidationError(reasons, work_units=len(units), demand=demand)",
+      "src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Build an online marketplace for my new pottery business",
+        "classification_raw": "EXPLICIT",
+        "contract_classification": "EXPLICIT",
+        "intent": "BUILD",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Implement Product Catalog: Browse, search, and filter available products",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-003",
+        "description": "Implement Shopping Cart: Add, update quantities, and remove items before checkout",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-004",
+        "description": "Implement Checkout & Payments: Secure payment authorization and order generation",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-005",
+        "description": "Implement Order History: Review past orders and track shipment status",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-006",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-007",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [
+        "REQ-001 could not be assigned any target file"
+      ],
+      "components": []
+    }
+  },
+  {
+    "test": "test_05_essential_clarification_interruption",
+    "prompt": "Build an app for customers",
+    "task_id": "t05",
+    "outcome": "FAIL",
+    "error_type": "PlanValidationError",
+    "error": "plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file",
+    "traceback_tail": [
+      "    ...<2 lines>...",
+      "        requested_files=requested_files,",
+      "    )",
+      "  File \"<REPO>\\src\\orchestration\\contract.py\", line 779, in validate_contract_plan",
+      "    raise PlanValidationError(reasons, work_units=len(units), demand=demand)",
+      "src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Build an app for customers",
+        "classification_raw": "EXPLICIT",
+        "contract_classification": "EXPLICIT",
+        "intent": "BUILD",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-003",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [
+        "REQ-001 could not be assigned any target file"
+      ],
+      "components": []
+    }
+  },
+  {
+    "test": "test_11_architecture_decision_integration",
+    "prompt": "Build high volume ingestion pipeline",
+    "task_id": "t11",
+    "outcome": "FAIL",
+    "error_type": "PlanValidationError",
+    "error": "plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file",
+    "traceback_tail": [
+      "    ...<2 lines>...",
+      "        requested_files=requested_files,",
+      "    )",
+      "  File \"<REPO>\\src\\orchestration\\contract.py\", line 779, in validate_contract_plan",
+      "    raise PlanValidationError(reasons, work_units=len(units), demand=demand)",
+      "src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Build high volume ingestion pipeline",
+        "classification_raw": "EXPLICIT",
+        "contract_classification": "EXPLICIT",
+        "intent": "BUILD",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-003",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [
+        "REQ-001 could not be assigned any target file"
+      ],
+      "components": []
+    }
+  },
+  {
+    "test": "test_26_pre_existing_failure_classification",
+    "prompt": "Clean task",
+    "task_id": "t26",
+    "outcome": "FAIL",
+    "error_type": "BudgetExhaustedError",
+    "error": "Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)",
+    "traceback_tail": [
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 385, in run_task",
+      "    return self._run_task_impl(*args, **kwargs)",
+      "           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^",
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 788, in _run_task_impl",
+      "    raise BudgetExhaustedError(err_msg)",
+      "src.orchestration.finops_governor.BudgetExhaustedError: Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [],
+      "components": []
+    }
+  },
+  {
+    "test": "test_38_scenario_b_existing_bug_demonstration",
+    "prompt": "Fix authentication return value in auth_bug.py",
+    "task_id": "demo_scenario_b",
+    "outcome": "FAIL",
+    "error_type": "BudgetExhaustedError",
+    "error": "Operation rejected: estimated cost INR 0.1558 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)",
+    "traceback_tail": [
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 385, in run_task",
+      "    return self._run_task_impl(*args, **kwargs)",
+      "           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^",
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 788, in _run_task_impl",
+      "    raise BudgetExhaustedError(err_msg)",
+      "src.orchestration.finops_governor.BudgetExhaustedError: Operation rejected: estimated cost INR 0.1558 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [],
+      "components": [
+        {
+          "target": "auth_bug.py",
+          "role": "SOURCE",
+          "requirement_ids": []
+        }
+      ]
+    }
+  },
+  {
+    "test": "test_40_scenario_d_regression_introduced_demonstration",
+    "prompt": "Refactor database connection pool with regression safeguard",
+    "task_id": "demo_scenario_d",
+    "outcome": "FAIL",
+    "error_type": "BudgetExhaustedError",
+    "error": "Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)",
+    "traceback_tail": [
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 385, in run_task",
+      "    return self._run_task_impl(*args, **kwargs)",
+      "           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^",
+      "  File \"<REPO>\\src\\orchestration\\orchestrator.py\", line 788, in _run_task_impl",
+      "    raise BudgetExhaustedError(err_msg)",
+      "src.orchestration.finops_governor.BudgetExhaustedError: Operation rejected: estimated cost INR 0.1540 exceeds remaining budget INR 0.0000 (budget: INR 0.0000, spent: INR 0.0000, reserved: INR 0.0000)"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [],
+      "components": []
+    }
+  },
+  {
+    "test": "test_42_scenario_f_unresolved_business_decision_demonstration",
+    "prompt": "Build subscription tier with payment processor",
+    "task_id": "demo_scenario_f",
+    "outcome": "FAIL",
+    "error_type": "PlanValidationError",
+    "error": "plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file",
+    "traceback_tail": [
+      "    ...<2 lines>...",
+      "        requested_files=requested_files,",
+      "    )",
+      "  File \"<REPO>\\src\\orchestration\\contract.py\", line 779, in validate_contract_plan",
+      "    raise PlanValidationError(reasons, work_units=len(units), demand=demand)",
+      "src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file"
+    ],
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "description": "Build subscription tier with payment processor",
+        "classification_raw": "EXPLICIT",
+        "contract_classification": "EXPLICIT",
+        "intent": "BUILD",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-002",
+        "description": "Implement Organization Management: Multi-tenant workspace isolation and team member invitations",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-003",
+        "description": "Implement Subscription Billing: Tiered billing, usage metrics, and subscription renewal",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-004",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned_files": []
+      },
+      {
+        "id": "REQ-005",
+        "description": "Automated unit and integration test suite with high coverage",
+        "classification_raw": "REASONABLE_DEFAULT",
+        "contract_classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned_files": []
+      }
+    ],
+    "contract": {
+      "requirement_map": {},
+      "ambiguities": [
+        "REQ-001 could not be assigned any target file"
+      ],
+      "components": []
+    }
+  }
+]

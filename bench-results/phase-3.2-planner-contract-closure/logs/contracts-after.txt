@@ -1,0 +1,384 @@
+.\.venv\Scripts\python.exe : [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash'
+CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'
+At line:1 char:323
++ ... alappdata"; .\.venv\Scripts\python.exe bench-results/phase-3.2-planne ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([settings] load...//velona.in/v1':String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+[
+  {
+    "test": "test_02",
+    "prompt": "Build a multi-tier ecommerce store with catalog, checkout, and inventory modules",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-004",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-005",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-006",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-007",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_04",
+    "prompt": "Build an online marketplace for my new pottery business",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-004",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-005",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-006",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-007",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_05",
+    "prompt": "Build an app for customers",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_11",
+    "prompt": "Build high volume ingestion pipeline",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_26",
+    "prompt": "Clean task",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_38",
+    "prompt": "Fix authentication return value in auth_bug.py",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": [
+          "auth_bug.py"
+        ]
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "auth_bug.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "auth_bug.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_40",
+    "prompt": "Refactor database connection pool with regression safeguard",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  },
+  {
+    "test": "test_42",
+    "prompt": "Build subscription tier with payment processor",
+    "requirements": [
+      {
+        "id": "REQ-001",
+        "classification": "EXPLICIT",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-002",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-003",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "SOURCE",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-004",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "CONFIGURATION",
+        "mentioned": []
+      },
+      {
+        "id": "REQ-005",
+        "classification": "OPTIONAL_SUGGESTION",
+        "intent": "TEST",
+        "mentioned": []
+      }
+    ],
+    "requirement_map": {
+      "REQ-001": [
+        "src/req_001_module.py"
+      ]
+    },
+    "components": [
+      {
+        "target": "src/req_001_module.py",
+        "role": "SOURCE",
+        "requirements": [
+          "REQ-001"
+        ]
+      }
+    ],
+    "ambiguities": []
+  }
+]

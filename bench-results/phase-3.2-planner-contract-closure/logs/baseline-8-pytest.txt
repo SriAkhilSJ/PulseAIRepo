@@ -1,0 +1,89 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: <REPO>
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 44 items / 36 deselected / 8 selected
+
+src\tests\test_phase_11_6_autonomous_execution.py FFFFFFFF               [100%]
+
+================================== FAILURES ===================================
+_______ TestPhase116AutonomousExecution.test_02_complex_product_request _______
+src\tests\test_phase_11_6_autonomous_execution.py:114: in test_02_complex_product_request
+    res = self.orchestrator.run_task(
+src\orchestration\orchestrator.py:385: in run_task
+    return self._run_task_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:610: in _run_task_impl
+    plan_report = validate_contract_plan(
+src\orchestration\contract.py:779: in validate_contract_plan
+    raise PlanValidationError(reasons, work_units=len(units), demand=demand)
+E   src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file
+______ TestPhase116AutonomousExecution.test_04_nontechnical_user_request ______
+src\tests\test_phase_11_6_autonomous_execution.py:136: in test_04_nontechnical_user_request
+    res = self.orchestrator.run_task(
+src\orchestration\orchestrator.py:385: in run_task
+    return self._run_task_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:610: in _run_task_impl
+    plan_report = validate_contract_plan(
+src\orchestration\contract.py:779: in validate_contract_plan
+    raise PlanValidationError(reasons, work_units=len(units), demand=demand)
+E   src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file
+_ TestPhase116AutonomousExecution.test_05_essential_clarification_interruption _
+src\tests\test_phase_11_6_autonomous_execution.py:145: in test_05_essential_clarification_interruption
+    res = self.orchestrator.run_task(
+src\orchestration\orchestrator.py:385: in run_task
+    return self._run_task_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:610: in _run_task_impl
+    plan_report = validate_contract_plan(
+src\orchestration\contract.py:779: in validate_contract_plan
+    raise PlanValidationError(reasons, work_units=len(units), demand=demand)
+E   src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file
+__ TestPhase116AutonomousExecution.test_11_architecture_decision_integration __
+src\tests\test_phase_11_6_autonomous_execution.py:197: in test_11_architecture_decision_integration
+    res = self.orchestrator.run_task("Build high volume ingestion pipeline", task_id="t11")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:385: in run_task
+    return self._run_task_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:610: in _run_task_impl
+    plan_report = validate_contract_plan(
+src\orchestration\contract.py:779: in validate_contract_plan
+    raise PlanValidationError(reasons, work_units=len(units), demand=demand)
+E   src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file
+_ TestPhase116AutonomousExecution.test_26_pre_existing_failure_classification _
+src\tests\test_phase_11_6_autonomous_execution.py:331: in test_26_pre_existing_failure_classification
+    self.assertEqual(res.verdict, TaskVerdict.COMPLETED)
+E   AssertionError: <TaskVerdict.FAILED: 'FAILED'> != <TaskVerdict.COMPLETED: 'COMPLETED'>
+_ TestPhase116AutonomousExecution.test_38_scenario_b_existing_bug_demonstration _
+src\tests\test_phase_11_6_autonomous_execution.py:455: in test_38_scenario_b_existing_bug_demonstration
+    self.assertEqual(res.verdict, TaskVerdict.COMPLETED)
+E   AssertionError: <TaskVerdict.FAILED: 'FAILED'> != <TaskVerdict.COMPLETED: 'COMPLETED'>
+_ TestPhase116AutonomousExecution.test_40_scenario_d_regression_introduced_demonstration _
+src\tests\test_phase_11_6_autonomous_execution.py:471: in test_40_scenario_d_regression_introduced_demonstration
+    self.assertIn(res.verdict, {TaskVerdict.COMPLETED, TaskVerdict.PARTIALLY_COMPLETED})
+E   AssertionError: <TaskVerdict.FAILED: 'FAILED'> not found in {<TaskVerdict.PARTIALLY_COMPLETED: 'PARTIALLY_COMPLETED'>, <TaskVerdict.COMPLETED: 'COMPLETED'>}
+_ TestPhase116AutonomousExecution.test_42_scenario_f_unresolved_business_decision_demonstration _
+src\tests\test_phase_11_6_autonomous_execution.py:485: in test_42_scenario_f_unresolved_business_decision_demonstration
+    res = self.orchestrator.run_task(
+src\orchestration\orchestrator.py:385: in run_task
+    return self._run_task_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\orchestration\orchestrator.py:610: in _run_task_impl
+    plan_report = validate_contract_plan(
+src\orchestration\contract.py:779: in validate_contract_plan
+    raise PlanValidationError(reasons, work_units=len(units), demand=demand)
+E   src.orchestration.contract.PlanValidationError: plan rejected before dispatch: contract ambiguity: REQ-001 could not be assigned any target file
+=========================== short test summary info ===========================
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_02_complex_product_request
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_04_nontechnical_user_request
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_05_essential_clarification_interruption
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_11_architecture_decision_integration
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_26_pre_existing_failure_classification
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_38_scenario_b_existing_bug_demonstration
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_40_scenario_d_regression_introduced_demonstration
+FAILED src/tests/test_phase_11_6_autonomous_execution.py::TestPhase116AutonomousExecution::test_42_scenario_f_unresolved_business_decision_demonstration
+====================== 8 failed, 36 deselected in 5.24s =======================
