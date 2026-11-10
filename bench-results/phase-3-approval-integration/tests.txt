@@ -27,10 +27,11 @@ safety text). None of these files were touched by this change.
 
 ## New approval suite
 
-`src/tests/test_orchestrator_approval_integration.py` — **9 passed**:
+`src/tests/test_orchestrator_approval_integration.py` — **11 passed**:
 approval requested; approve; deny; timeout; cancellation; wrong session;
 duplicate/stale; resource binding; low-risk policy; broker mutation + token
-reuse refusal.
+reuse refusal; unknown approval id refused; `session` policy silent for low
+risk and asks for high risk.
 
 ## Existing orchestration/discipline
 

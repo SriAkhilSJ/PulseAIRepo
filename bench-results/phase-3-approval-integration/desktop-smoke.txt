@@ -41,3 +41,20 @@ Screenshots:
 - Approval timeout/cancel through the dock: proven at the bridge level.
 - Real provider/tool pipeline: this run uses deterministic orchestrator mock
   code generation; the approval, token and mutation-broker path is real.
+
+## Deny run (final)
+
+| Item | Value |
+|---|---|
+| Main PID | 24860 |
+| Prompt | `Create notes.md with a short greeting for the project.` |
+| Dock | `Change notes.md?` |
+| Action | clicked **Deny** |
+| Result | turn cancelled; **no files** in the workspace; 0 warning rows |
+| Screenshot | `screenshots/06_desktop_denied.png` |
+
+The denied tool card is painted `crusorai-tool-row is-failed`; the transcript
+receipt reads `Run cancelled · 1 landed`. The file is absent, so the mutation
+was prevented. The "1 landed" count is a known receipt-accounting bug: the
+renderer's `stampInterrupt()` counts a `failed` tool (the denied approval card)
+as landed (B-DESK-006). It is a display defect, not an authorization one.

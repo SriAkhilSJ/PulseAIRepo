@@ -40,8 +40,10 @@ existing `safety_reply` handler resolving the shared `ApprovalQueue` with
 | deny | 1 (`notes.md`) | denied | `turn_done cancelled=true`, “Operation denied by the user.” | none (`notes.md` absent) | `complete` |
 | timeout (2 s) | 1 (`notes.md`) | none | `turn_done cancelled=true`, “Approval was not granted…” after 3.0 s | none | `complete` |
 | cancel (Stop) | 1 (`notes.md`) | none | `turn_done cancelled=true`, “Operation cancelled by the user.” | none | `complete` |
+| worker shutdown while pending | 1 (`notes.md`) | none | process exits, no terminal | none | n/a (process ended) |
 
-Manifests (isolated home):
+Shutdown probe: `logs/probe-shutdown.txt` — one `safety_request`, then `shutdown`;
+bridge exit 0, no files. Manifests (isolated home):
 `capture_status=complete`, `coverage.missing=[]`,
 `coverage.not_applicable=[trace,report]` in all four.
 

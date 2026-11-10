@@ -18,9 +18,9 @@ This is not Agent Core production readiness. The known graph import defect
 |---|---|---|---|
 | 1 | Default orchestrator no longer auto-approves | **PASS** | stage-9 now calls the gateway; no `grant_approval(..., "APPROVE")` on the approval-channel path; probes: files absent until reply |
 | 2 | Actual desktop approval response controls execution | **PASS** | Electron smoke: dock from orchestrator, clicked Allow once twice, files then created (`desktop-smoke.txt`, screenshots 04/05) |
-| 3 | Denial and cancellation prevent the mutation | **PASS** | deny/timeout/cancel probes: `turn_done cancelled=true`, no files; unit tests |
+| 3 | Denial and cancellation prevent the mutation | **PASS** | deny/timeout/cancel probes: `turn_done cancelled=true`, no files; **desktop Deny clicked**: cancelled, no files; worker shutdown while pending: no files |
 | 4 | Authorization scoped and validated at the mutation boundary | **PASS** | `APPV-` token bound to task/workspace/path/op; broker consumes once; wrong-resource and replay tests |
-| 5 | Provider-free integration tests pass | **PASS** | 9/9 new; 112 passed, 3 deselected pre-existing (`tests.txt`) |
+| 5 | Provider-free integration tests pass | **PASS** | 11/11 new; 112 passed, 3 deselected pre-existing (`tests.txt`) |
 | 6 | Existing regression coverage preserved | **PASS (touched areas)** | 11.3 discipline 36, p0_3 7, bridge orchestrator 4, transport 15, protocol 9, approval testimony 3 |
 
 ## What changed
@@ -61,8 +61,10 @@ This is not Agent Core production readiness. The known graph import defect
 1. **Real provider/graph pipeline** not used: B-DESK-001 still breaks
    `stream_agent`. The orchestrator path is the one repaired here and it runs
    the deterministic local generator in the smoke.
-2. **Desktop denial click** was not re-shot; the deny path is proven at the
-   bridge/queue level and uses the same `safety_reply` handler.
+2. **Desktop denial** was re-shot: clicking Deny cancelled the turn and left the
+   workspace empty (`06_desktop_denied.png`). The receipt reads
+   `Run cancelled · 1 landed` because a failed tool is miscounted as landed
+   (B-DESK-006, display only).
 3. **Approvals are requested at stage 9**, before code generation, so the dock
    has no file diff body (`Review change` is absent). Resource/operation/reason
    are present. Moving the ask to mutation time would be a follow-up.

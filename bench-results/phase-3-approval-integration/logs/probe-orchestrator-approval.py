@@ -63,10 +63,14 @@ def main() -> int:
     threading.Thread(target=read_out, daemon=True).start()
     threading.Thread(target=read_err, daemon=True).start()
 
-    def send(frame: dict) -> None:
+    def send(frame: dict) -> bool:
         assert proc.stdin is not None
-        proc.stdin.write(json.dumps(frame) + "\n")
-        proc.stdin.flush()
+        try:
+            proc.stdin.write(json.dumps(frame) + "\n")
+            proc.stdin.flush()
+            return True
+        except OSError:
+            return False
 
     send({"type": "hello", "protocol": 2})
     deadline = time.monotonic() + 120
@@ -110,8 +114,12 @@ def main() -> int:
             elif mode == "cancel":
                 send({"type": "cancel", "session_id": sid})
                 sent_cancel = True
+            elif mode == "shutdown":
+                send({"type": "shutdown"})
         elif kind in {"turn_done", "turn_failed"}:
             terminal = frame
+            break
+        if proc.poll() is not None and mode == "shutdown":
             break
 
     report = {
@@ -137,8 +145,9 @@ def main() -> int:
         "approval_log": [ln for ln in stderr_lines if "orchestrator-approval" in ln or "approval" in ln][-12:],
         "stderr_tail": stderr_lines[-15:],
     }
-    send({"type": "shutdown"})
-    time.sleep(0.3)
+    if proc.poll() is None:
+        send({"type": "shutdown"})
+        time.sleep(0.3)
     try:
         proc.wait(timeout=20)
     except subprocess.TimeoutExpired:

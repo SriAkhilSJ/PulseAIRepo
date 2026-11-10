@@ -252,3 +252,27 @@ def test_broker_accepts_the_approved_token_and_denial_leaves_the_file_untouched(
             path="product.json", new_content='{"changed": false}\n',
             task_id="task-1", approval_token=token,
         )
+
+
+def test_unknown_approval_id_is_rejected(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    gateway, queue, _ = _gateway(ws, timeout_s=0.3)
+    thread, result = _start(gateway, node_id="n1", path="notes.md", reason="write")
+    item = _wait_pending(queue)
+    assert queue.resolve("appr-does-not-exist", True, session_id="session-1") is False
+    assert queue.resolve(item["id"], True, session_id="session-1") is True
+    thread.join(3)
+    assert result.get("auth") is not None
+
+
+def test_session_policy_low_risk_is_silent_and_high_risk_asks(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    gateway, queue, events = _gateway(ws, policy="session")
+    assert gateway.authorize(node_id="n1", path="notes.md", reason="normal") is None
+    assert queue.get_pending("session-1") == []
+    assert events == []
+    thread, result = _start(gateway, node_id="n2", path="product.json", risk_level="HIGH", reason="risk")
+    item = _wait_pending(queue)
+    queue.resolve(item["id"], True, session_id="session-1")
+    thread.join(3)
+    assert result.get("auth") is not None
