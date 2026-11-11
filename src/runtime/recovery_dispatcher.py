@@ -14,6 +14,8 @@ Executes recovery strategies recommended by FailureClassifier:
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import gc
 import os
 import random
@@ -184,8 +186,10 @@ class RecoveryStrategyDispatcher:
             drained_bytes = 0
             drained_files = 0
             if self.workspace_root and self.workspace_root.exists():
+                from src.runtime.app_paths import app_data_root
+
                 candidate_dirs = [
-                    self.workspace_root / ".crusorai" / "logs",
+                    app_data_root(self.workspace_root) / "logs",
                     self.workspace_root / "tmp",
                 ]
                 for cdir in candidate_dirs:

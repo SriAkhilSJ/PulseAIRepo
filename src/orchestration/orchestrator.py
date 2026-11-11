@@ -94,6 +94,7 @@ class EngineeringExecutionOrchestrator:
         approval_queue=None,
         approval_timeout_s: Optional[float] = None,
         cancellation_checker: Optional[Callable[[], bool]] = None,
+        turn_id: str = "",
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
@@ -141,8 +142,14 @@ class EngineeringExecutionOrchestrator:
                 queue=approval_queue,
                 timeout_s=approval_timeout_s,
                 cancellation_checker=cancellation_checker,
+                turn_id=str(turn_id or ""),
             )
         self._approval_tokens: Dict[tuple[str, str], str] = {}
+        # Increment 2: the graph's assembled context and correlation identity
+        # cross the delegation boundary here (set by run_task_request).
+        self._context_bundle: Dict[str, Any] = {}
+        self._session_id: str = str(session_id or "")
+        self._turn_id: str = ""
 
     # -- dispatch budget ---------------------------------------------------
 
@@ -219,12 +226,26 @@ class EngineeringExecutionOrchestrator:
 
     @staticmethod
     def _testing_required(task_prompt: str, discovery: Any, plan_dag: EngineeringPlanDAG) -> bool:
-        """Testing is required when tests exist, were requested, or were planned."""
+        """Testing is required when tests exist, were positively requested, or were planned."""
         from src.orchestration.test_execution import is_test_file
 
         if getattr(discovery, "files", None):
             return True
-        if re.search(r"\b(?:test|tests|pytest|unittest|spec)\b", (task_prompt or "").lower()):
+        positive_test_request = False
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+|;", task_prompt or ""):
+            lowered = sentence.strip().lower()
+            if not lowered:
+                continue
+            if re.match(
+                r"^(?:do\s+not|don't|dont|never|must\s+not|should\s+not|avoid|"
+                r"without\s+creating|no\s+new)\b",
+                lowered,
+            ):
+                continue
+            if re.search(r"\b(?:test|tests|pytest|unittest|spec)\b", lowered):
+                positive_test_request = True
+                break
+        if positive_test_request:
             return True
         for node in plan_dag.nodes.values():
             if any(is_test_file(f) for f in node.target_files):
@@ -390,6 +411,54 @@ class EngineeringExecutionOrchestrator:
                     self._finalize_finops_after(finops)
                 except Exception as exc:  # pragma: no cover - defensive
                     log.warning("finops finalization failed: %r", exc)
+
+    def run_task_request(
+        self,
+        request: Any,
+        *,
+        on_progress: Optional[Callable[[Dict[str, Any]], None]] = None,
+        cancellation_checker: Optional[Callable[[], bool]] = None,
+    ) -> DeliveryContract:
+        """Delegated entry used by the LangGraph engineering node.
+
+        The graph owns the turn and assembles context; this method only maps
+        the explicit EngineeringTaskRequest onto the existing pipeline. The
+        structured context bundle crosses the boundary unchanged so the
+        engineering model receives the graph's bounded context and no second
+        context/transcript lifecycle is created.
+        """
+        self._context_bundle = dict(getattr(request, "context_bundle", None) or {})
+        self._session_id = str(getattr(request, "session_id", "") or "")
+        self._turn_id = str(getattr(request, "turn_id", "") or "")
+        if self.approval_gateway is not None:
+            self.approval_gateway.turn_id = self._turn_id
+        delivery = self.run_task(
+            task_prompt=request.prompt,
+            task_id=request.task_id,
+            explicit_constraints=list(request.explicit_constraints or []),
+            on_progress=on_progress,
+            cancellation_checker=cancellation_checker,
+        )
+        if self.approval_gateway is not None:
+            delivery.approval_receipts = list(self.approval_gateway.receipts)
+        try:
+            delivery.mutation_receipts = [
+                {
+                    "operation_id": record.operation_id,
+                    "file_path": record.file_path,
+                    "operation_type": str(
+                        getattr(record.operation_type, "value", record.operation_type)
+                    ),
+                    "status": str(getattr(record.status, "value", record.status)),
+                    "original_hash": record.original_hash,
+                    "new_hash": record.new_hash,
+                    "approval_ref": str(record.approval_ref or "")[:12],
+                }
+                for record in self.broker.ledger.get_records(request.task_id)
+            ]
+        except Exception:
+            delivery.mutation_receipts = []
+        return delivery
 
     def _run_task_impl(
         self,
@@ -680,36 +749,14 @@ class EngineeringExecutionOrchestrator:
         # boundary. Denial/timeout/cancel raises before implementation.
         self._approval_tokens = {}
         if self.approval_gateway is not None:
-            approvals = 0
-            for node in plan_dag.nodes.values():
-                if node.node_id == "task_verification" or not node.target_files:
-                    continue
-                raw_risk = getattr(node, "risk_level", "LOW")
-                risk_name = str(getattr(raw_risk, "value", raw_risk))
-                for target in node.target_files:
-                    auth = self.approval_gateway.authorize(
-                        node_id=node.node_id,
-                        path=target,
-                        risk_level=risk_name,
-                        reason=node.description,
-                        task_id=tid,
-                    )
-                    if auth is not None:
-                        approvals += 1
-                        state_machine.transition_to(
-                            TaskExecutionState.APPROVAL_REQUIRED,
-                            f"Human approval required for {target}",
-                        )
-                        emit_progress("APPROVAL_REQUIRED")
-                        self._approval_tokens[
-                            (node.node_id, Path(target).as_posix())
-                        ] = auth.token
-                        state_machine.transition_to(
-                            TaskExecutionState.READY_TO_IMPLEMENT,
-                            "Approval granted",
-                        )
+            # Increment 2 / B-DESK-005: approvals happen at MUTATION time,
+            # after the engine has generated the exact content and diff. A
+            # stage-9 path-only ask cannot bind the proposed bytes and would
+            # be a stale approval by the time implementation runs. Record the
+            # deferred policy here; ImplementationEngine requests the
+            # diff-bound token immediately before each write.
             lifecycle.complete_stage(
-                {"approved": True, "mode": "human", "approvals": approvals}
+                {"approved": True, "mode": "deferred_to_mutation", "approvals": 0}
             )
         else:
             # Headless/offline compatibility: no desktop channel is attached,
@@ -746,6 +793,10 @@ class EngineeringExecutionOrchestrator:
                 reasoning_loop=reasoning_loop,
                 cancellation_checker=cancellation_checker,
                 approval_tokens=self._approval_tokens,
+                approval_gateway=self.approval_gateway,
+                context_bundle=self._context_bundle,
+                session_id=self._session_id,
+                turn_id=self._turn_id,
             )
 
         exec_func = custom_executor or default_executor
@@ -1073,6 +1124,10 @@ class EngineeringExecutionOrchestrator:
                     user_prompt=task_prompt,
                     diagnosis=diagnosis.category.value,
                     content_guard=guard,
+                    approval_gateway=self.approval_gateway,
+                    context_bundle=self._context_bundle,
+                    session_id=self._session_id,
+                    turn_id=self._turn_id,
                 )
             except Exception as exc:
                 journal.record_event("REPAIR_FAILED", {

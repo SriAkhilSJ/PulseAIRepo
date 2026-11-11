@@ -12,6 +12,8 @@ Manages persistent serialization, atomic updates, and incremental invalidation:
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import logging
 import os
@@ -42,7 +44,8 @@ class DependencyGraphPersistence:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
-            self.storage_dir = self.workspace_root / ".crusorai" / "tenants" / tenant_id / "graphs"
+            from src.runtime.app_paths import app_data_root
+        self.storage_dir = app_data_root(self.workspace_root) / "tenants" / tenant_id / "graphs"
 
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.graph_file = self.storage_dir / "dependency_graph.json"

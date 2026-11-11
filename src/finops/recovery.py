@@ -12,6 +12,8 @@ process becomes ``failed`` so a reconnect cannot replay it as a new turn.
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import time
 from pathlib import Path
@@ -35,7 +37,9 @@ def reconcile_workspace_finops(workspace_root: str | Path, *, reason: str = "pro
     process is about to disappear.
     """
     workspace = Path(workspace_root).expanduser().resolve()
-    finops_dir = workspace / ".crusorai" / "finops"
+    from src.runtime.app_paths import app_data_root
+
+    finops_dir = app_data_root(workspace) / "finops"
     summary: Dict[str, Any] = {
         "workspace": str(workspace),
         "reason": reason,

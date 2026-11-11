@@ -35,7 +35,7 @@ SERVER_EVENTS = frozenset({
     "turn_started", "turn_done", "turn_failed", "turn_lifecycle", "checkpoint_event",
     "runtime_degraded", "context_status", "voice_text", "events_replay", "error",
     "workspace.bound", "llm.request", "llm.response", "host_tool_request",
-    "inline_completion_result", "next_edit_result",
+    "inline_completion_result", "next_edit_result", "agent_card",
 })
 
 

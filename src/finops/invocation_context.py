@@ -10,6 +10,8 @@ proxy refuses to run without one, so a hidden call cannot reach the network.
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import os
 import threading
@@ -48,7 +50,8 @@ def current_submission_id() -> str:
 
 
 def new_invocation_id() -> str:
-    return f"inv_{uuid.uuid4().hex}"
+    """Canonical invocation id format, shared with the model gateway."""
+    return f"inv-{uuid.uuid4().hex[:16]}"
 
 
 def current_scope() -> Optional[Dict[str, Any]]:
@@ -102,7 +105,9 @@ def assert_governed_for_acceptance() -> None:
 
 
 def ledger_path(workspace: str | Path) -> Path:
-    return Path(workspace).resolve() / ".crusorai" / "finops" / "provider_invocations.jsonl"
+    from src.runtime.app_paths import app_data_root
+
+    return app_data_root(workspace) / "finops" / "provider_invocations.jsonl"
 
 
 def record_invocation(workspace: str | Path, record: Dict[str, Any]) -> str:
@@ -123,6 +128,13 @@ def record_invocation(workspace: str | Path, record: Dict[str, Any]) -> str:
         "provider": record.get("provider", ""),
         "model": record.get("model", ""),
         "attempt_number": int(record.get("attempt_number") or 1),
+        "retry_count": int(record.get("retry_count") or 0),
+        "attempts": list(record.get("attempts") or []),
+        "latency_ms": record.get("latency_ms"),
+        "provider_reported_cost": record.get("provider_reported_cost"),
+        "estimated_cost_inr": record.get("estimated_cost_inr"),
+        "pricing_version": record.get("pricing_version", ""),
+        "cost_unknown": record.get("cost_unknown"),
         "reservation_id": record.get("reservation_id", ""),
         "usage_record_id": record.get("usage_record_id", ""),
         "settlement_id": record.get("settlement_id", ""),
@@ -140,8 +152,14 @@ def record_invocation(workspace: str | Path, record: Dict[str, Any]) -> str:
         "input_tokens": int(record.get("input_tokens") or 0),
         "output_tokens": int(record.get("output_tokens") or 0),
         "cached_tokens": int(record.get("cached_tokens") or 0),
-        "actual_cost_inr": float(record.get("actual_cost_inr") or 0.0),
-        "actual_cost_usd": float(record.get("actual_cost_usd") or 0.0),
+        "actual_cost_inr": (
+            None if record.get("cost_unknown") or record.get("actual_cost_inr") is None
+            else float(record.get("actual_cost_inr"))
+        ),
+        "actual_cost_usd": (
+            None if record.get("cost_unknown") or record.get("actual_cost_usd") is None
+            else float(record.get("actual_cost_usd"))
+        ),
         "started_at": float(record.get("started_at") or time.time()),
         "completed_at": float(record.get("completed_at") or time.time()),
         "purpose": record.get("purpose", ""),
@@ -173,33 +191,102 @@ def read_invocations(workspace: str | Path) -> list[Dict[str, Any]]:
     return records
 
 
+def latest_invocations(records: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Collapse replayed/updated ledger lines to one row per invocation id.
+
+    The ledger is append-only: a retry or a later settlement can append a new
+    line for the same physical invocation. Counting every line would double
+    count usage and cost, so callers report the latest state once. Distinct
+    invocation ids (genuine retries) stay separate and traceable.
+    """
+    latest: Dict[str, Dict[str, Any]] = {}
+    order: list[str] = []
+    for index, record in enumerate(records):
+        key = str(record.get("invocation_id") or "")
+        if not key:
+            key = f"unidentified-{index}"
+        if key not in latest:
+            order.append(key)
+        latest[key] = record
+    return [latest[key] for key in order]
+
+
 def summarize_invocations(records: list[Dict[str, Any]]) -> Dict[str, Any]:
-    """Session-level report: attribution, totals, statuses, model breakdown."""
+    """Reports at invocation/task/session/daily level from one ledger."""
+    records = latest_invocations(records)
     by_subsystem: Dict[str, Dict[str, Any]] = {}
     by_model: Dict[str, Dict[str, Any]] = {}
+    by_task: Dict[str, Dict[str, Any]] = {}
+    by_session: Dict[str, Dict[str, Any]] = {}
+    by_day: Dict[str, Dict[str, Any]] = {}
     statuses: Dict[str, int] = {}
     total = 0.0
+    total_tokens = 0
+    total_latency_ms = 0.0
+    unknown_cost_calls = 0
+
+    def _bucket(store, key):
+        return store.setdefault(key or "unknown", {
+            "calls": 0, "cost_inr": 0.0, "input_tokens": 0,
+            "output_tokens": 0, "latency_ms": 0.0, "cost_unknown_calls": 0,
+        })
+
     for record in records:
         cost = float(record.get("actual_cost_inr") or 0.0)
         total += cost
-        subsystem = str(record.get("subsystem") or "unknown")
-        bucket = by_subsystem.setdefault(subsystem, {"calls": 0, "cost_inr": 0.0,
-                                                     "input_tokens": 0, "output_tokens": 0})
+        in_tok = int(record.get("input_tokens") or 0)
+        out_tok = int(record.get("output_tokens") or 0)
+        total_tokens += in_tok + out_tok
+        latency = float(record.get("latency_ms") or 0.0)
+        total_latency_ms += latency
+        cost_unknown = bool(record.get("cost_unknown")) or cost == 0.0
+        if cost_unknown:
+            unknown_cost_calls += 1
+
+        for store, key in (
+            (by_subsystem, str(record.get("subsystem") or "unknown")),
+            (by_task, str(record.get("task_id") or "unassigned")),
+            (by_session, str(record.get("session_id") or "unassigned")),
+        ):
+            bucket = _bucket(store, key)
+            bucket["calls"] += 1
+            bucket["cost_inr"] = round(bucket["cost_inr"] + cost, 8)
+            bucket["input_tokens"] += in_tok
+            bucket["output_tokens"] += out_tok
+            bucket["latency_ms"] = round(bucket["latency_ms"] + latency, 3)
+            bucket["cost_unknown_calls"] += 1 if cost_unknown else 0
+
+        completed = float(record.get("completed_at") or 0.0)
+        if completed:
+            day = time.strftime("%Y-%m-%d", time.gmtime(completed))
+        else:
+            day = "unknown"
+        bucket = _bucket(by_day, day)
         bucket["calls"] += 1
         bucket["cost_inr"] = round(bucket["cost_inr"] + cost, 8)
-        bucket["input_tokens"] += int(record.get("input_tokens") or 0)
-        bucket["output_tokens"] += int(record.get("output_tokens") or 0)
+        bucket["input_tokens"] += in_tok
+        bucket["output_tokens"] += out_tok
+        bucket["latency_ms"] = round(bucket["latency_ms"] + latency, 3)
+        bucket["cost_unknown_calls"] += 1 if cost_unknown else 0
+
         model = str(record.get("model") or "unknown")
         model_bucket = by_model.setdefault(model, {"calls": 0, "cost_inr": 0.0})
         model_bucket["calls"] += 1
         model_bucket["cost_inr"] = round(model_bucket["cost_inr"] + cost, 8)
         status = str(record.get("status") or "unknown")
         statuses[status] = statuses.get(status, 0) + 1
+
     return {
         "total_calls": len(records),
         "total_cost_inr": round(total, 8),
+        "total_tokens": total_tokens,
+        "total_latency_ms": round(total_latency_ms, 3),
+        "unknown_cost_calls": unknown_cost_calls,
         "by_subsystem": by_subsystem,
         "by_model": by_model,
+        "by_task": by_task,
+        "by_session": by_session,
+        "by_day": by_day,
         "statuses": statuses,
         "settled_calls": statuses.get("settled", 0),
         "uncertain_calls": statuses.get("uncertain", 0),

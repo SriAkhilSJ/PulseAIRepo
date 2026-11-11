@@ -9,6 +9,8 @@ Provides clean context integration for Crusor's LangGraph planner and execution 
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -140,7 +142,7 @@ class ArchitectureIntelligenceSystem:
 
     def _blueprint_path(self, task_id: str, workspace_root: str, tenant_id: str) -> Path:
         safe_id = "".join(c for c in task_id if c.isalnum() or c in ("-", "_")) or "default"
-        storage_dir = Path(workspace_root).resolve() / ".crusorai" / "tenants" / tenant_id / "architecture"
+        storage_dir = app_data_root(Path(workspace_root).resolve()) / "tenants" / tenant_id / "architecture"
         storage_dir.mkdir(parents=True, exist_ok=True)
         return storage_dir / f"blueprint_{safe_id}.json"
 

@@ -10,6 +10,8 @@ Guarantees workspace isolation, crash recovery, and zero credential persistence.
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import logging
 import os
@@ -47,7 +49,8 @@ class PersistentProjectIntelligenceManager:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
-            self.storage_dir = self.workspace_root / ".crusorai"
+            from src.runtime.app_paths import app_data_root
+            self.storage_dir = app_data_root(self.workspace_root)
 
         self.storage_path = self.storage_dir / KNOWLEDGE_FILENAME
         self._lock = threading.Lock()

@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.runtime.app_paths import app_data_root
 from src.workspace.baseline import compute_file_sha256
 from src.workspace.ledger import WorkspaceChangeLedger
 from src.workspace.models import (
@@ -48,7 +49,7 @@ class WorkspaceJournalManager:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
-            self.storage_dir = self.workspace_root / ".crusorai" / "tenants" / tenant_id / "journal"
+            self.storage_dir = app_data_root(self.workspace_root) / "tenants" / tenant_id / "journal"
 
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.ledger = WorkspaceChangeLedger(str(self.workspace_root), tenant_id=tenant_id)

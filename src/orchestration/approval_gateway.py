@@ -45,6 +45,13 @@ class Authorization:
     token: str
     path: str
     operation: str
+    digest: str = ""
+    diff: str = ""
+    task_id: str = ""
+    workspace: str = ""
+    session_id: str = ""
+    turn_id: str = ""
+    precondition_digest: str = ""
 
 
 class OrchestratorApprovalGateway:
@@ -63,6 +70,7 @@ class OrchestratorApprovalGateway:
         emit: Optional[Callable[[str, dict], object]] = None,
         cancellation_checker: Optional[Callable[[], bool]] = None,
         heartbeat_interval: float = 15.0,
+        turn_id: str = "",
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.session_id = str(session_id or "default")
@@ -76,6 +84,8 @@ class OrchestratorApprovalGateway:
         self.emit = emit or event_bus.emit
         self.cancellation_checker = cancellation_checker
         self.heartbeat_interval = heartbeat_interval
+        self.turn_id = str(turn_id or "")
+        self.receipts: list[dict] = []
 
     # -- policy ---------------------------------------------------------
 
@@ -112,34 +122,96 @@ class OrchestratorApprovalGateway:
         risk_level: str = "LOW",
         reason: str = "",
         task_id: str | None = None,
+        proposed_content: str | None = None,
+        existing_content: str | None = None,
+        diff: str | None = None,
+        always_token: bool = False,
     ) -> Authorization | None:
-        """Return a scoped risk token, or None when approval is not required.
+        """Return a scoped, digest-bound risk token, or None when approval is not required.
+
+        Increment 2: when ``proposed_content`` is supplied the token is bound
+        to the exact bytes/diff shown to the human (or granted by session
+        policy). ``always_token`` mints a token even for low-risk policy
+        grants, so every engineering mutation reaches the broker with an
+        authorization object; callers that pass nothing keep the historical
+        Phase 3.1 behaviour.
 
         Raises ApprovalDenied on refusal/timeout/cancel/mismatch. The caller
         must not mutate anything when this raises.
         """
+        from src.workspace.approval_digest import (
+            content_digest,
+            precondition_digest,
+            unified_diff_text,
+        )
+
         rel_path = Path(path).as_posix()
         token_task_id = str(task_id or self.task_id)
-        if not self.needs_approval(path=rel_path, risk_level=risk_level):
-            return None
+        proposed_digest = (
+            content_digest(proposed_content) if proposed_content is not None else ""
+        )
+        diff_text = diff
+        if diff_text is None and proposed_content is not None:
+            diff_text = unified_diff_text(
+                existing_content, proposed_content, display_path=rel_path,
+            )
+        diff_text = str(diff_text or "")
 
         exists = (self.workspace_root / rel_path).exists()
+        precondition_text = existing_content
+        if precondition_text is None and exists:
+            try:
+                precondition_text = (self.workspace_root / rel_path).read_text(
+                    encoding="utf-8", errors="replace",
+                )
+            except OSError:
+                precondition_text = ""
+        precondition = precondition_digest(exists, precondition_text)
+
+        required = self.needs_approval(path=rel_path, risk_level=risk_level)
+        if not required and not always_token:
+            return None
+
         op = self._operation(rel_path, exists)
         op_name = operation or op.value
         tool_id = f"orch-{self.task_id}-{int(time.time() * 1000)}-{abs(hash((node_id, rel_path))) % 10000}"
         grant_key = f"write_file\n{rel_path}"
 
-        # "Allow always" is scoped to (session, tool, resource) exactly like
-        # the graph path; a veto-class ask is never granted silently.
-        if self.queue.is_granted(self.session_id, grant_key):
-            return Authorization(
-                approval_id="session-grant",
+        def _granted() -> Authorization:
+            auth = Authorization(
+                approval_id="policy-grant" if not required else "session-grant",
                 token=self.risk_gate.generate_approval_token(
-                    token_task_id, str(self.workspace_root), rel_path, op
+                    token_task_id,
+                    str(self.workspace_root),
+                    rel_path,
+                    op,
+                    content_digest=proposed_digest,
+                    precondition_digest=precondition if always_token else "",
+                    session_id=self.session_id if always_token else "",
+                    turn_id=self.turn_id if always_token else "",
                 ),
                 path=rel_path,
                 operation=op_name,
+                digest=proposed_digest,
+                diff=diff_text,
+                task_id=token_task_id,
+                workspace=str(self.workspace_root),
+                session_id=self.session_id,
+                turn_id=self.turn_id,
+                precondition_digest=precondition,
             )
+            self._record(auth)
+            return auth
+
+        # Policy grants (session policy / low-risk) skip the dock but still
+        # receive a scoped, single-use, digest-bound token.
+        if not required:
+            return _granted()
+
+        # "Allow always" is scoped to (session, tool, resource) exactly like
+        # the graph path; a veto-class ask is never granted silently.
+        if self.queue.is_granted(self.session_id, grant_key):
+            return _granted()
 
         arguments = {
             "path": rel_path,
@@ -147,6 +219,7 @@ class OrchestratorApprovalGateway:
             "node_id": node_id,
             "task_id": token_task_id,
             "workspace": str(self.workspace_root),
+            "content_digest": proposed_digest,
         }
         item = self.queue.request(
             tool_id,
@@ -158,6 +231,8 @@ class OrchestratorApprovalGateway:
                 "path": rel_path,
                 "operation": op_name,
                 "reason": reason,
+                "diff": diff_text,
+                "content_digest": proposed_digest,
             },
         )
         self.emit(
@@ -209,11 +284,41 @@ class OrchestratorApprovalGateway:
         if decision.get("always_allow"):
             self.queue.grant(self.session_id, grant_key)
         token = self.risk_gate.generate_approval_token(
-            token_task_id, str(self.workspace_root), rel_path, op
+            token_task_id,
+            str(self.workspace_root),
+            rel_path,
+            op,
+            content_digest=proposed_digest,
+            precondition_digest=precondition if always_token else "",
+            session_id=self.session_id if always_token else "",
+            turn_id=self.turn_id if always_token else "",
         )
-        return Authorization(
+        auth = Authorization(
             approval_id=tool_id,
             token=token,
             path=rel_path,
             operation=op_name,
+            digest=proposed_digest,
+            diff=diff_text,
+            task_id=token_task_id,
+            workspace=str(self.workspace_root),
+            session_id=self.session_id,
+            turn_id=self.turn_id,
+            precondition_digest=precondition,
         )
+        self._record(auth)
+        return auth
+
+    def _record(self, auth: Authorization) -> None:
+        """Append a token-free approval receipt for the turn evidence."""
+        self.receipts.append({
+            "approval_id": auth.approval_id,
+            "task_id": auth.task_id,
+            "session_id": auth.session_id,
+            "turn_id": auth.turn_id,
+            "workspace": auth.workspace,
+            "path": auth.path,
+            "operation": auth.operation,
+            "content_digest": auth.digest,
+            "precondition_digest": auth.precondition_digest,
+        })

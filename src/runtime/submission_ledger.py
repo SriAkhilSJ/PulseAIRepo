@@ -20,6 +20,8 @@ Any terminal state is final for that id; a deliberate retry must use a new id.
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import hashlib
 import json
 import os
@@ -93,7 +95,8 @@ def _atomic_write(path: Path, payload: Dict[str, Any]) -> None:
 class SubmissionLedger:
     def __init__(self, workspace: str | Path, *, path: Path | None = None) -> None:
         self.workspace = str(Path(workspace).expanduser().resolve())
-        root = Path(self.workspace) / ".crusorai" / "submissions"
+        from src.runtime.app_paths import app_data_root
+        root = app_data_root(self.workspace) / "submissions"
         self.path = Path(path) if path is not None else root / "submissions.json"
         self.events_path = self.path.with_name("submissions.jsonl")
         self._lock = threading.RLock()

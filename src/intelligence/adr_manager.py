@@ -8,6 +8,8 @@ Enforces approval lifecycle, revision histories, and explicit user decision lock
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import time
 from pathlib import Path
@@ -31,7 +33,7 @@ class ADRManager:
     def __init__(self, workspace_root: str, tenant_id: str = "default_tenant") -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
-        self.adr_dir = self.workspace_root / ".crusorai" / "tenants" / tenant_id / "architecture" / "adrs"
+        self.adr_dir = app_data_root(self.workspace_root) / "tenants" / tenant_id / "architecture" / "adrs"
         self.adr_dir.mkdir(parents=True, exist_ok=True)
 
     def create_core_adrs(

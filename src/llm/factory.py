@@ -571,6 +571,8 @@ class RetryLLMProxy:
         # Guards auto-limit resolution (double-checked in _safe_limit);
         # the dashboard can invoke this proxy from worker threads.
         self._limit_lock = threading.Lock()
+        # Increment 3: per-attempt trace for the unified invocation ledger.
+        self._attempt_records: list[dict] = []
 
     @property
     def is_aborted(self) -> bool:
@@ -764,6 +766,7 @@ class RetryLLMProxy:
             ).strip().lower() in {"1", "true", "yes", "on"}
 
             for attempt in range(self._max_attempts):
+                _attempt_started = time.time()
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
                 # the previous attempt was blocked must never launch a new request.
                 self._raise_if_cancelled()
@@ -815,6 +818,13 @@ class RetryLLMProxy:
                         })
                     except Exception:
                         pass
+                    self._attempt_records.append({
+                        "attempt": attempt + 1,
+                        "status": "success",
+                        "started_at": _attempt_started,
+                        "completed_at": time.time(),
+                        "latency_ms": round((time.time() - _attempt_started) * 1000.0, 3),
+                    })
                     return response
                 except Exception as error:
                     # A Stop pressed while this HTTP request was in flight wins
@@ -822,6 +832,15 @@ class RetryLLMProxy:
                     # do NOT fire another (now-unwanted) request.
                     self._raise_if_cancelled(error)
                     last_error = error
+                    self._attempt_records.append({
+                        "attempt": attempt + 1,
+                        "status": "error",
+                        "error_type": type(error).__name__,
+                        "error": str(error)[:300],
+                        "started_at": _attempt_started,
+                        "completed_at": time.time(),
+                        "latency_ms": round((time.time() - _attempt_started) * 1000.0, 3),
+                    })
 
                     # Hermes discipline: a failing call is VISIBLE. One line
                     # per failed attempt into the bridge log

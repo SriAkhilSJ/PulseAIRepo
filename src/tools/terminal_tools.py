@@ -352,6 +352,10 @@ def start_terminal(
     config: RunnableConfig
 ) -> str:
     """Start a long-running terminal command in the active workspace."""
+    from src.workspace.terminal_discipline import TerminalSafetyBroker
+    allowed, risk, reason = TerminalSafetyBroker.evaluate_command_safety(command)
+    if not allowed:
+        return f"⛔ Terminal safety restriction ({risk.value}): {reason}"
     return _spawn_tracked_background(command, config)
 
 @tool
@@ -979,6 +983,11 @@ def terminal(
 
     workspace = config["configurable"]["workspace"]
 
+    from src.workspace.terminal_discipline import TerminalSafetyBroker
+    allowed, risk, reason = TerminalSafetyBroker.evaluate_command_safety(command)
+    if not allowed:
+        return f"⛔ Terminal safety restriction ({risk.value}): {reason}"
+
     # Hermes terminal contract (tools/terminal_tool.py): the model's
     # timeout is HONORED — coerced, validated. Silently ignoring it (the
     # old behavior) taught the model nothing and read as "life long" when
@@ -1080,6 +1089,69 @@ def terminal(
     env = dict(os.environ)
     env["CI"] = "1"
     env["NO_COLOR"] = "1"
+
+    enable_ac = os.environ.get("CRUSOR_SANDBOX_TERMINAL", os.environ.get("CRUSOR_APPCONTAINER_TERMINAL", "0")).lower() in ("1", "true", "yes")
+    if _IS_WINDOWS and enable_ac:
+        try:
+            from pathlib import Path
+            from src.security.execution_broker import ExecutionBroker
+            from src.security.contracts import ExecutionRequest, ExecutionMode
+
+            broker = ExecutionBroker.get_instance()
+            session_id = str((config or {}).get("configurable", {}).get("thread_id", "default"))
+            req_id = f"req_{uuid.uuid4().hex[:8]}"
+            normalized_ws = str(Path(workspace).resolve())
+
+            token = broker.create_approval(
+                session_id=session_id,
+                request_id=req_id,
+                command=command,
+                workspace_root=normalized_ws,
+            )
+            # When executing inside an AppContainer, parse argv cleanly so Windows CreateProcessW
+            # receives correctly formatted arguments, or dispatch through cmd.exe.
+            if command.startswith('"') and "python" in command.lower():
+                import shlex
+                try:
+                    ac_argv = shlex.split(command, posix=True)
+                except Exception:
+                    ac_argv = ["cmd.exe", "/c", command]
+            else:
+                ac_argv = ["cmd.exe", "/c", command]
+
+            exec_mode = ExecutionMode.PROPOSED_MUTATION if _looks_mutating(command) else ExecutionMode.READ_ONLY
+
+            ac_req = ExecutionRequest(
+                execution_id=f"exec_{uuid.uuid4().hex[:8]}",
+                session_id=session_id,
+                request_id=req_id,
+                workspace_root=normalized_ws,
+                tool_name="terminal",
+                command=command,
+                argv=ac_argv,
+                mode=exec_mode,
+                approval_token=token,
+                timeout_s=float(timeout or 60.0),
+                network_allowed=False,
+            )
+            receipt = broker.execute(ac_req)
+
+            out_parts = []
+            if receipt.stdout:
+                out_parts.append(f"STDOUT:\n{receipt.stdout.strip()}")
+            if receipt.stderr:
+                out_parts.append(f"STDERR:\n{receipt.stderr.strip()}")
+            if receipt.security_violations:
+                out_parts.append(f"⛔ Security Violations Detected: {', '.join(receipt.security_violations)}")
+            if receipt.timed_out:
+                out_parts.append(f"⛔ Command timed out after {receipt.duration_s:.1f}s")
+
+            res_str = "\n".join(out_parts) if out_parts else ""
+            res_str += f"\nExit code: {receipt.exit_code}"
+            return res_str
+        except Exception as e:
+            if os.environ.get("CRUSOR_STRICT_SANDBOX", "0").lower() in ("1", "true", "yes"):
+                return f"⛔ Sandbox execution failure: {str(e)}\nExit code: 126"
 
     try:
         argv, shell_flag, _dialect = select_shell(command)

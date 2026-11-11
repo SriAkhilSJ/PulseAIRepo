@@ -423,6 +423,16 @@ class RequirementExtractor:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+|;", prompt) if s.strip()]
         for sent in sentences:
             lowered = sent.lower()
+            # Negative/prohibitory clauses are constraints, not artifacts to
+            # implement. "Do not create source-code files, tests..." was
+            # previously captured as a requirement because it contains
+            # "create"/"tests", which synthesized tests/test_req_002.py.
+            if re.match(
+                r"^\s*(?:do\s+not|don't|dont|never|must\s+not|should\s+not|"
+                r"avoid|without\s+creating|no\s+new)\b",
+                lowered,
+            ):
+                continue
             verbs = [
                 "add", "create", "build", "generate", "implement", "support",
                 "allow", "enable", "include", "provide", "handle", "integrate",

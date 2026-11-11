@@ -76,6 +76,16 @@ class AgentState(CopilotKitState, total=False):
     # remain backward compatible.
     user_interest: dict[str, Any]
     task_status: str
+    # Phase 3.1/increment 1: LangGraph owns the turn; the delegated
+    # orchestrator returns a DeliveryContract kept here for completion
+    # and replay evidence (dict serialization, no second lifecycle).
+    engineering_delivery: dict
+    canonical_runtime: bool
+    #: Increment 3: authoritative terminal receipt + token-free mutation
+    #: evidence, persisted in the same checkpoint as the transcript.
+    turn_receipt: dict
+    approval_receipts: list[dict[str, Any]]
+    mutation_receipts: list[dict[str, Any]]
     execution_status: str
     application_verification_status: str
     required_checks_passed: bool

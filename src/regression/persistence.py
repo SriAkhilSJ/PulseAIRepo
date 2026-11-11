@@ -10,6 +10,8 @@ Manages persistent storage of RegressionReports and test baselines:
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import logging
 import os
@@ -63,9 +65,10 @@ class RegressionPersistence:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
+            from src.runtime.app_paths import app_data_root
+
             self.storage_dir = (
-                self.workspace_root
-                / ".crusorai"
+                app_data_root(self.workspace_root)
                 / "tenants"
                 / tenant_id
                 / "regression"

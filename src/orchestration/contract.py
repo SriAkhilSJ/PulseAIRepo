@@ -25,6 +25,8 @@ This module adds:
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import ast
 import hashlib
 import json
@@ -136,8 +138,19 @@ def requirement_intent(description: str) -> FileRole:
     turn a normal feature requirement into a BUILD-file requirement; only
     build-system nouns do. Same for bare "setup" (a business setup is not
     setup.py). This was the root of the Phase 11.6 REQ-001 failures.
+
+    Explicit file names in the requirement win over the generic verb default:
+    "Create final.md with a greeting" is a DOCUMENTATION requirement, not a
+    request to synthesize src/req_001_module.py.
     """
     lowered = (description or "").lower()
+    mentioned = _mentioned_files(description or "")
+    explicit_roles = {
+        detect_file_role(path) for path in mentioned
+    } - {FileRole.UNKNOWN}
+    non_code_roles = explicit_roles - {FileRole.SOURCE, FileRole.TEST}
+    if len(non_code_roles) == 1:
+        return next(iter(non_code_roles))
     if re.search(r"\b(?:tests?|pytest|unittest|specs?|coverage|fixtures?|assertions?)\b", lowered):
         return FileRole.TEST
     if re.search(
@@ -267,7 +280,7 @@ class EngineeringContract:
         )
 
     def persist(self, workspace: str | Path) -> str:
-        root = Path(workspace) / ".crusorai" / "contracts"
+        root = app_data_root(workspace) / "contracts"
         root.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.task_id)
         path = root / f"{safe}_contract.json"
@@ -1093,7 +1106,7 @@ def validate_cross_file(
         "method": "static_ast",
         "note": "a clean static report is not proof of semantic correctness; execution is authoritative",
     }
-    root_contracts = root / ".crusorai" / "contracts"
+    root_contracts = app_data_root(root) / "contracts"
     root_contracts.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", contract.task_id)
     (root_contracts / f"{safe}_cross_file.json").write_text(

@@ -10,6 +10,8 @@ Captures comprehensive workspace state prior to modifications:
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import hashlib
 import json
 import logging
@@ -55,7 +57,9 @@ class WorkspaceBaselineManager:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
-            self.storage_dir = self.workspace_root / ".crusorai" / "baseline"
+            from src.runtime.app_paths import app_data_root
+
+        self.storage_dir = app_data_root(self.workspace_root) / "baseline"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.baseline_file = self.storage_dir / "workspace_baseline.json"
         self._current_baseline: Optional[WorkspaceBaseline] = None

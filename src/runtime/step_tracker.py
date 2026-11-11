@@ -13,6 +13,8 @@ Exports to:
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import os
 import sys
@@ -231,10 +233,12 @@ class StepTracker:
         self.system_trace_file = self.system_trace_dir / f"{self.session_id}.jsonl"
         self.latest_symlink = self.system_trace_dir / "latest.jsonl"
 
-        # Workspace diagnostics folder (always easily accessible)
+        # Runtime diagnostics live in application data, not the user project.
         ws = Path(workspace_root) if workspace_root else Path.cwd()
         self.workspace_root = ws
-        self.workspace_diag_dir = ws / "diagnostics"
+        from src.runtime.app_paths import app_data_root
+
+        self.workspace_diag_dir = app_data_root(ws) / "diagnostics"
         self.workspace_traces_dir = self.workspace_diag_dir / "traces"
         self.workspace_diag_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_traces_dir.mkdir(parents=True, exist_ok=True)

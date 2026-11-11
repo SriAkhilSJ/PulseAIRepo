@@ -612,6 +612,37 @@ class BridgeServer:
                 print(f"[bridge][recovery] shutdown sweep failed for {workspace}: {exc!r}",
                       file=sys.stderr, flush=True)
 
+    def _emit_companion_cards(self, frame: dict, identity: TurnIdentity) -> None:
+        """Project a canonical frame onto typed UI cards (presentation only)."""
+        try:
+            from src.bridge.agent_cards import card_frames_for_frame
+
+            for card in card_frames_for_frame(frame, turn_id=identity.turn_id):
+                payload = {
+                    "type": "agent_card",
+                    **identity.event_fields(),
+                    "session_id": card.get("session_id") or identity.session_id,
+                    "card": card,
+                }
+                self.emit(payload)
+                try:
+                    from src.runtime.factory import get_runtime_services
+
+                    get_runtime_services().journal.append(
+                        "agent_card",
+                        {"card": card},
+                        session_id=str(card.get("session_id") or identity.session_id),
+                        turn_id=str(card.get("turn_id") or identity.turn_id),
+                        workspace_id=str(identity.workspace_id or ""),
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:  # noqa: BLE001 - cards never block a turn
+            print(
+                f"[CrusorAI bridge] companion card skipped: {type(exc).__name__}: {exc}",
+                file=sys.stderr, flush=True,
+            )
+
     @staticmethod
     def _project_event(event: dict, identity: TurnIdentity) -> dict | None:
         """Normalize internal event-bus fields into the stable Protocol v2 wire schema."""
@@ -639,6 +670,7 @@ class BridgeServer:
             "subagent.background_completed": "subagent_background_completed",
             "runtime.degraded": "runtime_degraded",
             "context.status": "context_status",
+            "agent.card": "agent_card",
         }
         target = mapping.get(kind)
         if target is None:
@@ -757,6 +789,17 @@ class BridgeServer:
                 "revision": payload.get("revision", 0),
                 "summary": payload.get("summary", {}),
             }
+        if target == "agent_card":
+            from src.bridge.agent_cards import normalize_card
+
+            card = normalize_card(
+                payload.get("card") or payload,
+                session_id=event_session,
+                turn_id=str(payload.get("turn_id") or identity.turn_id or ""),
+            )
+            if card is None:
+                return None
+            return {**base, "type": "agent_card", "card": card}
         return {**base, **payload, "type": target}
 
     @staticmethod
@@ -776,6 +819,7 @@ class BridgeServer:
             "turn.failed": "turn_lifecycle",
             "turn.watchdog": "turn_lifecycle",
             "turn.interrupted": "turn_lifecycle",
+            "agent_card": "agent_card",
         }.get(kind)
         if target is None:
             return event if kind in {
@@ -784,6 +828,7 @@ class BridgeServer:
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
                 "llm.request", "llm.response", "workspace.bound", "context_status",
+                "agent_card",
             } else None
         base = {
             "type": target,
@@ -829,6 +874,12 @@ class BridgeServer:
                 "type": "verification_updated",
                 "journal_seq": event.get("seq"),
                 "journal_status": "persisted",
+            }
+        if target == "agent_card":
+            return {
+                **base,
+                "type": "agent_card",
+                "card": payload.get("card"),
             }
         name = str(payload.get("name") or payload.get("tool_name") or "")
         if target == "tool_call_start":
@@ -1006,6 +1057,7 @@ class BridgeServer:
                 frame = self._project_event(event, identity)
                 if frame:
                     self.emit(frame)
+                    self._emit_companion_cards(frame, identity)
             except Exception as exc:
                 print(
                     f"[CrusorAI bridge] event forwarder failed: {type(exc).__name__}: {exc}",
@@ -1060,6 +1112,50 @@ class BridgeServer:
                 redact_url_credentials=True,
             )[:500],
         }
+
+    def _canonical_receipt(
+        self,
+        *,
+        session_id: str,
+        result,
+        evidence_done: dict | None,
+        cancelled: bool = False,
+        denied: bool = False,
+        reason: str = "",
+        persist: bool = True,
+    ) -> dict:
+        """Seal the one terminal receipt and persist it in the checkpoint."""
+        from src.runtime.turn_receipt import build_turn_receipt, enrich_receipt
+
+        receipt = dict(getattr(result, "receipt", {}) or {})
+        if not receipt:
+            receipt = build_turn_receipt(
+                session_id=session_id,
+                turn_id="",
+                state={},
+                message=str(result or ""),
+                completed=not cancelled and not denied,
+                cancelled=cancelled,
+                denied=denied,
+                evidence=evidence_done,
+            )
+        receipt = enrich_receipt(
+            receipt,
+            evidence=evidence_done,
+            denied=True if denied else None,
+            reason=reason or None,
+        )
+        if persist:
+            try:
+                from src.graphs.chat_graph import graph
+
+                graph.update_state(
+                    {"configurable": {"thread_id": session_id}},
+                    {"turn_receipt": receipt},
+                )
+            except Exception:
+                pass
+        return receipt
 
     def _finalize_evidence(
         self,
@@ -1199,7 +1295,27 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
+            if frame.get("type") in {"turn_done", "turn_failed"}:
+                msg = str(frame.get("message") or "")
+                denied = "denied" in msg.lower()
+                if not frame.get("receipt"):
+                    frame["receipt"] = self._canonical_receipt(
+                        session_id=sid,
+                        result=None,
+                        evidence_done=frame.get("evidence"),
+                        cancelled=bool(frame.get("cancelled")),
+                        denied=denied,
+                        reason="approval_denied" if denied else "",
+                        persist=False,
+                    )
+                elif denied:
+                    from src.runtime.turn_receipt import enrich_receipt
+
+                    frame["receipt"] = enrich_receipt(
+                        frame["receipt"], denied=True, reason="approval_denied",
+                    )
             _record_terminal_trace(frame)
+            self._emit_companion_cards(frame, identity)
             self.emit(frame)
 
         def _stall_watchdog() -> None:
@@ -1232,6 +1348,10 @@ class BridgeServer:
                 "timestamp": identity.created_at,
                 "evidence": evidence_started,
             })
+            self._emit_companion_cards({
+                "type": "turn_started",
+                **identity.event_fields(),
+            }, identity)
             # A Stop that arrived while this prompt was starting is applied by
             # begin(). Honour it before any provider/tool work: emit one
             # truthful terminal frame and never paint a completion afterwards.
@@ -1333,6 +1453,14 @@ class BridgeServer:
                 })
                 return
 
+            from src.bridge.scripted_turn import install_provider_fixture, scripted_enabled
+
+            if scripted_enabled():
+                # Provider-boundary fixture: configure the scripted chat model
+                # and fall through to the SAME LangGraph turn, checkpointer and
+                # terminal receipt used by real provider calls.
+                install_provider_fixture(mode=mode)
+
             from src.dashboard.event_bus import event_bus
             from src.graphs.chat_graph import stream_agent
             # ADMIN subscription + own filter, not a session-filtered one:
@@ -1371,181 +1499,20 @@ class BridgeServer:
                 if approval_policy not in {"ask", "workspace_session", "session"}:
                     approval_policy = "workspace_session"
 
-                use_orchestrator = (
-                    mode in ("agent", "plan")
-                    and os.environ.get("CRUSORAI_ORCHESTRATOR_ENGINE", "orchestrator").lower() != "legacy"
+                # Increment 3: the bridge has exactly one interactive owner —
+                # the canonical LangGraph lifecycle. Engineering work is
+                # delegated by the graph's engineering_task node.
+                result = stream_agent(
+                    text, thread_id=sid, workspace=workspace,
+                    approval_channel=True,
+                    approval_policy=approval_policy,
+                    turn_id=identity.turn_id,
+                    execution_mode=mode,
+                    reasoning_effort=reasoning_effort,
+                    canonical_runtime=True,
                 )
-                if use_orchestrator:
-                    from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
-                    from src.orchestration.models import TaskVerdict, ExecutionLimits
-                    task_budget_inr = float(os.environ.get("CRUSORAI_TASK_BUDGET_INR", "5.0") or "5.0")
-                    # A partially constructed server (unit tests, embeds) may not
-                    # have the live registry; an empty session is the honest
-                    # default and keeps the turn runnable.
-                    session_info = getattr(self, "_sessions", {}).get(sid, {})
-                    adapter = (
-                        session_info.get("model_adapter")
-                        or getattr(self, "model_adapter", None)
-                    )
-                    mock_mode = session_info.get("mock_mode")
-                    if mock_mode is None and getattr(self, "mock_mode", None) is not None:
-                        mock_mode = getattr(self, "mock_mode")
-                    if (
-                        mock_mode is None
-                        and os.environ.get("CRUSORAI_ORCHESTRATOR_MOCK", "").strip() == "1"
-                    ):
-                        # Provider-free desktop smoke: deterministic local code
-                        # generation through the real orchestrator pipeline.
-                        mock_mode = True
-
-                    orch = EngineeringExecutionOrchestrator(
-                        workspace_root=workspace,
-                        tenant_id=session_info.get("tenant_id", "default_tenant"),
-                        approval_channel=True,
-                        approval_policy=approval_policy,
-                        session_id=sid,
-                        approval_timeout_s=(
-                            float(os.environ["CRUSORAI_APPROVAL_TIMEOUT_S"])
-                            if os.environ.get("CRUSORAI_APPROVAL_TIMEOUT_S", "").strip()
-                            else None
-                        ),
-                        cancellation_checker=lambda: turn_controls.cancelled(sid),
-                        limits=ExecutionLimits(
-                            max_cost_inr=task_budget_inr,
-                            # Acceptance runs cap the whole turn's dispatches; the
-                            # planner must fit the plan into that budget, not
-                            # discover the cap mid-flight.
-                            max_dispatch_budget=(
-                                int(os.environ["CRUSORAI_ACCEPTANCE_MAX_DISPATCHES"])
-                                if os.environ.get("CRUSORAI_ACCEPTANCE_MAX_DISPATCHES", "").strip()
-                                else None
-                            ),
-                        ),
-                        provider=session_info.get("provider") or os.environ.get("LLM_PROVIDER"),
-                        model=session_info.get("model") or os.environ.get("LLM_MODEL"),
-                        mock_mode=mock_mode,
-                        model_adapter=adapter,
-                    )
-                    self._last_orchestrator = orch
-
-                    def on_orch_progress(view: dict) -> None:
-                        _liveness.touch()
-                        curr_step = view.get("current_step", "PROGRESS")
-                        state = view.get("state", "RUNNING")
-                        lifecycle_status = "started"
-                        if state in ("COMPLETED", "SUCCESS"):
-                            lifecycle_status = "completed"
-                        elif state in ("CANCELLED", "CANCELED"):
-                            lifecycle_status = "cancelled"
-                        elif state in ("FAILED", "ERROR"):
-                            lifecycle_status = "failed"
-
-                        self.emit({
-                            "type": "turn_lifecycle",
-                            **identity.event_fields(),
-                            "lifecycle_status": lifecycle_status,
-                            "completed": (lifecycle_status == "completed"),
-                            "cancelled": (lifecycle_status == "cancelled"),
-                            "stage": curr_step,
-                            "state": state,
-                            "completed_steps": view.get("completed_steps", []),
-                            "pending_steps": view.get("pending_steps", []),
-                            "modified_files": view.get("modified_files", []),
-                            "tokens_used": view.get("tokens_used", 0),
-                            "cost_inr": view.get("cost_inr", 0.0),
-                        })
-                        all_pending = view.get("pending_steps", [])
-                        all_done = view.get("completed_steps", [])
-                        if all_pending or all_done:
-                            steps_payload = [
-                                {"id": s, "title": s, "text": s, "status": "completed"} for s in all_done
-                            ] + [
-                                {"id": s, "title": s, "text": s, "status": "in_progress" if s == curr_step else "pending"}
-                                for s in all_pending
-                            ]
-                            self.emit({
-                                "type": "plan_updated",
-                                **identity.event_fields(),
-                                "steps": steps_payload,
-                                "plan": steps_payload,
-                            })
-
-                    # P0.6.9: propagate the turn identity so every invocation
-                    # record (engineering + auxiliary) shares run/session/turn.
-                    os.environ["CRUSORAI_SESSION_ID"] = identity.session_id
-                    os.environ["CRUSORAI_TURN_ID"] = identity.turn_id
-                    os.environ["CRUSORAI_WORKSPACE_ID"] = getattr(identity, "workspace_id", "") or ""
-                    os.environ["CRUSORAI_RUN_ID"] = (
-                        os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
-                        or f"turn:{identity.turn_id}"
-                    )
-
-                    delivery = orch.run_task(
-                        task_prompt=text,
-                        task_id=f"turn_{identity.turn_id or sid[:8]}",
-                        on_progress=on_orch_progress,
-                        cancellation_checker=lambda: turn_controls.cancelled(sid),
-                    )
-                    self._last_delivery = delivery
-
-                    cancelled = turn_controls.cancelled(sid)
-                    task_completed = (delivery.verdict == TaskVerdict.COMPLETED)
-                    summary_text = (
-                        f"### Engineering Execution Report\n\n"
-                        f"- **Verdict:** `{delivery.verdict.value}`\n"
-                        f"- **Task:** {delivery.what_was_requested}\n"
-                        f"- **Files Modified:** {len(delivery.files_changed)} ({', '.join(delivery.files_changed) if delivery.files_changed else 'None'})\n"
-                        f"- **Tests Executed:** {len(delivery.tests_executed)} ({len(delivery.tests_passed)} passed, {len(delivery.tests_failed)} failed)\n"
-                        f"- **Independent Verification:** `{'VERIFIED' if delivery.independently_verified else 'NOT_VERIFIED'}`\n"
-                    )
-                    if delivery.production_readiness_verdict:
-                        summary_text += f"- **Production Readiness:** `{delivery.production_readiness_verdict}`\n"
-                    if delivery.remaining_limitations:
-                        summary_text += f"\n**Limitations / Notes:**\n" + "\n".join(f"- {lim}" for lim in delivery.remaining_limitations)
-
-                    self.emit({
-                        "type": "token",
-                        **identity.event_fields(),
-                        "text": summary_text,
-                    })
-
-                    status_val = "verified" if delivery.independently_verified else (
-                        "failed" if delivery.verdict != TaskVerdict.COMPLETED else "unverified"
-                    )
-                    evidence_ref = delivery.evidence_references[-1] if delivery.evidence_references else ""
-                    self.emit({
-                        "type": "verification_updated",
-                        **identity.event_fields(),
-                        "status": status_val,
-                        "verified": delivery.independently_verified,
-                        "verdict": delivery.verdict.value,
-                        "evidence": evidence_ref,
-                        "evidence_digest": evidence_ref,
-                        "production_readiness": delivery.production_readiness_verdict,
-                    })
-
-                    final_lifecycle = "cancelled" if cancelled else ("completed" if task_completed else "failed")
-                    self.emit({
-                        "type": "turn_lifecycle",
-                        **identity.event_fields(),
-                        "lifecycle_status": final_lifecycle,
-                        "completed": task_completed,
-                        "cancelled": cancelled,
-                        "stage": "FINAL_DELIVERY",
-                        "state": delivery.verdict.value,
-                    })
-                    result = summary_text
-                else:
-                    result = stream_agent(
-                        text, thread_id=sid, workspace=workspace,
-                        approval_channel=True,
-                        approval_policy=approval_policy,
-                        turn_id=identity.turn_id,
-                        execution_mode=mode,
-                        reasoning_effort=reasoning_effort,
-                    )
-                    cancelled = turn_controls.cancelled(sid)
-                    task_completed = bool(getattr(result, "completed", True))
+                cancelled = turn_controls.cancelled(sid)
+                task_completed = bool(getattr(result, "completed", True))
                 # Owner-machine diagnosis (2026-09-04 "run never ends, I have
                 # to press Stop"): turn_done is SILENT in the log, so a log
                 # that ends at the last ai answer proves nothing — the engine
@@ -1571,8 +1538,7 @@ class BridgeServer:
                             "type": "runtime_degraded", **identity.event_fields(),
                             "reason": f"event queue flush incomplete: {stranded} event(s) undrained",
                         })
-                if not use_orchestrator:
-                    task_completed = bool(getattr(result, "completed", True))
+                task_completed = bool(getattr(result, "completed", True))
                 _terminal.set()
                 lifecycle_status = (
                     "cancelled"
@@ -1595,17 +1561,10 @@ class BridgeServer:
                     except Exception:
                         pass
 
-                if use_orchestrator:
-                    evidence_reason = (
-                        "orchestrator_cancelled" if cancelled
-                        else ("orchestrator_completed" if task_completed
-                              else "orchestrator_incomplete")
-                    )
-                else:
-                    evidence_reason = (
-                        "user_cancelled" if cancelled
-                        else ("" if task_completed else "graph_returned_incomplete")
-                    )
+                evidence_reason = (
+                    "user_cancelled" if cancelled
+                    else ("" if task_completed else "graph_returned_incomplete")
+                )
                 evidence_done = self._finalize_evidence(
                     evidence,
                     status=lifecycle_status,
@@ -1613,6 +1572,12 @@ class BridgeServer:
                     cancelled=cancelled,
                     message=str(result),
                     reason=evidence_reason,
+                )
+                canonical_receipt = self._canonical_receipt(
+                    session_id=sid,
+                    result=result,
+                    evidence_done=evidence_done,
+                    cancelled=cancelled,
                 )
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
@@ -1624,6 +1589,7 @@ class BridgeServer:
                     "failure_reason": getattr(result, "failure_reason", None),
                     "verification_status": getattr(result, "verification_status", None),
                     "evidence": evidence_done,
+                    "receipt": canonical_receipt,
                 })
                 # Hermes auto-title rule: only after a FULL exchange — a completed,
                 # uncancelled turn. The titler runs async and pushes session_info.
@@ -1714,11 +1680,19 @@ class BridgeServer:
                             error=str(exc),
                             reason=f"approval_{denial_reason or 'denied'}",
                         )
+                        canonical_receipt = self._canonical_receipt(
+                            session_id=sid,
+                            result=None,
+                            evidence_done=evidence_done,
+                            denied=True,
+                            reason=denial_reason or "approval_denied",
+                        )
                         _emit_terminal({
                             "type": "turn_done", **identity.event_fields(),
                             "message": denied_message,
                             "completed": False, "cancelled": True, "stub": False,
                             "evidence": evidence_done,
+                            "receipt": canonical_receipt,
                         })
                         print(
                             f"[bridge] turn stopped by approval ({denial_reason}) "
@@ -1862,10 +1836,30 @@ class BridgeServer:
             order = str(frame.get("order") or "latest").strip().lower()
             messages, pagination = self._transcript_messages(
                 tip, limit=limit, offset=offset, order=order)
+            cards: list[dict] = []
+            try:
+                from src.runtime.factory import get_runtime_services
+                from src.bridge.agent_cards import normalize_card
+
+                latest: dict[str, dict] = {}
+                for event in get_runtime_services().journal.list_events(tip):
+                    if str(event.get("type") or "") != "agent_card":
+                        continue
+                    raw = (event.get("payload") or {}).get("card")
+                    card = normalize_card(
+                        raw,
+                        session_id=str(event.get("session_id") or tip),
+                        turn_id=str(event.get("turn_id") or ""),
+                    )
+                    if card is not None:
+                        latest[card["card_id"]] = card
+                cards = list(latest.values())
+            except Exception:
+                cards = []
             self.emit({
                 "type": "session_messages", "session_id": tip,
                 "requested_session_id": sid, "messages": messages,
-                "pagination": pagination,
+                "pagination": pagination, "cards": cards,
             })
             return True
         if kind == "session_delete":
@@ -3250,6 +3244,9 @@ class BridgeServer:
 
 
 def main() -> int:
+    # The desktop sidecar is the canonical runtime: every child turn (sub-agent
+    # included) inherits the same guarded tool/mutation boundary.
+    os.environ.setdefault("CRUSORAI_CANONICAL_RUNTIME", "1")
     return BridgeServer().run()
 
 

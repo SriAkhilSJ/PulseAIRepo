@@ -26,6 +26,8 @@ limitation instead of being claimed as sandboxing.
 """
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import hashlib
 import json
 import logging
@@ -441,7 +443,8 @@ def discover_tests(
             )
         py_files = [f for f in files if f.endswith(".py")]
         if has_pytest:
-            report = root / ".crusorai" / "test_reports"
+            from src.runtime.app_paths import app_data_root
+            report = app_data_root(root) / "test_reports"
             command = [
                 python, "-m", "pytest", "-q", "--tb=short", "--no-header",
                 "-p", "no:cacheprovider", "-rf",
@@ -661,7 +664,7 @@ def run_discovered_tests(
     existing_path = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(root) + (os.pathsep + existing_path if existing_path else "")
     env.pop("PYTEST_ADDOPTS", None)
-    (root / ".crusorai" / "test_reports").mkdir(parents=True, exist_ok=True)
+    app_data_root(root).joinpath("test_reports").mkdir(parents=True, exist_ok=True)
     command = list(discovery.command)
     display = " ".join(command)
     try:
@@ -676,7 +679,7 @@ def run_discovered_tests(
     out = _truncate(_redact(out))
     err = _truncate(_redact(err))
 
-    report_path = root / ".crusorai" / "test_reports" / "latest.xml"
+    report_path = app_data_root(root) / "test_reports" / "latest.xml"
     cases: List[ExecutedTest] = []
     counts = {"total": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0}
     if discovery.runner is RunnerKind.PYTEST and report_path.exists():
@@ -733,7 +736,7 @@ def persist_run(
 ) -> str:
     """Persist the run as evidence next to the workspace's other artifacts."""
     root = Path(workspace).resolve()
-    target_dir = root / ".crusorai" / "test_reports"
+    target_dir = app_data_root(root) / "test_reports"
     target_dir.mkdir(parents=True, exist_ok=True)
     safe_task = re.sub(r"[^A-Za-z0-9_.-]+", "_", task_id)
     path = target_dir / f"{safe_task}_run{index}.json"

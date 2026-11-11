@@ -15,6 +15,8 @@ Integrates directly with canonical Phase 9.7 FinOps:
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_DOWN
 import json
@@ -286,7 +288,8 @@ class OrchestrationFinOpsGovernor:
             safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in self.task_id)
             return self.storage_dir / f"{safe_id}_finops.json"
         if self.workspace_root:
-            p = self.workspace_root / ".crusorai" / "finops"
+            from src.runtime.app_paths import app_data_root
+            p = app_data_root(self.workspace_root) / "finops"
             p.mkdir(parents=True, exist_ok=True)
             safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in self.task_id)
             return p / f"{safe_id}_finops.json"
@@ -364,7 +367,7 @@ class OrchestrationFinOpsGovernor:
         from src.agents.financial_store import FinancialStore
         db_path = None
         if self.workspace_root:
-            db_path = self.workspace_root / ".crusorai" / "sessions.db"
+            db_path = app_data_root(self.workspace_root) / "sessions.db"
         elif self.storage_dir:
             db_path = self.storage_dir / "sessions.db"
         store = None

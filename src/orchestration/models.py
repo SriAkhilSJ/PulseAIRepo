@@ -461,6 +461,29 @@ class EngineeringPlanDAG:
 
 
 @dataclass
+class EngineeringTaskRequest:
+    """Explicit input contract for delegated engineering execution.
+
+    LangGraph owns the interactive turn; this object crosses the delegation
+    boundary into EngineeringExecutionOrchestrator. It carries only what the
+    engine needs and never a conversation lifecycle.
+    """
+
+    task_id: str
+    session_id: str
+    workspace: str
+    prompt: str
+    explicit_constraints: List[str] = field(default_factory=list)
+    approval_policy: str = "ask"
+    reasoning_effort: Optional[str] = None
+    turn_id: Optional[str] = None
+    max_cost_inr: float = 5.0
+    max_dispatch_budget: Optional[int] = None
+    mock_mode: Optional[bool] = None
+    context_bundle: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class DeliveryContract:
     """Strict completion contract delivered to user."""
     task_id: str
@@ -491,6 +514,9 @@ class DeliveryContract:
     contract: Dict[str, Any] = field(default_factory=dict)
     cross_file_validation: Dict[str, Any] = field(default_factory=dict)
     generation_recoveries: List[Dict[str, Any]] = field(default_factory=list)
+    #: Increment 3: canonical receipts (token-free) folded into the turn receipt.
+    approval_receipts: List[Dict[str, Any]] = field(default_factory=list)
+    mutation_receipts: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -518,5 +544,7 @@ class DeliveryContract:
             "contract": self.contract,
             "cross_file_validation": self.cross_file_validation,
             "generation_recoveries": self.generation_recoveries,
+            "approval_receipts": self.approval_receipts,
+            "mutation_receipts": self.mutation_receipts,
         }
 

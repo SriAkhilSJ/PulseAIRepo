@@ -54,6 +54,9 @@ class ControlledImplementationEngine:
         content: str,
         operation: str = "CREATE_OR_MODIFY",
         approval_token: Optional[str] = None,
+        require_digest: bool = True,
+        session_id: str = "",
+        turn_id: str = "",
     ) -> str:
         """
         Applies a disciplined file mutation for a task node.
@@ -83,6 +86,9 @@ class ControlledImplementationEngine:
                 related_requirement_ids=node.related_requirement_ids,
                 related_architecture_decisions=node.related_architecture_decisions,
                 approval_token=approval_token,
+                require_digest=require_digest,
+                session_id=session_id,
+                turn_id=turn_id,
             )
             receipt = rec.operation_id
         else:
@@ -96,6 +102,9 @@ class ControlledImplementationEngine:
                 related_requirement_ids=node.related_requirement_ids,
                 related_architecture_decisions=node.related_architecture_decisions,
                 approval_token=approval_token,
+                require_digest=require_digest,
+                session_id=session_id,
+                turn_id=turn_id,
             )
             receipt = rec.operation_id
 
