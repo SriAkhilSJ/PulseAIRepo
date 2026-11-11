@@ -145,7 +145,10 @@ class TestP041ReservationIntegrity(unittest.TestCase):
 
         self.assertTrue(self._run_node(adapter, self._make_node(max_tokens=1850)))
 
-        self.assertEqual(received, [{"max_tokens": 1850}])
+        self.assertEqual(received[0].get("max_tokens"), 1850)
+        # Increment 2: the shared model gateway attaches correlation metadata
+        # via LangChain's `config` keyword; the wire token ceiling is unchanged.
+        self.assertIn("metadata", received[0].get("config", {}))
         self.assertEqual(self.finops.accounting.reserved_inr, 0.0, "Commit must release the hold")
 
     def test_openai_wire_payload_carries_output_token_ceiling(self) -> None:
