@@ -1295,6 +1295,7 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
+            _record_terminal_trace(frame)
             if frame.get("type") in {"turn_done", "turn_failed"}:
                 msg = str(frame.get("message") or "")
                 denied = "denied" in msg.lower()
@@ -1314,7 +1315,6 @@ class BridgeServer:
                     frame["receipt"] = enrich_receipt(
                         frame["receipt"], denied=True, reason="approval_denied",
                     )
-            _record_terminal_trace(frame)
             self._emit_companion_cards(frame, identity)
             self.emit(frame)
 
