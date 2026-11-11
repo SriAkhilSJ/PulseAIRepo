@@ -124,13 +124,13 @@ export function crusorSessionIdFromUri(resource: URI): string | undefined {
  */
 export function crusorSessionStatusName(input: {
 	readonly running: boolean;
-	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
+	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'denied' | 'failed';
 	readonly hasApproval?: boolean;
 }): CrusorAISessionStatusName | undefined {
 	if (input.hasApproval) {
 		return 'needsInput';
 	}
-	if (input.turnOutcome === 'failed') {
+	if (input.turnOutcome === 'failed' || input.turnOutcome === 'denied') {
 		return 'failed';
 	}
 	if (input.running || input.turnOutcome === 'running') {

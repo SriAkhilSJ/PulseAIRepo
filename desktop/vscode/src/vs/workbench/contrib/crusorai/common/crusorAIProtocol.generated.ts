@@ -52,6 +52,7 @@ export const CRUSOR_AI_CLIENT_METHODS = [
 export type CrusorClientMethodName = (typeof CRUSOR_AI_CLIENT_METHODS)[number];
 
 export const CRUSOR_AI_SERVER_EVENTS = [
+	'agent_card',
 	'checkpoint_event',
 	'clarify_request',
 	'context_status',

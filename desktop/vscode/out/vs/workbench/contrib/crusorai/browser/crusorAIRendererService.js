@@ -29,6 +29,7 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
+import { cardFromFrame, normalizeCrusorCard } from '../common/crusorAICards.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionLabelIsFallback, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
@@ -293,6 +294,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.parentMap = new Map();
         this.plan = [];
         this.telemetry = {};
+        /** Typed cards for the live turn, keyed by stable card id (updates replace). */
+        this.cards = new Map();
+        this.cardOrder = [];
         this.engineSetupError = false;
         /** A provider attempt has been named this turn (llm.request seen).
          * Reasoning arriving AFTER this is real model thought — a buffered
@@ -647,6 +651,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,
+            cards: [...this.cards.values()],
+            cardOrder: [...this.cardOrder],
             approval: this.pickTreeApproval(),
             clarify: this.pickTreeClarify(),
             todos: this.todos,
@@ -693,6 +699,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.plan = snapshot.plan;
         this.verification = snapshot.verification;
         this.telemetry = snapshot.telemetry;
+        this.cards.clear();
+        for (const card of snapshot.cards) {
+            this.cards.set(card.cardId, card);
+        }
+        this.cardOrder = [...snapshot.cardOrder];
         // Pending approvals are service-level tree state, not surface state:
         // the `approvals` map survives the stash and pickTreeApproval
         // re-derives what this view shows.
@@ -929,6 +940,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,
+            cards: this.cardOrder.map(id => this.cards.get(id)).filter((card) => !!card),
             capabilitySummary: this.capabilitySummary,
             error: this.error,
             engineFault: this.engineFault === undefined ? undefined : {
@@ -1842,11 +1854,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         let landed = 0;
         let dropped = 0;
         for (const tool of this.tools.values()) {
-            if (tool.state === 'queued' || tool.state === 'approval' || tool.state === 'running') {
-                dropped++;
+            // B-DESK-006: only a PASSED tool call is a landed mutation. A
+            // denied/cancelled call is marked 'failed' but changed nothing;
+            // counting it as landed produced "1 landed" on a denial.
+            if (tool.state === 'passed') {
+                landed++;
             }
             else {
-                landed++;
+                dropped++;
             }
         }
         return { landed, dropped };
@@ -2170,6 +2185,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'llm.response':
                 case 'context_status':
                 case 'runtime_degraded':
+                case 'agent_card':
                     this.noteForeignFrame(foreignId, frame);
                     return;
             }
@@ -2179,6 +2195,19 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         if (frame.type === 'token' || frame.type === 'token_retract' || frame.type === 'reasoning'
             || frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
             this.adoptHistoryTailIfLive();
+        }
+        if (frame.type === 'agent_card') {
+            // Typed UI card: re-validated here (model output is untrusted).
+            // Same id replaces in place so activity/approval states update.
+            const card = cardFromFrame(frame);
+            if (card) {
+                if (!this.cards.has(card.cardId)) {
+                    this.cardOrder.push(card.cardId);
+                }
+                this.cards.set(card.cardId, card);
+                this.render();
+            }
+            return;
         }
         if (frame.type === 'session_info') {
             // Durable list refresh: a session_list reply carries `sessions` and NO session_id --
@@ -2310,6 +2339,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.llmHeads = undefined;
             this.degraded = evidenceDegradation(frame.evidence);
             this.voiceHeard = undefined;
+            this.cards.clear();
+            this.cardOrder = [];
             this.hadProviderAttempt = false;
             this.clearStallWatchdog();
             this.armStallWatchdog();
@@ -2588,6 +2619,18 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (frame.cancelled === true) {
                 this.interrupt = this.stampInterrupt();
             }
+            // Canonical persisted receipt is authoritative for landed vs
+            // dropped when the engine supplies it (B-DESK-006).
+            const canonical = frame.receipt;
+            if (canonical) {
+                const applied = Array.isArray(canonical.mutation_receipts)
+                    ? canonical.mutation_receipts.length
+                    : Array.isArray(canonical.changed_files) ? canonical.changed_files.length : 0;
+                this.interrupt = {
+                    landed: applied,
+                    dropped: Math.max(0, this.tools.size - applied),
+                };
+            }
             this.cancelRequested = false;
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
@@ -2602,6 +2645,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // cancelled"; calling every incomplete run cancelled is progress
             // theatre in reverse (a lie about the Stop button).
             this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
+            if (canonical?.terminal_status) {
+                const status = canonical.terminal_status;
+                this.turnOutcome = status === 'CANCELLED'
+                    ? 'cancelled'
+                    : status === 'DENIED' ? 'denied'
+                        : status === 'COMPLETED' ? 'completed' : 'failed';
+            }
             if (frame.message && !this.assistantText) {
                 this.assistantText = frame.message;
                 this.appendTextPart(frame.message);
@@ -2708,6 +2758,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             this.pendingHydration = undefined;
             this.hydrateTranscript(frame.messages);
+            this.cards.clear();
+            this.cardOrder = [];
+            for (const raw of frame.cards ?? []) {
+                const card = normalizeCrusorCard(raw);
+                if (card) {
+                    if (!this.cards.has(card.cardId)) {
+                        this.cardOrder.push(card.cardId);
+                    }
+                    this.cards.set(card.cardId, card);
+                }
+            }
             if (this.healAfterRestore && forId === this.sessionId) {
                 // The settled turn now lives in history; clear the live-turn
                 // fields so it cannot paint twice (once per lane).

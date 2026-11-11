@@ -4431,3 +4431,138 @@
 	margin-left: auto;
 }
 
+
+/* Typed agent cards: data-only, textContent rendered, theme-token driven. */
+.crusorai-agent-cards {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 8px 0 4px;
+	max-width: 100%;
+}
+
+.crusorai-agent-card {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	padding: 9px 11px;
+	border: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+	border-radius: 7px;
+	background: var(--vscode-editorWidget-background);
+	color: var(--vscode-foreground);
+	font-size: 12px;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.crusorai-agent-card.is-approval,
+.crusorai-agent-card.is-verification {
+	border-left: 3px solid var(--vscode-focusBorder);
+}
+
+.crusorai-agent-card.is-unsupported {
+	border-left: 3px solid var(--vscode-editorWarning-foreground);
+	opacity: 0.9;
+}
+
+.crusorai-agent-card-head {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
+.crusorai-agent-card-title {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.crusorai-agent-card-badge {
+	margin-left: auto;
+	padding: 1px 7px;
+	border-radius: 999px;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.crusorai-agent-card-badge.is-warn {
+	background: var(--vscode-editorWarning-foreground);
+	color: var(--vscode-editor-background);
+}
+
+.crusorai-agent-card-badge.is-succeeded,
+.crusorai-agent-card-badge.is-completed,
+.crusorai-agent-card-badge.is-approved {
+	background: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+	color: var(--vscode-editor-background);
+}
+
+.crusorai-agent-card-row {
+	display: flex;
+	gap: 8px;
+	min-width: 0;
+}
+
+.crusorai-agent-card-label {
+	color: var(--vscode-descriptionForeground);
+	min-width: 92px;
+}
+
+.crusorai-agent-card-value {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.crusorai-agent-card-note {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+.crusorai-agent-card-note.is-warn {
+	color: var(--vscode-editorWarning-foreground);
+}
+
+.crusorai-agent-card-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.crusorai-agent-card-step {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+}
+
+.crusorai-agent-card-step.is-completed {
+	color: var(--vscode-descriptionForeground);
+}
+
+.crusorai-agent-card-step-glyph {
+	width: 12px;
+	flex: 0 0 12px;
+}
+
+.crusorai-agent-card-diff {
+	margin: 2px 0 0;
+	padding: 7px 9px;
+	max-height: 220px;
+	overflow: auto;
+	white-space: pre;
+	font-family: var(--vscode-editor-font-family);
+	font-size: 11px;
+	background: var(--vscode-textCodeBlock-background);
+	border-radius: 5px;
+}
+
+/* Narrow Agent pane: labels stack, cards stay inside the panel. */
+@media (max-width: 520px) {
+	.crusorai-agent-card-row { flex-direction: column; gap: 1px; }
+	.crusorai-agent-card-label { min-width: 0; }
+}

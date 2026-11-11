@@ -46,6 +46,7 @@ export const CRUSOR_AI_CLIENT_METHODS = [
     'voice_transcribe',
 ];
 export const CRUSOR_AI_SERVER_EVENTS = [
+    'agent_card',
     'checkpoint_event',
     'clarify_request',
     'context_status',
