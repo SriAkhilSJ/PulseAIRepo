@@ -1,0 +1,67 @@
+{
+  "task_id": "turn_turn-a4dacdd653774af4b87092d60e171887",
+  "run_index": 1,
+  "discovery": {
+    "runner": "pytest",
+    "files": [
+      "tests/test_duration.py"
+    ],
+    "generated": [
+      "tests/test_duration.py"
+    ],
+    "explicit": [
+      "tests/test_duration.py"
+    ],
+    "related": [],
+    "command": [
+      "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "-q",
+      "--tb=short",
+      "--no-header",
+      "-p",
+      "no:cacheprovider",
+      "-rf",
+      "--junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq\\.crusorai\\test_reports\\latest.xml",
+      "tests/test_duration.py"
+    ],
+    "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq",
+    "reason": "pytest with generated/explicit/related tests",
+    "warnings": []
+  },
+  "result": {
+    "runner": "pytest",
+    "command": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m pytest -q --tb=short --no-header -p no:cacheprovider -rf --junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq\\.crusorai\\test_reports\\latest.xml tests/test_duration.py",
+    "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq",
+    "exit_code": 2,
+    "started_at": 1794110632.3546293,
+    "finished_at": 1794110633.7338395,
+    "duration_s": 1.379,
+    "total": 1,
+    "passed": 0,
+    "failed": 0,
+    "errors": 1,
+    "skipped": 0,
+    "cases": [
+      {
+        "test_id": "tests/test_duration.py::tests.test_duration",
+        "file": "tests/test_duration.py",
+        "status": "ERROR",
+        "duration_s": 0.0,
+        "failure_type": null,
+        "message": "collection failure",
+        "traceback": "ImportError while importing test module 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq\\tests\\test_duration.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n..\\..\\..\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests\\test_duration.py:23: in <module>\n    from duration import parse_duration, exactly\nE   ModuleNotFoundError: No module named 'duration'"
+      }
+    ],
+    "report_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq\\.crusorai\\test_reports\\latest.xml",
+    "timed_out": false,
+    "infrastructure_error": null,
+    "source_hashes": {
+      "tests/test_duration.py": "dc05c7aaa680869ce45973d7abf7561fdb89d02acbed47267f7b52caeafc10ad",
+      "src/duration.py": "4c741a5079f8720c5e2ca62c3e8d5b4b3039b8569ea8e5777c64b6f0b04cbf54"
+    },
+    "stdout": "\n=================================== ERRORS ====================================\n___________________ ERROR collecting tests/test_duration.py ___________________\nImportError while importing test module 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_vfdda1iq\\tests\\test_duration.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n..\\..\\..\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ntests\\test_duration.py:23: in <module>\n    from duration import parse_duration, exactly\nE   ModuleNotFoundError: No module named 'duration'\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.31s\n",
+    "stderr": ""
+  }
+}

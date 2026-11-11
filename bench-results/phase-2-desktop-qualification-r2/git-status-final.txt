@@ -1,0 +1,212 @@
+ M apps/personal_finance/backend/main.py
+ M apps/personal_finance/backend/models.py
+ M apps/personal_finance/backend/repositories/budget_repo.py
+ M apps/personal_finance/backend/repositories/category_repo.py
+ M apps/personal_finance/backend/repositories/transaction_repo.py
+ M apps/personal_finance/backend/routers/budgets.py
+ M apps/personal_finance/backend/routers/categories.py
+ M apps/personal_finance/backend/routers/dashboard.py
+ M apps/personal_finance/backend/routers/export.py
+ M apps/personal_finance/backend/routers/transactions.py
+ M apps/personal_finance/backend/services/budget_service.py
+ M apps/personal_finance/backend/services/dashboard_service.py
+ M apps/personal_finance/backend/services/export_service.py
+ M apps/personal_finance/backend/services/transaction_service.py
+ M apps/personal_finance/frontend/index.html
+ M apps/personal_finance/frontend/package.json
+ M apps/personal_finance/frontend/src/App.tsx
+ M apps/personal_finance/frontend/src/api.ts
+ M apps/personal_finance/frontend/src/main.tsx
+ M apps/personal_finance/frontend/src/types.ts
+ M apps/personal_finance/frontend/tsconfig.json
+ M desktop/vscode/extensions/copilot/package-lock.json
+ M desktop/vscode/extensions/package-lock.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAI.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIAccount.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIHideCopilot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIInlineCompletionProvider.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIOneShot.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIPreviewService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISessionController.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAISkillsHub.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIUnavailableEngineService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIWorkbenchService.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAI.desktop.contribution.js
+ M desktop/vscode/out/vs/workbench/contrib/crusorai/electron-browser/crusorAIEngineService.js
+ M desktop/vscode/remote/package-lock.json
+ M desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css
+ M desktop/vscode/test/mcp/package-lock.json
+ M diagnostics/LATEST_PERFORMANCE_AUDIT.md
+ M diagnostics/PERFORMANCE_REPORT_cancel-test.md
+ M diagnostics/PERFORMANCE_REPORT_s-wd.md
+ M diagnostics/PERFORMANCE_REPORT_t1.md
+ M diagnostics/traces/cancel-test.jsonl
+ M scripts/transpile_crusorai.mjs
+ M src/bridge/__main__.py
+ M src/llm/factory.py
+ M src/req_001_module.py
+ M src/req_002_module.py
+ M src/runtime/turn_control.py
+ M src/tests/test_desktop_renderer_architecture.py
+ M src/tools/file_tools.py
+ M src/tools/terminal_tools.py
+ M src/workspace/mutation_broker.py
+?? ACTUAL_EXECUTION_PATH_AUDIT.md
+?? AGENTS.md
+?? COMPLETE_INTEGRATION_ARCHITECTURE.md
+?? DESKTOP_TO_AGENT_INTEGRATION.md
+?? DISCONNECTED_COMPONENTS_REPORT.md
+?? FINAL_CRUSOR_DESKTOP_ENGINEERING_DEMO.md
+?? INTEGRATION_GAP_ANALYSIS.md
+?? MOCK_VS_REAL_TEST_EVIDENCE.md
+?? PERFORMANCE_AND_FINOPS_RESULTS.md
+?? PHASE_12_0_1_FINAL_VERDICT.md
+?? PHASE_12_1_1_DESKTOP_RUNTIME_EVIDENCE.md
+?? PHASE_12_1_1_END_TO_END_RESULTS.md
+?? PHASE_12_1_1_FINAL_VERDICT.md
+?? PHASE_12_1_1_IDENTITY_FINOPS_EVIDENCE.md
+?? PHASE_12_1_1_MODEL_EXECUTION_EVIDENCE.md
+?? PHASE_12_1_1_REMAINING_LIMITATIONS.md
+?? PHASE_12_1_1_SECURITY_QUALIFICATION.md
+?? PHASE_12_1_1_TEST_RECONCILIATION.md
+?? PHASE_12_1_1_WORKSPACE_INTEGRITY.md
+?? PHASE_12_1_2_APPCONTAINER_INTEGRATION.md
+?? PHASE_12_1_2_DESKTOP_END_TO_END.md
+?? PHASE_12_1_2_DESKTOP_LAUNCH_REPORT.md
+?? PHASE_12_1_2_ELECTRON_ROOT_CAUSE.md
+?? PHASE_12_1_2_FAILURE_RECOVERY.md
+?? PHASE_12_1_2_FINAL_VERDICT.md
+?? PHASE_12_1_2_LIVE_MODEL_EXECUTION.md
+?? PHASE_12_1_2_OS_SECURITY_TESTS.md
+?? PHASE_12_1_2_REGRESSION_RESULTS.md
+?? PHASE_12_1_2_REMAINING_LIMITATIONS.md
+?? PHASE_12_1_3_APPCONTAINER_EVIDENCE.md
+?? PHASE_12_1_3_DESKTOP_ENGINEERING_TASK.md
+?? PHASE_12_1_3_ELECTRON_RUNTIME.md
+?? PHASE_12_1_3_FINAL_VERDICT.md
+?? PHASE_12_1_3_LIVE_MODEL_PROVIDER.md
+?? PHASE_12_1_3_NETWORK_ISOLATION.md
+?? PHASE_12_1_3_REGRESSION_RESULTS.md
+?? PHASE_12_1_3_REMAINING_LIMITATIONS.md
+?? PHASE_12_1_3_REPRODUCIBLE_BUILD.md
+?? PHASE_12_1_3_WORKSPACE_INTEGRITY.md
+?? PHASE_12_1_BASELINE_AND_WORKSPACE_AUDIT.md
+?? PHASE_12_1_DESKTOP_EXECUTION_ARCHITECTURE.md
+?? PHASE_12_1_DESKTOP_PROGRESS_INTEGRATION.md
+?? PHASE_12_1_END_TO_END_TEST_RESULTS.md
+?? PHASE_12_1_FINAL_VERDICT.md
+?? PHASE_12_1_IDENTITY_FINOPS_INTEGRATION.md
+?? PHASE_12_1_MODEL_EXECUTION_INTEGRATION.md
+?? PHASE_12_1_MUTATION_SECURITY_REPORT.md
+?? PHASE_12_1_PRODUCTION_READINESS_INTEGRATION.md
+?? PHASE_12_1_REMAINING_LIMITATIONS.md
+?? PHASE_CDP_DESKTOP_RUNTIME.md
+?? PHASE_CDP_UI_INTERACTION_EVIDENCE.md
+?? PHASE_LIVE_ACCEPTANCE_LIMITATIONS.md
+?? PHASE_LIVE_FAILURE_RECOVERY.md
+?? PHASE_LIVE_FINOPS_ATTRIBUTION.md
+?? PHASE_LIVE_PRODUCT_ACCEPTANCE_FINAL.md
+?? PHASE_LIVE_REGRESSION_RESULTS.md
+?? PHASE_LIVE_VELONA_PROVIDER_EVIDENCE.md
+?? PHASE_REAL_MODEL_ENGINEERING_TASK.md
+?? PHASE_WORKSPACE_SECURITY_RESULTS.md
+?? REAL_RUNTIME_TEST_RESULTS.md
+?? REMAINING_LIMITATIONS.md
+?? SECURITY_BOUNDARY_INTEGRATION_AUDIT.md
+?? SUBSYSTEM_INTEGRATION_MATRIX.md
+?? apps/personal_finance/frontend/package-lock.json
+?? apps/personal_finance/frontend/src/index.css
+?? apps/personal_finance/frontend/vite.config.ts
+?? apps/personal_finance/src/
+?? apps/personal_finance/tests/test_dashboard.py
+?? apps/personal_finance/tests/test_transactions.py
+?? diagnostics/generation_boundary/live_acceptance/live11_20261108/evidence_workspace/finops/sessions.db-shm
+?? diagnostics/generation_boundary/live_acceptance/live11_20261108/evidence_workspace/finops/sessions.db-wal
+?? diagnostics/generation_boundary/live_acceptance/live11_20261108/portable/
+?? diagnostics/p0_6_4/user-data/
+?? diagnostics/p0_6_4_1/preflight/portable/
+?? diagnostics/p0_6_4_1/preflight_raced/
+?? diagnostics/p0_6_4_1/preflight_run2/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt1_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt2_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt3_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt4_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt5_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt6_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt7_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt8_failed/
+?? diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt9_partial_pass/
+?? diagnostics/p0_6_5/domcheck/
+?? diagnostics/p0_6_5/live/
+?? diagnostics/p0_6_5/live2/
+?? diagnostics/p0_6_5/live3/
+?? diagnostics/p0_6_5/live4/home/runtime_events.db-shm
+?? diagnostics/p0_6_5/live4/home/runtime_events.db-wal
+?? diagnostics/p0_6_5/live4/home/sessions.db-shm
+?? diagnostics/p0_6_5/live4/home/sessions.db-wal
+?? diagnostics/p0_6_5/live4/portable/
+?? diagnostics/p0_6_5/preflight/
+?? diagnostics/p0_6_5/preflight_attempt1/
+?? diagnostics/p0_6_5/preflight_final/home/sessions.db-shm
+?? diagnostics/p0_6_5/preflight_final/home/sessions.db-wal
+?? diagnostics/p0_6_5/preflight_final/portable/
+?? diagnostics/p0_6_5/preflight_panel/
+?? diagnostics/p0_6_6/live/
+?? diagnostics/p0_6_6/live2/
+?? diagnostics/p0_6_6/live3/
+?? diagnostics/p0_6_6/live4/
+?? diagnostics/p0_6_6/live5/
+?? diagnostics/p0_6_6/live6/home/runtime_events.db-shm
+?? diagnostics/p0_6_6/live6/home/runtime_events.db-wal
+?? diagnostics/p0_6_6/live6/home/sessions.db-shm
+?? diagnostics/p0_6_6/live6/home/sessions.db-wal
+?? diagnostics/p0_6_6/live6/portable/
+?? diagnostics/p0_6_7/live7/home/runtime_events.db-shm
+?? diagnostics/p0_6_7/live7/home/runtime_events.db-wal
+?? diagnostics/p0_6_7/live7/home/sessions.db-shm
+?? diagnostics/p0_6_7/live7/home/sessions.db-wal
+?? diagnostics/p0_6_7/live7/portable/
+?? diagnostics/p0_6_8/live8/home/runtime_events.db-shm
+?? diagnostics/p0_6_8/live8/home/runtime_events.db-wal
+?? diagnostics/p0_6_8/live8/home/sessions.db-shm
+?? diagnostics/p0_6_8/live8/home/sessions.db-wal
+?? diagnostics/p0_6_8/live8/portable/
+?? diagnostics/p0_6_9/live10/home/runtime_events.db-shm
+?? diagnostics/p0_6_9/live10/home/runtime_events.db-wal
+?? diagnostics/p0_6_9/live10/home/sessions.db-shm
+?? diagnostics/p0_6_9/live10/home/sessions.db-wal
+?? diagnostics/p0_6_9/live10/portable/
+?? diagnostics/p0_6_9/live9/home/runtime_events.db-shm
+?? diagnostics/p0_6_9/live9/home/runtime_events.db-wal
+?? diagnostics/p0_6_9/live9/home/sessions.db-shm
+?? diagnostics/p0_6_9/live9/home/sessions.db-wal
+?? diagnostics/p0_6_9/live9/portable/
+?? docs/ARCHITECTURE.md
+?? docs/BUGS_AND_LIMITATIONS.md
+?? docs/CURRENT_STATE.md
+?? docs/DECISIONS.md
+?? docs/PROJECT_MASTER.md
+?? docs/ROADMAP.md
+?? docs/handoffs/
+?? docs/phases/
+?? scripts/demonstrate_ui_to_ai.py
+?? scripts/reproduce_desktop_build.mjs
+?? src/llm/scripted_model.py
+?? src/p0_6_2_acceptance.py
+?? src/req_003_module.py
+?? src/req_004_module.py
+?? src/req_005_module.py
+?? src/tests/test_phase_12_1_1_expense_tracker_task.py
+?? src/tests/test_phase_12_1_1_identity_finops_production.py
+?? src/tests/test_phase_12_1_1_security_qualification.py
+?? src/tests/test_phase_12_1_2_appcontainer_terminal.py
+?? src/tests/test_phase_12_1_2_failure_recovery.py
+?? src/tests/test_phase_12_1_end_to_end_acceptance.py
+?? src/tests/test_scripted_model_seam.py
+?? src/tests/test_turn_control_startup_cancel.py

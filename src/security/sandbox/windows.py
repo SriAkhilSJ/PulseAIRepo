@@ -269,6 +269,7 @@ class WindowsSandboxManager(BaseSandboxManager):
         self._appcontainer_sid: Optional[ctypes.c_void_p] = None
         self._appcontainer_sid_string: Optional[str] = None
         self._granted_workspace_path: Optional[Path] = None
+        self._degraded_fallback: bool = False
 
     @property
     def backend_type(self) -> SandboxBackendType:
@@ -281,7 +282,7 @@ class WindowsSandboxManager(BaseSandboxManager):
         return self._appcontainer_sid_string
 
     def get_capabilities(self) -> Dict[str, bool]:
-        has_ac = bool(self._appcontainer_sid)
+        has_ac = bool(self._use_appcontainer and self._appcontainer_sid)
         return {
             "process_tree_termination": True,
             "job_object_resource_limits": True,
@@ -289,8 +290,8 @@ class WindowsSandboxManager(BaseSandboxManager):
             "memory_limit": True,
             "environment_sanitization": True,
             "filesystem_staging": True,
-            "network_denial": True,
-            "low_integrity_restricted_token": True,
+            "network_denial": has_ac,
+            "low_integrity_restricted_token": has_ac,
             "appcontainer_isolation": has_ac,
             "kernel_network_isolation": has_ac,
             "kernel_filesystem_dacl_isolation": has_ac,
@@ -300,6 +301,11 @@ class WindowsSandboxManager(BaseSandboxManager):
         """Create and configure the Windows Job Object and AppContainer profile."""
         self._violations = []
         self._peak_memory_bytes = 0
+        self._appcontainer_sid = None
+        self._appcontainer_sid_string = None
+        self._appcontainer_profile_name = None
+        self._granted_workspace_path = None
+        self._degraded_fallback = False
 
         if _kernel32 is None:
             raise RuntimeError("WindowsSandboxManager requires Windows OS (kernel32.dll).")
@@ -343,59 +349,113 @@ class WindowsSandboxManager(BaseSandboxManager):
             ctypes.sizeof(cpu_info),
         )
 
-        # 4. Provision AppContainer profile if enabled
-        if self._use_appcontainer and _userenv and _advapi32:
-            try:
-                _ensure_windowstation_desktop_access()
-                clean_id = re.sub(r"[^a-zA-Z0-9_.-]", "", request.execution_id)[:16] or uuid.uuid4().hex[:12]
-                self._appcontainer_profile_name = f"Crusor.Sandbox.{clean_id}"
-
-                sid_ptr = ctypes.c_void_p()
-                hr = _userenv.CreateAppContainerProfile(
-                    self._appcontainer_profile_name,
-                    self._appcontainer_profile_name,
-                    "Crusor Isolated Worker Sandbox Profile",
-                    None,
-                    0,
-                    ctypes.byref(sid_ptr),
-                )
-                # If already exists (0x800700B7), derive existing SID
-                if hr == 0x800700B7:
-                    hr = _userenv.DeriveAppContainerSidFromAppContainerName(
-                        self._appcontainer_profile_name, ctypes.byref(sid_ptr)
+        # 4. Provision AppContainer profile if enabled.
+        # Do not rewrite the machine WindowStation/Desktop DACL here. The
+        # execution host must already permit ALL APPLICATION PACKAGES for the
+        # worker's window station/desktop; otherwise process creation fails
+        # closed. The legacy helper remains defined for audited, explicit
+        # provisioning by an operator, but is never called automatically.
+        allow_fallback = os.environ.get(
+            "CRUSOR_ALLOW_JOB_OBJECT_FALLBACK", "0"
+        ).strip().lower() in {"1", "true", "yes"}
+        self._degraded_fallback = False
+        if self._use_appcontainer:
+            if not (_userenv and _advapi32):
+                if not allow_fallback:
+                    self.terminate()
+                    raise RuntimeError(
+                        "AppContainer requested but userenv.dll/advapi32.dll "
+                        "is unavailable; refusing to downgrade silently"
                     )
+                self._degraded_fallback = True
+            else:
+                try:
+                    clean_id = re.sub(
+                        r"[^a-zA-Z0-9_.-]", "", request.execution_id
+                    )[:16] or uuid.uuid4().hex[:12]
+                    self._appcontainer_profile_name = f"Crusor.Sandbox.{clean_id}"
 
-                if hr == 0 and sid_ptr.value:
-                    self._appcontainer_sid = sid_ptr
+                    sid_ptr = ctypes.c_void_p()
+                    hr = _userenv.CreateAppContainerProfile(
+                        self._appcontainer_profile_name,
+                        self._appcontainer_profile_name,
+                        "Crusor Isolated Worker Sandbox Profile",
+                        None,
+                        0,
+                        ctypes.byref(sid_ptr),
+                    )
+                    # If already exists (0x800700B7), derive existing SID.
+                    if hr == 0x800700B7:
+                        hr = _userenv.DeriveAppContainerSidFromAppContainerName(
+                            self._appcontainer_profile_name,
+                            ctypes.byref(sid_ptr),
+                        )
+
+                    if hr != 0 or not sid_ptr.value:
+                        raise RuntimeError(
+                            f"CreateAppContainerProfile failed: HRESULT {hr:#x}"
+                        )
+
                     sid_str = wintypes.LPWSTR()
-                    if _advapi32.ConvertSidToStringSidW(sid_ptr, ctypes.byref(sid_str)):
-                        self._appcontainer_sid_string = sid_str.value
-                        _kernel32.LocalFree(sid_str)
+                    if not _advapi32.ConvertSidToStringSidW(
+                        sid_ptr, ctypes.byref(sid_str)
+                    ):
+                        _advapi32.FreeSid(sid_ptr)
+                        raise RuntimeError(
+                            "ConvertSidToStringSidW failed: WinError "
+                            f"{ctypes.get_last_error()}"
+                        )
 
-                    # Grant staging directory full control to the specific AppContainer SID (Least Privilege)
+                    self._appcontainer_sid = sid_ptr
+                    self._appcontainer_sid_string = sid_str.value
+                    _kernel32.LocalFree(sid_str)
+
+                    # Grant staging directory full control to the specific
+                    # AppContainer SID (least privilege, disposable path).
                     if staging_dir.exists():
                         subprocess.run(
-                            ["icacls", str(staging_dir), "/grant", f"*{self._appcontainer_sid_string}:(OI)(CI)F"],
+                            [
+                                "icacls",
+                                str(staging_dir),
+                                "/grant",
+                                f"*{self._appcontainer_sid_string}:(OI)(CI)F",
+                            ],
                             capture_output=True,
                             check=False,
                         )
 
-                    # If mode is READ_ONLY, grant read access only to the specific AppContainer SID
+                    # READ_ONLY grants read access only to the specific SID.
                     if request.mode == ExecutionMode.READ_ONLY:
                         ws_path = Path(request.workspace_root).resolve()
                         if ws_path.exists():
                             self._granted_workspace_path = ws_path
                             subprocess.run(
-                                ["icacls", str(ws_path), "/grant", f"*{self._appcontainer_sid_string}:(OI)(CI)RX"],
+                                [
+                                    "icacls",
+                                    str(ws_path),
+                                    "/grant",
+                                    f"*{self._appcontainer_sid_string}:(OI)(CI)RX",
+                                ],
                                 capture_output=True,
                                 check=False,
                             )
-                else:
+                except Exception as exc:
                     self._appcontainer_sid = None
+                    self._appcontainer_sid_string = None
+                    if self._appcontainer_profile_name and _userenv:
+                        try:
+                            _userenv.DeleteAppContainerProfile(
+                                self._appcontainer_profile_name
+                            )
+                        except Exception:
+                            pass
                     self._appcontainer_profile_name = None
-            except Exception:
-                self._appcontainer_sid = None
-                self._appcontainer_profile_name = None
+                    if not allow_fallback:
+                        self.terminate()
+                        raise RuntimeError(
+                            f"AppContainer provisioning failed: {exc}"
+                        ) from exc
+                    self._degraded_fallback = True
 
     def _sanitize_environment(self, request: ExecutionRequest, staging_dir: Path) -> Dict[str, str]:
         """Produce a minimal, non-sensitive environment dictionary."""
@@ -536,20 +596,55 @@ class WindowsSandboxManager(BaseSandboxManager):
         abort_event: Optional[Any],
     ) -> Dict[str, Any]:
         """Execute inside genuine OS-level Windows AppContainer combined with Job Object."""
-        stdout_file = staging_dir / f"_crusor_stdout_{uuid.uuid4().hex[:8]}.txt"
-        stderr_file = staging_dir / f"_crusor_stderr_{uuid.uuid4().hex[:8]}.txt"
-
+        output_cap_bytes = 1 * 1024 * 1024
+        output_chunk_bytes = 64 * 1024
         sa = SECURITY_ATTRIBUTES()
         sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
         sa.lpSecurityDescriptor = None
         sa.bInheritHandle = True
 
-        h_out = _kernel32.CreateFileW(
-            str(stdout_file), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ctypes.byref(sa), CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, None
-        )
-        h_err = _kernel32.CreateFileW(
-            str(stderr_file), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ctypes.byref(sa), CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, None
-        )
+        read_out = wintypes.HANDLE()
+        write_out = wintypes.HANDLE()
+        read_err = wintypes.HANDLE()
+        write_err = wintypes.HANDLE()
+        if not (
+            _kernel32.CreatePipe(
+                ctypes.byref(read_out),
+                ctypes.byref(write_out),
+                ctypes.byref(sa),
+                0,
+            )
+            and _kernel32.CreatePipe(
+                ctypes.byref(read_err),
+                ctypes.byref(write_err),
+                ctypes.byref(sa),
+                0,
+            )
+        ):
+            err = ctypes.get_last_error()
+            for handle in (read_out, write_out, read_err, write_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": f"Failed to create AppContainer output pipes: WinError {err}",
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
+
+        # Only the child-side write handles may be inherited.
+        _kernel32.SetHandleInformation(read_out, 0x00000001, 0)
+        _kernel32.SetHandleInformation(read_err, 0x00000001, 0)
+
+        h_out = write_out
+        h_err = write_err
 
         sec_caps = SECURITY_CAPABILITIES()
         sec_caps.AppContainerSid = self._appcontainer_sid
@@ -557,20 +652,124 @@ class WindowsSandboxManager(BaseSandboxManager):
         sec_caps.CapabilityCount = 0
         sec_caps.Reserved = 0
 
-        # Attribute count = 2: SECURITY_CAPABILITIES and HANDLE_LIST
+        # Attribute count = 2: SECURITY_CAPABILITIES and HANDLE_LIST.
         attr_size = ctypes.c_size_t(0)
-        _kernel32.InitializeProcThreadAttributeList(None, 2, 0, ctypes.byref(attr_size))
-        attr_buf = ctypes.create_string_buffer(attr_size.value)
-        _kernel32.InitializeProcThreadAttributeList(attr_buf, 2, 0, ctypes.byref(attr_size))
+        attr_ready = False
+        if not _kernel32.InitializeProcThreadAttributeList(
+            None, 2, 0, ctypes.byref(attr_size)
+        ):
+            err = ctypes.get_last_error()
+            if err != 122 or attr_size.value == 0:
+                for handle in (h_out, h_err, read_out, read_err):
+                    if handle:
+                        _kernel32.CloseHandle(handle)
+                return {
+                    "exit_code": 127,
+                    "stdout": "",
+                    "stderr": (
+                        "Failed to size AppContainer process attribute list: "
+                        f"WinError {err}"
+                    ),
+                    "stdout_bytes": 0,
+                    "stderr_bytes": 0,
+                    "timed_out": False,
+                    "cancelled": False,
+                    "cpu_user_s": 0.0,
+                    "cpu_kernel_s": 0.0,
+                    "peak_memory_bytes": 0,
+                    "security_violations": list(self._violations),
+                }
 
-        _kernel32.UpdateProcThreadAttribute(
-            attr_buf, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, ctypes.byref(sec_caps), ctypes.sizeof(sec_caps), None, None
-        )
+        attr_buf = ctypes.create_string_buffer(attr_size.value)
+        if not _kernel32.InitializeProcThreadAttributeList(
+            attr_buf, 2, 0, ctypes.byref(attr_size)
+        ):
+            err = ctypes.get_last_error()
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": (
+                    "Failed to initialize AppContainer process attribute list: "
+                    f"WinError {err}"
+                ),
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
+        attr_ready = True
+
+        if not _kernel32.UpdateProcThreadAttribute(
+            attr_buf,
+            0,
+            PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+            ctypes.byref(sec_caps),
+            ctypes.sizeof(sec_caps),
+            None,
+            None,
+        ):
+            err = ctypes.get_last_error()
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            if attr_ready:
+                _kernel32.DeleteProcThreadAttributeList(attr_buf)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": (
+                    "Failed to set AppContainer security-capabilities "
+                    f"attribute: WinError {err}"
+                ),
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
 
         handle_array = (wintypes.HANDLE * 2)(h_out, h_err)
-        _kernel32.UpdateProcThreadAttribute(
-            attr_buf, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, handle_array, ctypes.sizeof(handle_array), None, None
-        )
+        if not _kernel32.UpdateProcThreadAttribute(
+            attr_buf,
+            0,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            handle_array,
+            ctypes.sizeof(handle_array),
+            None,
+            None,
+        ):
+            err = ctypes.get_last_error()
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            if attr_ready:
+                _kernel32.DeleteProcThreadAttributeList(attr_buf)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": (
+                    "Failed to set AppContainer handle-list attribute: "
+                    f"WinError {err}"
+                ),
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
 
         si_ex = STARTUPINFOEXW()
         si_ex.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
@@ -612,9 +811,11 @@ class WindowsSandboxManager(BaseSandboxManager):
 
         if not res_cp:
             err = ctypes.get_last_error()
-            _kernel32.CloseHandle(h_out)
-            _kernel32.CloseHandle(h_err)
-            _kernel32.DeleteProcThreadAttributeList(attr_buf)
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            if attr_ready:
+                _kernel32.DeleteProcThreadAttributeList(attr_buf)
             return {
                 "exit_code": 127,
                 "stdout": "",
@@ -630,14 +831,108 @@ class WindowsSandboxManager(BaseSandboxManager):
             }
 
         self._process_info = pi
-        # Assign to Job Object
-        _kernel32.AssignProcessToJobObject(self._job_handle, pi.hProcess)
-        # Resume thread
-        _kernel32.ResumeThread(pi.hThread)
 
-        # Close child handles on parent side so child can flush
+        # Assign to the configured Job Object while the process is suspended.
+        if not _kernel32.AssignProcessToJobObject(
+            self._job_handle, pi.hProcess
+        ):
+            err = ctypes.get_last_error()
+            self.terminate()
+            for handle in (h_out, h_err, read_out, read_err):
+                if handle:
+                    _kernel32.CloseHandle(handle)
+            if attr_ready:
+                _kernel32.DeleteProcThreadAttributeList(attr_buf)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": (
+                    "Failed to assign AppContainer worker to Job Object: "
+                    f"WinError {err}"
+                ),
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
+
+        # Close child handles on parent side so child can flush.
         _kernel32.CloseHandle(h_out)
         _kernel32.CloseHandle(h_err)
+
+        stdout_buf = bytearray()
+        stderr_buf = bytearray()
+        pipe_stats = {"stdout": [0, 0], "stderr": [0, 0]}
+
+        def _read_pipe(handle, buf: bytearray, key: str) -> None:
+            chunk = ctypes.create_string_buffer(output_chunk_bytes)
+            bytes_read = wintypes.DWORD(0)
+            total = 0
+            retained = 0
+            try:
+                while _kernel32.ReadFile(
+                    handle,
+                    ctypes.cast(chunk, ctypes.c_void_p),
+                    output_chunk_bytes,
+                    ctypes.byref(bytes_read),
+                    None,
+                ):
+                    data = chunk.raw[: bytes_read.value]
+                    total += len(data)
+                    if retained < output_cap_bytes:
+                        take = min(len(data), output_cap_bytes - retained)
+                        buf.extend(data[:take])
+                        retained += take
+            finally:
+                pipe_stats[key] = [retained, total]
+                _kernel32.CloseHandle(handle)
+
+        reader_out = threading.Thread(
+            target=_read_pipe,
+            args=(read_out, stdout_buf, "stdout"),
+            daemon=True,
+        )
+        reader_err = threading.Thread(
+            target=_read_pipe,
+            args=(read_err, stderr_buf, "stderr"),
+            daemon=True,
+        )
+        reader_out.start()
+        reader_err.start()
+
+        # Resume only after the Job Object assignment succeeded.
+        previous_suspend_count = int(_kernel32.ResumeThread(pi.hThread))
+        if previous_suspend_count in (-1, 0xFFFFFFFF) or previous_suspend_count != 1:
+            err = (
+                ctypes.get_last_error()
+                if previous_suspend_count in (-1, 0xFFFFFFFF)
+                else 0
+            )
+            self.terminate()
+            reader_out.join(timeout=5.0)
+            reader_err.join(timeout=5.0)
+            if attr_ready:
+                _kernel32.DeleteProcThreadAttributeList(attr_buf)
+            return {
+                "exit_code": 127,
+                "stdout": "",
+                "stderr": (
+                    "Failed to resume AppContainer worker; previous suspend "
+                    f"count={previous_suspend_count} WinError={err}"
+                ),
+                "stdout_bytes": 0,
+                "stderr_bytes": 0,
+                "timed_out": False,
+                "cancelled": False,
+                "cpu_user_s": 0.0,
+                "cpu_kernel_s": 0.0,
+                "peak_memory_bytes": 0,
+                "security_violations": list(self._violations),
+            }
 
         start_time = time.monotonic()
         timeout_deadline = start_time + request.timeout_s
@@ -669,13 +964,16 @@ class WindowsSandboxManager(BaseSandboxManager):
         # Query final metrics
         self._query_job_counters()
 
-        exit_code = wintypes.DWORD()
-        _kernel32.GetExitCodeProcess(pi.hProcess, ctypes.byref(exit_code))
-        _kernel32.CloseHandle(pi.hProcess)
-        _kernel32.CloseHandle(pi.hThread)
-        self._process_info = None
+        exit_code = wintypes.DWORD(1)
+        if self._process_info is not None:
+            _kernel32.GetExitCodeProcess(pi.hProcess, ctypes.byref(exit_code))
+            _kernel32.CloseHandle(pi.hProcess)
+            _kernel32.CloseHandle(pi.hThread)
+            self._process_info = None
+        # On timeout/cancellation, terminate() already closed these handles.
 
-        _kernel32.DeleteProcThreadAttributeList(attr_buf)
+        if attr_ready:
+            _kernel32.DeleteProcThreadAttributeList(attr_buf)
 
         code_val = exit_code.value
         if timed_out:
@@ -683,34 +981,25 @@ class WindowsSandboxManager(BaseSandboxManager):
         elif cancelled:
             code_val = 130
 
-        # Read streams
-        max_bytes_per_stream = 1 * 1024 * 1024
-        final_stdout = ""
-        final_stderr = ""
-        stdout_bytes = 0
-        stderr_bytes = 0
+        # Drain and decode bounded output.
+        reader_out.join(timeout=5.0)
+        reader_err.join(timeout=5.0)
 
-        if stdout_file.exists():
-            try:
-                raw_out = stdout_file.read_bytes()
-                stdout_bytes = len(raw_out)
-                final_stdout = raw_out[:max_bytes_per_stream].decode("utf-8", errors="replace")
-                if stdout_bytes >= max_bytes_per_stream:
-                    final_stdout += f"\n... [stdout truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-                stdout_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+        stdout_bytes, stdout_total = pipe_stats["stdout"]
+        stderr_bytes, stderr_total = pipe_stats["stderr"]
+        final_stdout = bytes(stdout_buf).decode("utf-8", errors="replace")
+        final_stderr = bytes(stderr_buf).decode("utf-8", errors="replace")
 
-        if stderr_file.exists():
-            try:
-                raw_err = stderr_file.read_bytes()
-                stderr_bytes = len(raw_err)
-                final_stderr = raw_err[:max_bytes_per_stream].decode("utf-8", errors="replace")
-                if stderr_bytes >= max_bytes_per_stream:
-                    final_stderr += f"\n... [stderr truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-                stderr_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+        if stdout_total > output_cap_bytes:
+            final_stdout += (
+                f"\n... [stdout truncated at {output_cap_bytes} bytes "
+                "by Crusor sandbox]"
+            )
+        if stderr_total > output_cap_bytes:
+            final_stderr += (
+                f"\n... [stderr truncated at {output_cap_bytes} bytes "
+                "by Crusor sandbox]"
+            )
 
         return {
             "exit_code": code_val,
@@ -735,6 +1024,8 @@ class WindowsSandboxManager(BaseSandboxManager):
         abort_event: Optional[Any],
     ) -> Dict[str, Any]:
         """Fallback execution using Windows Job Object alone."""
+        output_cap_bytes = 1 * 1024 * 1024
+        output_chunk_bytes = 64 * 1024
         argv = request.argv if request.argv else request.command
         use_shell = isinstance(argv, str)
 
@@ -742,11 +1033,13 @@ class WindowsSandboxManager(BaseSandboxManager):
         cancelled = False
         start_time = time.monotonic()
 
-        stdout_buf: List[str] = []
-        stderr_buf: List[str] = []
-        max_bytes_per_stream = 1 * 1024 * 1024
+        stdout_buf: bytearray = bytearray()
+        stderr_buf: bytearray = bytearray()
+        max_bytes_per_stream = output_cap_bytes
         stdout_bytes = 0
         stderr_bytes = 0
+        stdout_total = 0
+        stderr_total = 0
 
         try:
             self._process = subprocess.Popen(
@@ -757,9 +1050,6 @@ class WindowsSandboxManager(BaseSandboxManager):
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
 
@@ -787,19 +1077,24 @@ class WindowsSandboxManager(BaseSandboxManager):
                 "security_violations": list(self._violations),
             }
 
-        def _read_stream(stream, buf, is_stdout):
-            nonlocal stdout_bytes, stderr_bytes
-            for line in iter(stream.readline, ""):
-                line_bytes = len(line.encode("utf-8"))
-                if is_stdout:
-                    if stdout_bytes < max_bytes_per_stream:
-                        buf.append(line)
-                        stdout_bytes += line_bytes
-                else:
-                    if stderr_bytes < max_bytes_per_stream:
-                        buf.append(line)
-                        stderr_bytes += line_bytes
+        def _read_stream(stream, buf: bytearray, is_stdout: bool) -> None:
+            nonlocal stdout_bytes, stderr_bytes, stdout_total, stderr_total
+            total = 0
+            retained = 0
+            while True:
+                data = stream.read(output_chunk_bytes)
+                if not data:
+                    break
+                total += len(data)
+                if retained < max_bytes_per_stream:
+                    take = min(len(data), max_bytes_per_stream - retained)
+                    buf.extend(data[:take])
+                    retained += take
             stream.close()
+            if is_stdout:
+                stdout_bytes, stdout_total = retained, total
+            else:
+                stderr_bytes, stderr_total = retained, total
 
         t_out = threading.Thread(target=_read_stream, args=(self._process.stdout, stdout_buf, True), daemon=True)
         t_err = threading.Thread(target=_read_stream, args=(self._process.stderr, stderr_buf, False), daemon=True)
@@ -837,13 +1132,19 @@ class WindowsSandboxManager(BaseSandboxManager):
         elif exit_code is None:
             exit_code = 1
 
-        final_stdout = "".join(stdout_buf)
-        final_stderr = "".join(stderr_buf)
+        final_stdout = bytes(stdout_buf).decode("utf-8", errors="replace")
+        final_stderr = bytes(stderr_buf).decode("utf-8", errors="replace")
 
-        if stdout_bytes >= max_bytes_per_stream:
-            final_stdout += f"\n... [stdout truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
-        if stderr_bytes >= max_bytes_per_stream:
-            final_stderr += f"\n... [stderr truncated at {max_bytes_per_stream} bytes by Crusor sandbox]"
+        if stdout_total > max_bytes_per_stream:
+            final_stdout += (
+                f"\n... [stdout truncated at {max_bytes_per_stream} bytes "
+                "by Crusor sandbox]"
+            )
+        if stderr_total > max_bytes_per_stream:
+            final_stderr += (
+                f"\n... [stderr truncated at {max_bytes_per_stream} bytes "
+                "by Crusor sandbox]"
+            )
 
         return {
             "exit_code": exit_code,

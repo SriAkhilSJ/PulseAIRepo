@@ -26,6 +26,7 @@ from src.regression.models import (
     TestCaseResult,
     TestStatus,
 )
+from src.runtime.app_paths import app_data_root
 
 log = logging.getLogger("crusor.regression.baseline")
 
@@ -48,8 +49,7 @@ class TestBaselineManager:
             self.storage_dir = Path(storage_dir).resolve()
         else:
             self.storage_dir = (
-                self.workspace_root
-                / ".crusorai"
+                app_data_root(self.workspace_root)
                 / "tenants"
                 / tenant_id
                 / "regression"

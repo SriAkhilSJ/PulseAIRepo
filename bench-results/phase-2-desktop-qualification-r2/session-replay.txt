@@ -1,0 +1,61 @@
+# Session replay — r2
+
+Screenshots: `06_cancelled_then_completed.png` (before),
+`07_warm_replay_no_duplicates.png` (after reload),
+`09_cold_manager_empty_transcript.png` (after full restart).
+
+## 1. Warm replay — renderer reload, live worker
+
+Before `Ctrl+R`, the Agent lane held:
+
+| # | class | text |
+|---|---|---|
+| 1 | crusorai-user-message | ui cancel probe |
+| 2 | crusorai-assistant-message | Operation cancelled by the user. |
+| 3 | crusorai-turn-receipt is-cancelled | Run cancelled |
+| 4 | crusorai-user-message | replay probe |
+| 5 | crusorai-assistant-message | replay probe |
+| 6 | crusorai-context-status-row | Agent Core evidence capture is degraded ... |
+
+After the reload and reopening the Agent pane:
+
+- composer present, `document.title` unchanged;
+- the same lane contained exactly 6 children with byte-identical text;
+- no duplicated user/assistant/receipt row.
+
+This is a real replay through the engine's session load path against the live
+Python worker.
+
+## 2. Cold replay — full process exit
+
+Quit the app, relaunch with the same disposable profile, open the Manager:
+
+- workspace group + session row restored (`session-0b74…`, `Finished`);
+- `transcriptRows: []` — no messages;
+- the isolated `sessions.db` is 4 KB (row metadata only).
+
+Cause: the echo test seam completes the turn but does not append durable
+messages. A real durable turn cannot be produced at this HEAD because
+`stream_agent` fails on the `history_shaper`/`compaction` import (see
+`approval-execution.txt`); the default orchestrator writer also left
+`session_messages` empty in the probes.
+
+Cold transcript replay with durable messages is therefore **NOT EXERCISED**.
+
+## 3. Lane-scoping note
+
+Opening the Manager mounts a second `.crusorai-transcript-lane`. A
+document-wide row count then reports both surfaces (e.g. 5 + 5 = 10) and can
+look like duplication. Per-lane counts are clean; this was verified directly
+(`laneCount: 2`, `rows: 5` each).
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Warm replay restores the session | PASS |
+| Warm replay has no duplicate rows | PASS |
+| Cold restart restores workspace/session row | PASS |
+| Cold restart restores user/assistant messages | **NOT EXERCISED** (blocked by the unpersisted echo seam / graph defect) |
+| Replayed event IDs unique | NOT RE-EXERCISED this round (r1 probe: 0 duplicates on a 2-event echo turn) |
+| Tool start/end pairing across replay | NOT EXERCISED (no real tool turn) |

@@ -1,0 +1,89 @@
+
+DevTools listening on ws://127.0.0.1:9333/devtools/browser/ea338045-9e47-4329-b3c8-433b5873b202
+Error: Cannot find module './build/Debug/keymapping'
+Require stack:
+- <REPO>\desktop\vscode\node_modules\native-keymap\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at NativeBinding._init (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:19:24)
+    at NativeBinding.getKeyMap (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:24:10)
+    at exports.getKeyMap (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:63:18)
+    at readKeyboardLayoutData (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:61:45)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '<REPO>\\desktop\\vscode\\node_modules\\native-keymap\\index.js'
+  ]
+}
+TypeError: Cannot read properties of null (reading 'getCurrentKeyboardLayout')
+    at NativeBinding.getCurrentKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:34:29)
+    at exports.getCurrentKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:60:18)
+    at readKeyboardLayoutData (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:62:48)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+TypeError: Cannot read properties of null (reading 'onDidChangeKeyboardLayout')
+    at NativeBinding.onDidChangeKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:43:22)
+    at exports.onDidChangeKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:66:18)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:45:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[8240:1109/122654.154:ERROR:electron\shell\browser\api\electron_api_app.cc:1347] Failed to begin Jump List transaction.
+[main 2026-11-09T20:26:54.176Z] updateWindowsJumpList#setJumpList unexpected result: error
+[8240:1109/122702.350:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] Acquiring MessagePort to agent host...", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122702.701:INFO:CONSOLE:102] "[CrusorAI][watermark] startupEditor="welcomePage" colorTheme="Dark 2026" tipsEnabled=true isEmptyWindow=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/browser/parts/editor/editorGroupWatermark.js (102)
+Error: Cannot find module './build/Release/iselevated'
+Require stack:
+- <REPO>\desktop\vscode\node_modules\native-is-elevated\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at isElevatedWindows (<REPO>\desktop\vscode\node_modules\native-is-elevated\index.js:25:13)
+    at Module.isElevated (<REPO>\desktop\vscode\node_modules\native-is-elevated\index.js:10:12)
+    at NativeHostMainService.isAdmin (file:///<REPO>/desktop/vscode/out/vs/platform/native/electron-main/nativeHostMainService.js:589:67) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '<REPO>\\desktop\\vscode\\node_modules\\native-is-elevated\\index.js'
+  ]
+}
+[8240:1109/122703.757:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] MessagePort acquired, creating client...", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122703.828:INFO:CONSOLE:329] "%c[Extension Host] %cdebugger listening on port 5870 color: blue color:", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (329)
+[8240:1109/122703.917:INFO:CONSOLE:101] "%c INFO color: #33f Started local extension host with pid 8340.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122704.022:INFO:CONSOLE:101] "%c INFO color: #33f Started initializing default profile extensions in extensions installation folder. file:///<TEMP>/p31-ui/extensions", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122704.886:INFO:CONSOLE:260] "%c[Extension Host] %cdebugger inspector at devtools://devtools/bundled/js_app.html?v8only=true&ws=127.0.0.1:5870/78c1672c-0f54-43c3-b7f6-893dd93a914a color: blue color:", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (260)
+[8240:1109/122704.950:INFO:CONSOLE:101] "%c INFO color: #33f Completed initializing default profile extensions in extensions installation folder. file:///<TEMP>/p31-ui/extensions", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122705.093:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.experimentalOnboarding'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122705.093:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.walkthroughs.openOnInstall'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122705.098:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'crusorai.hideBuiltInCopilotUI'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122706.069:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122706.175:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122706.576:INFO:CONSOLE:101] "%c  ERR color: #f33 Unable to create workbench contribution 'chat.contextContributions'. Error: [createInstance] SessionReferenceContextPickerPick depends on UNKNOWN service chatSessionRoutingProviderService.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122710.184:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] Protocol connection established; clientId=b92ec797-363a-4674-8cb7-a3270344563d", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122711.085:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+Unknown channel: agentHostClientProxy
+[8240:1109/122726.872:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122726.894:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122726.897:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) — boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122726.899:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: unknown", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122727.065:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) — panel is current", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122809.079:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [orchestrator-approval] waiting 15s for orch-orchestrator-default_tenant-1794256074041-3600 (CREATE notes.md)", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122824.169:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [orchestrator-approval] waiting 30s for orch-orchestrator-default_tenant-1794256074041-3600 (CREATE notes.md)", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122843.458:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [orchestrator-approval] waiting 15s for orch-orchestrator-default_tenant-1794256108360-2092 (CREATE src/req_001_module.py)", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122858.462:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [orchestrator-approval] waiting 30s for orch-orchestrator-default_tenant-1794256108360-2092 (CREATE src/req_001_module.py)", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122900.175:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] graph returned in 67.2s; draining event queue", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122900.497:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=67.2s (model 0.0s, non-model 67.2s — tools, finalize, review, transport gaps live there)", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[8240:1109/122906.172:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] title model returned no usable text; using local fallback", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)

@@ -116,6 +116,12 @@ class DependencyAwareScheduler:
                     node.error_message = str(e)
                     failed_nodes.add(node_id)
                     log.error(f"Task node {node_id} failed with exception: {e}")
+                    # Approval denial/cancellation is a security verdict, not
+                    # a generic node failure: it must reach the delegated
+                    # caller as ApprovalDenied so the graph can report a
+                    # cancelled turn with an untouched workspace.
+                    if isinstance(e, PermissionError):
+                        raise
 
                 if on_progress:
                     on_progress(node)

@@ -1,0 +1,84 @@
+# Worker and Bridge Protocol v2 evidence
+
+Provenance: `e9b6ee02`, disposable workspace, provider-free echo runner.
+
+## 1. Spawn chain (runtime, not source inspection)
+
+The Electron utility process ("crusorai-engine") spawned the sidecar:
+
+```
+ProcessId 9140  parent 27084  python.exe <REPO>\.venv\Scripts\python.exe -m src.bridge
+ProcessId 8692  parent 9140   python.exe ...\uv\python\cpython-3.14-...\python.exe -m src.bridge
+```
+
+`desktop/vscode/src/vs/workbench/contrib/crusorai/node/crusorAIWorkerProcessService.ts`
+picks `<engineRoot>/.venv/Scripts/python.exe`, sets cwd to the engine root and
+passes the inherited environment through (`PYTHONUNBUFFERED=1` added). The
+engine root came from `CRUSORAI_ENGINE_ROOT=<REPO>` while the opened workspace
+was outside the repo, which exercises the documented fallback path.
+
+Bridge startup log lines reached the renderer through `ILogService`:
+
+```
+[CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' ...
+[CrusorAI Engine] [bridge] long-term memory: OFF (desktop default ...)
+[CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) - panel is current
+[CrusorAI Engine] [preview] preview proxy for <TEMP>\...\workspace is up at http://127.0.0.1:8931 (session 'ide')
+```
+
+The last line is workspace evidence at the bridge: the preview proxy is bound to
+the exact disposable workspace root, not the repo or the user's profile.
+
+## 2. Protocol v2 handshake (direct probe of the real bridge)
+
+`logs/bridge-probe.py` spawns the real `python -m src.bridge` with the same
+isolated home and echo runner, then:
+
+1. sends `hello` with `protocol: 2`;
+2. creates a session for the disposable workspace;
+3. sends one `prompt`;
+4. requests `events_replay` and `session_messages`;
+5. sends `shutdown`.
+
+Observed (`logs/bridge-probe.out.txt`):
+
+```
+hello_protocol 2 engine crusorai engine_version 0.2.0-runtime
+capabilities  cancel, checkpoint_list, ..., prompt, queue, safety_reply,
+              session_*, skills_hub_op, steer, subagent_*, voice_transcribe
+session_create session_info workspace=<TEMP>\...\workspace
+workspace_bound workspace=<TEMP>\...\workspace  hops=<same>  engine_root=<same>
+turn_types  workspace.bound, workspace.bound, turn_started, runtime_degraded, token, turn_done
+token_count 1  token_text "bridge protocol probe"
+turn_done    completed=True
+errors       []
+bridge_exit  0
+```
+
+The `workspace.bound` frame asserts the exact opened root in `workspace`,
+`hops` and `engine_root`. This is a runtime frame from the real bridge, not a
+structural test.
+
+## 3. Desktop → engine frames observed
+
+The stub-engine launch logs every frame the desktop sends
+(`logs/electron-approval-stderr.log`): `hello`, `session_list`, `session_create`,
+`host_capabilities_update`, `prompt`, `safety_reply`, `session_list`. That is
+the real renderer/worker path; only the engine process was replaced for the
+approval scenario.
+
+## 4. Verdict for this scenario
+
+| Check | Result |
+|---|---|
+| Utility process starts the Python worker | PASS |
+| Protocol v2 handshake, `hello.protocol == 2` | PASS |
+| Session creation succeeds | PASS |
+| Workspace identity correct (frame + preview log) | PASS |
+| Frames travel from Python to the native renderer | PASS (turn, tool, approval, cancel, replay frames all painted) |
+| Provider-free mode confirmed | PASS (`test_runner: "echo"`, no model call) |
+
+Limitation: the durable transcript for an echo-runner turn is empty
+(`session_messages` returned 0 messages, `events_replay` returned 2 events), so
+transcript replay across a cold process is not representative of a real turn
+(see `session-replay.txt`).

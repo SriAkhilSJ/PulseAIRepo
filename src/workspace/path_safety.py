@@ -47,6 +47,22 @@ class PathSafetyValidator:
     """
 
     @staticmethod
+    def canonical_path(path: Union[str, Path]) -> Path:
+        """Resolve the filesystem's canonical representation of a path.
+
+        Windows short (8.3) and long names are two spellings of one file. A
+        plain string prefix check is not an identity check: resolve through the
+        OS (realpath uses the final path/handle for existing components) so
+        ``ADMINI~1`` and ``Administrator`` compare as the same directory. For a
+        non-existent leaf, the existing parent is canonicalized and the leaf is
+        appended unchanged.
+        """
+        try:
+            return Path(os.path.realpath(str(path)))
+        except OSError:
+            return Path(path).resolve()
+
+    @staticmethod
     def is_dos_device_name(filename: str) -> bool:
         """Check if any path component is a reserved Windows/DOS device name."""
         stem = Path(filename).stem.upper()
@@ -77,7 +93,7 @@ class PathSafetyValidator:
         if not workspace_root:
             raise PathSecurityViolation("⛔ Missing or empty workspace root.")
 
-        ws_path = Path(workspace_root).resolve()
+        ws_path = cls.canonical_path(workspace_root)
         if not ws_path.exists():
             # Workspace root itself must exist
             try:
@@ -110,7 +126,7 @@ class PathSafetyValidator:
         if p_obj.is_absolute():
             # If absolute, it must reside on the same drive and resolve strictly inside workspace
             try:
-                resolved = p_obj.resolve()
+                resolved = cls.canonical_path(p_obj)
             except Exception as e:
                 raise PathSecurityViolation(f"⛔ Path cannot be resolved: {e}")
         else:
@@ -118,7 +134,7 @@ class PathSafetyValidator:
             parts = p_obj.parts
             if parts and parts[0] == ws_path.name:
                 p_obj = Path(*parts[1:])
-            resolved = (ws_path / p_obj).resolve()
+            resolved = cls.canonical_path(ws_path / p_obj)
 
         # 5. Check drive letter match on Windows
         if sys.platform == "win32":
@@ -168,7 +184,8 @@ class PathSafetyValidator:
     @classmethod
     def get_relative_normalized(cls, workspace_root: Union[str, Path], resolved_path: Path) -> str:
         """Get forward-slash normalized relative path string."""
-        ws = Path(workspace_root).resolve()
+        ws = cls.canonical_path(workspace_root)
+        resolved_path = cls.canonical_path(resolved_path)
         try:
             rel = resolved_path.relative_to(ws)
             return str(rel).replace("\\", "/")

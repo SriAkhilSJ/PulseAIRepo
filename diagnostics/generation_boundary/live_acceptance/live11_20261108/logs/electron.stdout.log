@@ -1,0 +1,8 @@
+
+[main 2026-11-08T08:07:54.398Z] StorageMainService: creating application shared storage
+[main 2026-11-08T08:07:54.605Z] [CSS_DEV] DONE, 452 css modules (174ms)
+[main 2026-11-08T08:07:54.692Z] update#setState disabled
+[main 2026-11-08T08:07:54.719Z] [shared storage] Creating shared storage database at 'c:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\diagnostics\generation_boundary\live_acceptance\live11_20261108\portable\shared-data\sharedStorage\state.vscdb' (wasCreated: true)
+[main 2026-11-08T08:07:54.721Z] [shared storage] Initializing fallback application storage (path: c:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\diagnostics\generation_boundary\live_acceptance\live11_20261108\portable\user-data\User\globalStorage\state.vscdb)
+[main 2026-11-08T08:07:54.736Z] [shared storage] Fallback application storage initialized with 3 items
+[main 2026-11-08T08:07:59.196Z] AgentHostProcessManager: agent host started

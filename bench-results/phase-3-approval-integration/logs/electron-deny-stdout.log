@@ -1,0 +1,8 @@
+
+[main 2026-11-10T02:33:06.011Z] StorageMainService: creating application shared storage
+[main 2026-11-10T02:33:06.173Z] [CSS_DEV] DONE, 452 css modules (142ms)
+[main 2026-11-10T02:33:06.321Z] update#setState disabled
+[main 2026-11-10T02:33:06.366Z] [shared storage] Creating shared storage database at '<TEMP>\p31-ui-deny\home\.crusorai-ide-shared\sharedStorage\state.vscdb' (wasCreated: true)
+[main 2026-11-10T02:33:06.367Z] [shared storage] Initializing fallback application storage (path: <TEMP>\p31-ui-deny\userdata\User\globalStorage\state.vscdb)
+[main 2026-11-10T02:33:06.373Z] [shared storage] Fallback application storage initialized with 3 items
+[main 2026-11-10T02:33:10.123Z] AgentHostProcessManager: agent host started

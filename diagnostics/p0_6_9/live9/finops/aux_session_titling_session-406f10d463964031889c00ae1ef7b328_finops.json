@@ -1,0 +1,39 @@
+{
+  "accounting": {
+    "task_id": "aux_session_titling_session-406f10d463964031889c00ae1ef7b328",
+    "budget_inr": 0.5,
+    "spent_inr": 0.0,
+    "spent_usd": 0.0,
+    "reserved_inr": 0.014149,
+    "reserved_usd": 0.000153,
+    "token_budget": 4000,
+    "tokens_consumed": 0,
+    "reserved_tokens": 1788,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cached_tokens": 0,
+    "tool_execution_seconds": 0.0,
+    "test_execution_seconds": 0.0,
+    "calls_count": 0,
+    "is_breached": false,
+    "breach_reason": null
+  },
+  "active_reservations": {
+    "res_2f16815efba3": {
+      "reservation_id": "res_2f16815efba3",
+      "task_id": "aux_session_titling_session-406f10d463964031889c00ae1ef7b328",
+      "amount_inr": 0.014149,
+      "amount_usd": 0.000153,
+      "tokens": 1788,
+      "purpose": "session_titling:session_title",
+      "created_at": 1794118248.8747597,
+      "is_committed": false,
+      "is_released": false,
+      "canonical_reservation_id": "2ed0548f-064f-4e",
+      "canonical_amount_usd": 0.000164,
+      "status": "in_flight"
+    }
+  },
+  "uncertain_reservations": {},
+  "settled_reservations": {}
+}

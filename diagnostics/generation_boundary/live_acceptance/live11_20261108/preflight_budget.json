@@ -1,0 +1,16 @@
+{
+  "engineering_task_budget_inr": 1.8,
+  "auxiliary_budget_inr": 0.2,
+  "total_ceiling_inr": 2.0,
+  "checks": {
+    "engineering_fit_reserved": true,
+    "engineering_over_budget_blocked": true,
+    "engineering_block_message": "Operation rejected: estimated cost INR 1.8100 exceeds remaining budget INR 1.8000 (budget: INR 1.8000, spent: INR 0.0000, reserved: INR 0.0000)",
+    "engineering_remaining_blocked": true,
+    "aux_over_budget_blocked": true,
+    "aux_block_message": "reservation refused: Operation rejected: estimated cost INR 1.85 exceeds remaining budget INR 0.20",
+    "aux_client_factory_not_reached": true,
+    "recovery_uses_same_governor": true,
+    "note": "Recovery redispatch goes through _dispatch_code_prompt on the same OrchestrationFinOpsGovernor; the 15-test suite asserts 3 distinct reservations/settlements including one operation_type=recovery."
+  }
+}

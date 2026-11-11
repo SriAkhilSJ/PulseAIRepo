@@ -1,0 +1,68 @@
+# Approval event sequence — Phase 3.1
+
+Provider-free runs through the real bridge and the default
+`EngineeringExecutionOrchestrator` (`CRUSORAI_ORCHESTRATOR_MOCK=1`,
+`CRUSORAI_BRIDGE_APPROVAL_POLICY=ask`). No model frames were emitted in any run
+(`llm.request` / `llm.response` count = 0).
+
+Probe: `logs/probe-orchestrator-approval.py`; raw outputs `logs/probe-*.txt`.
+
+## Sequence observed (approve)
+
+```
+session_info / workspace.bound / turn_started
+turn_lifecycle APPROVAL_AND_PERMISSION_CHECK
+plan_updated ...
+safety_request   tool_id=orch-…  name=write_file
+                 arguments={path: notes.md, operation: CREATE,
+                            node_id: task_notes, task_id: turn_…,
+                            workspace: <disposable>}
+                 warning="DOCUMENTATION notes.md: notes"
+session_info     cancel_requested=false   (queue acknowledge is internal)
+<desktop/consumer safety_reply approved=true, same session_id, same tool_id>
+turn_lifecycle ...
+safety_request   tool_id=orch-…  arguments={path: src/req_001_module.py, …}
+<safety_reply approved=true>
+turn_lifecycle IMPLEMENTATION … FINAL_DELIVERY
+turn_done        completed=true
+```
+
+The request is published with `event_bus.emit("tool.approval.request", …)` and
+projected by the bridge to Protocol v2 `safety_request`; the reply is the
+existing `safety_reply` handler resolving the shared `ApprovalQueue` with
+`session_id`.
+
+## Scenario results
+
+| Scenario | Requests | Reply | Terminal | Mutation | Evidence receipt |
+|---|---|---|---|---|---|
+| approve | 2 (`notes.md`, `src/req_001_module.py`) | approved | `turn_done completed=true` | `notes.md` + `req_001_module.py` written | `complete`, trace/report `not_applicable` |
+| deny | 1 (`notes.md`) | denied | `turn_done cancelled=true`, “Operation denied by the user.” | none (`notes.md` absent) | `complete` |
+| timeout (2 s) | 1 (`notes.md`) | none | `turn_done cancelled=true`, “Approval was not granted…” after 3.0 s | none | `complete` |
+| cancel (Stop) | 1 (`notes.md`) | none | `turn_done cancelled=true`, “Operation cancelled by the user.” | none | `complete` |
+| worker shutdown while pending | 1 (`notes.md`) | none | process exits, no terminal | none | n/a (process ended) |
+
+Shutdown probe: `logs/probe-shutdown.txt` — one `safety_request`, then `shutdown`;
+bridge exit 0, no files. Manifests (isolated home):
+`capture_status=complete`, `coverage.missing=[]`,
+`coverage.not_applicable=[trace,report]` in all four.
+
+## Deterministic unit/integration tests
+
+`src/tests/test_orchestrator_approval_integration.py` — **9 passed**:
+
+- request published with task/session/workspace/resource/operation fields;
+- approve issues an `APPV-` token that the risk gate verifies;
+- denial, timeout and turn cancellation raise `ApprovalDenied`, no token;
+- wrong-session reply refused; duplicate/stale reply refused;
+- token for `product.json` does not authorize `notes.md` (and vice versa);
+- `workspace_session` low-risk path stays silent, high risk still asks;
+- broker integration: approved token modifies `product.json`; denial leaves it
+  byte-identical; the same token cannot be reused.
+
+## Code paths
+
+`ApprovalQueue.resolve()` now refuses non-pending requests, so a duplicate or
+late reply returns `False` instead of re-applying a verdict.
+`ApprovalQueue.wait_for_decision()` gained `should_stop`, polled at 100 ms, so a
+turn Stop wakes an outstanding approval instead of waiting forever.

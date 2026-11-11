@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.262" timestamp="2026-11-07T20:03:53.187934-08:00" hostname="DESKTOP-1ULGF16"><testcase classname="" name="tests.test_duration" time="0.000"><error message="collection failure">ImportError while importing test module 'C:\Users\Administrator\AppData\Local\Temp\crusor_p0_6_5_ws_vfdda1iq\tests\test_duration.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+..\..\..\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\importlib\__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_duration.py:23: in &lt;module&gt;
+    from duration import parse_duration, exactly
+E   ModuleNotFoundError: No module named 'duration'</error></testcase></testsuite></testsuites>

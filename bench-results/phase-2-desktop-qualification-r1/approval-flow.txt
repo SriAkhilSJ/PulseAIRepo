@@ -1,0 +1,95 @@
+# Native approval workflow evidence
+
+Engine: deterministic protocol test double (`<TEMP>\p2-stub-engine`) driven by
+the real Electron app. The renderer, utility process, stdio framing and approval
+UI are production code; only the Python process that would normally call a model
+was replaced so that a write approval can be produced without a provider or a
+real workspace mutation.
+
+Screenshots: `screenshots/12_approval_dock.png`,
+`screenshots/13_approval_approved.png`, `screenshots/14_approval_denied.png`,
+`screenshots/17_approval_dock_layout.png`.
+
+## Request reaches the UI
+
+Prompt `approval probe` produced a `safety_request` frame. The dock rendered:
+
+```
+section.crusorai-approval-dock[data-component="approval-dock"][data-tool-id="tool-approval-0001"]
+  "Allow Write?"
+  Deny (esc) | Allow always | Allow once (ctrl ⏎)
+  "Modify files, including edits, writes, and patches"
+  +2 −1  Review change
+  tool card: Write / notes.md
+```
+
+- `tool_id` is preserved end to end: frame `tool-approval-0001` →
+  `data-tool-id="tool-approval-0001"` → reply `tool_id=tool-approval-0001`.
+- The file diff is displayed as `+2 −1` with a `Review change` action; the
+  unified diff text travelled in the `diff` field of `safety_request`.
+- Approve and reject are distinct controls (`crusorai-permission-once` vs
+  `crusorai-permission-deny`), plus the two-step `Allow always` dialog.
+
+## Approve path
+
+Clicked `button.crusorai-permission-once`. Stub log:
+
+```
+[stub] frame type=safety_reply session=stub-approval-session tool_id=tool-approval-0001 approved=True
+```
+
+UI afterwards (`13_approval_approved.png`):
+
+- dock removed (`dock: false`);
+- tool card settles completed: `Write / notes.md / Approved write applied to notes.md.`;
+- assistant message `Approved write applied to notes.md.`;
+- `Enter to send` restored (turn over).
+
+## Reject path
+
+Second prompt `deny probe`, same dock and same `tool_id`, then
+`button.crusorai-permission-deny`:
+
+```
+[stub] frame type=safety_reply session=stub-approval-session tool_id=tool-approval-0001 approved=False
+```
+
+UI afterwards (`14_approval_denied.png`):
+
+- tool card `Failed` with the rejection result;
+- assistant text `Operation denied by the user.`;
+- receipt `Run cancelled · 1 landed` (class `crusorai-turn-receipt is-cancelled`).
+
+The approve and reject outcomes are visually and textually distinguishable, and
+the second approval request was paired with its own reply rather than reusing
+the first verdict.
+
+## No unrelated mutation
+
+The fixture files were created for the test only. The stub never writes to disk;
+the desktop never executed a file mutation. Nothing outside the disposable
+workspace was touched.
+
+## Visual defect
+
+At the default 299 px auxiliary-bar width the dock overflows horizontally:
+dock `clientWidth=299`, content `scrollWidth=419`; the `Allow once` button is
+positioned at x=1255 with width 148 while the dock's right edge is x=1284, so
+about 119 px of the primary action is clipped outside the panel. The question
+text collapses to a one-character column. See `visual-findings.md`.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Approval request reaches the UI | PASS |
+| `tool_id` preserved | PASS |
+| File diff displayed | PASS (`+2 −1`, Review change) |
+| Approve and reject distinguishable | PASS |
+| Reply paired with the correct pending operation | PASS |
+| No unrelated tool call approved | PASS (single pending id; second request answered separately) |
+| Approval dock readable/unclipped | **FAIL** at default panel width |
+
+Limitation: the approval frame was produced by a protocol stub at the engine
+process boundary, not by a real agent tool call. The renderer/worker halves are
+real; the tool-execution half is NOT EXERCISED.

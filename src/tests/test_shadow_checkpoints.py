@@ -1,4 +1,4 @@
-"""Pins for D31 (steal #7, §43): shadow checkpoints — transparent
+﻿"""Pins for D31 (steal #7, Â§43): shadow checkpoints â€” transparent
 pre-mutation workspace snapshots with per-project refs in ONE shared git
 store, once-per-turn dedup, undo-the-undo restore, cross-project guard.
 
@@ -54,12 +54,46 @@ def _hook_env(monkeypatch, tmp_path):
 # hook-level: the real tools snapshot before mutating
 # ---------------------------------------------------------------------------
 
+def _approval_config(ws: str, path: str, new_content: str, current: str, operation: str) -> dict:
+    from src.workspace.mutation_broker import (
+        WorkspaceMutationBroker, approval_digest, approval_precondition,
+    )
+    from src.workspace.models import WorkspaceOperationType
+
+    broker = WorkspaceMutationBroker(ws)
+    operation_type = (
+        WorkspaceOperationType.MODIFY if operation == "MODIFY"
+        else WorkspaceOperationType.CREATE
+    )
+    token = broker.risk_gate.generate_approval_token(
+        "main",
+        str(broker.workspace_root),
+        path,
+        operation_type,
+        content_digest=approval_digest(new_content),
+        precondition_digest=approval_precondition(True, current),
+        session_id="main",
+    )
+    return {"configurable": {
+        "workspace": ws,
+        "mutation_authorizations": [{
+            "path": path,
+            "operation": operation,
+            "token": token,
+            "digest": approval_digest(new_content),
+        }],
+    }}
+
+
 def test_edit_file_snapshots_before_mutating(tmp_path, monkeypatch):
     _hook_env(monkeypatch, tmp_path)
     ws = _ws(tmp_path)
-    out = EDIT(path="target.py", old_text="return 1", new_text="return 999",
-               config={"configurable": {"workspace": ws}})
-    assert out.startswith("✅")
+    edited = ORIG.replace("return 1", "return 999")
+    out = EDIT(
+        path="target.py", old_text="return 1", new_text="return 999",
+        config=_approval_config(ws, "target.py", edited, ORIG, "MODIFY"),
+    )
+    assert "Edited" in out
     mgr = sc.get_shadow_checkpoints()
     cps = mgr.list_checkpoints(ws)
     assert len(cps) == 1
@@ -69,8 +103,10 @@ def test_edit_file_snapshots_before_mutating(tmp_path, monkeypatch):
 def test_write_file_snapshot_preserves_old_content(tmp_path, monkeypatch):
     _hook_env(monkeypatch, tmp_path)
     ws = _ws(tmp_path)
-    WRITE(path="target.py", content=BROKEN,
-          config={"configurable": {"workspace": ws}})
+    WRITE(
+        path="target.py", content=BROKEN,
+        config=_approval_config(ws, "target.py", BROKEN, ORIG, "CREATE"),
+    )
     assert (Path(ws) / "target.py").read_text() == BROKEN
     mgr = sc.get_shadow_checkpoints()
     cps = mgr.list_checkpoints(ws)
@@ -157,7 +193,7 @@ def test_no_git_pollution_in_workspace(tmp_path):
     ws = _ws(tmp_path)
     mgr.ensure_checkpoint(ws, "baseline")
     assert not (Path(ws) / ".git").exists()
-    # Store holds the project's ref instead (rev-parse, not dir listing —
+    # Store holds the project's ref instead (rev-parse, not dir listing â€”
     # lazy gc may pack loose refs, an upstream-documented behavior).
     store = tmp_path / "store-home" / "store"
     assert (store / "HEAD").exists()
@@ -209,7 +245,7 @@ def test_history_ring_trim_keeps_latest_state_restorable(tmp_path):
         mgr._done_this_turn.clear()
         assert mgr.ensure_checkpoint(ws, f"v{i}") in (True, False)
     cps = mgr.list_checkpoints(ws)
-    # Ring: collapse at 2*max ⇒ bounded history, latest always present.
+    # Ring: collapse at 2*max â‡’ bounded history, latest always present.
     assert len(cps) <= 2 * 3
     res = mgr.restore(ws, cps[0]["hash"], "target.py")
     assert res["success"] is True

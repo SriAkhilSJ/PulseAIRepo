@@ -164,6 +164,7 @@ class FinancialStore:
                     estimated_tokens INTEGER NOT NULL,
                     purpose TEXT NOT NULL,
                     status TEXT NOT NULL,
+                    canonical_reservation_id TEXT,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 )
@@ -231,6 +232,13 @@ class FinancialStore:
             if "cache_write_tokens" not in ledger_cols:
                 try:
                     self._conn.execute("ALTER TABLE financial_call_ledger ADD COLUMN cache_write_tokens INTEGER DEFAULT 0")
+                except Exception:
+                    pass
+
+            res_cols = {r[1] for r in self._conn.execute("PRAGMA table_info(financial_reservations)").fetchall()}
+            if "canonical_reservation_id" not in res_cols:
+                try:
+                    self._conn.execute("ALTER TABLE financial_reservations ADD COLUMN canonical_reservation_id TEXT")
                 except Exception:
                     pass
 
@@ -812,8 +820,15 @@ class FinancialStore:
         estimated_tokens: int,
         purpose: str,
         status: str = "reserved",
+        canonical_reservation_id: str | None = None,
     ) -> bool:
-        """Persist a new budget reservation."""
+        """Persist a new budget reservation.
+
+        ``canonical_reservation_id`` is the exact reservation ID issued by the
+        canonical Phase 9.7 BudgetGovernor. Persisting it alongside the local
+        hold is what allows a restarted process (or an uncertain-reservation
+        reconciliation) to settle against the correct canonical hold.
+        """
         try:
             now = time.time()
             with self._lock, self._conn:
@@ -822,10 +837,14 @@ class FinancialStore:
                     INSERT INTO financial_reservations (
                         reservation_id, root_session_id, session_id, turn_id,
                         estimated_cost_inr, estimated_tokens, purpose, status,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        canonical_reservation_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(reservation_id) DO UPDATE SET
                         status=excluded.status,
+                        canonical_reservation_id=COALESCE(
+                            excluded.canonical_reservation_id,
+                            financial_reservations.canonical_reservation_id
+                        ),
                         updated_at=excluded.updated_at
                     """,
                     (
@@ -837,6 +856,7 @@ class FinancialStore:
                         estimated_tokens,
                         purpose,
                         status,
+                        canonical_reservation_id,
                         now,
                         now,
                     ),

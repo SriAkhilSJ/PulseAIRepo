@@ -83,6 +83,24 @@ async function main() {
 	}, null, '\t') + '\n', 'utf-8');
 
 	console.log(`Successfully transpiled and synchronized ${count} TypeScript files to ${OUT_ROOT}!`);
+
+	// Phase 12.1.3: Repository-owned build transformation for Node v24 ESM Electron compatibility
+	await patchElectronEsmCompatibility(VSCODE_ROOT);
+}
+
+export async function patchElectronEsmCompatibility(vscodeRoot) {
+	const mainJsPath = path.join(vscodeRoot, 'out/main.js');
+	if (fs.existsSync(mainJsPath)) {
+		let content = await fs.promises.readFile(mainJsPath, 'utf8');
+		const badImportPattern = /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"]electron['"];?/;
+		if (badImportPattern.test(content)) {
+			content = content.replace(badImportPattern, (_match, names) => {
+				return `import electron from "electron";\nconst { ${names.trim()} } = electron;`;
+			});
+			await fs.promises.writeFile(mainJsPath, content, 'utf8');
+			console.log(`[ESM Compatibility] Successfully applied Node v24 ESM transform to ${mainJsPath}`);
+		}
+	}
 }
 
 main().catch(err => {

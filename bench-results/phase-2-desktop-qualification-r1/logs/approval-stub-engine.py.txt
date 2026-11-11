@@ -1,0 +1,115 @@
+"""Test-double bridge for the approval-flow qualification.
+
+Speaks the same newline-delimited JSON protocol as the real engine, but emits a
+single deterministic write_file approval request and waits for the desktop's
+safety_reply. Every received frame is echoed to stderr for pairing evidence.
+No model, no network, no production code.
+"""
+from __future__ import annotations
+
+import json
+import sys
+
+TOOL_ID = "tool-approval-0001"
+SESSION = "stub-approval-session"
+WORKSPACE = sys.argv[1] if len(sys.argv) > 1 else ""
+PENDING = False
+
+
+def out(frame: dict) -> None:
+    sys.stdout.write(json.dumps(frame) + "\n")
+    sys.stdout.flush()
+
+
+def log(line: str) -> None:
+    sys.stderr.write("[stub] " + line + "\n")
+    sys.stderr.flush()
+
+
+def main() -> int:
+    log(f"started cwd={sys.argv[0]} workspace={WORKSPACE}")
+    for raw in sys.stdin:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            frame = json.loads(raw)
+        except json.JSONDecodeError:
+            out({"type": "error", "message": "bad frame"})
+            continue
+        kind = frame.get("type")
+        sid = frame.get("session_id") or SESSION
+        workspace = frame.get("workspace") or WORKSPACE
+        log(
+            "frame type=%s session=%s tool_id=%s approved=%s"
+            % (kind, sid, frame.get("tool_id"), frame.get("approved"))
+        )
+        if kind == "hello":
+            out({
+                "type": "hello",
+                "protocol": 2,
+                "engine": "crusorai",
+                "engine_version": "0.2.0-stub-approval",
+                "capabilities": ["prompt", "cancel", "safety_reply"],
+            })
+        elif kind == "session_create":
+            out({
+                "type": "session_info",
+                "session_id": sid,
+                "workspace": workspace,
+                "stored_session_id": sid,
+                "lazy": True,
+                "info": {"cwd": workspace, "lazy": True},
+            })
+        elif kind == "session_list":
+            out({"type": "session_info", "sessions": []})
+        elif kind == "prompt":
+            out({"type": "workspace.bound", "session_id": sid, "workspace": workspace, "hops": workspace, "engine_root": workspace})
+            out({"type": "turn_started", "session_id": sid})
+            out({
+                "type": "tool_call_start",
+                "session_id": sid,
+                "tool_id": TOOL_ID,
+                "name": "write_file",
+                "arguments": {"path": "notes.md"},
+            })
+            out({
+                "type": "tool_call_args",
+                "session_id": sid,
+                "tool_id": TOOL_ID,
+                "arguments": {"path": "notes.md"},
+            })
+            out({
+                "type": "safety_request",
+                "session_id": sid,
+                "tool_id": TOOL_ID,
+                "name": "write_file",
+                "diff": "--- a/notes.md\n+++ b/notes.md\n@@ -1,3 +1,4 @@\n # Notes\n \n-Approval target file.\n+Approval target file.\n+approved line\n",
+                "warning": None,
+            })
+            out({"type": "workspace.bound", "session_id": sid, "workspace": workspace, "hops": workspace, "engine_root": workspace})
+            PENDING = True
+        elif kind == "safety_reply":
+            if frame.get("tool_id") != TOOL_ID:
+                log(f"PAIRING-MISMATCH got={frame.get('tool_id')} expected={TOOL_ID}")
+            approved = bool(frame.get("approved"))
+            if approved:
+                out({"type": "tool_call_end", "session_id": sid, "tool_id": TOOL_ID, "status": "completed", "result": {"ok": True, "path": "notes.md"}})
+                out({"type": "token", "session_id": sid, "text": "Approved write applied to notes.md."})
+                out({"type": "turn_done", "session_id": sid, "message": "Approved write applied to notes.md.", "completed": True, "cancelled": False, "stub": True})
+            else:
+                out({"type": "tool_call_end", "session_id": sid, "tool_id": TOOL_ID, "status": "denied", "result": {"ok": False, "reason": "denied by user"}})
+                out({"type": "turn_done", "session_id": sid, "message": "Operation denied by the user.", "completed": False, "cancelled": True, "stub": True})
+            PENDING = False
+        elif kind == "cancel":
+            out({"type": "turn_done", "session_id": sid, "message": "Operation cancelled by the user.", "completed": False, "cancelled": True, "stub": True})
+        elif kind == "shutdown":
+            log("shutdown")
+            return 0
+        else:
+            out({"type": "session_info", "session_id": sid})
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

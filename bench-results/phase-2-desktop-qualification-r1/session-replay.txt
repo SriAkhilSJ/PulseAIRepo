@@ -1,0 +1,78 @@
+# Session replay evidence
+
+Two different replay paths were exercised. They are not equivalent and are
+reported separately.
+
+## 1. Warm replay — renderer reload with the live worker
+
+State before reload (`screenshots/08_before_reload.png`), transcript lane:
+
+| # | class | text |
+|---|---|---|
+| 1 | crusorai-user-message | cancel probe turn |
+| 2 | crusorai-assistant-message | cancel probe turn |
+| 3 | crusorai-user-message | cancel probe two |
+| 4 | crusorai-assistant-message | Operation cancelled by the user. |
+| 5 | crusorai-turn-receipt is-cancelled | Run cancelled |
+| 6 | crusorai-user-message | replay probe turn |
+| 7 | crusorai-assistant-message | replay probe turn |
+| 8 | crusorai-context-status-row is-warning | Agent Core evidence capture is degraded ... |
+
+Command: `Ctrl+R` (`workbench.action.reloadWindow`). After the renderer reloaded
+and the panel reopened:
+
+- `document.title` unchanged, composer present;
+- `document.querySelector('.crusorai-transcript-lane').children.length === 8`;
+- concatenated pane text byte-identical to the pre-reload text above.
+
+No duplicated user rows, no duplicated assistant rows, no duplicated receipt.
+The transcript came back through the engine session-load/replay path against the
+still-running Python worker, so this is a real replay, but not a cold-boot
+replay.
+
+## 2. Cold replay — full process restart
+
+Quit the app entirely, relaunch with the same disposable profile, open
+`Open Crusor Manager` (`screenshots/11_cold_manager.png`). Observed:
+
+```
+CONTROL PLANE
+  workspace
+    Crusor session
+    workspace / 1m
+1 session(s) remembered · none running
+workspace / session-6737...
+```
+
+- The workspace grouping and the session row were restored from the durable
+  store;
+- the transcript pane for that session was empty.
+
+Cause, confirmed by a direct protocol probe against the same echo runner:
+
+```
+events_replay:        events=2  event_ids=2  duplicate_event_ids=0
+session_messages:     messages=0  roles=[]
+```
+
+The echo test seam completes `turn_done` but does not append a durable transcript
+message. Cold transcript replay of a real provider-backed turn is therefore
+**NOT EXERCISED**; what is proven cold is session-row/workspace persistence, not
+message replay.
+
+## 3. Event identity
+
+The journal replay returned one `event_id` per event with zero duplicates across
+the replayed set. Because the echo turn stores only two events, this does not
+prove long-transcript id stability.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Warm replay restores session | PASS |
+| Warm replay has no duplicate transcript rows | PASS |
+| Event ids unique in replayed payload | PASS (small sample) |
+| Tool-call start/end pairing survives replay | NOT EXERCISED (no tool frames in the echo turn) |
+| Cold replay restores workspace/session row | PASS |
+| Cold replay restores transcript | NOT EXERCISED for real turns (echo seam has no durable messages) |

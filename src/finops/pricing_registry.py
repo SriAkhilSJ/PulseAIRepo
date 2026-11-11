@@ -163,9 +163,16 @@ class ModelPricingRegistry:
             ModelPricingMetadata("deepseek", "deepseek-reasoner", Decimal("0.55"), Decimal("2.19"), Decimal("0.14"), Decimal("2.19"), "USD", "2026-01-01", VerificationStatus.VERIFIED, "deepseek_official"),
             ModelPricingMetadata("groq", "llama-3.3-70b", Decimal("0.59"), Decimal("0.79"), None, None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "groq_official"),
             ModelPricingMetadata("groq", "llama-3.1-8b", Decimal("0.05"), Decimal("0.08"), None, None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "groq_official"),
-            # Velona INR Live Native
+            # Velona INR Live Native & Partner Endpoints
             ModelPricingMetadata("velona", "velona-pro", Decimal("45.00"), Decimal("180.00"), Decimal("15.00"), None, "INR", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
             ModelPricingMetadata("velona", "velona-flash", Decimal("4.50"), Decimal("18.00"), Decimal("1.50"), None, "INR", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("velona", "z-ai/glm-5.3-flash", Decimal("0.05"), Decimal("0.20"), Decimal("0.01"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("velona", "deepseek/deepseek-v4.1-flash", Decimal("0.14"), Decimal("0.28"), Decimal("0.014"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("velona", "qwen/qwen3.7-flash", Decimal("0.08"), Decimal("0.24"), Decimal("0.01"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("custom", "z-ai/glm-5.3-flash", Decimal("0.05"), Decimal("0.20"), Decimal("0.01"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("custom", "deepseek/deepseek-v4.1-flash", Decimal("0.14"), Decimal("0.28"), Decimal("0.014"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("custom", "qwen/qwen3.7-flash", Decimal("0.08"), Decimal("0.24"), Decimal("0.01"), None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "velona_catalog"),
+            ModelPricingMetadata("groq", "qwen/qwen3.6-27b", Decimal("0.20"), Decimal("0.20"), None, None, "USD", "2026-01-01", VerificationStatus.VERIFIED, "groq_official"),
         ]
         for m in defaults:
             self._registry[self._key(m.provider, m.model)] = m
@@ -314,4 +321,10 @@ def get_pricing_registry() -> ModelPricingRegistry:
         if _GLOBAL_REGISTRY is None:
             _GLOBAL_REGISTRY = ModelPricingRegistry()
         return _GLOBAL_REGISTRY
+
+
+# Canonical aliases for backwards-compatibility and orchestration imports
+PricingRegistry = ModelPricingRegistry
+ModelPricingRegistry.get_pricing_registry = staticmethod(get_pricing_registry)  # type: ignore
+
 

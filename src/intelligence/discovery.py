@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -460,6 +461,52 @@ class RepositoryDiscoveryEngine:
 
         return sorted(list(env_names))
 
+    @staticmethod
+    def _run_git(root: Path, args: list[str], timeout: float = 3.0) -> str:
+        """Run a read-only git command that can never wedge the caller.
+
+        ``subprocess.check_output(timeout=...)`` is not enough on Windows: on
+        timeout it kills the direct child and then re-enters ``communicate()``
+        WITHOUT a timeout to drain the pipes. If git left a grandchild holding
+        stdout (fsmonitor/gc/credential helper), that second wait blocks
+        forever — observed in P0.6.5 as a desktop turn stuck at "Thinking"
+        with no provider call. So: no stdin, no prompts, disabled daemons, and
+        a hard kill of the whole process tree on timeout.
+        """
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        env = dict(os.environ)
+        env.update({"GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0",
+                    "GIT_PAGER": "cat", "LC_ALL": "C"})
+        proc = subprocess.Popen(
+            ["git", "-c", "core.fsmonitor=false", "-c", "gc.auto=0", *args],
+            cwd=str(root),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=env,
+            creationflags=creationflags,
+        )
+        try:
+            out, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True, timeout=10)
+            else:
+                proc.kill()
+            try:
+                proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, ["git", *args], output=out)
+        return (out or "").strip()
+
     def _detect_git_info(self, root: Path) -> Dict[str, Any]:
         """Read git branch and status cleanly without altering workspace."""
         git_dir = root / ".git"
@@ -467,20 +514,8 @@ class RepositoryDiscoveryEngine:
             return {"is_git": False}
 
         try:
-            branch = subprocess.check_output(
-                ["git", "branch", "--show-current"],
-                cwd=str(root),
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=3.0,
-            ).strip()
-            rev = subprocess.check_output(
-                ["git", "rev-parse", "HEAD"],
-                cwd=str(root),
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=3.0,
-            ).strip()
+            branch = self._run_git(root, ["branch", "--show-current"])
+            rev = self._run_git(root, ["rev-parse", "HEAD"])
             return {"is_git": True, "branch": branch, "head": rev[:8]}
         except Exception:
             return {"is_git": True, "branch": "unknown", "head": "unknown"}

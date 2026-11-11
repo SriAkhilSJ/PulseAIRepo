@@ -1,0 +1,4 @@
+src/orchestration/contract.py                    (intent nouns, role synthesis, dir roles)
+src/intelligence/requirement_extractor.py        (repair/refactor/clean verbs, short-request guard)
+src/tests/test_contract_assignment_reliability.py (new, 14 tests)
+bench-results/phase-3.2-planner-contract-closure/ (new evidence)

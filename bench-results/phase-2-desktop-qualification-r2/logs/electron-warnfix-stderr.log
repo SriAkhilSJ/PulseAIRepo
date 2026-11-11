@@ -1,0 +1,86 @@
+
+DevTools listening on ws://127.0.0.1:9333/devtools/browser/db05ad48-8f2d-46cb-8a10-cf8afbcb7f6d
+Error: Cannot find module './build/Debug/keymapping'
+Require stack:
+- C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at NativeBinding._init (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:19:24)
+    at NativeBinding.getKeyMap (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:24:10)
+    at exports.getKeyMap (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:63:18)
+    at readKeyboardLayoutData (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:61:45)
+    at KeyboardLayoutMainService._doInitialize (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\node_modules\\native-keymap\\index.js'
+  ]
+}
+TypeError: Cannot read properties of null (reading 'getCurrentKeyboardLayout')
+    at NativeBinding.getCurrentKeyboardLayout (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:34:29)
+    at exports.getCurrentKeyboardLayout (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:60:18)
+    at readKeyboardLayoutData (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:62:48)
+    at KeyboardLayoutMainService._doInitialize (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+TypeError: Cannot read properties of null (reading 'onDidChangeKeyboardLayout')
+    at NativeBinding.onDidChangeKeyboardLayout (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:43:22)
+    at exports.onDidChangeKeyboardLayout (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-keymap\index.js:66:18)
+    at KeyboardLayoutMainService._doInitialize (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:45:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[6832:1109/113726.771:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] Acquiring MessagePort to agent host...", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113726.851:ERROR:electron\shell\browser\api\electron_api_app.cc:1347] Failed to begin Jump List transaction.
+[main 2026-11-09T19:37:26.840Z] updateWindowsJumpList#setJumpList unexpected result: error
+[6832:1109/113726.868:INFO:CONSOLE:102] "[CrusorAI][watermark] startupEditor="welcomePage" colorTheme="Dark 2026" tipsEnabled=true isEmptyWindow=false", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/workbench/browser/parts/editor/editorGroupWatermark.js (102)
+Error: Cannot find module './build/Release/iselevated'
+Require stack:
+- C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-is-elevated\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at isElevatedWindows (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-is-elevated\index.js:25:13)
+    at Module.isElevated (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\native-is-elevated\index.js:10:12)
+    at NativeHostMainService.isAdmin (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/native/electron-main/nativeHostMainService.js:589:67) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    'C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\node_modules\\native-is-elevated\\index.js'
+  ]
+}
+[6832:1109/113727.142:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] MessagePort acquired, creating client...", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.163:INFO:CONSOLE:329] "%c[Extension Host] %cdebugger listening on port 5870 color: blue color:", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (329)
+[6832:1109/113727.215:INFO:CONSOLE:101] "%c INFO color: #33f Started local extension host with pid 13128.", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.217:INFO:CONSOLE:101] "%c INFO color: #33f Started initializing default profile extensions in extensions installation folder. file:///c%3A/Users/Administrator/AppData/Local/Temp/opencode/p2r3-warn/extensions", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.500:INFO:CONSOLE:260] "%c[Extension Host] %cdebugger inspector at devtools://devtools/bundled/js_app.html?v8only=true&ws=127.0.0.1:5870/6c54bc8c-b90d-4b34-904a-a30e0a54a6cf color: blue color:", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (260)
+[6832:1109/113727.518:INFO:CONSOLE:101] "%c INFO color: #33f Completed initializing default profile extensions in extensions installation folder. file:///c%3A/Users/Administrator/AppData/Local/Temp/opencode/p2r3-warn/extensions", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.565:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.experimentalOnboarding'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.566:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.walkthroughs.openOnInstall'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.567:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'crusorai.hideBuiltInCopilotUI'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113727.938:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113728.069:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113728.145:INFO:CONSOLE:101] "%c  ERR color: #f33 Unable to create workbench contribution 'chat.contextContributions'. Error: [createInstance] SessionReferenceContextPickerPick depends on UNKNOWN service chatSessionRoutingProviderService.", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113729.061:INFO:CONSOLE:101] "%c INFO color: #33f [AgentHost:renderer] Protocol connection established; clientId=08a25bf5-034d-449c-81d2-c133c5638a0b", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+Unknown channel: agentHostClientProxy
+[6832:1109/113733.060:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.060:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.060:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.060:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) — boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.060:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: unknown", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.073:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) — panel is current", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113733.372:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [preview] preview proxy for C:\Users\Administrator\AppData\Local\Temp\opencode\p2r3-warn\workspace is up at http://127.0.0.1:8931 (session 'ide')", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[6832:1109/113809.163:INFO:CONSOLE:349] "[crusorai] cancel click sent for session session-7c2922050ad44ce7959f4bdf25705ba0", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js (349)
+[6832:1109/113809.169:INFO:CONSOLE:2198] "[crusorai] engine cancel ack received: cancel_requested=true (session session-7c2922050ad44ce7959f4bdf25705ba0)", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js (2198)
+[6832:1109/113809.169:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] cancel for session-7c2922050ad44ce7959f4bdf25705ba0: accepted=True pending=True turn_elapsed=None", source: vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/log/common/log.js (101)

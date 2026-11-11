@@ -23,6 +23,7 @@ import type { CrusorClarifyQuestion, CrusorClientMethod, CrusorEvidenceReceipt, 
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import type { CrusorReasoningEffortValue } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
+import { cardFromFrame, normalizeCrusorCard, type CrusorCardView } from '../common/crusorAICards.js';
 import { ICrusorAIRendererService, CrusorAISurface } from '../common/crusorAIRendererService.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionLabelIsFallback, crusorSessionRows, crusorSessionStatusName, type CrusorAIEngineSessionRow, type CrusorAISessionFacts, type CrusorAISessionRow, type CrusorAISessionStatusName } from '../common/crusorAISessionProjection.js';
@@ -150,6 +151,8 @@ interface CrusorSurfaceSnapshot {
 	readonly plan: readonly CrusorAIPlanStepView[];
 	readonly verification: string | undefined;
 	readonly telemetry: CrusorAIRenderModel['telemetry'];
+	readonly cards: readonly CrusorCardView[];
+	readonly cardOrder: readonly string[];
 	readonly approval: CrusorAIRenderModel['approval'];
 	readonly clarify: {
 		readonly requestId: string;
@@ -171,6 +174,7 @@ interface CrusorSurfaceSnapshot {
 	readonly error: string | undefined;
 	readonly hadProviderAttempt: boolean;
 	readonly pendingPrompt: string | undefined;
+	readonly pendingSubmissionId: string | undefined;
 }
 
 export class CrusorAIRendererService extends Disposable implements ICrusorAIRendererService {
@@ -185,7 +189,11 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private restartAttempts = 0;
 	private engineFault: string | undefined;
 	private pendingPrompt: string | undefined;
+	private pendingSubmissionId: string | undefined;
 	private lastSubmittedPrompt: string | undefined;
+	private lastSubmissionId: string | undefined;
+	private lastSubmissionCompleted = false;
+	private lastSubmitAt = 0;
 	/** Session id whose transcript hydration (session_messages) is still in flight. A page for a session the user already left is dropped against this. */
 	private pendingHydration: string | undefined;
 	/**
@@ -327,6 +335,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 	private plan: readonly CrusorAIPlanStepView[] = [];
 	private verification: string | undefined;
 	private telemetry: CrusorAIRenderModel['telemetry'] = {};
+	/** Typed cards for the live turn, keyed by stable card id (updates replace). */
+	private readonly cards = new Map<string, CrusorCardView>();
+	private cardOrder: string[] = [];
 	private error: string | undefined;
 	private engineSetupError = false;
 	/**
@@ -492,10 +503,12 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// broken while it is being restarted, and the row's own action would look like a no-op.
 			this.engineFault = undefined;
 			this.error = undefined;
-			const promptToRetry = this.pendingPrompt || this.lastSubmittedPrompt;
+			const promptToRetry = this.pendingPrompt
+				|| (this.lastSubmissionCompleted ? undefined : this.lastSubmittedPrompt);
 			void this.ensureEngine().then(() => {
 				if (promptToRetry && this.engineService.state === CrusorAIEngineState.Ready) {
 					this.pendingPrompt = undefined;
+					this.pendingSubmissionId = undefined;
 					void this.submitPrompt(promptToRetry);
 				}
 			});
@@ -719,6 +732,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			plan: this.plan,
 			verification: this.verification,
 			telemetry: this.telemetry,
+			cards: [...this.cards.values()],
+			cardOrder: [...this.cardOrder],
 			approval: this.pickTreeApproval(),
 			clarify: this.pickTreeClarify(),
 			todos: this.todos,
@@ -732,6 +747,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			error: this.error,
 			hadProviderAttempt: this.hadProviderAttempt,
 			pendingPrompt: this.pendingPrompt,
+			pendingSubmissionId: this.pendingSubmissionId,
 		};
 	}
 
@@ -759,6 +775,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.plan = snapshot.plan;
 		this.verification = snapshot.verification;
 		this.telemetry = snapshot.telemetry;
+		this.cards.clear();
+		for (const card of snapshot.cards) { this.cards.set(card.cardId, card); }
+		this.cardOrder = [...snapshot.cardOrder];
 		// Pending approvals are service-level tree state, not surface state:
 		// the `approvals` map survives the stash and pickTreeApproval
 		// re-derives what this view shows.
@@ -776,6 +795,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.error = snapshot.error;
 		this.hadProviderAttempt = snapshot.hadProviderAttempt;
 		this.pendingPrompt = snapshot.pendingPrompt;
+		this.pendingSubmissionId = snapshot.pendingSubmissionId;
 		this.pendingHydration = undefined;
 	}
 
@@ -879,7 +899,9 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.userMessage = undefined;
 		this.assistantText = '';
 		this.pendingPrompt = undefined;
+		this.pendingSubmissionId = undefined;
 		this.pendingHydration = undefined;
+		this.lastSubmissionCompleted = false;
 		this.tools.clear();
 		this.parts = [];
 		this.reasoningParts = [];
@@ -981,6 +1003,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			plan: this.plan,
 			verification: this.verification,
 			telemetry: this.telemetry,
+			cards: this.cardOrder.map(id => this.cards.get(id)).filter((card): card is CrusorCardView => !!card),
 			capabilitySummary: this.capabilitySummary,
 			error: this.error,
 			engineFault: this.engineFault === undefined ? undefined : {
@@ -1745,14 +1768,43 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		}
 		this.draft = '';
 		this.error = undefined;
-		this.lastSubmittedPrompt = promptText;
-		if (!this.sessionId) {
-			this.pendingPrompt = promptText;
-			this.send({ type: 'session_create', workspace: this.workspacePath });
+		const submissionId = this.pendingPrompt && promptText === this.pendingPrompt && this.pendingSubmissionId
+			? this.pendingSubmissionId
+			: this.newSubmissionId();
+		if (this.pendingPrompt && promptText === this.pendingPrompt) {
+			// A duplicate gesture while the first session_create is in flight is
+			// the same logical submission: replay the create with the same id so
+			// the bridge returns the original session instead of minting one.
+			console.info(`[CrusorAI] duplicate submit while pending; reusing ${submissionId}`);
+			this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
 			this.render();
 			return;
 		}
-		this.startTurn(promptText);
+		if (this.running && this.lastSubmissionId && promptText === this.lastSubmittedPrompt
+			&& Date.now() - this.lastSubmitAt < 2000) {
+			console.info(`[CrusorAI] duplicate submit ignored while turn is active: ${submissionId}`);
+			return;
+		}
+		this.lastSubmittedPrompt = promptText;
+		this.lastSubmissionId = submissionId;
+		this.lastSubmissionCompleted = false;
+		this.lastSubmitAt = Date.now();
+		if (!this.sessionId) {
+			this.pendingPrompt = promptText;
+			this.pendingSubmissionId = submissionId;
+			this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: submissionId });
+			this.render();
+			return;
+		}
+		this.startTurn(promptText, submissionId);
+	}
+
+	private newSubmissionId(): string {
+		try {
+			const uuid = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto?.randomUUID?.();
+			if (uuid) { return `sub-${uuid}`; }
+		} catch { /* fall through */ }
+		return `sub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 	}
 
 	/**
@@ -1778,7 +1830,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		// startTurn on session_info, and pre-setting it would archive a
 		// bubble-only turn and paint the message twice.
 		this.pendingPrompt = text;
-		this.send({ type: 'session_create', workspace: this.workspacePath });
+		this.pendingSubmissionId = this.newSubmissionId();
+		this.send({ type: 'session_create', workspace: this.workspacePath, submission_id: this.pendingSubmissionId });
 		this.render();
 		return false;
 	}
@@ -1805,10 +1858,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		let landed = 0;
 		let dropped = 0;
 		for (const tool of this.tools.values()) {
-			if (tool.state === 'queued' || tool.state === 'approval' || tool.state === 'running') {
-				dropped++;
-			} else {
+			// B-DESK-006: only a PASSED tool call is a landed mutation. A
+			// denied/cancelled call is marked 'failed' but changed nothing;
+			// counting it as landed produced "1 landed" on a denial.
+			if (tool.state === 'passed') {
 				landed++;
+			} else {
+				dropped++;
 			}
 		}
 		return { landed, dropped };
@@ -1835,10 +1891,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		this.turnStartedAt = Date.now();
 	}
 
-	private startTurn(text: string): void {
+	private startTurn(text: string, submissionId?: string): void {
 		this.archiveLiveTurn();
 		this.resetTurnState(text);
-		this.send({ type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath, text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none' });
+		const payload: CrusorClientMethod = {
+			type: 'prompt', session_id: this.sessionId, workspace: this.workspacePath,
+			text, mode: this.mode, reasoning_effort: this.reasoningEffort || 'none',
+			...(submissionId ? { submission_id: submissionId } : {}),
+		};
+		this.send(payload);
 		this.render();
 	}
 
@@ -2104,7 +2165,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				case 'tool_call_start': case 'tool_call_args': case 'tool_call_progress': case 'tool_call_end': case 'tool_output': case 'safety_request': case 'clarify_request':
 				case 'todo_updated': case 'verification_updated': case 'telemetry': case 'turn_done':
 				case 'turn_failed': case 'voice_text': case 'llm.request': case 'llm.response':
-				case 'context_status': case 'runtime_degraded':
+				case 'context_status': case 'runtime_degraded': case 'agent_card':
 					this.noteForeignFrame(foreignId, frame);
 					return;
 			}
@@ -2114,6 +2175,17 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 		if (frame.type === 'token' || frame.type === 'token_retract' || frame.type === 'reasoning'
 			|| frame.type === 'tool_call_start' || frame.type === 'tool_call_args' || frame.type === 'tool_output' || frame.type === 'plan_updated') {
 			this.adoptHistoryTailIfLive();
+		}
+		if (frame.type === 'agent_card') {
+			// Typed UI card: re-validated here (model output is untrusted).
+			// Same id replaces in place so activity/approval states update.
+			const card = cardFromFrame(frame);
+			if (card) {
+				if (!this.cards.has(card.cardId)) { this.cardOrder.push(card.cardId); }
+				this.cards.set(card.cardId, card);
+				this.render();
+			}
+			return;
 		}
 		if (frame.type === 'session_info') {
 			// Durable list refresh: a session_list reply carries `sessions` and NO session_id --
@@ -2194,10 +2266,23 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 				const candidate = valueRecord(event);
 				if (typeof candidate?.type === 'string') { this.acceptFrame(event as CrusorServerEvent); }
 			}
+			if (frame.duplicate_submission) {
+				const hadPending = !!this.pendingPrompt;
+				this.pendingPrompt = undefined;
+				this.pendingSubmissionId = undefined;
+				if (hadPending && !this.running) {
+					this.error = `This submission was already accepted (${frame.submission_state ?? 'known'}); start a new prompt instead of resending it.`;
+				}
+				console.info(`[CrusorAI] duplicate submission ack: session=${frame.session_id} state=${frame.submission_state ?? '?'}`);
+				this.render();
+				return;
+			}
 			if (this.pendingPrompt) {
 				const prompt = this.pendingPrompt;
+				const submissionId = this.pendingSubmissionId;
 				this.pendingPrompt = undefined;
-				this.startTurn(prompt);
+				this.pendingSubmissionId = undefined;
+				this.startTurn(prompt, submissionId);
 				return;
 			}
 			// Rename/pin/archive acks re-sync the list so the row shows the new truth.
@@ -2215,6 +2300,8 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.llmHeads = undefined;
 			this.degraded = evidenceDegradation(frame.evidence);
 			this.voiceHeard = undefined;
+			this.cards.clear();
+			this.cardOrder = [];
 
 			this.hadProviderAttempt = false;
 			this.clearStallWatchdog();
@@ -2461,8 +2548,21 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.telemetry = { ...this.telemetry, input: frame.input, output: frame.output, cache: frame.cache, cost: frame.cost };
 		} else if (frame.type === 'turn_done') {
 			this.running = false;
+			this.lastSubmissionCompleted = true;
 			if ((frame as { cancelled?: boolean }).cancelled === true) {
 				this.interrupt = this.stampInterrupt();
+			}
+			// Canonical persisted receipt is authoritative for landed vs
+			// dropped when the engine supplies it (B-DESK-006).
+			const canonical = (frame as { receipt?: { mutation_receipts?: unknown[]; changed_files?: unknown[]; terminal_status?: string } }).receipt;
+			if (canonical) {
+				const applied = Array.isArray(canonical.mutation_receipts)
+					? canonical.mutation_receipts.length
+					: Array.isArray(canonical.changed_files) ? canonical.changed_files.length : 0;
+				this.interrupt = {
+					landed: applied,
+					dropped: Math.max(0, this.tools.size - applied),
+				};
 			}
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
@@ -2478,6 +2578,13 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			// cancelled"; calling every incomplete run cancelled is progress
 			// theatre in reverse (a lie about the Stop button).
 			this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
+			if (canonical?.terminal_status) {
+				const status = canonical.terminal_status;
+				this.turnOutcome = status === 'CANCELLED'
+					? 'cancelled'
+					: status === 'DENIED' ? 'denied'
+					: status === 'COMPLETED' ? 'completed' : 'failed';
+			}
 			if (frame.message && !this.assistantText) {
 				this.assistantText = frame.message;
 				this.appendTextPart(frame.message);
@@ -2504,6 +2611,7 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			this.settleAdoptedTurn();
 		} else if (frame.type === 'turn_failed') {
 			this.running = false;
+			this.lastSubmissionCompleted = false;
 			this.cancelRequested = false;
 			this.turnStartedAt = undefined;
 			this.turnEndedAt = Date.now();
@@ -2565,6 +2673,15 @@ export class CrusorAIRendererService extends Disposable implements ICrusorAIRend
 			}
 			this.pendingHydration = undefined;
 			this.hydrateTranscript(frame.messages);
+			this.cards.clear();
+			this.cardOrder = [];
+			for (const raw of frame.cards ?? []) {
+				const card = normalizeCrusorCard(raw);
+				if (card) {
+					if (!this.cards.has(card.cardId)) { this.cardOrder.push(card.cardId); }
+					this.cards.set(card.cardId, card);
+				}
+			}
 			if (this.healAfterRestore && forId === this.sessionId) {
 				// The settled turn now lives in history; clear the live-turn
 				// fields so it cannot paint twice (once per lane).

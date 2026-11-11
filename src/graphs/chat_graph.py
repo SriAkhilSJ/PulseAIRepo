@@ -1,7 +1,10 @@
+
+from src.runtime.app_paths import app_data_root
 import json
 import os
 import re
 
+import contextvars
 import sqlite3
 import threading
 import time
@@ -41,6 +44,7 @@ from src.llm.factory import (
 from src.llm.repetition_guard import (
     REPETITION_DOMINATED_NOTICE, is_degenerate_output,
 )
+from src.workspace.risk_policy import RiskApprovalGate as _RiskApprovalGate
 from src.context.context_engine import ContextEngine
 from src.context.memory_manager import MemoryManager
 from src.context.user_interest import (
@@ -1446,6 +1450,33 @@ _TOOL_AVAILABILITY_REPORTED = False  # hermes load-line: once per process
 _FILE_DELIVERY_TOOLS = frozenset({
     "write_file", "edit_file", "copy_file",
 })
+
+# Increment 2: child sub-agent turns inherit the canonical runtime guard from
+# the parent turn (contextvar is copied into tool-worker contexts).
+_CANONICAL_RUNTIME_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "crusor_canonical_runtime_active", default=False
+)
+_TURN_SCOPE_ID: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "crusor_turn_scope_id", default=""
+)
+
+
+def canonical_runtime_active() -> bool:
+    return bool(_CANONICAL_RUNTIME_ACTIVE.get())
+
+# Increment 2: write_file/edit_file now use the canonical mutation broker with
+# a digest-bound approval token. Everything else stays fail-closed until its
+# path/operation/digest contract is proven.
+_GRAPH_MUTATION_BLOCKED = frozenset({
+    "copy_file", "delete_file", "move_file",
+    "rename_file", "apply_patch", "create_file", "bulk_write",
+    "run_terminal", "start_terminal", "terminal", "execute_code", "code_exec",
+    "generate_image", "media_download", "install_toolchain", "build_target",
+    # Opaque effect surfaces: no side-effect metadata means fail closed.
+    "mcp_call", "invoke_host_capability",
+})
+_GRAPH_MUTATION_ENABLED = frozenset({"write_file", "edit_file"})
+_GRAPH_APPROVAL_GATE = _RiskApprovalGate()
 _FILE_DELIVERY_WORDS = frozenset({
     "build", "create", "implement", "write", "fix", "edit", "modify",
     "update", "scaffold", "deliver",
@@ -1973,6 +2004,17 @@ def _turn_scoped_resets() -> dict[str, Any]:
         # still real executions in the diagnostics report.
         "turn_tool_execution_count": 0,
         "turn_tool_execution_names": [],
+        # Increment 3: receipts are per-turn evidence. A resumed checkpoint
+        # must never carry a previous engineering delivery, mutation receipt or
+        # terminal receipt into the next turn (it made denials report the prior
+        # turn's landed mutations).
+        "engineering_delivery": {},
+        "turn_receipt": {},
+        "approval_receipts": [],
+        "mutation_receipts": [],
+        "task_action": "",
+        "task_status": "in_progress",
+        "task_completed": False,
     }
 
 
@@ -3807,6 +3849,8 @@ _TURN_LAST_CALL_TEXT: dict[str, int] = {}
 
 
 _TURN_PUMPS: dict[str, "_AgentTokenPump"] = {}
+# Increment 3: per-turn workspace for the unified invocation ledger.
+_TURN_WORKSPACES: dict[str, str] = {}
 
 
 def _release_held_answer(thread_id: str) -> None:
@@ -4616,10 +4660,33 @@ def _invoke_with_token_pump(
     )
     _TURN_PUMPS[thread_id] = pump
     _model_t0 = time.monotonic()
+    from src.llm.gateway import invoke_model, new_invocation_context
+
+    gateway_context = new_invocation_context(
+        session_id=thread_id,
+        turn_id=_TURN_SCOPE_ID.get() or os.environ.get("CRUSORAI_TURN_ID", "") or thread_id,
+        task_id=thread_id,
+        provider=provider,
+        model=model,
+        subsystem="graph",
+        workspace=str(_TURN_WORKSPACES.get(thread_id, "") or ""),
+        purpose="chat_turn",
+    )
     try:
-        result = call_llm.invoke(messages, config={"callbacks": [pump]})
+        result = invoke_model(
+            call_llm,
+            messages,
+            context=gateway_context,
+            config={"callbacks": [pump]},
+            record_telemetry=True,
+        ).response
     except TypeError:
-        result = call_llm.invoke(messages)
+        result = invoke_model(
+            call_llm,
+            messages,
+            context=gateway_context,
+            record_telemetry=True,
+        ).response
     except Exception as _call_exc:
         _TURN_LAST_CALL_STREAMED[thread_id] = pump.streamed
         _TURN_LAST_CALL_TEXT[thread_id] = pump.painted_chars
@@ -5077,7 +5144,9 @@ def _salvage_task_decision(text: str) -> "TaskDecision | None":
     return None
 
 
-def _invoke_task_decision(llm, task_messages) -> "TaskDecision":
+def _invoke_task_decision(
+    llm, task_messages, *, session_id: str = "", turn_id: str = "", task_id: str = "",
+) -> "TaskDecision":
     """Classifier invoke that can NEVER fail the turn on a parse.
 
     The strict with_structured_output path couples a prose-obedient model's
@@ -5090,7 +5159,21 @@ def _invoke_task_decision(llm, task_messages) -> "TaskDecision":
     should do. One honest line on the true fallback; never silent.
     """
     try:
-        result = llm.invoke(task_messages)
+        from src.llm.gateway import invoke_model, new_invocation_context
+
+        result = invoke_model(
+            llm,
+            task_messages,
+            context=new_invocation_context(
+                session_id=session_id or "default",
+                turn_id=turn_id or os.environ.get("CRUSORAI_TURN_ID", "") or session_id,
+                task_id=task_id or session_id,
+                subsystem="graph",
+                workspace=str(_TURN_WORKSPACES.get(session_id, "") or ""),
+                purpose="task_classification",
+            ),
+            record_telemetry=True,
+        ).response
     except Exception as exc:
         # Budget exhaustion / transport death on the ROUTER must never kill
         # the MISSION (hermes: aux failure degrades that side task, the turn
@@ -5119,6 +5202,261 @@ def _invoke_task_decision(llm, task_messages) -> "TaskDecision":
         "defaulting to 'continue' (active task preserved)"
     )
     return TaskDecision(action="continue")
+
+
+_ENGINEERING_ACTION_RE = re.compile(
+    r"\b(?:add|create|build|generate|implement|write|fix|repair|refactor|"
+    r"update|modify|remove|delete|rename|move|migrate|optimi[sz]e|replace|"
+    r"extend|integrate|support|make|set\s*up|setup|clean)\b",
+    re.IGNORECASE,
+)
+_ENGINEERING_OBJECT_RE = re.compile(
+    r"\b(?:app|application|api|endpoint|service|module|component|function|"
+    r"class|file|files|script|tests?|store|marketplace|pipeline|backend|"
+    r"frontend|website|page|database|schema|auth|cli|library|package|"
+    r"project|feature|bug|error|crash|task)\b",
+    re.IGNORECASE,
+)
+_FILE_MENTION_RE = re.compile(
+    r"[A-Za-z0-9_./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml|ini|cfg|txt)\b"
+)
+
+
+def _is_engineering_turn(state: AgentState) -> bool:
+    """Deterministic chat-vs-engineering classification for increment 1.
+
+    Plan mode is always engineering. Ask is always conversational. Agent/debug
+    turns are engineering when the user names a file or combines an action verb
+    with a code/project object; greetings and questions stay on the chat path.
+    """
+    if not state.get("canonical_runtime"):
+        return False
+    mode = str(state.get("execution_mode") or "agent").strip().lower()
+    if mode == "plan":
+        return True
+    if mode == "ask":
+        return False
+    text = str(
+        state.get("latest_instruction")
+        or _latest_instruction_from_messages(state.get("messages") or [])
+        or ""
+    ).strip()
+    if not text:
+        return False
+    try:
+        from src.agents.planner import _looks_like_phatic_turn
+
+        if _looks_like_phatic_turn(text):
+            return False
+    except Exception:
+        pass
+    if _FILE_MENTION_RE.search(text):
+        return True
+    return bool(
+        _ENGINEERING_ACTION_RE.search(text)
+        and _ENGINEERING_OBJECT_RE.search(text)
+    )
+
+
+def engineering_task_node(state: AgentState, config: RunnableConfig):
+    """Delegate one engineering task to the existing orchestrator engine.
+
+    The graph owns the turn/checkpoint/stream; the engine owns contract,
+    planning, implementation, verification and repair. It receives an explicit
+    EngineeringTaskRequest and returns a DeliveryContract.
+    """
+    from src.dashboard.event_bus import event_bus
+    from src.orchestration.models import (
+        EngineeringTaskRequest,
+        ExecutionLimits,
+    )
+    from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
+    from src.runtime.turn_control import turn_controls
+
+    configurable = (config or {}).get("configurable", {}) or {}
+    thread_id = str(configurable.get("thread_id") or "default")
+    workspace = str(configurable.get("workspace") or ".")
+    turn_id = str(configurable.get("turn_id") or thread_id)
+    policy = str(
+        configurable.get("approval_policy")
+        or os.environ.get("CRUSORAI_BRIDGE_APPROVAL_POLICY", "ask")
+    ).strip().lower()
+    if policy not in {"ask", "workspace_session", "session"}:
+        policy = "ask"
+    prompt = str(
+        state.get("latest_instruction")
+        or _latest_instruction_from_messages(state.get("messages") or [])
+        or ""
+    ).strip()
+
+    # Increment 2: the graph is the single context owner. Assemble the
+    # bounded structured bundle once (ContextEngine + HistoryShaper) and pass
+    # it across the delegation boundary; the engineering engine never does
+    # its own retrieval or transcript assembly.
+    context_bundle: dict[str, Any] = {}
+    try:
+        engine = get_context_engine(config)
+        context_state = dict(state)
+        context_state["_autonomous_workspace"] = _is_autonomous_workspace(config)
+        context_bundle = engine.build_engineering_context(
+            context_state,
+            _session_system_message(
+                config, context_state, autonomous=_is_autonomous_workspace(config)
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - context assembly must not kill the turn
+        print(
+            f"[engineering_task] context assembly failed ({type(exc).__name__}: {exc}); "
+            "delegating with the request only",
+            flush=True,
+        )
+        context_bundle = {
+            "schema_version": 1,
+            "current_request": prompt,
+            "history": [],
+            "workspace_context": "",
+            "provenance": {
+                "engine": "fallback",
+                "layers": [],
+                "source": "engineering_task_node",
+                "assembled_once": True,
+                "truncated": False,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            "budget": {"truncated": False},
+            "counts": {},
+        }
+
+    def _cancelled() -> bool:
+        return turn_controls.cancelled(thread_id)
+
+    def _emit(text: str) -> None:
+        try:
+            event_bus.emit(
+                "message.agent.chunk",
+                {"text": text, "thread_id": thread_id, "session_id": thread_id},
+            )
+        except Exception:
+            pass
+
+    if _cancelled():
+        message = "Operation cancelled by the user."
+        return {
+            "messages": [AIMessage(content=message)],
+            "task_status": "cancelled",
+            "task_completed": False,
+            "task_action": "engineering",
+            "workspace": workspace,
+        }
+
+    task_id = f"turn_{turn_id}"
+    max_dispatch_env = os.environ.get("CRUSORAI_ACCEPTANCE_MAX_DISPATCHES", "").strip()
+    output_cap_env = os.environ.get("CRUSORAI_MAX_OUTPUT_TOKENS_PER_NODE", "").strip()
+    limits_kwargs = {
+        "max_cost_inr": float(os.environ.get("CRUSORAI_TASK_BUDGET_INR", "5.0") or "5.0"),
+        "max_dispatch_budget": int(max_dispatch_env) if max_dispatch_env else None,
+    }
+    if output_cap_env:
+        limits_kwargs["max_output_tokens_per_node"] = int(output_cap_env)
+    limits = ExecutionLimits(**limits_kwargs)
+    mock_env = os.environ.get("CRUSORAI_ORCHESTRATOR_MOCK", "").strip() == "1"
+    force_real = os.environ.get("CRUSORAI_FORCE_REAL_MODEL", "").strip().lower() in {"1", "true", "yes", "on"}
+    request = EngineeringTaskRequest(
+        task_id=task_id,
+        session_id=thread_id,
+        workspace=workspace,
+        prompt=prompt,
+        approval_policy=policy,
+        reasoning_effort=configurable.get("reasoning_effort"),
+        turn_id=turn_id,
+        max_cost_inr=limits.max_cost_inr,
+        max_dispatch_budget=limits.max_dispatch_budget,
+        mock_mode=False if force_real else (True if mock_env else None),
+        context_bundle=context_bundle,
+    )
+    try:
+        from src.runtime.app_paths import app_data_root
+
+        orchestrator = EngineeringExecutionOrchestrator(
+            workspace_root=workspace,
+            tenant_id="default_tenant",
+            limits=limits,
+            storage_dir=str(app_data_root(workspace) / "orchestration"),
+            provider=configurable.get("provider"),
+            model=configurable.get("model"),
+            mock_mode=request.mock_mode,
+            approval_channel=True,
+            approval_policy=policy,
+            session_id=thread_id,
+            cancellation_checker=_cancelled,
+            turn_id=turn_id,
+        )
+        delivery = orchestrator.run_task_request(
+            request,
+            cancellation_checker=_cancelled,
+        )
+        payload = delivery.to_dict()
+        summary = _engineering_delivery_summary(payload)
+        _emit(summary)
+        verdict = str(payload.get("verdict") or "FAILED")
+        completed = verdict in {"COMPLETED", "PARTIALLY_COMPLETED"}
+        return {
+            "messages": [AIMessage(content=summary)],
+            "task_status": "completed" if completed else (
+                "cancelled" if verdict == "CANCELLED" else "failed"
+            ),
+            "task_completed": completed,
+            "task_action": "engineering",
+            "engineering_delivery": payload,
+            "approval_receipts": list(payload.get("approval_receipts") or []),
+            "mutation_receipts": list(payload.get("mutation_receipts") or []),
+            "workspace": workspace,
+        }
+    except Exception as exc:  # noqa: BLE001 - the turn must end with one receipt
+        from src.orchestration.approval_gateway import ApprovalDenied
+
+        if _cancelled():
+            message = "Operation cancelled by the user."
+            status = "cancelled"
+        elif isinstance(exc, ApprovalDenied):
+            message = (
+                "Operation denied by the user."
+                if exc.reason == "user_denied"
+                else "Approval was not granted; the operation was not executed."
+            )
+            status = "cancelled"
+        else:
+            message = f"Engineering execution failed: {exc}"
+            status = "failed"
+        _emit(message)
+        return {
+            "messages": [AIMessage(content=message)],
+            "task_status": status,
+            "task_completed": False,
+            "task_action": "engineering",
+            "workspace": workspace,
+        }
+
+
+def _engineering_delivery_summary(payload: dict) -> str:
+    files = payload.get("files_changed") or []
+    tests = payload.get("tests_executed") or []
+    limitations = payload.get("remaining_limitations") or []
+    lines = [
+        "### Engineering Execution Report",
+        "",
+        f"- **Verdict:** `{payload.get('verdict') or 'UNKNOWN'}`",
+        f"- **Task:** {payload.get('what_was_requested') or payload.get('original_request') or ''}",
+        f"- **Files Modified:** {len(files)}" + (f" ({', '.join(files)})" if files else ""),
+        f"- **Tests Executed:** {len(tests)}",
+        f"- **Independent Verification:** `{'VERIFIED' if payload.get('independently_verified') else 'NOT_VERIFIED'}`",
+    ]
+    readiness = payload.get("production_readiness_verdict")
+    if readiness:
+        lines.append(f"- **Production Readiness:** `{readiness}`")
+    if limitations:
+        lines.extend(["", "**Limitations / Notes:**"] + [f"- {item}" for item in limitations])
+    return "\n".join(lines)
 
 
 def task_manager_node(
@@ -5402,7 +5740,12 @@ For "unrelated", preserve the existing active task exactly.
         ),
     ]
 
-    decision = _invoke_task_decision(llm, task_messages)
+    decision = _invoke_task_decision(
+        llm, task_messages,
+        session_id=session_id_tm,
+        turn_id=str(configurable.get("turn_id") or "") or os.environ.get("CRUSORAI_TURN_ID", ""),
+        task_id=session_id_tm,
+    )
 
     call_usage = TokenTracker.record_call(task_messages, decision, model)
     try:
@@ -6114,6 +6457,9 @@ def after_task_manager(state: AgentState) -> str:
     if state.get("task_action") == "revise_plan":
         return "plan_reviser"
 
+    if _is_engineering_turn(state):
+        return "engineering_task"
+
     return "planner"
 
 
@@ -6370,12 +6716,116 @@ class SafeToolNode:
             (config or {}).get("configurable", {}).get("thread_id") or "default"
         )
 
+    def _authorize_mutations(self, tool_calls: list[dict], config):
+        """Mint digest-bound tokens for approved workspace writes.
+
+        Called immediately before execution, after the human/session approval
+        lifecycle resolved. The token binds task, workspace, path, operation
+        and the exact proposed content digest; the broker consumes it at the
+        write edge. No token is minted for a call whose diff/digest cannot be
+        computed — that call then fails closed at the broker.
+        """
+        canonical_runtime = bool(
+            (config or {}).get("configurable", {}).get("canonical_runtime", False)
+        )
+        if not canonical_runtime:
+            return config
+        from src.graphs import tool_policy
+        from src.workspace.approval_context import (
+            MutationAuthorization,
+            attach_mutation_authorizations,
+        )
+        from src.workspace.models import WorkspaceOperationType
+        from src.workspace.approval_digest import precondition_digest
+        from src.tools import file_state
+        from pathlib import Path
+
+        workspace = str(
+            (config or {}).get("configurable", {}).get("workspace", ".") or "."
+        )
+        resolved_workspace = str(Path(workspace).resolve())
+        configurable = (config or {}).get("configurable", {}) or {}
+        approval_channel = bool(configurable.get("approval_channel", False))
+        approval_policy = str(configurable.get("approval_policy") or "ask").strip().lower()
+        task_id = file_state.task_id_from_config(config) or "main"
+        authorizations: list[MutationAuthorization] = []
+        for tc in tool_calls or []:
+            name = str(tc.get("name") or "")
+            if not tool_policy.is_enabled_workspace_write(name):
+                continue
+            # A write may only execute with an approval that actually
+            # resolved: a human verdict on an approval channel, or an
+            # explicit session policy grant. No channel + ask => no token,
+            # and the broker fails the write closed.
+            if not approval_channel and approval_policy not in {
+                "workspace_session", "session",
+            }:
+                print(
+                    f"[SafeToolNode] no approval channel for {name}; the "
+                    "broker will fail the write closed",
+                    flush=True,
+                )
+                continue
+            payload = self._diff_payload(tc, workspace) or {}
+            digest = str(payload.get("content_digest") or "")
+            rel_path = str(payload.get("relative_path") or "").replace("\\", "/")
+            if not digest or not rel_path:
+                print(
+                    f"[SafeToolNode] no content digest for {name}; the broker "
+                    "will fail closed",
+                    flush=True,
+                )
+                continue
+            operation = (
+                WorkspaceOperationType.CREATE
+                if name == "write_file"
+                else WorkspaceOperationType.MODIFY
+            )
+            old_text = payload.get("old_text")
+            precondition = precondition_digest(
+                old_text is not None, old_text,
+            )
+            turn_id = str(
+                (config or {}).get("configurable", {}).get("turn_id")
+                or os.environ.get("CRUSORAI_TURN_ID", "")
+                or ""
+            )
+            token = _GRAPH_APPROVAL_GATE.generate_approval_token(
+                task_id,
+                resolved_workspace,
+                rel_path,
+                operation,
+                content_digest=digest,
+                precondition_digest=precondition,
+                session_id=task_id,
+                turn_id=turn_id,
+            )
+            authorizations.append(
+                MutationAuthorization(
+                    tool_call_id=str(tc.get("id") or ""),
+                    path=rel_path,
+                    operation=operation.value,
+                    token=token,
+                    digest=digest,
+                    approval_id=str(tc.get("id") or ""),
+                    task_id=task_id,
+                )
+            )
+        if authorizations:
+            print(
+                f"[SafeToolNode] minted {len(authorizations)} digest-bound "
+                "mutation authorization(s)",
+                flush=True,
+            )
+        return attach_mutation_authorizations(config, authorizations)
+
     def _execute_durable(self, tool_calls: list[dict], config) -> list[ToolMessage]:
         """Admit and execute known calls through the durable journal path."""
         from src.runtime.turn_control import turn_controls
 
         if not turn_controls.admit_action(self._session_id(config)):
             return self._cancelled_tool_messages(tool_calls, config)
+        config = self._authorize_mutations(tool_calls, config)
         from src.graphs.parallel_tools import run_durable_batch_sequential
         # Seam observability (owner field runs: the log went silent between
         # a finished tool and the next "[ai_node] request" line, and nobody
@@ -6470,7 +6920,21 @@ class SafeToolNode:
             elif name == "edit_file":
                 needle = str(args.get("old_text", ""))
                 replacement = str(args.get("new_text", ""))
-                new = old.replace(needle, replacement, 1) if old is not None and needle in old else replacement
+                if old is not None and needle in old:
+                    new = old.replace(needle, replacement, 1)
+                else:
+                    # Match the tool's 9-strategy fuzzy resolver so the
+                    # approved digest is the bytes the tool will actually
+                    # apply, not a naive replacement guess.
+                    try:
+                        from src.tools.fuzzy_match import fuzzy_find_and_replace
+
+                        candidate, _count, _strategy, error = fuzzy_find_and_replace(
+                            old or "", needle, replacement,
+                        )
+                        new = candidate if not error else replacement
+                    except Exception:
+                        new = replacement
             else:
                 action = "copy"
                 src = resolve_workspace_path(workspace, str(args.get("src", "")))
@@ -6488,14 +6952,22 @@ class SafeToolNode:
             added = sum(1 for line in diff_lines if line.startswith("+") and not line.startswith("+++"))
             removed = sum(1 for line in diff_lines if line.startswith("-") and not line.startswith("---"))
 
+            from src.workspace.approval_digest import content_digest as _content_digest
+
+            try:
+                relative = str(path.relative_to(Path(workspace).resolve())).replace("\\", "/")
+            except Exception:
+                relative = str(path_arg).replace("\\", "/")
+
             return {
                 "kind": "file",
                 "path": str(path),
-                "relative_path": str(path_arg),
+                "relative_path": relative,
                 "action": action,
                 "old_text": old,
                 "new_text": new,
                 "diff": diff_text,
+                "content_digest": _content_digest(new),
                 "stats": {"added": added, "removed": removed},
             }
         except Exception as exc:
@@ -6602,6 +7074,46 @@ class SafeToolNode:
         if config and "configurable" in config:
             workspace = config["configurable"].get("workspace", ".")
             thread_id = str(config["configurable"].get("thread_id", ""))
+
+        # Fail-closed side-effect boundary (Increment 2). Unknown tools fail
+        # closed in the canonical runtime; tools without a proven broker path
+        # stay disabled. write_file/edit_file are allowed and receive a
+        # digest-bound token before execution.
+        from src.graphs import tool_policy
+
+        canonical_runtime = bool(
+            (config or {}).get("configurable", {}).get("canonical_runtime", False)
+        )
+        blocked: list[dict] = [
+            tc for tc in tool_calls
+            if str(tc.get("name") or "") in _GRAPH_MUTATION_BLOCKED
+        ]
+
+        if blocked:
+            names = ", ".join(
+                sorted({str(tc.get("name") or "") for tc in blocked})
+            )
+            print(
+                f"[SafeToolNode] BLOCKED tool(s) {names}: not on the canonical "
+                "mutation/read boundary",
+                flush=True,
+            )
+            return {
+                "messages": [
+                    self._durable_denial(
+                        tc,
+                        (
+                            f"Blocked by runtime policy: `{tc.get('name', '')}` "
+                            "is not allowed to run in this runtime. Operation NOT "
+                            "executed. Unsupported workspace/shell mutations stay "
+                            "disabled until they use the canonical "
+                            "WorkspaceMutationBroker with digest-bound approval."
+                        ),
+                        config,
+                    )
+                    for tc in tool_calls
+                ]
+            }
 
         # hermes _uniquify_tool_call_ids (#58327): models occasionally
         # reuse or omit call ids inside one batch — a reused id silently
@@ -6759,6 +7271,38 @@ class SafeToolNode:
                 tool_calls=tool_calls,
                 id=getattr(last_msg, "id", None),
             )
+
+        # Increment 2: unknown tools have no side-effect classification and
+        # fail closed in the canonical runtime. Name repair ran first, so a
+        # dialect alias that resolves to a known tool is unaffected.
+        if canonical_runtime:
+            unknown_calls = [
+                tc for tc in tool_calls
+                if not tool_policy.is_known(str(tc.get("name") or ""))
+            ]
+            if unknown_calls:
+                names = ", ".join(
+                    sorted({str(tc.get("name") or "") for tc in unknown_calls})
+                )
+                print(
+                    f"[SafeToolNode] BLOCKED unknown tool(s) {names}: no "
+                    "side-effect classification",
+                    flush=True,
+                )
+                return {
+                    "messages": [
+                        self._durable_denial(
+                            tc,
+                            (
+                                f"Blocked by runtime policy: unknown tool "
+                                f"`{tc.get('name', '')}` has no side-effect "
+                                "classification. Operation NOT executed."
+                            ),
+                            config,
+                        )
+                        for tc in tool_calls
+                    ]
+                }
 
         # Phase allowlist is enforced again at execution time. Binding is the
         # normal control, but textual tool-call repair must not become a bypass.
@@ -7217,6 +7761,9 @@ class SafeToolNode:
         )
         if not _tc.admit_action(_cfg_sid):
             return _cancelled_result()
+        # Digest-bound mutation authorizations are minted after approval and
+        # before ANY execution path (parallel/sequential/single).
+        config = self._authorize_mutations(tool_calls, config)
         parallel = try_parallel_batch(
             tool_calls, self._tools_by_name, config, workspace
         )
@@ -7398,6 +7945,11 @@ builder.add_node(
     traced_node("finish_gate", finish_gate_node),
 )
 
+builder.add_node(
+    "engineering_task",
+    traced_node("engineering_task", engineering_task_node),
+)
+
 
 # ---------------------------------------------------------
 # ENTRY FLOW
@@ -7417,6 +7969,7 @@ builder.add_conditional_edges(
         "plan_reviser": "plan_reviser",
         "plan_cancelled": "plan_cancelled",
         "approval_without_plan": "approval_without_plan",
+        "engineering_task": "engineering_task",
     },
 )
 
@@ -7427,6 +7980,11 @@ builder.add_edge(
 
 builder.add_edge(
     "approval_without_plan",
+    END,
+)
+
+builder.add_edge(
+    "engineering_task",
     END,
 )
 
@@ -7717,7 +8275,10 @@ def invoke_agent(
     workspace: str = ".",
     execution_mode: ExecutionMode = "agent",
     scope_capabilities: tuple[str, ...] | None = None,
+    canonical_runtime: bool | None = None,
 ) -> str:
+    if canonical_runtime is None:
+        canonical_runtime = os.environ.get("CRUSORAI_CANONICAL_RUNTIME", "").strip() == "1"
     from src.runtime.turn_control import set_active_session, turn_controls
 
     turn_controls.begin(thread_id)
@@ -7731,6 +8292,7 @@ def invoke_agent(
                 "workspace": workspace,
                 "scope_capabilities": list(scope_capabilities or ()),
                 "scope_capabilities_strict": scope_capabilities is not None,
+                "canonical_runtime": bool(canonical_runtime),
             },
             "recursion_limit": _recursion_limit(),
         }
@@ -7743,6 +8305,7 @@ def invoke_agent(
                 ],
                 "latest_instruction": message,
                 "execution_mode": execution_mode,
+                "canonical_runtime": bool(canonical_runtime),
                 # Safety/gate budgets are turn-scoped even when checkpoint
                 # state is resumed (all channels, not only token iteration).
                 **_turn_scoped_resets(),
@@ -7790,6 +8353,7 @@ class AgentTurnResult(str):
         run_outcome: str | None = None,
         failure_reason: str | None = None,
         verification_status: str | None = None,
+        receipt: dict | None = None,
     ):
         value = super().__new__(cls, message)
         value.completed = bool(completed)
@@ -7797,6 +8361,7 @@ class AgentTurnResult(str):
         value.run_outcome = run_outcome
         value.failure_reason = failure_reason
         value.verification_status = verification_status
+        value.receipt = receipt or {}
         return value
 
 
@@ -7812,6 +8377,7 @@ def stream_agent(
     turn_id: str | None = None,
     initial_plan: list[dict[str, Any]] | None = None,
     reasoning_effort: str | None = None,
+    canonical_runtime: bool = False,
 ) -> str:
     from src.context.convention_learner import ConventionLearner
     # P1-fix: warm the conventions cache WITHOUT re-scanning every turn.
@@ -7827,6 +8393,14 @@ def stream_agent(
     event_bus.emit("session.status", {"status": "busy", "thread_id": thread_id})
 
     try:
+        _runtime_token = _CANONICAL_RUNTIME_ACTIVE.set(bool(canonical_runtime))
+        _turn_scope_token = _TURN_SCOPE_ID.set(str(turn_id or ""))
+        _app_data_token = None
+        if canonical_runtime:
+            from src.runtime.app_paths import activate_workspace_app_data
+
+            _app_data_token = activate_workspace_app_data(workspace)
+        _TURN_WORKSPACES[thread_id] = str(workspace)
 
         config: RunnableConfig = {
             "configurable": {
@@ -7838,6 +8412,7 @@ def stream_agent(
                 "approval_policy": approval_policy,
                 "turn_id": turn_id,
                 "reasoning_effort": reasoning_effort,
+                "canonical_runtime": bool(canonical_runtime),
             },
             "recursion_limit": _recursion_limit(),
         }
@@ -7852,6 +8427,10 @@ def stream_agent(
             "messages": [HumanMessage(content=message)],
             "latest_instruction": message,
             "execution_mode": execution_mode,
+            # Increment 1 migration guard: only the canonical desktop runtime
+            # delegates engineering turns. Direct library callers keep their
+            # historical graph behaviour until increment 2/3 complete.
+            "canonical_runtime": bool(canonical_runtime),
             # Safety/gate budgets are turn-scoped even when checkpoint
             # state is resumed (all channels, not only token iteration).
             **_turn_scoped_resets(),
@@ -8140,6 +8719,30 @@ def stream_agent(
                 else:
                     turn_completed = True
 
+        from src.runtime.turn_receipt import build_turn_receipt
+
+        try:
+            receipt = build_turn_receipt(
+                session_id=thread_id,
+                turn_id=str(turn_id or os.environ.get("CRUSORAI_TURN_ID", "") or thread_id),
+                state=snap_values,
+                message=str(final_response or ""),
+                completed=bool(turn_completed),
+                cancelled=turn_controls.cancelled(thread_id),
+                workspace=str(workspace),
+            )
+            try:
+                graph.update_state(
+                    config,
+                    {"turn_receipt": receipt,
+                     "approval_receipts": list(snap_values.get("approval_receipts") or []),
+                     "mutation_receipts": list(snap_values.get("mutation_receipts") or [])},
+                )
+            except Exception:
+                pass  # a receipt write must not kill a finished turn
+        except Exception:
+            receipt = {}
+
         return AgentTurnResult(
             str(final_response or ""),
             completed=turn_completed,
@@ -8147,8 +8750,25 @@ def stream_agent(
             run_outcome=final_run_outcome or snap_values.get("run_outcome"),
             failure_reason=final_failure_reason or snap_values.get("failure_reason"),
             verification_status=final_verification_status or snap_values.get("verification_status"),
+            receipt=receipt,
         )
     finally:
+        try:
+            _CANONICAL_RUNTIME_ACTIVE.reset(_runtime_token)
+        except Exception:
+            pass
+        try:
+            _TURN_SCOPE_ID.reset(_turn_scope_token)
+        except Exception:
+            pass
+        try:
+            if _app_data_token is not None:
+                from src.runtime.app_paths import reset_workspace_app_data
+
+                reset_workspace_app_data(_app_data_token)
+        except Exception:
+            pass
+        _TURN_WORKSPACES.pop(thread_id, None)
         turn_controls.end(thread_id)
         set_active_session(None)
 

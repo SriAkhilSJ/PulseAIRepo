@@ -44,6 +44,7 @@
     "voice_transcribe"
   ],
   "server_events": [
+    "agent_card",
     "checkpoint_event",
     "clarify_request",
     "context_status",

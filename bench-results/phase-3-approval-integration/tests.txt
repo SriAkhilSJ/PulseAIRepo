@@ -1,0 +1,62 @@
+# Tests and verification — Phase 3.1
+
+## Focused (new + existing approval/orchestrator/bridge/broker)
+
+Command: `pytest test_orchestrator_approval_integration.py
+test_approval_testimony.py test_bridge_transport.py
+test_bridge_orchestrator_protocol.py test_bridge_protocol_v2.py
+test_phase_11_3_workspace_discipline.py test_p0_3_orchestrator_integration.py
+test_runtime_evidence_capture.py -q`
+
+**Result: 112 passed, 3 deselected, exit 0**
+(`logs/focused-tests-clean.txt`).
+
+The 3 deselected tests are pre-existing platform failures, unrelated to this
+change (verified by their assertion sites):
+
+| Test | Pre-existing reason |
+|---|---|
+| `test_event_journal_chain_detects_payload_tampering_and_is_not_healed` | POSIX `chmod 0o751` assertion on Windows |
+| `test_completed_manifest_binds_identity_tools_verification_and_artifacts` | same POSIX mode assertion |
+| `test_bridge_turn_continues_when_capture_service_cannot_start` | expects `runtime_degraded` on the echo runner, which the bridge intentionally suppresses |
+
+`logs/focused-tests.txt` keeps the raw run: 129 passed, 4 failed (the three
+above plus `test_approval_detection.py::test_hardline_refused_pre_spawn`, an
+unrelated message-text mismatch: expected “never-run floor”, actual terminal
+safety text). None of these files were touched by this change.
+
+## New approval suite
+
+`src/tests/test_orchestrator_approval_integration.py` — **11 passed**:
+approval requested; approve; deny; timeout; cancellation; wrong session;
+duplicate/stale; resource binding; low-risk policy; broker mutation + token
+reuse refusal; unknown approval id refused; `session` policy silent for low
+risk and asks for high risk.
+
+## Existing orchestration/discipline
+
+- `test_phase_11_3_workspace_discipline.py` — 36 passed
+- `test_p0_3_orchestrator_integration.py` — 7 passed
+- `test_bridge_orchestrator_protocol.py` — 4 passed
+- `test_bridge_transport.py` — 15 passed
+- `test_approval_testimony.py` — 3 passed
+- `test_bridge_protocol_v2.py` — 9 passed
+
+## Pre-existing failures observed, not caused
+
+`test_phase_11_6_autonomous_execution.py`: **77 passed, 8 failed**, all at
+`contract.validate_contract_plan` (`REQ-001 could not be assigned any target
+file`) before the approval stage. `test_plan_approval.py` fails at import time
+for the known `history_shaper`/`compaction` defect (B-DESK-001).
+
+## Provider-free evidence
+
+Every probe and the Electron smoke ran with `CRUSORAI_ORCHESTRATOR_MOCK=1` and
+no `CRUSORAI_BRIDGE_RUNNER`. The probe frame sequences contain **zero**
+`llm.request` / `llm.response` frames; no provider call is made. No paid API,
+no benchmark, no live-agent authorization.
+
+## Suites not run
+
+Full-suite baseline, model tournaments, and the broken `stream_agent` path
+(blocked by B-DESK-001). Those are outside this task.

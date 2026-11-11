@@ -1,0 +1,46 @@
+{
+  "run_id": "p0_6_5_20261108T090012_ccd13cd7",
+  "events": [
+    {
+      "at": "2026-11-08T17:00:12.462Z",
+      "event": "harness_start",
+      "detail": "LiveAcceptance.run()"
+    },
+    {
+      "at": "2026-11-08T17:00:12.827Z",
+      "event": "workspace_prepared",
+      "detail": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_r0pxdk8q"
+    },
+    {
+      "at": "2026-11-08T17:00:13.074Z",
+      "event": "git_identity",
+      "detail": "312ba97529b54f3b0ddea119d7e8f6ab01858b47"
+    },
+    {
+      "at": "2026-11-08T17:00:13.114Z",
+      "event": "electron_launched",
+      "detail": {
+        "pid": 25932,
+        "port": 59089
+      }
+    },
+    {
+      "at": "2026-11-08T17:00:14.027Z",
+      "event": "electron_main_failure",
+      "detail": "policy-watcher native binding missing; main process threw during ConfigurationService.initialize"
+    },
+    {
+      "at": "2026-11-08T17:02:16.566Z",
+      "event": "cdp_timeout",
+      "detail": "CDP /json/version never answered"
+    },
+    {
+      "at": "2026-11-08T17:02:16.566Z",
+      "event": "harness_end",
+      "detail": "P0.6.6_LIVE_FAILED"
+    }
+  ],
+  "session_created": false,
+  "submission_attempted": false,
+  "provider_dispatch": false
+}

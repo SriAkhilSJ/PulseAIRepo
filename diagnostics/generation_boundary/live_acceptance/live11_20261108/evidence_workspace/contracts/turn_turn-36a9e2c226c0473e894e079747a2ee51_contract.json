@@ -1,0 +1,172 @@
+{
+  "contract_id": "CONTRACT-0043b1263e87",
+  "task_id": "turn_turn-36a9e2c226c0473e894e079747a2ee51",
+  "prompt_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8",
+  "version": 1,
+  "components": [
+    {
+      "component_id": "COMP-001",
+      "name": "duration",
+      "responsibility": "Create src/duration.py with exactly one public function parse_duration(value). | Supported units: h, m, s.",
+      "target_file": "src/duration.py",
+      "role": "SOURCE",
+      "requirement_ids": [
+        "REQ-001",
+        "REQ-002"
+      ],
+      "classification": "EXPLICIT",
+      "symbols": [
+        "parse_duration"
+      ],
+      "signatures": {
+        "parse_duration": [
+          "value"
+        ]
+      },
+      "returns": "int",
+      "units": [
+        "h",
+        "m",
+        "s"
+      ],
+      "formats": [
+        "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+        "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+        "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+      ],
+      "errors": [
+        {
+          "type": "ValueError",
+          "when": "an empty string, unknown units, duplicate units, missing numbers, or negative values"
+        },
+        {
+          "type": "TypeError",
+          "when": "value is not a string"
+        }
+      ],
+      "forbidden": [
+        "floats",
+        "additional public functions, classes, constants or CLI",
+        "modifying unrelated files"
+      ],
+      "edge_cases": [
+        "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+        "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+        "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+      ],
+      "imports": [],
+      "test_cases": [],
+      "evidence_required": [
+        "pytest executed",
+        "public symbol present",
+        "return contract satisfied"
+      ]
+    },
+    {
+      "component_id": "COMP-002",
+      "name": "test_duration",
+      "responsibility": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+      "target_file": "tests/test_duration.py",
+      "role": "TEST",
+      "requirement_ids": [
+        "REQ-003"
+      ],
+      "classification": "EXPLICIT",
+      "symbols": [
+        "parse_duration"
+      ],
+      "signatures": {
+        "parse_duration": [
+          "value"
+        ]
+      },
+      "returns": "int",
+      "units": [
+        "h",
+        "m",
+        "s"
+      ],
+      "formats": [],
+      "errors": [
+        {
+          "type": "ValueError",
+          "when": "an empty string, unknown units, duplicate units, missing numbers, or negative values"
+        },
+        {
+          "type": "TypeError",
+          "when": "value is not a string"
+        }
+      ],
+      "forbidden": [
+        "floats",
+        "additional public functions, classes, constants or CLI",
+        "modifying unrelated files"
+      ],
+      "edge_cases": [
+        "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+        "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+        "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+      ],
+      "imports": [
+        {
+          "module": "src.duration",
+          "symbols": [
+            "parse_duration"
+          ],
+          "style": "from"
+        }
+      ],
+      "test_cases": [
+        {
+          "input": "1h30m",
+          "expected": 5400
+        },
+        {
+          "input": "2m 15s",
+          "expected": 135
+        },
+        {
+          "input": "45s",
+          "expected": 45
+        },
+        {
+          "input": "1h 30m 15s",
+          "expected": 5415
+        },
+        {
+          "input": "1h1h",
+          "raises": "ValueError"
+        }
+      ],
+      "evidence_required": [
+        "tests executed",
+        "import contract satisfied"
+      ]
+    }
+  ],
+  "requirement_map": {
+    "REQ-001": [
+      "src/duration.py"
+    ],
+    "REQ-002": [
+      "src/duration.py"
+    ],
+    "REQ-003": [
+      "tests/test_duration.py"
+    ]
+  },
+  "ambiguities": [],
+  "optional_suggestions": [
+    {
+      "id": "REQ-004",
+      "description": "Secure credential storage & safe environment variable configuration",
+      "classification": "OPTIONAL_SUGGESTION"
+    },
+    {
+      "id": "REQ-005",
+      "description": "Automated unit and integration test suite with high coverage",
+      "classification": "OPTIONAL_SUGGESTION"
+    }
+  ],
+  "contract_hash": "0043b1263e870c7fe07d73f1e517deed0cac0eb508ece2d291e5d19e132fa654"
+}

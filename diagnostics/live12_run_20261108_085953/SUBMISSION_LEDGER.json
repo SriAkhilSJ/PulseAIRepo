@@ -1,0 +1,8 @@
+{
+  "available": false,
+  "reason": "Electron main process crashed before the workbench; no bridge, no CRUSORAI_HOME, no submission ledger",
+  "new_sessions": 0,
+  "new_turns": 0,
+  "submission_ids": [],
+  "accepted_gestures": 0
+}

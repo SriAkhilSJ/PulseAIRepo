@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import queue
 import sys
 import threading
+from pathlib import Path
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -122,15 +124,39 @@ class BridgeServer:
         # this set is only here to keep one thread per workspace rather than one per frame.
         self._preview_hooked: set[str] = set()
         self._shutdown = threading.Event()
+        # Exactly-once submission boundary (Live11): durable, workspace-scoped.
+        self._reconciled_workspaces: set[str] = set()
+        self._known_workspaces: set[str] = set()
+        # The engine build id is probed once at startup and cached. Protocol
+        # emission must never spawn Git or block on a subprocess (LIVE12).
+        self._engine_build_value = "unknown"
+        self._engine_build_resolved = False
+        self._engine_build_lock = threading.Lock()
+        self._engine_build_timeout_s = 2.5
+        # P0.6.4.1: a desktop acceptance session runs ONE turn under a hard
+        # single-attempt, five-dispatch budget. Opt-in via
+        # CRUSORAI_ACCEPTANCE_RUN_ID; ordinary sessions are untouched.
+        from src.llm.acceptance_guard import activate_from_environment
+        self._acceptance_guard = activate_from_environment()
+        if self._acceptance_guard is not None:
+            self._acceptance_guard.engine_version = ENGINE_VERSION
+            print(
+                f"[bridge][acceptance] run={self._acceptance_guard.run_id} "
+                f"max_dispatches={self._acceptance_guard.max_dispatches} "
+                "attempts_per_dispatch=1",
+                file=sys.stderr, flush=True,
+            )
         from src.runtime.host_capabilities import host_capability_broker
         host_capability_broker.reset()
         host_capability_broker.set_emitter(self.emit)
 
     def emit(self, frame: dict) -> None:
         if frame.get("type") == "session_info":
-            # The renderer paints the engine build on its status chip — a
+            # The renderer paints the engine build on its status chip - a
             # stale engine is visible IN THE PANEL, not just in stderr.
-            frame = {**frame, "build": self._engine_build()}
+            # P0.6.9/LIVE12: emission must never launch Git or block on a
+            # subprocess. The build id is probed once at startup and cached.
+            frame = {**frame, "build": self._engine_build_cached()}
         with self._write_lock:
             self._protocol_out.write(encode(frame))
             self._protocol_out.flush()
@@ -368,14 +394,38 @@ class BridgeServer:
             print(f"[bridge] turn touch failed for {sid}: {exc!r}",
                   file=sys.stderr, flush=True)
 
-    def _maybe_autotitle_session(self, sid: str, user_text: str, assistant_text: str = "") -> None:
-        """Fire the async auto-titler for an untitled session (Hermes parity).
+    def _auxiliary_llm_allowed(self) -> bool:
+        """Auxiliary calls are allowed unless the product explicitly disables them.
 
-        FIXED rule: a session with any title (generated, renamed, pending) is
-        never retitled here. Best-effort by contract: titling never breaks
-        the turn. ``CRUSORAI_AUTOTITLE=off`` disables the call entirely.
+        P0.6.9: acceptance no longer suppresses titling. The governed gateway
+        must authorize and settle the call; the provider proxy fails closed if
+        no reservation scope exists.
         """
         if os.environ.get("CRUSORAI_AUTOTITLE", "").strip().lower() in {"0", "off", "false", "no"}:
+            return False
+        return True
+
+    @staticmethod
+    def _local_title(user_text: str) -> str:
+        words = re.sub(r"\s+", " ", str(user_text or "")).strip().split()
+        return " ".join(words[:6])[:60] or "New session"
+
+    def _maybe_autotitle_session(
+        self,
+        sid: str,
+        user_text: str,
+        assistant_text: str = "",
+        *,
+        wait: bool = False,
+    ) -> None:
+        """Fire the auto-titler for an untitled session (Hermes parity).
+
+        P0.6.9: the model call goes through GovernedProviderGateway (reserve →
+        invoke → usage → settle, attributed to session_titling). A blocked or
+        unpriced call never reaches the provider; an explicit local fallback is
+        recorded as local, not as a successful model invocation.
+        """
+        if not self._auxiliary_llm_allowed():
             return
         try:
             store = self._durable_store()
@@ -386,11 +436,62 @@ class BridgeServer:
 
             def _run() -> None:
                 try:
+                    from src.config.settings import AUX_LLM_MODEL, AUX_LLM_PROVIDER
+                    from src.finops.governed import (
+                        AuxiliaryAccountingError,
+                        GovernedProviderGateway,
+                    )
+                    from src.llm.factory import get_llm
                     from src.runtime.session_titling import (
                         ensure_unique_title,
                         generate_session_title,
                     )
-                    base = generate_session_title(user_text, assistant_text)
+
+                    blocked: list[str] = []
+                    gateway = GovernedProviderGateway(
+                        workspace,
+                        subsystem="session_titling",
+                        operation_type="auxiliary",
+                        session_id=sid,
+                        budget_inr=float(os.environ.get("CRUSORAI_AUX_BUDGET_INR", "0.50") or "0.50"),
+                        token_budget=int(os.environ.get("CRUSORAI_AUX_TOKEN_BUDGET", "4000") or "4000"),
+                    )
+
+                    def _governed_invoke(prompt: str) -> str:
+                        try:
+                            return gateway.invoke(
+                                prompt=prompt,
+                                provider=AUX_LLM_PROVIDER,
+                                model=AUX_LLM_MODEL,
+                                max_output_tokens=int(
+                                    os.environ.get("CRUSORAI_AUX_MAX_TOKENS", "64") or "64"
+                                ),
+                                purpose="session_title",
+                                client_factory=lambda: get_llm(
+                                    provider=AUX_LLM_PROVIDER,
+                                    model=AUX_LLM_MODEL,
+                                    max_attempts=1,
+                                ),
+                            ).text
+                        except AuxiliaryAccountingError as exc:
+                            blocked.append(str(exc))
+                            raise
+
+                    base = generate_session_title(
+                        user_text, assistant_text, invoke=_governed_invoke,
+                    )
+                    if not base:
+                        # The provider call may have settled but returned no
+                        # usable text; use a local title and say so. A failed or
+                        # uncertain provider invocation still fails acceptance
+                        # through the ledger, never through this fallback.
+                        base = self._local_title(user_text)
+                        print(
+                            "[bridge] title model returned no usable text; "
+                            + (f"accounting blocked ({blocked[0]}); " if blocked else "")
+                            + "using local fallback",
+                            file=sys.stderr, flush=True,
+                        )
                     if not base:
                         return
                     title = ensure_unique_title(store, workspace, base)
@@ -407,7 +508,11 @@ class BridgeServer:
                     print(f"[bridge] autotitle failed for {sid}: {exc!r}",
                           file=sys.stderr, flush=True)
 
-            threading.Thread(target=_run, name=f"bridge-titler-{sid}", daemon=True).start()
+            if wait or os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip():
+                # Acceptance evidence must exist before turn_done.
+                _run()
+            else:
+                threading.Thread(target=_run, name=f"bridge-titler-{sid}", daemon=True).start()
         except Exception as exc:
             print(f"[bridge] autotitle dispatch failed for {sid}: {exc!r}",
                   file=sys.stderr, flush=True)
@@ -444,6 +549,101 @@ class BridgeServer:
         return sid
 
     @staticmethod
+    def _submission_ledger(workspace: str):
+        from src.runtime.submission_ledger import get_submission_ledger
+
+        return get_submission_ledger(workspace)
+
+    def _reconcile_workspace_once(self, workspace: str) -> None:
+        """Resolve orphaned calls/submissions once per workspace per process."""
+        if not workspace:
+            return
+        try:
+            resolved = str(Path(workspace).expanduser().resolve())
+        except OSError:
+            resolved = workspace
+        self._known_workspaces.add(resolved)
+        if resolved in self._reconciled_workspaces:
+            return
+        self._reconciled_workspaces.add(resolved)
+        try:
+            from src.finops.recovery import reconcile_workspace
+
+            receipt = reconcile_workspace(resolved, reason="bridge_startup")
+            fin = receipt.get("finops") or {}
+            subs = receipt.get("submissions") or {}
+            if fin.get("events") or fin.get("failures") or subs.get("reconciled"):
+                print(
+                    "[bridge][recovery] "
+                    + json.dumps({
+                        "workspace": resolved,
+                        "finops_events": len(fin.get("events") or []),
+                        "finops_failures": fin.get("failures") or [],
+                        "submissions_reconciled": subs.get("reconciled") or 0,
+                    }, sort_keys=True),
+                    file=sys.stderr, flush=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - startup repair must not block turns
+            print(f"[bridge][recovery] startup reconciliation failed: {exc!r}",
+                  file=sys.stderr, flush=True)
+
+    def _reconcile_on_shutdown(self) -> None:
+        """Best-effort: never leave an interrupted hold as `in_flight`."""
+        try:
+            orch = getattr(self, "_last_orchestrator", None)
+            finops = getattr(orch, "_last_finops", None) if orch is not None else None
+            if finops is not None:
+                events = finops.reconcile_orphaned_reservations(reason="bridge_shutdown")
+                if events:
+                    print("[bridge][recovery] shutdown " + json.dumps(events, sort_keys=True),
+                          file=sys.stderr, flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[bridge][recovery] shutdown in-process reconciliation failed: {exc!r}",
+                  file=sys.stderr, flush=True)
+        for workspace in list(self._known_workspaces):
+            try:
+                from src.finops.recovery import reconcile_workspace_finops
+
+                receipt = reconcile_workspace_finops(workspace, reason="bridge_shutdown", force=True)
+                if receipt.get("events") or receipt.get("failures"):
+                    print("[bridge][recovery] shutdown " + json.dumps(receipt, sort_keys=True)[:2000],
+                          file=sys.stderr, flush=True)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[bridge][recovery] shutdown sweep failed for {workspace}: {exc!r}",
+                      file=sys.stderr, flush=True)
+
+    def _emit_companion_cards(self, frame: dict, identity: TurnIdentity) -> None:
+        """Project a canonical frame onto typed UI cards (presentation only)."""
+        try:
+            from src.bridge.agent_cards import card_frames_for_frame
+
+            for card in card_frames_for_frame(frame, turn_id=identity.turn_id):
+                payload = {
+                    "type": "agent_card",
+                    **identity.event_fields(),
+                    "session_id": card.get("session_id") or identity.session_id,
+                    "card": card,
+                }
+                self.emit(payload)
+                try:
+                    from src.runtime.factory import get_runtime_services
+
+                    get_runtime_services().journal.append(
+                        "agent_card",
+                        {"card": card},
+                        session_id=str(card.get("session_id") or identity.session_id),
+                        turn_id=str(card.get("turn_id") or identity.turn_id),
+                        workspace_id=str(identity.workspace_id or ""),
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:  # noqa: BLE001 - cards never block a turn
+            print(
+                f"[CrusorAI bridge] companion card skipped: {type(exc).__name__}: {exc}",
+                file=sys.stderr, flush=True,
+            )
+
+    @staticmethod
     def _project_event(event: dict, identity: TurnIdentity) -> dict | None:
         """Normalize internal event-bus fields into the stable Protocol v2 wire schema."""
         kind = event.get("type", "")
@@ -470,6 +670,7 @@ class BridgeServer:
             "subagent.background_completed": "subagent_background_completed",
             "runtime.degraded": "runtime_degraded",
             "context.status": "context_status",
+            "agent.card": "agent_card",
         }
         target = mapping.get(kind)
         if target is None:
@@ -588,6 +789,17 @@ class BridgeServer:
                 "revision": payload.get("revision", 0),
                 "summary": payload.get("summary", {}),
             }
+        if target == "agent_card":
+            from src.bridge.agent_cards import normalize_card
+
+            card = normalize_card(
+                payload.get("card") or payload,
+                session_id=event_session,
+                turn_id=str(payload.get("turn_id") or identity.turn_id or ""),
+            )
+            if card is None:
+                return None
+            return {**base, "type": "agent_card", "card": card}
         return {**base, **payload, "type": target}
 
     @staticmethod
@@ -607,6 +819,7 @@ class BridgeServer:
             "turn.failed": "turn_lifecycle",
             "turn.watchdog": "turn_lifecycle",
             "turn.interrupted": "turn_lifecycle",
+            "agent_card": "agent_card",
         }.get(kind)
         if target is None:
             return event if kind in {
@@ -615,6 +828,7 @@ class BridgeServer:
                 "verification_updated", "subagent_updated", "telemetry",
                 "checkpoint_event", "turn_done", "turn_failed", "runtime_degraded",
                 "llm.request", "llm.response", "workspace.bound", "context_status",
+                "agent_card",
             } else None
         base = {
             "type": target,
@@ -660,6 +874,12 @@ class BridgeServer:
                 "type": "verification_updated",
                 "journal_seq": event.get("seq"),
                 "journal_status": "persisted",
+            }
+        if target == "agent_card":
+            return {
+                **base,
+                "type": "agent_card",
+                "card": payload.get("card"),
             }
         name = str(payload.get("name") or payload.get("tool_name") or "")
         if target == "tool_call_start":
@@ -837,6 +1057,7 @@ class BridgeServer:
                 frame = self._project_event(event, identity)
                 if frame:
                     self.emit(frame)
+                    self._emit_companion_cards(frame, identity)
             except Exception as exc:
                 print(
                     f"[CrusorAI bridge] event forwarder failed: {type(exc).__name__}: {exc}",
@@ -892,6 +1113,50 @@ class BridgeServer:
             )[:500],
         }
 
+    def _canonical_receipt(
+        self,
+        *,
+        session_id: str,
+        result,
+        evidence_done: dict | None,
+        cancelled: bool = False,
+        denied: bool = False,
+        reason: str = "",
+        persist: bool = True,
+    ) -> dict:
+        """Seal the one terminal receipt and persist it in the checkpoint."""
+        from src.runtime.turn_receipt import build_turn_receipt, enrich_receipt
+
+        receipt = dict(getattr(result, "receipt", {}) or {})
+        if not receipt:
+            receipt = build_turn_receipt(
+                session_id=session_id,
+                turn_id="",
+                state={},
+                message=str(result or ""),
+                completed=not cancelled and not denied,
+                cancelled=cancelled,
+                denied=denied,
+                evidence=evidence_done,
+            )
+        receipt = enrich_receipt(
+            receipt,
+            evidence=evidence_done,
+            denied=True if denied else None,
+            reason=reason or None,
+        )
+        if persist:
+            try:
+                from src.graphs.chat_graph import graph
+
+                graph.update_state(
+                    {"configurable": {"thread_id": session_id}},
+                    {"turn_receipt": receipt},
+                )
+            except Exception:
+                pass
+        return receipt
+
     def _finalize_evidence(
         self,
         recorder: TurnEvidenceRecorder | None,
@@ -911,10 +1176,20 @@ class BridgeServer:
             )
             return self._evidence_unavailable(exc)
 
-    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None) -> None:
+    def _run_turn(self, sid: str, text: str, workspace: str, mode: str = "agent", reasoning_effort: str | None = None,
+                  submission_id: str | None = None) -> None:
         from src.runtime.turn_control import set_active_session, turn_controls
+        from src.finops.invocation_context import set_submission_id, reset_submission_id
 
+        submission_token = set_submission_id(submission_id or "")
+        turn_outcome = "failed"
         identity = TurnIdentity.create(session_id=sid, workspace=workspace)
+        if submission_id:
+            try:
+                self._submission_ledger(workspace).mark_turn_started(submission_id, identity.turn_id)
+            except Exception as exc:  # noqa: BLE001 - submission evidence is best-effort
+                print(f"[bridge][submission] turn-start write failed: {exc!r}",
+                      file=sys.stderr, flush=True)
         evidence: TurnEvidenceRecorder | None = None
         evidence_started: dict
         try:
@@ -1020,7 +1295,27 @@ class BridgeServer:
                     file=sys.stderr, flush=True,
                 )
                 return
+            if frame.get("type") in {"turn_done", "turn_failed"}:
+                msg = str(frame.get("message") or "")
+                denied = "denied" in msg.lower()
+                if not frame.get("receipt"):
+                    frame["receipt"] = self._canonical_receipt(
+                        session_id=sid,
+                        result=None,
+                        evidence_done=frame.get("evidence"),
+                        cancelled=bool(frame.get("cancelled")),
+                        denied=denied,
+                        reason="approval_denied" if denied else "",
+                        persist=False,
+                    )
+                elif denied:
+                    from src.runtime.turn_receipt import enrich_receipt
+
+                    frame["receipt"] = enrich_receipt(
+                        frame["receipt"], denied=True, reason="approval_denied",
+                    )
             _record_terminal_trace(frame)
+            self._emit_companion_cards(frame, identity)
             self.emit(frame)
 
         def _stall_watchdog() -> None:
@@ -1034,6 +1329,14 @@ class BridgeServer:
             )
 
         threading.Thread(target=_stall_watchdog, name="crusorai-turn-watchdog", daemon=True).start()
+        # Test seam (CRUSORAI_TURN_STARTUP_BARRIER_MS): hold the startup window
+        # deterministically so a Stop-before-begin can be exercised without
+        # racing the thread scheduler. Bounded to 30s; unset in normal runs.
+        _startup_barrier_ms = int(
+            os.environ.get("CRUSORAI_TURN_STARTUP_BARRIER_MS", "0") or "0"
+        )
+        if _startup_barrier_ms > 0:
+            threading.Event().wait(min(_startup_barrier_ms, 30_000) / 1000.0)
         # Establish active ownership before publishing turn_started. Once the
         # UI can show Stop, stream_agent's nested begin must preserve it.
         turn_controls.begin(sid)
@@ -1045,7 +1348,35 @@ class BridgeServer:
                 "timestamp": identity.created_at,
                 "evidence": evidence_started,
             })
-            if evidence_started.get("status") in {"degraded", "unavailable"}:
+            self._emit_companion_cards({
+                "type": "turn_started",
+                **identity.event_fields(),
+            }, identity)
+            # A Stop that arrived while this prompt was starting is applied by
+            # begin(). Honour it before any provider/tool work: emit one
+            # truthful terminal frame and never paint a completion afterwards.
+            if turn_controls.cancelled(sid):
+                cancel_message = "Operation cancelled by the user."
+                _terminal.set()
+                evidence_done = self._finalize_evidence(
+                    evidence,
+                    status="cancelled",
+                    completed=False,
+                    cancelled=True,
+                    message=cancel_message,
+                    reason="user_cancelled_during_startup",
+                )
+                _emit_terminal({
+                    "type": "turn_done", **identity.event_fields(),
+                    "message": cancel_message,
+                    "completed": False, "cancelled": True, "stub": False,
+                    "evidence": evidence_done,
+                })
+                return
+            if (
+                evidence_started.get("status") in {"degraded", "unavailable"}
+                and os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo"
+            ):
                 self.emit({
                     "type": "runtime_degraded",
                     **identity.event_fields(),
@@ -1122,6 +1453,14 @@ class BridgeServer:
                 })
                 return
 
+            from src.bridge.scripted_turn import install_provider_fixture, scripted_enabled
+
+            if scripted_enabled():
+                # Provider-boundary fixture: configure the scripted chat model
+                # and fall through to the SAME LangGraph turn, checkpointer and
+                # terminal receipt used by real provider calls.
+                install_provider_fixture(mode=mode)
+
             from src.dashboard.event_bus import event_bus
             from src.graphs.chat_graph import stream_agent
             # ADMIN subscription + own filter, not a session-filtered one:
@@ -1159,6 +1498,10 @@ class BridgeServer:
                 ).strip()
                 if approval_policy not in {"ask", "workspace_session", "session"}:
                     approval_policy = "workspace_session"
+
+                # Increment 3: the bridge has exactly one interactive owner —
+                # the canonical LangGraph lifecycle. Engineering work is
+                # delegated by the graph's engineering_task node.
                 result = stream_agent(
                     text, thread_id=sid, workspace=workspace,
                     approval_channel=True,
@@ -1166,8 +1509,10 @@ class BridgeServer:
                     turn_id=identity.turn_id,
                     execution_mode=mode,
                     reasoning_effort=reasoning_effort,
+                    canonical_runtime=True,
                 )
                 cancelled = turn_controls.cancelled(sid)
+                task_completed = bool(getattr(result, "completed", True))
                 # Owner-machine diagnosis (2026-09-04 "run never ends, I have
                 # to press Stop"): turn_done is SILENT in the log, so a log
                 # that ends at the last ai answer proves nothing — the engine
@@ -1200,17 +1545,39 @@ class BridgeServer:
                     if cancelled
                     else ("completed" if task_completed else "failed")
                 )
+                turn_outcome = lifecycle_status
+                if (
+                    task_completed
+                    and not cancelled
+                    and os.environ.get("CRUSORAI_ACCEPTANCE_RUN_ID", "").strip()
+                ):
+                    # P0.6.9: settle the governed auxiliary title call BEFORE the
+                    # evidence manifest is finalized. The acceptance harness
+                    # treats the manifest terminal as the end of the turn; doing
+                    # this later let the app be shut down mid-provider-call and
+                    # left an in-flight reservation (live9).
+                    try:
+                        self._maybe_autotitle_session(sid, text, str(result), wait=True)
+                    except Exception:
+                        pass
+
+                evidence_reason = (
+                    "user_cancelled" if cancelled
+                    else ("" if task_completed else "graph_returned_incomplete")
+                )
                 evidence_done = self._finalize_evidence(
                     evidence,
                     status=lifecycle_status,
                     completed=task_completed and not cancelled,
                     cancelled=cancelled,
                     message=str(result),
-                    reason=(
-                        "user_cancelled"
-                        if cancelled
-                        else ("" if task_completed else "graph_returned_incomplete")
-                    ),
+                    reason=evidence_reason,
+                )
+                canonical_receipt = self._canonical_receipt(
+                    session_id=sid,
+                    result=result,
+                    evidence_done=evidence_done,
+                    cancelled=cancelled,
                 )
                 _emit_terminal({
                     "type": "turn_done", **identity.event_fields(),
@@ -1222,6 +1589,7 @@ class BridgeServer:
                     "failure_reason": getattr(result, "failure_reason", None),
                     "verification_status": getattr(result, "verification_status", None),
                     "evidence": evidence_done,
+                    "receipt": canonical_receipt,
                 })
                 # Hermes auto-title rule: only after a FULL exchange — a completed,
                 # uncancelled turn. The titler runs async and pushes session_info.
@@ -1262,6 +1630,7 @@ class BridgeServer:
                 # exception types. Intentional Stop wins over generic failure
                 # attribution and must produce one terminal cancelled receipt.
                 if turn_controls.cancelled(sid):
+                    turn_outcome = "cancelled"
                     self._touch_turn(sid, text)
                     _terminal.set()
                     cancel_message = "Operation cancelled by the user."
@@ -1281,22 +1650,72 @@ class BridgeServer:
                         "evidence": evidence_done,
                     })
                 else:
-                    self._touch_turn(sid, text)
-                    _terminal.set()
-                    evidence_done = self._finalize_evidence(
-                        evidence,
-                        status="failed",
-                        completed=False,
-                        cancelled=False,
-                        error=str(exc),
-                        reason="graph_exception",
-                    )
-                    _emit_terminal({
-                        "type": "turn_failed", **identity.event_fields(),
-                        "error": str(exc), "completed": False,
-                        "evidence": evidence_done,
-                    })
-                    print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
+                    approval_denied = False
+                    denial_reason = ""
+                    try:
+                        from src.orchestration.approval_gateway import ApprovalDenied as _ApprovalDenied
+
+                        if isinstance(exc, _ApprovalDenied):
+                            approval_denied = True
+                            denial_reason = exc.reason
+                    except Exception:
+                        approval_denied = False
+                    if approval_denied:
+                        # Fail closed: the protected mutation never ran. One
+                        # truthful cancelled terminal, distinguishable from a
+                        # completed turn and from a generic failure.
+                        denied_message = (
+                            "Operation denied by the user."
+                            if denial_reason == "user_denied"
+                            else "Approval was not granted; the operation was not executed."
+                        )
+                        self._touch_turn(sid, text)
+                        _terminal.set()
+                        evidence_done = self._finalize_evidence(
+                            evidence,
+                            status="cancelled",
+                            completed=False,
+                            cancelled=True,
+                            message=denied_message,
+                            error=str(exc),
+                            reason=f"approval_{denial_reason or 'denied'}",
+                        )
+                        canonical_receipt = self._canonical_receipt(
+                            session_id=sid,
+                            result=None,
+                            evidence_done=evidence_done,
+                            denied=True,
+                            reason=denial_reason or "approval_denied",
+                        )
+                        _emit_terminal({
+                            "type": "turn_done", **identity.event_fields(),
+                            "message": denied_message,
+                            "completed": False, "cancelled": True, "stub": False,
+                            "evidence": evidence_done,
+                            "receipt": canonical_receipt,
+                        })
+                        print(
+                            f"[bridge] turn stopped by approval ({denial_reason}) "
+                            f"after {_time.monotonic() - _turn_t0:.1f}s",
+                            file=sys.stderr, flush=True,
+                        )
+                    else:
+                        self._touch_turn(sid, text)
+                        _terminal.set()
+                        evidence_done = self._finalize_evidence(
+                            evidence,
+                            status="failed",
+                            completed=False,
+                            cancelled=False,
+                            error=str(exc),
+                            reason="graph_exception",
+                        )
+                        _emit_terminal({
+                            "type": "turn_failed", **identity.event_fields(),
+                            "error": str(exc), "completed": False,
+                            "evidence": evidence_done,
+                        })
+                        print(f"[bridge] turn FAILED after {_time.monotonic() - _turn_t0:.1f}s: {exc!r}", file=sys.stderr, flush=True)
         except Exception as exc:  # noqa: BLE001 - terminal boundary
             # Setup/import/echo-seam failures occur outside the graph try block
             # above. They still own a durable failed receipt and one terminal
@@ -1344,11 +1763,21 @@ class BridgeServer:
                 event_bus.unsubscribe(q)
             turn_controls.end(sid)
             set_active_session(None)
+            if submission_id:
+                try:
+                    self._submission_ledger(workspace).mark_terminal(
+                        submission_id, turn_outcome, turn_id=identity.turn_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 - never break teardown
+                    print(f"[bridge][submission] terminal write failed: {exc!r}",
+                          file=sys.stderr, flush=True)
+            reset_submission_id(submission_token)
 
         from src.runtime.turn_control import turn_controls
-        queued = turn_controls.pop_queued(sid)
+        queued = turn_controls.pop_queued_submission(sid)
         if queued and not self._shutdown.is_set():
-            self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1])
+            self._run_turn(sid, queued[0], workspace, reasoning_effort=queued[1],
+                           submission_id=queued[2])
 
     def _delegate_tip(self, sid: str, tip: str) -> str:
         """A delegated child is always its OWN tip.
@@ -1407,10 +1836,30 @@ class BridgeServer:
             order = str(frame.get("order") or "latest").strip().lower()
             messages, pagination = self._transcript_messages(
                 tip, limit=limit, offset=offset, order=order)
+            cards: list[dict] = []
+            try:
+                from src.runtime.factory import get_runtime_services
+                from src.bridge.agent_cards import normalize_card
+
+                latest: dict[str, dict] = {}
+                for event in get_runtime_services().journal.list_events(tip):
+                    if str(event.get("type") or "") != "agent_card":
+                        continue
+                    raw = (event.get("payload") or {}).get("card")
+                    card = normalize_card(
+                        raw,
+                        session_id=str(event.get("session_id") or tip),
+                        turn_id=str(event.get("turn_id") or ""),
+                    )
+                    if card is not None:
+                        latest[card["card_id"]] = card
+                cards = list(latest.values())
+            except Exception:
+                cards = []
             self.emit({
                 "type": "session_messages", "session_id": tip,
                 "requested_session_id": sid, "messages": messages,
-                "pagination": pagination,
+                "pagination": pagination, "cards": cards,
             })
             return True
         if kind == "session_delete":
@@ -1603,6 +2052,85 @@ class BridgeServer:
         if not workspace and kind in _WORKSPACE_REQUIRED_METHODS:
             self.emit(error_frame(NO_WORKSPACE_ERROR))
             return True
+        # Exactly-once boundary (Live11): a stable submission id is checked
+        # BEFORE a session is minted or a turn worker starts. The ledger is
+        # durable, so a reconnect/restart cannot replay an accepted submission.
+        submission_id = str(frame.get("submission_id") or "").strip()
+        if workspace:
+            self._reconcile_workspace_once(workspace)
+        if kind in {"session_create", "prompt"}:
+            try:
+                ledger = self._submission_ledger(workspace)
+            except Exception as exc:  # noqa: BLE001 - fail closed, never guess
+                self.emit(error_frame(f"submission ledger unavailable: {exc}"))
+                return True
+            if submission_id:
+                record = ledger.get(submission_id)
+                if kind == "session_create" and record is not None:
+                    if record.state == "accepted":
+                        # The original create may have crashed after recording
+                        # the session but before its reply. Return the same
+                        # session normally so the renderer can start its
+                        # pending prompt; the prompt claim still accepts once.
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "submission_state": record.state,
+                        })
+                    else:
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                    return True
+                if kind == "prompt" and record is not None:
+                    requested_sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip()
+                    if record.session_id and requested_sid and record.session_id != requested_sid:
+                        self.emit(error_frame(
+                            "submission id is already bound to a different session; "
+                            "start a new submission for a new turn"
+                        ))
+                        return True
+                    if record.state != "accepted":
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id or requested_sid,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                        return True
+            elif kind == "prompt":
+                # Legacy/replayed frames carry no id. Block an identical prompt
+                # arriving for a DIFFERENT session soon after a completed one;
+                # a fixed client always supplies an id, so intentional repeats
+                # stay possible.
+                from src.runtime.submission_ledger import prompt_sha256
+
+                text = str(frame.get("text") or frame.get("message") or "").strip()
+                requested_sid = str(frame.get("session_id") or frame.get("thread_id") or "").strip()
+                try:
+                    window_s = float(os.environ.get("CRUSORAI_SUBMISSION_REPLAY_WINDOW_S", "600") or "600")
+                except ValueError:
+                    window_s = 600.0
+                recent = ledger.find_recent_completed(
+                    prompt_sha256(text),
+                    window_s=window_s,
+                    exclude_session_id=requested_sid,
+                )
+                if recent is not None:
+                    self.emit({
+                        "type": "session_info",
+                        "session_id": recent.session_id,
+                        "duplicate_submission": True,
+                        "submission_state": recent.state,
+                        "legacy_replay": True,
+                    })
+                    return True
+
         # The frame that binds a workspace is also the moment we know which folder the user opened,
         # and the preview proxy is useless without it — so this is where it gets started. Nothing
         # visible: no console window, no waiting, no failure path into the turn.
@@ -1669,6 +2197,33 @@ class BridgeServer:
                 "host_tool_result_resolved": resolved,
             })
         elif kind == "session_create":
+            # Exactly-once: bind the submission id to this session before the
+            # session_info reply. A replay is handled above and never reaches
+            # this minting path.
+            if submission_id:
+                try:
+                    from src.runtime.submission_ledger import prompt_sha256
+
+                    record = self._submission_ledger(workspace).record_session(
+                        submission_id,
+                        session_id=sid,
+                        prompt_sha=(
+                            prompt_sha256(str(frame.get("text") or ""))
+                            if str(frame.get("text") or "").strip() else ""
+                        ),
+                    )
+                    if record.session_id and record.session_id != sid:
+                        self._sessions.pop(sid, None)
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                        })
+                        return True
+                except Exception as exc:  # noqa: BLE001 - fail closed
+                    self.emit(error_frame(f"submission ledger write failed: {exc}"))
+                    return True
             # Hermes session.create: mint a lazy draft (no DB row) unless this
             # create carries intent (a parent link or seed messages), in which
             # case the row persists NOW because the post-create resume reads
@@ -1923,46 +2478,97 @@ class BridgeServer:
                 self.emit(error_frame("prompt text is required"))
             elif mode not in EXECUTION_MODES:
                 self.emit(error_frame(f"unsupported execution mode: {mode}"))
-            elif sid in self._workers and self._workers[sid].is_alive():
-                from src.runtime.turn_control import turn_controls
-                depth = turn_controls.queue(sid, text, effort)
-                self.emit({"type": "session_info", "session_id": sid, "queued": depth})
             else:
-                # Warm the heavy turn-path imports on the MAIN thread before
-                # dispatching the worker: numpy/transformers C-extension init
-                # deadlocks when imported on a non-main thread (Windows), which
-                # previously hung the real turn silently. Once cached in
-                # sys.modules, the worker's own imports are instant no-ops.
-                # The echo runner never touches chat_graph, so skip the ~11s
-                # warm-up there.
-                if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
-                    from src.dashboard.event_bus import event_bus  # noqa: F401
-                    from src.graphs.chat_graph import stream_agent  # noqa: F401
-                # Hermes lazy-row rule: the row exists from the first ACCEPTED
-                # prompt, so a turn that dies mid-flight still lists. The
-                # title/activity touch lands at turn end (see _touch_turn).
-                try:
-                    store = self._durable_store()
-                    if store.get_session(sid) is None:
-                        # Explicit pending titles (session_new) persist; otherwise the
-                        # row stays untitled for the auto-titler (no capture).
-                        pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
-                        store.create_session(
-                            sid, self._sessions[sid]["workspace"],
-                            title=pending or "",
-                            model=str(self._sessions.get(sid, {}).get("model") or "") or None,
-                            parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
+                if submission_id:
+                    try:
+                        from src.runtime.submission_ledger import prompt_sha256
+
+                        digest = prompt_sha256(text)
+                        ledger = self._submission_ledger(workspace)
+                        try:
+                            is_new_session = self._durable_store().get_session(sid) is None
+                        except Exception:
+                            is_new_session = False
+                        if is_new_session:
+                            try:
+                                window_s = float(os.environ.get(
+                                    "CRUSORAI_NEW_SESSION_REPLAY_WINDOW_S", "60") or "60"
+                                )
+                            except ValueError:
+                                window_s = 60.0
+                            recent = ledger.find_recent_completed(
+                                digest, window_s=window_s, exclude_session_id=sid,
+                            )
+                            if recent is not None:
+                                self.emit({
+                                    "type": "session_info",
+                                    "session_id": recent.session_id,
+                                    "duplicate_submission": True,
+                                    "submission_state": recent.state,
+                                    "submission_reason": "new_session_same_prompt",
+                                })
+                                return True
+                        claimed, record, reason = ledger.claim_prompt(
+                            submission_id, session_id=sid, prompt_sha=digest,
                         )
-                except Exception as exc:
-                    print(f"[bridge] prompt row ensure failed for {sid}: {exc!r}",
-                          file=sys.stderr, flush=True)
-                worker = threading.Thread(
-                    target=self._run_turn,
-                    args=(sid, text, self._sessions[sid]["workspace"], mode, effort),
-                    name=f"bridge-turn-{sid}", daemon=True,
-                )
-                self._workers[sid] = worker
-                worker.start()
+                    except Exception as exc:  # noqa: BLE001 - fail closed
+                        self.emit(error_frame(f"submission ledger unavailable: {exc}"))
+                        return True
+                    if not claimed:
+                        self.emit({
+                            "type": "session_info",
+                            "session_id": record.session_id or sid,
+                            "duplicate_submission": True,
+                            "submission_state": record.state,
+                            "submission_reason": reason,
+                            **({"turn_id": record.turn_id} if record.turn_id else {}),
+                        })
+                        return True
+                if sid in self._workers and self._workers[sid].is_alive():
+                    from src.runtime.turn_control import turn_controls
+                    depth = turn_controls.queue(sid, text, effort, submission_id=submission_id)
+                    self.emit({"type": "session_info", "session_id": sid, "queued": depth})
+                else:
+                    # Cover the whole startup window with the pending slot
+                    # BEFORE the warm-up imports and durable-row write: a Stop
+                    # during startup must not be dropped (r1 race).
+                    from src.runtime.turn_control import turn_controls
+                    turn_controls.mark_pending(sid)
+                    # Warm the heavy turn-path imports on the MAIN thread before
+                    # dispatching the worker: numpy/transformers C-extension init
+                    # deadlocks when imported on a non-main thread (Windows), which
+                    # previously hung the real turn silently. Once cached in
+                    # sys.modules, the worker's own imports are instant no-ops.
+                    # The echo runner never touches chat_graph, so skip the ~11s
+                    # warm-up there.
+                    if os.environ.get("CRUSORAI_BRIDGE_RUNNER", "").lower() != "echo":
+                        from src.dashboard.event_bus import event_bus  # noqa: F401
+                        from src.graphs.chat_graph import stream_agent  # noqa: F401
+                    # Hermes lazy-row rule: the row exists from the first ACCEPTED
+                    # prompt, so a turn that dies mid-flight still lists. The
+                    # title/activity touch lands at turn end (see _touch_turn).
+                    try:
+                        store = self._durable_store()
+                        if store.get_session(sid) is None:
+                            # Explicit pending titles (session_new) persist; otherwise the
+                            # row stays untitled for the auto-titler (no capture).
+                            pending = str(self._sessions.get(sid, {}).get("pending_title") or "")
+                            store.create_session(
+                                sid, self._sessions[sid]["workspace"],
+                                title=pending or "",
+                                model=str(self._sessions.get(sid, {}).get("model") or "") or None,
+                                parent_session_id=self._sessions.get(sid, {}).get("parent_session_id"),
+                            )
+                    except Exception as exc:
+                        print(f"[bridge] prompt row ensure failed for {sid}: {exc!r}",
+                              file=sys.stderr, flush=True)
+                    worker = threading.Thread(
+                        target=self._run_turn,
+                        args=(sid, text, self._sessions[sid]["workspace"], mode, effort, submission_id),
+                        name=f"bridge-turn-{sid}", daemon=True,
+                    )
+                    self._workers[sid] = worker
+                    worker.start()
         elif kind == "cancel":
             from src.runtime.turn_control import turn_controls
             # cancel() owns both the event transition and one-shot abort firing.
@@ -1974,6 +2580,7 @@ class BridgeServer:
             # absence proves the click never left the window; its
             # verdict proves what the engine did with it.
             print(f"[bridge] cancel for {sid}: accepted={active} "
+                  f"pending={turn_controls.pending(sid)} "
                   f"turn_elapsed={turn_controls.turn_elapsed(sid)}",
                   file=sys.stderr, flush=True)
             self.emit({"type": "session_info", "session_id": sid, "cancel_requested": active})
@@ -2326,13 +2933,60 @@ class BridgeServer:
         )
 
     def _engine_build(self) -> str:
-        """The exact build this engine process runs ("<sha> <date>")."""
+        """Resolve the exact build once, bounded, and cache it.
+
+        The probe runs in a daemon thread with a hard wall-clock cap. Even if
+        the underlying Git/subprocess reader hangs (Windows pipe inheritance),
+        startup returns and every later ``session_info`` uses the cached value.
+        """
+        if getattr(self, "_engine_build_resolved", False):
+            return getattr(self, "_engine_build_value", "unknown") or "unknown"
+        lock = getattr(self, "_engine_build_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._engine_build_lock = lock
+        with lock:
+            if getattr(self, "_engine_build_resolved", False):
+                return getattr(self, "_engine_build_value", "unknown") or "unknown"
+            self._engine_build_value = self._probe_engine_build()
+            self._engine_build_resolved = True
+            return self._engine_build_value
+
+    def _engine_build_cached(self) -> str:
+        """Frame-emission read: never probes, never blocks, never spawns."""
+        value = getattr(self, "_engine_build_value", "unknown")
+        return value if value else "unknown"
+
+    def _probe_engine_build(self) -> str:
+        value: dict[str, str] = {}
+
+        def _probe() -> None:
+            value["build"] = self._read_git_build()
+
+        thread = threading.Thread(
+            target=_probe, name="engine-build-probe", daemon=True,
+        )
+        thread.start()
+        timeout_s = float(getattr(self, "_engine_build_timeout_s", 2.5) or 2.5)
+        thread.join(max(0.05, timeout_s))
+        if thread.is_alive():
+            # Deterministic unknown; the daemon thread cannot hold the process
+            # or frame emission open.
+            return "unknown"
+        return str(value.get("build") or "unknown").strip() or "unknown"
+
+    def _read_git_build(self) -> str:
         try:
             import subprocess
+
             engine_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            kwargs: dict = {}
+            if os.name == "nt":
+                kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.run(
                 ["git", "log", "-1", "--format=%h %ci"],
-                capture_output=True, text=True, timeout=3, cwd=engine_root,
+                capture_output=True, text=True, timeout=2.0, cwd=engine_root,
+                stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kwargs,
             )
             if proc.returncode == 0 and proc.stdout.strip():
                 return proc.stdout.strip()
@@ -2556,22 +3210,43 @@ class BridgeServer:
         self._apply_memory_policy()
         self._log_build()
         self._start_boot_warmup()
-        while not self._shutdown.is_set():
-            line = sys.stdin.buffer.readline()
-            if not line:
-                return 0
-            try:
-                frame = decode_line(line)
-                if not self.handle(frame):
+        try:
+            while not self._shutdown.is_set():
+                line = sys.stdin.buffer.readline()
+                if not line:
                     return 0
-            except ProtocolError as exc:
-                self.emit(error_frame(str(exc)))
-            except Exception as exc:
-                self.emit(error_frame(f"bridge internal error: {exc!r}"))
-        return 0
+                try:
+                    frame = decode_line(line)
+                    if not self.handle(frame):
+                        return 0
+                except ProtocolError as exc:
+                    self.emit(error_frame(str(exc)))
+                except Exception as exc:
+                    self.emit(error_frame(f"bridge internal error: {exc!r}"))
+            return 0
+        finally:
+            self._reconcile_on_shutdown()
+            self._flush_acceptance_evidence()
+
+    def _flush_acceptance_evidence(self) -> None:
+        """Persist the acceptance dispatch ledger (no-op outside acceptance)."""
+        guard = getattr(self, "_acceptance_guard", None)
+        if guard is None:
+            return
+        import json
+        from src.llm.acceptance_guard import write_evidence
+        snapshot = guard.snapshot()
+        print(
+            "[bridge][acceptance] " + json.dumps(snapshot, separators=(",", ":")),
+            file=sys.stderr, flush=True,
+        )
+        write_evidence(guard, os.environ.get("CRUSORAI_ACCEPTANCE_EVIDENCE_PATH"))
 
 
 def main() -> int:
+    # The desktop sidecar is the canonical runtime: every child turn (sub-agent
+    # included) inherits the same guarded tool/mutation boundary.
+    os.environ.setdefault("CRUSORAI_CANONICAL_RUNTIME", "1")
     return BridgeServer().run()
 
 

@@ -12,6 +12,8 @@ Enforces:
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import logging
 import os
@@ -50,7 +52,9 @@ class WorkspaceChangeLedger:
         if storage_dir:
             self.storage_dir = Path(storage_dir).resolve()
         else:
-            self.storage_dir = self.workspace_root / ".crusorai" / "tenants" / tenant_id / "ledger"
+            from src.runtime.app_paths import app_data_root
+
+        self.storage_dir = app_data_root(self.workspace_root) / "tenants" / tenant_id / "ledger"
 
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()

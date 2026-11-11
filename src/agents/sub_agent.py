@@ -31,6 +31,7 @@ What this changes:
 - Complex tasks are split across specialized agents
 - The main agent coordinates instead of doing everything itself
 """
+import os
 import uuid
 from typing import Literal, Any
 from src.config.settings import LLM_PROVIDER, LLM_MODEL
@@ -256,6 +257,15 @@ class SubAgentCoordinator:
             # waist is the per-call schema bill — see _resolve_bound_tools).
             if allowed_capabilities is not None:
                 invoke_kwargs["scope_capabilities"] = allowed_capabilities
+            try:
+                from src.graphs.chat_graph import canonical_runtime_active
+
+                invoke_kwargs["canonical_runtime"] = (
+                    canonical_runtime_active()
+                    or os.environ.get("CRUSORAI_CANONICAL_RUNTIME", "").strip() == "1"
+                )
+            except Exception:
+                pass
             result = invoke_agent(**invoke_kwargs)
         except Exception as exc:
             _crashed = True

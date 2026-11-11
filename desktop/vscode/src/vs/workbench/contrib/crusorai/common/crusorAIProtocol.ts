@@ -61,6 +61,11 @@ export interface CrusorSessionInfo {
 	readonly resumed?: boolean;
 	readonly forked_from?: string;
 	readonly queued?: number;
+	/** Live11 exactly-once: this frame is a replay, not a new turn. */
+	readonly duplicate_submission?: boolean;
+	readonly submission_state?: string;
+	readonly submission_reason?: string;
+	readonly legacy_replay?: boolean;
 	readonly cancel_requested?: boolean;
 	readonly steer_accepted?: boolean;
 	readonly safety_resolved?: boolean;
@@ -146,7 +151,7 @@ export interface CrusorEvidenceReceipt {
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
-	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean } } & CrusorIdentity)
+	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean }; readonly cards?: readonly unknown[] } & CrusorIdentity)
 	| ({ readonly type: 'session_deleted'; readonly deleted: boolean } & CrusorIdentity)
 	| ({ readonly type: 'turn_started'; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
 	| ({ readonly type: 'turn_lifecycle'; readonly lifecycle_status: 'started' | 'completed' | 'cancelled' | 'failed' | 'watchdog' | 'interrupted'; readonly journal_seq?: number; readonly journal_event_hash?: string; readonly evidence_id?: string; readonly completed?: boolean; readonly cancelled?: boolean } & CrusorIdentity)
@@ -154,6 +159,7 @@ export type CrusorServerEvent =
 	| ({ readonly type: 'token_retract'; readonly chars: number } & CrusorIdentity)
 	| ({ readonly type: 'reasoning'; readonly text: string } & CrusorIdentity)
 	| ({ readonly type: 'plan_updated'; readonly steps: readonly unknown[] } & CrusorIdentity)
+	| ({ readonly type: 'agent_card'; readonly card: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_start'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_args'; readonly tool_id: string; readonly name: string; readonly arguments?: unknown } & CrusorIdentity)
 	| ({ readonly type: 'tool_call_end'; readonly tool_id: string; readonly status: string; readonly name?: string; readonly result?: unknown } & CrusorIdentity)
@@ -188,6 +194,8 @@ interface CrusorSessionRequest {
 	readonly session_id?: string;
 	readonly thread_id?: string;
 	readonly workspace?: string;
+	/** Stable idempotency key for one logical user submission (Live11). */
+	readonly submission_id?: string;
 }
 
 export type CrusorClientMethod =

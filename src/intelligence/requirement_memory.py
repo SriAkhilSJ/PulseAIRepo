@@ -8,6 +8,8 @@ and scope-change tracking across multi-turn interactions.
 
 from __future__ import annotations
 
+from src.runtime.app_paths import app_data_root
+
 import json
 import os
 import time
@@ -33,7 +35,8 @@ class RequirementMemoryManager:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
         # Tenant-isolated storage directory under workspace .crusorai
-        self.storage_dir = self.workspace_root / ".crusorai" / "tenants" / tenant_id / "requirements"
+        from src.runtime.app_paths import app_data_root
+        self.storage_dir = app_data_root(self.workspace_root) / "tenants" / tenant_id / "requirements"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def _spec_path(self, task_id: str) -> Path:

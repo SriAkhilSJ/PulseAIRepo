@@ -1,0 +1,53 @@
+# LIVE12 Final Readiness — Acceptance Matrix
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Baseline HEAD / origin / ancestor | PASS | `f1299525`, local == origin, baseline ancestor |
+| 2 | Historical evidence unchanged | PASS | P0.6.9 41/41, Live11 48/48, Live12 preflight 14/14; Live11 repair manifest 16/19 with 3 intentional source/artifact deltas documented |
+| 3 | Live11 title blocking path explained | PASS | stack + timeline in `LIVE11_TITLE_DELAY_ROOT_CAUSE.md` |
+| 4 | Build footer no longer runs Git in `emit` | PASS | `_engine_build_cached`; tests |
+| 5 | Build probe bounded / unknown safe | PASS | daemon probe cap 2.5 s, explicit `"unknown"` |
+| 6 | Repeated `session_info` spawns no subprocess | PASS | `test_live12_readiness.py` |
+| 7 | Autotitle-off reaches Python | PASS | source chain + tests |
+| 8 | Autotitle-off makes zero title calls | PASS | `_auxiliary_llm_allowed` false before store/provider |
+| 8a | Harness accepts titling-off without a title call | PASS | zero `session_titling` records required; any title call fails (`HARNESS_REPAIR.md`) |
+| 8b | Auxiliary wait short-circuits when titling off | PASS | returns in <2 s with `skipped=auxiliary_disabled` |
+| 9 | Title cannot create session/turn | PASS | code audit |
+| 10 | Full desktop compile passes | PASS | `npm run compile`, 13 min, exit 0 |
+| 11 | Dependency environment restored | PASS | npm 11 `npm ci --ignore-scripts`; Electron types present |
+| 12 | Contribution sources hash matches | PASS | computed == shipped `465a6bb1…` |
+| 13 | Per-file manifest matches | PASS | 50/50, no missing/unexpected/mismatch |
+| 14 | Renderer/worker bundles present | PASS | hashes in `BUILD_MANIFEST.json` |
+| 15 | Preview media present/copied | PASS | 6/6 checked |
+| 16 | Worker registered in both desktop entry points | PASS | `buildfile.ts`, `build/next/index.ts` |
+| 17 | Worker not in web entry points | PASS | checked |
+| 18 | Build manifest with exact source commit | PASS | `BUILD_MANIFEST.json` |
+| 19 | Known bridge transport test passes | PASS | 1 passed isolated; full suite |
+| 20 | Exactly-once suite passes | PASS | 25/25 |
+| 21 | Generation boundary suite passes | PASS | 15/15 |
+| 22 | Financial lifecycle suite passes | PASS | 25/25 + P0.6.9 15/15 |
+| 23 | Full provider-free battery | PASS | 366 collected, 366 passed in 678.32 s |
+| 23a | Mid-turn visual evidence capture | PASS | bounded sampler; `TestVisualSampling`; not yet collected live |
+| 24 | Historical reservation remains uncertain | PASS | not released/settled/included |
+| 25 | Hard budget enforcement | PASS | offline refusal proof |
+| 26 | Provider calls / spend | PASS | 0 calls / ₹0.00 |
+| 27 | P2 roadmap unchanged | PASS | no diff |
+| 28 | Electron launch smoke test | **FAILED on first authorized attempt, then repaired offline** | `@vscode/policy-watcher` native binding missing after `npm ci --ignore-scripts`; main process crashed before the workbench. Eight native modules restored from the local VS Code install; not re-tested. See `diagnostics/live12_run_20261108_085953/NATIVE_MODULE_REPAIR.md` |
+
+## Verdict
+
+```text
+LIVE12_INCONCLUSIVE_LAUNCH_REPAIRED_RETEST_REQUIRED
+```
+
+All offline reliability, build, provenance, financial and regression gates pass,
+but the first authorized launch never reached a workbench session: the Electron
+main process crashed on a missing native binding. The native modules were
+restored offline; no provider call or spend occurred. A new Electron session
+must be explicitly authorized to test the repaired launch and then perform the
+first real submission.
+
+Prior readiness text (retained for history): the source commit is `7d4a4cc5`;
+the build/artifact manifest records it exactly; the contribution source hash
+matches the shipped bundle. LIVE12 execution still requires a separate written
+authorization with a spending ceiling.

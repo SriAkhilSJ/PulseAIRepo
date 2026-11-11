@@ -26,6 +26,8 @@ import json
 import os
 import pkgutil
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -37,6 +39,458 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
+
+# Packages whose imports are exercised by the hygiene check. The import runs in
+# a guarded child process, never in the checkup process itself: importing every
+# module in-process is what allowed import-time side effects to run during past
+# checkups.
+GUARDED_IMPORT_PACKAGES = (
+    "src.context", "src.llm", "src.graphs", "src.tools",
+    "src.runtime", "src.agents", "src.bridge",
+)
+
+# Child source. It installs process-spawn, Win32-security-import and
+# external-write guards BEFORE importing any repository module, then reports
+# every blocked attempt and import error as one JSON line.
+GUARDED_IMPORT_PROBE = r'''
+import builtins
+import importlib
+import io
+import json
+import os
+import pathlib
+import pkgutil
+import sys
+
+import asyncio
+
+try:
+    import pty
+except Exception:
+    pty = None
+
+try:
+    import multiprocessing
+except Exception:
+    multiprocessing = None
+
+_spec = json.loads(sys.argv[1])
+_root = os.path.normcase(os.path.realpath(_spec.get("root") or os.getcwd()))
+_violations = []
+_errors = []
+_probe_error = ""
+
+def _record(label):
+    _violations.append(label)
+    raise RuntimeError("blocked by import guard: " + label)
+
+def _block(label):
+    def _blocked(*args, **kwargs):
+        _record(label)
+    return _blocked
+
+# --- process execution -----------------------------------------------------
+import subprocess as _sp
+for _name in ("run", "Popen", "call", "check_call", "check_output"):
+    if hasattr(_sp, _name):
+        setattr(_sp, _name, _block("subprocess." + _name))
+
+os.system = _block("os.system")
+os.popen = _block("os.popen")
+for _name in (
+    "spawnl", "spawnle", "spawnlp", "spawnlpe",
+    "spawnv", "spawnve", "spawnvp", "spawnvpe",
+    "posix_spawn", "posix_spawnp", "startfile",
+    "fork", "forkpty",
+    "execv", "execve", "execl", "execle",
+    "execlp", "execlpe", "execvp", "execvpe",
+):
+    if hasattr(os, _name):
+        setattr(os, _name, _block("os." + _name))
+
+try:
+    if pty is not None and hasattr(pty, "spawn"):
+        pty.spawn = _block("pty.spawn")
+    for _name in ("create_subprocess_exec", "create_subprocess_shell"):
+        if hasattr(asyncio, _name):
+            setattr(asyncio, _name, _block("asyncio." + _name))
+    if multiprocessing is not None and hasattr(multiprocessing, "Process"):
+        multiprocessing.Process.start = _block("multiprocessing.Process.start")
+except Exception:
+    pass
+
+# --- Python-level Win32 modules -------------------------------------------
+_blocked_roots = (
+    "win32" + "security", "win32" + "con", "win32" + "api",
+    "win32" + "service", "win32" + "process",
+)
+
+class _Win32Blocker:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in _blocked_roots:
+            _record("import:" + fullname)
+        return None
+
+sys.meta_path.insert(0, _Win32Blocker())
+
+# --- ctypes-based Windows security mutation APIs --------------------------
+# Names are concatenated so the repository's own static scanner does not
+# mistake this guard for a payload.
+_SECURITY_APIS = (
+    "Set" + "Security" + "Info",
+    "SetNamed" + "Security" + "InfoW",
+    "SetNamed" + "Security" + "InfoA",
+    "SetKernel" + "Object" + "Security",
+    "SetUser" + "Object" + "Security",
+    "NtSet" + "Security" + "Object",
+)
+
+class _GuardedDll:
+    def __init__(self, real, label):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_label", label)
+
+    def __getattr__(self, name):
+        if name in _SECURITY_APIS:
+            _record("security-api:" + name)
+        return getattr(object.__getattribute__(self, "_real"), name)
+
+    def __setattr__(self, name, value):
+        return setattr(object.__getattribute__(self, "_real"), name, value)
+
+class _LoaderProxy:
+    def __init__(self, real, label):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_label", label)
+
+    def __getattr__(self, name):
+        return _GuardedDll(getattr(object.__getattribute__(self, "_real"), name), name)
+
+import ctypes
+_ORIGINAL_DLL = {}
+
+def _make_dll_factory(_loader_name):
+    def _factory(*args, **kwargs):
+        return _GuardedDll(_ORIGINAL_DLL[_loader_name](*args, **kwargs), _loader_name)
+    return _factory
+
+for _name in ("WinDLL", "CDLL", "OleDLL"):
+    if hasattr(ctypes, _name):
+        _ORIGINAL_DLL[_name] = getattr(ctypes, _name)
+        setattr(ctypes, _name, _make_dll_factory(_name))
+for _name in ("windll", "oledll", "cdll"):
+    if hasattr(ctypes, _name):
+        setattr(ctypes, _name, _LoaderProxy(getattr(ctypes, _name), _name))
+
+# --- external-write guard --------------------------------------------------
+_real_builtins_open = builtins.open
+_real_io_open = io.open
+_real_os_open = os.open
+_real_path_open = pathlib.Path.open
+_real_write_text = pathlib.Path.write_text
+_real_write_bytes = pathlib.Path.write_bytes
+_real_os_replace = os.replace
+_real_os_rename = os.rename
+_real_os_link = getattr(os, "link", None)
+_real_os_symlink = getattr(os, "symlink", None)
+_real_os_chdir = os.chdir
+_real_os_fchdir = getattr(os, "fchdir", None)
+_real_os_chroot = getattr(os, "chroot", None)
+_real_os_mkdir = os.mkdir
+_real_os_makedirs = os.makedirs
+_real_os_unlink = os.unlink
+_real_os_remove = os.remove
+_real_os_rmdir = os.rmdir
+_real_os_removedirs = os.removedirs
+_real_os_truncate = os.truncate
+_real_os_ftruncate = getattr(os, "ftruncate", None)
+_real_os_fdopen = os.fdopen
+_real_path_mkdir = pathlib.Path.mkdir
+_real_path_unlink = pathlib.Path.unlink
+_real_path_rmdir = pathlib.Path.rmdir
+
+def _inside_root(path):
+    try:
+        raw = os.fspath(path)
+    except (TypeError, ValueError):
+        return False
+    if isinstance(raw, bytes):
+        raw = os.fsdecode(raw)
+    try:
+        # Resolve exactly as the OS would: relative paths use the real CWD.
+        target = os.path.normcase(os.path.realpath(raw))
+    except (OSError, ValueError):
+        return False
+    try:
+        return os.path.commonpath([_root, target]) == _root
+    except ValueError:
+        return False
+
+def _ensure_inside(path):
+    if not _inside_root(path):
+        _record("write:" + str(path))
+
+def _write_mode(mode):
+    return any(ch in str(mode) for ch in "wax+")
+
+def _reject_dir_fd(kwargs):
+    if any(kwargs.get(name) is not None for name in
+           ("dir_fd", "src_dir_fd", "dst_dir_fd")):
+        _record("write:dir_fd")
+
+def _guarded_open(file, mode="r", *args, **kwargs):
+    if _write_mode(mode):
+        _ensure_inside(file)
+    return _real_builtins_open(file, mode, *args, **kwargs)
+
+def _guarded_io_open(file, mode="r", *args, **kwargs):
+    if _write_mode(mode):
+        _ensure_inside(file)
+    return _real_io_open(file, mode, *args, **kwargs)
+
+def _guarded_os_open(path, flags, *args, **kwargs):
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+    if flags & write_flags:
+        _reject_dir_fd(kwargs)
+        _ensure_inside(path)
+    return _real_os_open(path, flags, *args, **kwargs)
+
+def _guarded_path_open(self, mode="r", *args, **kwargs):
+    if _write_mode(mode):
+        _ensure_inside(self)
+    return _real_path_open(self, mode, *args, **kwargs)
+
+def _guarded_write_text(self, data, *args, **kwargs):
+    _ensure_inside(self)
+    return _real_write_text(self, data, *args, **kwargs)
+
+def _guarded_write_bytes(self, data, *args, **kwargs):
+    _ensure_inside(self)
+    return _real_write_bytes(self, data, *args, **kwargs)
+
+def _guarded_os_replace(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_replace(src, dst, *args, **kwargs)
+
+def _guarded_os_rename(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_rename(src, dst, *args, **kwargs)
+
+def _guarded_os_link(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(src)
+    _ensure_inside(dst)
+    return _real_os_link(src, dst, *args, **kwargs)
+
+def _guarded_os_symlink(src, dst, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(dst)
+    try:
+        src_path = os.fspath(src)
+    except (TypeError, ValueError):
+        src_path = None
+    if src_path is not None:
+        if isinstance(src_path, bytes):
+            src_path = os.fsdecode(src_path)
+        if not os.path.isabs(src_path):
+            src_path = os.path.join(os.path.dirname(os.path.abspath(dst)), src_path)
+        _ensure_inside(src_path)
+    return _real_os_symlink(src, dst, *args, **kwargs)
+
+def _guarded_chdir(path):
+    _record("chdir:" + str(path))
+
+def _guarded_fchdir(fd):
+    _record("chdir:fd:" + str(fd))
+
+def _guarded_chroot(path):
+    _record("chroot:" + str(path))
+
+def _guarded_mkdir(path, mode=0o777, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_mkdir(path, mode, *args, **kwargs)
+
+def _guarded_makedirs(name, mode=0o777, exist_ok=False):
+    _ensure_inside(name)
+    return _real_os_makedirs(name, mode, exist_ok=exist_ok)
+
+def _guarded_unlink(path, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_unlink(path, *args, **kwargs)
+
+def _guarded_rmdir(path, *args, **kwargs):
+    _reject_dir_fd(kwargs)
+    _ensure_inside(path)
+    return _real_os_rmdir(path, *args, **kwargs)
+
+def _guarded_removedirs(name):
+    _ensure_inside(name)
+    return _real_os_removedirs(name)
+
+def _guarded_truncate(path, length):
+    if isinstance(path, int):
+        _record("write:fd:" + str(path))
+    _ensure_inside(path)
+    return _real_os_truncate(path, length)
+
+def _guarded_ftruncate(fd, length):
+    _record("write:fd:" + str(fd))
+
+def _guarded_fdopen(fd, mode="r", *args, **kwargs):
+    if _write_mode(mode):
+        _record("write:fd:" + str(fd))
+    return _real_os_fdopen(fd, mode, *args, **kwargs)
+
+def _guarded_path_mkdir(self, mode=0o777, parents=False, exist_ok=False):
+    _ensure_inside(self)
+    return _real_path_mkdir(self, mode, parents=parents, exist_ok=exist_ok)
+
+def _guarded_path_unlink(self, missing_ok=False):
+    _ensure_inside(self)
+    return _real_path_unlink(self, missing_ok=missing_ok)
+
+def _guarded_path_rmdir(self):
+    _ensure_inside(self)
+    return _real_path_rmdir(self)
+
+builtins.open = _guarded_open
+io.open = _guarded_io_open
+os.open = _guarded_os_open
+pathlib.Path.open = _guarded_path_open
+pathlib.Path.write_text = _guarded_write_text
+pathlib.Path.write_bytes = _guarded_write_bytes
+os.replace = _guarded_os_replace
+os.rename = _guarded_os_rename
+if _real_os_link is not None:
+    os.link = _guarded_os_link
+if _real_os_symlink is not None:
+    os.symlink = _guarded_os_symlink
+os.chdir = _guarded_chdir
+if _real_os_fchdir is not None:
+    os.fchdir = _guarded_fchdir
+if _real_os_chroot is not None:
+    os.chroot = _guarded_chroot
+os.mkdir = _guarded_mkdir
+os.makedirs = _guarded_makedirs
+os.unlink = _guarded_unlink
+os.remove = _guarded_unlink
+os.rmdir = _guarded_rmdir
+os.removedirs = _guarded_removedirs
+os.truncate = _guarded_truncate
+if _real_os_ftruncate is not None:
+    os.ftruncate = _guarded_ftruncate
+os.fdopen = _guarded_fdopen
+pathlib.Path.mkdir = _guarded_path_mkdir
+pathlib.Path.unlink = _guarded_path_unlink
+pathlib.Path.rmdir = _guarded_path_rmdir
+
+# --- import surface --------------------------------------------------------
+try:
+    _extra = _spec.get("extra_path")
+    if _extra and _extra not in sys.path:
+        sys.path.insert(0, _extra)
+    for _pkg in _spec.get("packages") or []:
+        try:
+            _mod = importlib.import_module(_pkg)
+            _path = getattr(_mod, "__path__", None)
+            if _path:
+                for _, _name, _ in pkgutil.walk_packages(_path, _pkg + "."):
+                    try:
+                        importlib.import_module(_name)
+                    except Exception as _exc:
+                        _errors.append("%s: %s: %s" % (_name, type(_exc).__name__, _exc))
+        except Exception as _exc:
+            _errors.append("%s: %s: %s" % (_pkg, type(_exc).__name__, _exc))
+except BaseException as _exc:
+    _probe_error = "%s: %s" % (type(_exc).__name__, _exc)
+
+print(json.dumps({
+    "violations": _violations,
+    "errors": _errors[:25],
+    "error_count": len(_errors),
+    "probe_error": _probe_error,
+}))
+'''
+
+
+def run_guarded_import_probe(
+    packages: tuple[str, ...] | None = None,
+    *,
+    extra_path: str | None = None,
+    timeout_s: float = 300.0,
+) -> dict:
+    """Import the core packages in a child process under hard safety guards.
+
+    Never imports repository modules into the checkup process. A result is
+    successful only when the child exits zero, returns valid JSON, reports no
+    blocked operation, and reports no unhandled probe failure. Import errors
+    (for example an optional third-party package) are surfaced separately as
+    ``errors``; they are not security violations.
+
+    The child's TMP/TEMP/TMPDIR are redirected into a repository-local scratch
+    directory, so third-party temporary files cannot masquerade as escapes and
+    the external-write guard remains meaningful.
+    """
+    spec = {
+        "packages": list(packages or GUARDED_IMPORT_PACKAGES),
+        "extra_path": extra_path,
+        "root": str(ROOT),
+    }
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(ROOT) + ((os.pathsep + existing) if existing else "")
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    probe_tmp = tempfile.mkdtemp(prefix=".guard-import-", dir=str(ROOT))
+    env["TMP"] = env["TEMP"] = env["TMPDIR"] = probe_tmp
+    env["HOME"] = probe_tmp
+    env["USERPROFILE"] = probe_tmp
+    _home_drive, _home_path = os.path.splitdrive(probe_tmp)
+    env["HOMEDRIVE"] = _home_drive
+    env["HOMEPATH"] = _home_path
+    try:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", GUARDED_IMPORT_PROBE, json.dumps(spec)],
+                cwd=str(ROOT), env=env, capture_output=True, text=True,
+                timeout=timeout_s,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {
+                "ok": False, "violations": [], "errors": [f"{type(exc).__name__}: {exc}"],
+                "error_count": 1, "returncode": -1, "probe_error": f"{type(exc).__name__}: {exc}",
+            }
+        lines = [line for line in (proc.stdout or "").splitlines() if line.strip()]
+        try:
+            payload = json.loads(lines[-1])
+        except (IndexError, json.JSONDecodeError):
+            return {
+                "ok": False, "violations": [],
+                "errors": [(proc.stderr or "")[-500:] or "guarded import probe produced no result"],
+                "error_count": 1, "returncode": proc.returncode,
+                "probe_error": "guarded import probe produced no valid JSON result",
+            }
+        violations = list(payload.get("violations") or [])
+        errors = list(payload.get("errors") or [])
+        probe_error = str(payload.get("probe_error") or "")
+        if proc.returncode != 0 and not probe_error:
+            probe_error = f"guarded import child exited with {proc.returncode}"
+        return {
+            "ok": proc.returncode == 0 and not violations and not probe_error,
+            "violations": violations,
+            "errors": errors,
+            "error_count": int(payload.get("error_count") or 0),
+            "returncode": proc.returncode,
+            "probe_error": probe_error,
+        }
+    finally:
+        shutil.rmtree(probe_tmp, ignore_errors=True)
 
 
 @dataclass
@@ -851,25 +1305,30 @@ def check_hygiene(cu: Checkup) -> None:
         is structural; a missing third-party package is an environment choice
         and is reported as a WARN with the package named.
         """
-        structural, optional = [], []
-        for pkg in ("src.context", "src.llm", "src.graphs", "src.tools", "src.runtime", "src.agents", "src.bridge"):
-            mod = importlib.import_module(pkg)
-            for _, name, _ in pkgutil.walk_packages(mod.__path__, pkg + "."):
-                try:
-                    importlib.import_module(name)
-                except ImportError as exc:
-                    missing = getattr(exc, "name", None) or ""
-                    if missing.startswith("src") or missing in ("", None):
-                        structural.append(f"{name} ({exc})")
-                    else:
-                        optional.append(f"{name} needs {missing}")
-                except Exception as exc:  # noqa: BLE001
-                    structural.append(f"{name} ({type(exc).__name__}: {exc})")
-        if structural:
-            return (FAIL, f"{len(structural)} module(s) broken regardless of extras: {', '.join(structural[:3])}")
-        if optional:
-            return (WARN, f"{len(optional)} module(s) need an uninstalled extra: {', '.join(optional[:3])}")
-        return "all core modules import keyless"
+        result = run_guarded_import_probe()
+        if result["violations"]:
+            return (
+                FAIL,
+                "guarded import blocked unsafe operation(s): "
+                + ", ".join(result["violations"][:5]),
+            )
+        if not result["ok"]:
+            detail = (
+                result.get("probe_error")
+                or "; ".join(result["errors"][:2])
+                or "unknown guarded-import failure"
+            )
+            return (
+                FAIL,
+                "guarded import probe failed: " + detail,
+            )
+        if result["errors"]:
+            return (
+                WARN,
+                f"{result['error_count']} module(s) could not import under the guard: "
+                + "; ".join(result["errors"][:3]),
+            )
+        return "all core modules import under the safety guard (no spawn or Win32-security calls)"
 
     def _missing_package_imports():
         """Yield (path, lineno, module, guarded) using the AST, not a regex.

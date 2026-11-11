@@ -1,0 +1,49 @@
+# Phase 11.6 baseline — the eight failures (before the fix)
+
+Reproduced with HEAD `b5277512` source restored for the two changed modules
+(`contract.py`, `requirement_extractor.py`), pytest, provider-free test mode.
+
+Raw log: `logs/baseline-8-pytest.txt`.
+
+| # | Test | Baseline failure |
+|---|---|---|
+| 1 | `test_02_complex_product_request` | `PlanValidationError: contract ambiguity: REQ-001 could not be assigned any target file` |
+| 2 | `test_04_nontechnical_user_request` | same `PlanValidationError` |
+| 3 | `test_05_essential_clarification_interruption` | same `PlanValidationError` |
+| 4 | `test_11_architecture_decision_integration` | same `PlanValidationError` |
+| 5 | `test_26_pre_existing_failure_classification` | `verdict FAILED` (verification `NOT_TESTED`; no explicit requirement existed) |
+| 6 | `test_38_scenario_b_existing_bug_demonstration` | `verdict FAILED` (verification `NOT_TESTED`) |
+| 7 | `test_40_scenario_d_regression_introduced_demonstration` | `verdict FAILED` (verification `NOT_TESTED`) |
+| 8 | `test_42_scenario_f_unresolved_business_decision_demonstration` | same `PlanValidationError` as #1 |
+
+Result: **8 failed, 36 deselected** in the eight-case selection.
+
+## Two root causes, not one
+
+### A. Contract assignment (tests 02, 04, 05, 11, 42)
+
+`requirement_intent("Build a multi-tier ecommerce store …")` matched the bare
+word **build** and classified the user's *product* request as a BUILD-file
+requirement. No explicit or requested file of that role existed, and the
+CONFIG/DOC/BUILD fallback only attached to an already-assigned SOURCE (none
+existed at that point), so `REQ-001` got no target and the ambiguity blocked
+dispatch.
+
+The same wording affects CONFIG/DOC/BUILD in any workspace with no matching
+file.
+
+### B. Requirement extraction + evidence (tests 26, 38, 40)
+
+The requirement extractor's verb list did not include `fix`, `refactor` or
+`clean`, and its sentence-length guard dropped 10-character requests. The
+analyzer returned only optional suggestions (CONFIG/TEST), so the contract had
+no mandatory requirement. The plan fell back to `src/main_task.py`; verification
+then had no requirement evidence (`NOT_TESTED`) and the task verdict was
+`FAILED`. Under the non-pytest diagnostic this was masked by the real-provider
+budget check (no provider key in test mode); under pytest it surfaced as the
+verdict failure.
+
+## Fixed result
+
+- All eight cases: **8 passed** (selection).
+- Full file: **44 passed** (`logs/phase116-full.txt`).

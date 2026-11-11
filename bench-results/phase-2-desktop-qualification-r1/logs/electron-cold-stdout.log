@@ -1,0 +1,7 @@
+
+[main 2026-11-09T18:14:46.436Z] StorageMainService: creating application shared storage
+[main 2026-11-09T18:14:46.572Z] [CSS_DEV] DONE, 452 css modules (117ms)
+[main 2026-11-09T18:14:46.670Z] update#setState disabled
+[main 2026-11-09T18:14:46.683Z] [shared storage] Creating shared storage database at '<TEMP>\p2-qual-iso\home\.crusorai-ide-shared\sharedStorage\state.vscdb' (wasCreated: false)
+[main 2026-11-09T18:14:46.686Z] [shared storage] Initializing fallback application storage (path: <TEMP>\p2-qual-iso\userdata\User\globalStorage\state.vscdb)
+[main 2026-11-09T18:14:46.709Z] [shared storage] Fallback application storage initialized with 48 items

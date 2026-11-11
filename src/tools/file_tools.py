@@ -504,10 +504,38 @@ def write_file(
             safe_path.read_text(encoding="utf-8")
             if safe_path.exists() else ""
         )
-        safe_path.write_text(
-            content,
-            encoding="utf-8"
+
+        from src.workspace.mutation_broker import (
+            WorkspaceMutationBroker,
+            MutationAuthorizationError,
+            ConcurrencyConflictError,
         )
+        from src.workspace.path_safety import PathSafetyValidator, PathSecurityViolation
+
+        try:
+            broker = WorkspaceMutationBroker.get_instance(str(workspace))
+            clean_rel = PathSafetyValidator.get_relative_normalized(workspace, safe_path)
+            from src.workspace.approval_context import (
+                find_mutation_authorization,
+                graph_requires_approval_token,
+            )
+
+            authorization = find_mutation_authorization(config, clean_rel, "CREATE")
+            broker.create_file(
+                path=clean_rel,
+                content=content,
+                task_id=_tid or "default_task",
+                change_reason=f"write_file: {path}",
+                approval_token=(authorization or {}).get("token"),
+                require_approval=graph_requires_approval_token(config),
+                require_digest=bool(authorization),
+                session_id=_tid,
+                turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
+            )
+        except (MutationAuthorizationError, PathSecurityViolation, ConcurrencyConflictError) as exc:
+            return f"⛔ Workspace safety restriction: {exc}"
+        except Exception as exc:
+            return f"❌ Write failed: {exc}"
 
         file_state.note_write(_tid, safe_path)
 
@@ -597,12 +625,34 @@ def copy_file(
     from src.tools.shadow_checkpoints import checkpoint_before_mutation
     checkpoint_before_mutation(workspace, f"copy_file: {src} -> {dst}")
     from src.tools import file_state
+    _tid = file_state.task_id_from_config(config) or "default_task"
     with file_state.lock_path(safe_dst):
-        stale = file_state.check_stale(file_state.task_id_from_config(config), safe_dst)
+        stale = file_state.check_stale(_tid, safe_dst)
         if stale is not None:
             return stale
-        shutil.copy2(safe_src, safe_dst)
-        file_state.note_write(file_state.task_id_from_config(config), safe_dst)
+        from src.workspace.mutation_broker import (
+            WorkspaceMutationBroker,
+            MutationAuthorizationError,
+            ConcurrencyConflictError,
+        )
+        from src.workspace.path_safety import PathSafetyValidator, PathSecurityViolation
+
+        try:
+            broker = WorkspaceMutationBroker.get_instance(str(workspace))
+            clean_src = PathSafetyValidator.get_relative_normalized(workspace, safe_src)
+            clean_dst = PathSafetyValidator.get_relative_normalized(workspace, safe_dst)
+            broker.copy_file(
+                src_path=clean_src,
+                dst_path=clean_dst,
+                task_id=_tid,
+                change_reason=f"copy_file: {src} -> {dst}",
+            )
+        except (MutationAuthorizationError, PathSecurityViolation, ConcurrencyConflictError) as exc:
+            return f"⛔ Workspace safety restriction: {exc}"
+        except Exception as exc:
+            return f"❌ Copy failed: {exc}"
+
+        file_state.note_write(_tid, safe_dst)
     from src.context.repo_map import invalidate_repo_map
     invalidate_repo_map(workspace)
     try:
@@ -1345,7 +1395,7 @@ def _atomic_write(path, content: str) -> None:
         dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
         os.chmod(tmp, st_mode)
         os.replace(tmp, path)
@@ -1449,13 +1499,46 @@ def edit_file(
     from src.tools.shadow_checkpoints import checkpoint_before_mutation
     checkpoint_before_mutation(workspace, f"edit_file: {path}")
 
-    _atomic_write(safe_path, updated_content)
+    from src.workspace.mutation_broker import (
+        WorkspaceMutationBroker,
+        MutationAuthorizationError,
+        ConcurrencyConflictError,
+    )
+    from src.workspace.path_safety import PathSafetyValidator, PathSecurityViolation
+
+    from src.tools import file_state
+    _tid = file_state.task_id_from_config(config) or "default_task"
+    try:
+        broker = WorkspaceMutationBroker.get_instance(str(workspace))
+        clean_rel = PathSafetyValidator.get_relative_normalized(workspace, safe_path)
+        from src.workspace.approval_context import (
+            find_mutation_authorization,
+            graph_requires_approval_token,
+        )
+
+        authorization = find_mutation_authorization(config, clean_rel, "MODIFY")
+        broker.modify_file(
+            path=clean_rel,
+            old_text=old_text,
+            new_text=new_text,
+            new_content=updated_content,
+            task_id=_tid,
+            change_reason=f"edit_file ({match_mode}): {path}",
+            approval_token=(authorization or {}).get("token"),
+            require_approval=graph_requires_approval_token(config),
+            require_digest=bool(authorization),
+            session_id=_tid,
+            turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
+        )
+    except (MutationAuthorizationError, PathSecurityViolation, ConcurrencyConflictError) as exc:
+        return f"⛔ Workspace safety restriction: {exc}"
+    except Exception as exc:
+        return f"❌ Edit failed: {exc}"
 
     # D32: stamp the write (edit_file needs no stale REFUSAL — it reads
     # fresh content itself and replaces only the matched span; see
     # file_state's policy note).
-    from src.tools import file_state
-    file_state.note_write(file_state.task_id_from_config(config), safe_path)
+    file_state.note_write(_tid, safe_path)
 
     # D25: our own mutation must never hide behind the repo-map staleness TTL.
     from src.context.repo_map import invalidate_repo_map

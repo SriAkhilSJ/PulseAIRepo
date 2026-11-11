@@ -1,0 +1,2127 @@
+{
+  "run_id": "p0_6_5_20261107T211727_fa1f0117",
+  "started_at": "2026-11-08T05:17:27.834Z",
+  "prompt": "Create src/duration.py with exactly one public function parse_duration(value). It parses a duration string into whole seconds. Supported units: h, m, s. Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units. Return an int. Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values. Do not accept floats. Raise TypeError when value is not a string. Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError. The test file must import the function exactly as `from src.duration import parse_duration`. Run pytest and make every test pass. Do not modify unrelated files.",
+  "prompt_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8",
+  "gates": {
+    "renderer_workbench": {
+      "ok": true,
+      "detail": {
+        "workbench_ready": true,
+        "belongs_to_crusor": true,
+        "identity": {
+          "title": "crusor_p0_6_5_ws_hjyc6vo1 - CrusorAI IDE Dev",
+          "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+          "hasWorkbench": true,
+          "bodyClasses": "",
+          "vscodeApiPresent": true,
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) crusorai-dev/1.134.0 Chrome/148.0.7778.280 Electron/42.8.1 Safari/537.36",
+          "isElectron": true,
+          "devicePixelRatio": 1.5,
+          "viewport": {
+            "w": 1284,
+            "h": 673
+          }
+        }
+      },
+      "at": "2026-11-08T05:17:33.578Z"
+    },
+    "composer_available": {
+      "ok": true,
+      "detail": {
+        "selector": "textarea.crusorai-composer-input",
+        "count": 1,
+        "visible": true,
+        "enabled": true,
+        "text": "",
+        "tag": "TEXTAREA",
+        "id": "",
+        "cls": "crusorai-composer-input",
+        "placeholder": "Ask anything, / for commands, @ for context...",
+        "rect": {
+          "x": 995,
+          "y": 382,
+          "w": 278,
+          "h": 67
+        }
+      },
+      "at": "2026-11-08T05:17:33.585Z"
+    },
+    "engine_ready": {
+      "ok": true,
+      "detail": {
+        "ready": true,
+        "state": {
+          "present": true,
+          "text": "Crusor readyui 2026-10-25-42",
+          "cls": "crusorai-engine-status is-ready"
+        },
+        "samples": [
+          {
+            "at": 92254.963,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 92255.365,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 92255.767,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 92256.169,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 92256.571,
+            "present": true,
+            "text": "Crusor readyui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-ready"
+          }
+        ]
+      },
+      "at": "2026-11-08T05:17:42.767Z"
+    },
+    "worker_bridge_owned": {
+      "ok": true,
+      "detail": {
+        "worker_pids": [
+          2588,
+          6220,
+          14496,
+          17120,
+          18344,
+          18408
+        ],
+        "bridge_pids": [
+          16080,
+          24252
+        ],
+        "owned_bridge_pids": [
+          16080,
+          24252
+        ],
+        "ancestry_ok": true
+      },
+      "at": "2026-11-08T05:17:43.360Z"
+    },
+    "acceptance_guard_in_app_bridge": {
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "run_id_matches": true,
+        "max_dispatches": 5,
+        "attempts_per_dispatch": 1,
+        "dispatches_used": 0,
+        "pid": 24252,
+        "owned_bridge_pids": [
+          16080,
+          24252
+        ],
+        "bridge_pid": null,
+        "pid_matches_bridge": true,
+        "claims": []
+      },
+      "at": "2026-11-08T05:17:43.362Z"
+    },
+    "prompt_typed": {
+      "ok": true,
+      "detail": {
+        "focused": {
+          "focused": true,
+          "disabled": false,
+          "readonly": false
+        },
+        "typed_matches_prompt": true,
+        "typed_length": 876,
+        "typed_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8"
+      },
+      "at": "2026-11-08T05:17:43.396Z"
+    },
+    "ui_submission_identified": {
+      "ok": true,
+      "detail": {
+        "composer_after_submit": "",
+        "method": "enter"
+      },
+      "at": "2026-11-08T05:17:43.861Z"
+    },
+    "turn_manifest_prompt_match": {
+      "ok": true,
+      "detail": {
+        "expected": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8",
+        "manifest": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8"
+      },
+      "at": "2026-11-08T05:17:47.868Z"
+    }
+  },
+  "stages": {
+    "workspace": {
+      "at": "2026-11-08T05:17:28.148Z",
+      "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+      "git_status": "",
+      "git_head": "08ec15a1570cdd6de3520c32469ef80c92dd0acd",
+      "inventory": [
+        "README.md"
+      ]
+    },
+    "git": {
+      "at": "2026-11-08T05:17:28.365Z",
+      "branch": "feat/prompt-cache-stabilization",
+      "head": "76cbcaebe192e56b16fe21104fc36e18697ff961",
+      "desktop_dirty": 0
+    },
+    "electron_launch": {
+      "at": "2026-11-08T05:17:28.380Z",
+      "pid": 15612,
+      "port": 51530,
+      "exe": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+      "argv": [
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode",
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+        "--remote-debugging-port=51530",
+        "--user-data-dir=C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\user-data",
+        "--remote-allow-origins=http://127.0.0.1",
+        "--enable-logging",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--skip-welcome",
+        "--skip-release-notes",
+        "--disable-telemetry",
+        "--disable-crash-reporter"
+      ],
+      "env_keys": [
+        "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+        "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+        "CRUSORAI_ACCEPTANCE_RUN_ID",
+        "CRUSORAI_BRIDGE_DIAGNOSTICS",
+        "CRUSORAI_COST_GOVERNANCE",
+        "CRUSORAI_EVIDENCE_DIR",
+        "CRUSORAI_HOME",
+        "CRUSORAI_MEMORY",
+        "CRUSORAI_RESERVE_BUDGET_INR",
+        "CRUSORAI_SESSION_COST_BUDGET_INR",
+        "CRUSORAI_TEST_PYTHON",
+        "CRUSORAI_TURN_COST_BUDGET_INR"
+      ],
+      "portable_dir": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable"
+    },
+    "cdp": {
+      "at": "2026-11-08T05:17:29.897Z",
+      "port": 51530,
+      "requested_port": 51530,
+      "browser": "Chrome/148.0.7778.280",
+      "protocol_version": "1.3",
+      "target": {
+        "id": "C97E376EA2B0AF786A355BC8B483F297",
+        "type": "page",
+        "title": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "websocket_origin": "ws://127.0.0.1:51530",
+        "browser_context_id": ""
+      },
+      "loopback_only": true
+    },
+    "panel_stability": {
+      "at": "2026-11-08T05:17:41.157Z",
+      "ok": true,
+      "attempts": [
+        {
+          "at": 92249.42,
+          "reopen": [
+            {
+              "strategy": "dom-click",
+              "result": {
+                "clicked": "[aria-label*='Crusor']",
+                "tag": "DIV",
+                "label": "Crusor"
+              }
+            },
+            {
+              "strategy": "ctrl+l",
+              "result": "dispatched"
+            },
+            {
+              "strategy": "ctrl+l",
+              "ok": true
+            }
+          ]
+        }
+      ],
+      "stable_samples": 2
+    },
+    "processes": {
+      "at": "2026-11-08T05:17:43.359Z",
+      "main_pid": 15612,
+      "worker_pids": [
+        2588,
+        6220,
+        14496,
+        17120,
+        18344,
+        18408
+      ],
+      "workers": [
+        {
+          "pid": 2588,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708989122997041 --mojo-platform-channel-handle=1920 /prefetch:11",
+          "created_at": "/Date(1794115048632)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 18344,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --nolazy --inspect=5878 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708990997080739 --mojo-platform-channel-handle=5216 /prefetch:14",
+          "created_at": "/Date(1794115052697)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 17120,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --nolazy --experimental-network-inspection --inspect=5879 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708991934122588 --mojo-platform-channel-handle=4456 /prefetch:14",
+          "created_at": "/Date(1794115053012)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 14496,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708992871164437 --mojo-platform-channel-handle=5252 /prefetch:14",
+          "created_at": "/Date(1794115053029)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 6220,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708993808206286 --mojo-platform-channel-handle=2364 /prefetch:14",
+          "created_at": "/Date(1794115053051)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 18408,
+          "ppid": 15612,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --dns-result-order=ipv4first --experimental-network-inspection --nolazy --inspect=127.0.0.1:5870 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9533179817416244109,12063626221888886785,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,10926755569330728142,11843831663150609802,4 --trace-process-track-uuid=3190708994745248135 --mojo-platform-channel-handle=4676 /prefetch:14",
+          "created_at": "/Date(1794115053158)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        }
+      ],
+      "bridge_pids": [
+        16080,
+        24252
+      ],
+      "bridges": [
+        {
+          "pid": 16080,
+          "ppid": 6220,
+          "name": "python.exe",
+          "command_line": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m src.bridge",
+          "created_at": "/Date(1794115053760)/",
+          "executable": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe"
+        },
+        {
+          "pid": 24252,
+          "ppid": 16080,
+          "name": "python.exe",
+          "command_line": "\"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\python.exe\"  -m src.bridge",
+          "created_at": "/Date(1794115053793)/",
+          "executable": "C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\python.exe"
+        }
+      ],
+      "owned_bridge_pids": [
+        16080,
+        24252
+      ],
+      "foreign_python_pids": [
+        16548,
+        26628
+      ],
+      "ancestry_ok": true,
+      "captured_at": "2026-11-08T05:17:43Z"
+    },
+    "guard_console_line": {
+      "at": "2026-11-08T05:17:43.364Z",
+      "found": true,
+      "bucket": "consoleWarns",
+      "message": "%c WARN color: #993 [CrusorAI Engine] [bridge][acceptance] run=p0_6_5_20261107T211727_fa1f0117 max_dispatches=5 attempts_per_dispatch=1"
+    },
+    "ui_submission": {
+      "at": "2026-11-08T05:17:43.554Z",
+      "method": "enter",
+      "composer_after_submit": "",
+      "cleared": true,
+      "typed": {
+        "focused": {
+          "focused": true,
+          "disabled": false,
+          "readonly": false
+        },
+        "typed_matches_prompt": true,
+        "typed_length": 876,
+        "typed_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8"
+      }
+    },
+    "turn_manifest": {
+      "at": "2026-11-08T05:17:47.867Z",
+      "path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\home\\evidence\\session-831ffd10b40743e58382cd9e4ea608fd\\turn-5bd30b1c85e84807a830727a118d54bf.json",
+      "prompt_sha256_matches": true
+    },
+    "turn_terminal": {
+      "at": "2026-11-08T05:18:39.071Z",
+      "status": "completed",
+      "completed": true,
+      "duration_s": 53.138,
+      "error": null
+    }
+  },
+  "env_keys": [
+    "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+    "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+    "CRUSORAI_ACCEPTANCE_RUN_ID",
+    "CRUSORAI_BRIDGE_DIAGNOSTICS",
+    "CRUSORAI_COST_GOVERNANCE",
+    "CRUSORAI_EVIDENCE_DIR",
+    "CRUSORAI_HOME",
+    "CRUSORAI_MEMORY",
+    "CRUSORAI_RESERVE_BUDGET_INR",
+    "CRUSORAI_SESSION_COST_BUDGET_INR",
+    "CRUSORAI_TEST_PYTHON",
+    "CRUSORAI_TURN_COST_BUDGET_INR"
+  ],
+  "submit_at": "2026-11-08T05:17:43.554Z",
+  "correlation": {
+    "run_id": "p0_6_5_20261107T211727_fa1f0117",
+    "session_id": "session-831ffd10b40743e58382cd9e4ea608fd",
+    "turn_id": "turn-5bd30b1c85e84807a830727a118d54bf",
+    "workspace_id": "ws-d3b92f1c809116a7",
+    "main_pid": 15612,
+    "worker_pids": [
+      2588,
+      6220,
+      14496,
+      17120,
+      18344,
+      18408
+    ],
+    "bridge_pid": 24252
+  },
+  "renderer_console": {
+    "unhandled_errors": 0,
+    "unhandled_rejections": 0,
+    "warnings_sample": [
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.experimentalOnboarding'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.walkthroughs.openOnInstall'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'crusorai.hideBuiltInCopilotUI'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [CrusorAI Engine] engine root: workspace 'c:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1' is outside the engine repo \u2014 resolved from the install tree to 'c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo'",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+      "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][acceptance] run=p0_6_5_20261107T211727_fa1f0117 max_dispatches=5 attempts_per_dispatch=1",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: 76cbcaeb 2026-11-07 21:17:05 -0800",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) \u2014 panel is current",
+      "%c WARN color: #993 [CrusorAI Engine] [preview] preview proxy for C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1 is up at http://127.0.0.1:8931 (session 'ide')",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] graph returned in 50.7s; draining event queue",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] turn end: completed=True cancelled=False wall=50.8s (model 0.0s, non-model 50.8s \u2014 tools, finalize, review, transport gaps live there)",
+      "%c WARN color: #993 [CrusorAI Engine] [aux] routing to cheap/qwen/qwen3.7-flash"
+    ],
+    "chat_context_error_present": false
+  },
+  "electron_shutdown": {
+    "stopped": true,
+    "exit_code": 1,
+    "stopped_at": 1794115119.3560052,
+    "runtime_seconds": 70.985
+  },
+  "guard_final": {
+    "ok": true,
+    "run_id_matches": true,
+    "max_dispatches": 5,
+    "attempts_per_dispatch": 1,
+    "dispatches_used": 3,
+    "pid": 24252,
+    "owned_bridge_pids": [
+      24252
+    ],
+    "bridge_pid": 24252,
+    "pid_matches_bridge": true,
+    "claims": [
+      {
+        "sequence": 1,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      {
+        "sequence": 2,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      {
+        "sequence": 3,
+        "stage": "retry_llm_proxy",
+        "model": "qwen/qwen3.7-flash"
+      }
+    ]
+  },
+  "financial": {
+    "orchestrator": {
+      "available": true,
+      "finops_json": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\finops\\turn_turn-5bd30b1c85e84807a830727a118d54bf_finops.json",
+      "workspace": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+      "accounting": {
+        "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+        "budget_inr": 5.0,
+        "spent_inr": 0.125588,
+        "spent_usd": 0.001358,
+        "reserved_inr": 0.0,
+        "reserved_usd": 0.0,
+        "token_budget": 150000,
+        "tokens_consumed": 7681,
+        "reserved_tokens": 0,
+        "input_tokens": 1192,
+        "output_tokens": 6489,
+        "cached_tokens": 0,
+        "tool_execution_seconds": 0.0,
+        "test_execution_seconds": 0.0,
+        "calls_count": 2,
+        "is_breached": false,
+        "breach_reason": null
+      },
+      "settled": {
+        "res_d6a6ea9ecf7e": {
+          "reservation_id": "res_d6a6ea9ecf7e",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "amount_inr": 0.161378,
+          "amount_usd": 0.001745,
+          "tokens": 10323,
+          "purpose": "node_task_duration",
+          "created_at": 1794115068.0269263,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "6a3c7f5a-975d-4d",
+          "canonical_amount_usd": 0.001876,
+          "status": "reconciled"
+        },
+        "res_28f6b2afa7e7": {
+          "reservation_id": "res_28f6b2afa7e7",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "amount_inr": 0.162857,
+          "amount_usd": 0.001761,
+          "tokens": 10654,
+          "purpose": "node_task_tests_test_duration",
+          "created_at": 1794115113.2257516,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "3553a4c5-a592-45",
+          "canonical_amount_usd": 0.001893,
+          "status": "reconciled"
+        }
+      },
+      "uncertain": {},
+      "active": {},
+      "db": {
+        "reservations": [
+          {
+            "reservation_id": "res_d6a6ea9ecf7e",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.161378",
+            "purpose": "node_task_duration",
+            "root_session_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+            "created_at": 1794115068.045835,
+            "updated_at": 1794115113.0318775
+          },
+          {
+            "reservation_id": "res_28f6b2afa7e7",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.162857",
+            "purpose": "node_task_tests_test_duration",
+            "root_session_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+            "created_at": 1794115113.2305853,
+            "updated_at": 1794115116.80013
+          }
+        ],
+        "calls": []
+      },
+      "db_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\sessions.db"
+    },
+    "orchestrator_classification": {
+      "ok": true,
+      "checks": {
+        "has_settlements": true,
+        "calls_matched_by_settlements": true,
+        "no_active_reservations": true,
+        "no_uncertain_reservations": true,
+        "within_budget": true,
+        "not_breached": true,
+        "sqlite_reconciled": true,
+        "usage_recorded": true
+      },
+      "calls_count": 2,
+      "settled_count": 2,
+      "uncertain_count": 0,
+      "active_count": 0,
+      "spent_inr": 0.125588,
+      "spent_usd": 0.001358,
+      "input_tokens": 1192,
+      "output_tokens": 6489,
+      "budget_inr": 5.0,
+      "db_settled_rows": 2
+    },
+    "cost_governance": {
+      "state": {
+        "available": false,
+        "db": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\home\\sessions.db",
+        "error": "no such table: financial_reservations"
+      },
+      "classification": {
+        "ok": false,
+        "reason": "no such table: financial_reservations"
+      }
+    }
+  },
+  "mutations": [
+    {
+      "tenant_ledger": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\tenants\\default_tenant\\ledger\\turn_turn-5bd30b1c85e84807a830727a118d54bf_ledger.json",
+      "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+      "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+      "operation_id": "OP-89a3ce3553e0",
+      "file_path": "src/duration.py",
+      "operation_type": "CREATE",
+      "original_hash": null,
+      "new_hash": "79741a7b7dc69dc7ac6053a7b6df9c6cd39dde120084e0b49922f06f2c3bf215",
+      "original_existence": false,
+      "change_reason": "Phase 11.6 node [task_duration]: SOURCE src/duration.py: Create src/duration.py with exactly one public function parse_duration(value). | Supported units: h, m, s.",
+      "related_requirement_ids": [
+        "REQ-001",
+        "REQ-002"
+      ],
+      "related_architecture_decisions": [
+        "ADR-001",
+        "ADR-002",
+        "ADR-003"
+      ],
+      "approval_ref": null,
+      "timestamp": 1794115113.2218013,
+      "status": "APPLIED",
+      "verification_status": "VERIFIED",
+      "ownership_category": "AGENT_CREATED",
+      "destination_path": null
+    },
+    {
+      "tenant_ledger": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\tenants\\default_tenant\\ledger\\turn_turn-5bd30b1c85e84807a830727a118d54bf_ledger.json",
+      "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+      "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+      "operation_id": "OP-8d18121b68c0",
+      "file_path": "tests/test_duration.py",
+      "operation_type": "CREATE",
+      "original_hash": null,
+      "new_hash": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+      "original_existence": false,
+      "change_reason": "Phase 11.6 node [task_tests_test_duration]: TEST tests/test_duration.py: Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h",
+      "related_requirement_ids": [
+        "REQ-003"
+      ],
+      "related_architecture_decisions": [
+        "ADR-001",
+        "ADR-002",
+        "ADR-003"
+      ],
+      "approval_ref": null,
+      "timestamp": 1794115116.8233702,
+      "status": "APPLIED",
+      "verification_status": "VERIFIED",
+      "ownership_category": "AGENT_CREATED",
+      "destination_path": null
+    }
+  ],
+  "workspace_after": {
+    "files": [
+      "README.md",
+      "diagnostics/LATEST_PERFORMANCE_AUDIT.md",
+      "diagnostics/PERFORMANCE_REPORT_session-831ffd10b40743e58382cd9e4ea608fd.md",
+      "diagnostics/traces/session-831ffd10b40743e58382cd9e4ea608fd.jsonl",
+      "src/duration.py",
+      "tests/test_duration.py"
+    ],
+    "git_status": "?? .crusorai/\n?? diagnostics/\n?? src/\n?? tests/"
+  },
+  "verification": {
+    "module_exists": true,
+    "tests_exist": true,
+    "module_sha256": "c7e9e69a4c8548c24a11400d4356d3a31c88f3cb9314535bc89aaed44a5cd42f",
+    "ast_ok": true,
+    "has_parse_duration": true,
+    "independent_smoke": {
+      "ok": true,
+      "checks": {
+        "1h30m": true,
+        "2m_15s": true,
+        "45s": true,
+        "1h_30m_15s": true,
+        "duplicate_valueerror": true,
+        "unknown_valueerror": true,
+        "empty_valueerror": true,
+        "negative_valueerror": true,
+        "non_string_typeerror": true
+      },
+      "stderr": ""
+    },
+    "tests_sha256": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+    "pytest_returncode": 0,
+    "pytest_tail": [
+      "..........                                                               [100%]",
+      "10 passed in 0.02s"
+    ]
+  },
+  "in_turn": {
+    "available": true,
+    "tests": [
+      {
+        "runner": "pytest",
+        "command": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m pytest -q --tb=short --no-header -p no:cacheprovider -rf --junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml tests/test_duration.py",
+        "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+        "exit_code": 0,
+        "started_at": 1794115117.0748749,
+        "finished_at": 1794115118.1749682,
+        "duration_s": 1.1,
+        "total": 10,
+        "passed": 10,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "cases": [
+          {
+            "test_id": "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.001,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_forty_five_seconds",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_duplicate_unit_raises",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.001,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_unknown_unit_raises",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.001,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_empty_string_raises",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_missing_number_raises",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_negative_value_raises",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          },
+          {
+            "test_id": "tests/test_duration.py::test_non_string_raises_type_error",
+            "file": "tests/test_duration.py",
+            "status": "PASSED",
+            "duration_s": 0.0,
+            "failure_type": null,
+            "message": null,
+            "traceback": null
+          }
+        ],
+        "report_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+        "timed_out": false,
+        "infrastructure_error": null,
+        "source_hashes": {
+          "tests/test_duration.py": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+          "src/duration.py": "79741a7b7dc69dc7ac6053a7b6df9c6cd39dde120084e0b49922f06f2c3bf215"
+        }
+      }
+    ],
+    "repairs": [],
+    "diagnoses": [],
+    "completion": {
+      "ok": true,
+      "blocked": false,
+      "reasons": [],
+      "testing_required": true,
+      "tests": {
+        "runner": "pytest",
+        "total": 10,
+        "passed": 10,
+        "failed": 0,
+        "errors": 0,
+        "repair_attempts": 0
+      },
+      "verification_verdict": "VERIFIED"
+    },
+    "completion_ok": true,
+    "contract": {
+      "contract_hash": "003a6fdb4e7c1fb05c38175542ce4dd84ef374669a6be2eca2315d549edff6c8",
+      "version": 1,
+      "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\contracts\\turn_turn-5bd30b1c85e84807a830727a118d54bf_contract.json",
+      "components": [
+        {
+          "role": "SOURCE",
+          "target": "src/duration.py",
+          "requirement_ids": [
+            "REQ-001",
+            "REQ-002"
+          ],
+          "symbols": [
+            "parse_duration"
+          ],
+          "signatures": {
+            "parse_duration": [
+              "value"
+            ]
+          },
+          "returns": "int",
+          "units": [
+            "h",
+            "m",
+            "s"
+          ]
+        },
+        {
+          "role": "TEST",
+          "target": "tests/test_duration.py",
+          "requirement_ids": [
+            "REQ-003"
+          ],
+          "symbols": [
+            "parse_duration"
+          ],
+          "signatures": {
+            "parse_duration": [
+              "value"
+            ]
+          },
+          "returns": "int",
+          "units": [
+            "h",
+            "m",
+            "s"
+          ]
+        }
+      ],
+      "ambiguities": [],
+      "optional_suggestions": [
+        {
+          "id": "REQ-004",
+          "description": "Secure credential storage & safe environment variable configuration",
+          "classification": "OPTIONAL_SUGGESTION"
+        },
+        {
+          "id": "REQ-005",
+          "description": "Automated unit and integration test suite with high coverage",
+          "classification": "OPTIONAL_SUGGESTION"
+        }
+      ]
+    },
+    "assignment": {
+      "requirement_map": {
+        "REQ-001": [
+          "src/duration.py"
+        ],
+        "REQ-002": [
+          "src/duration.py"
+        ],
+        "REQ-003": [
+          "tests/test_duration.py"
+        ]
+      },
+      "roles": {
+        "src/duration.py": "SOURCE",
+        "tests/test_duration.py": "TEST"
+      },
+      "ambiguities": []
+    },
+    "plan": {
+      "ok": true,
+      "reasons": [],
+      "work_units": 2,
+      "demand": 2,
+      "targets": [
+        "src/duration.py",
+        "tests/test_duration.py"
+      ],
+      "contract_hash": "003a6fdb4e7c1fb05c38175542ce4dd84ef374669a6be2eca2315d549edff6c8",
+      "requirements": {
+        "REQ-001": [
+          "src/duration.py"
+        ],
+        "REQ-002": [
+          "src/duration.py"
+        ],
+        "REQ-003": [
+          "tests/test_duration.py"
+        ]
+      }
+    },
+    "cross_file": {
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "checked_files": {
+        "src/duration.py": {
+          "role": "SOURCE",
+          "public_symbols": [
+            "parse_duration"
+          ]
+        },
+        "tests/test_duration.py": {
+          "role": "TEST",
+          "imports": [
+            {
+              "module": "pytest",
+              "symbols": [],
+              "alias": null
+            },
+            {
+              "module": "src.duration",
+              "symbols": [
+                "parse_duration"
+              ]
+            }
+          ]
+        }
+      },
+      "contract_hash": "003a6fdb4e7c1fb05c38175542ce4dd84ef374669a6be2eca2315d549edff6c8",
+      "method": "static_ast",
+      "note": "a clean static report is not proof of semantic correctness; execution is authoritative"
+    },
+    "test_repairs": [],
+    "test_evidence": [
+      "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\turn_turn-5bd30b1c85e84807a830727a118d54bf_run1.json"
+    ],
+    "delivery": {
+      "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+      "original_request": "Create src/duration.py with exactly one public function parse_duration(value). It parses a duration string into whole seconds. Supported units: h, m, s. Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units. Return an int. Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values. Do not accept floats. Raise TypeError when value is not a string. Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError. The test file must import the function exactly as `from src.duration import parse_duration`. Run pytest and make every test pass. Do not modify unrelated files.",
+      "verdict": "COMPLETED",
+      "what_was_requested": "Create src/duration.py with exactly one public function parse_duration(value). It parses a duration string into whole seconds. Supported units: h, m, s. Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units. Return an int. Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values. Do not accept floats. Raise TypeError when value is not a string. Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError. The test file must import the function exactly as `from src.duration import parse_duration`. Run pytest and make every test pass. Do not modify unrelated files.",
+      "what_was_implemented": [
+        "SOURCE src/duration.py: Create src/duration.py with exactly one public function parse_duration(value). | Supported units: h, m, s.",
+        "TEST tests/test_duration.py: Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h",
+        "Run contract verification and independent completion checks"
+      ],
+      "files_changed": [
+        "src/duration.py",
+        "tests/test_duration.py"
+      ],
+      "tests_executed": [
+        "tests/test_duration.py::test_one_hour_thirty_minutes",
+        "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+        "tests/test_duration.py::test_forty_five_seconds",
+        "tests/test_duration.py::test_hour_minute_second_with_spaces",
+        "tests/test_duration.py::test_duplicate_unit_raises",
+        "tests/test_duration.py::test_unknown_unit_raises",
+        "tests/test_duration.py::test_empty_string_raises",
+        "tests/test_duration.py::test_missing_number_raises",
+        "tests/test_duration.py::test_negative_value_raises",
+        "tests/test_duration.py::test_non_string_raises_type_error"
+      ],
+      "tests_passed": [
+        "tests/test_duration.py::test_one_hour_thirty_minutes",
+        "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+        "tests/test_duration.py::test_forty_five_seconds",
+        "tests/test_duration.py::test_hour_minute_second_with_spaces",
+        "tests/test_duration.py::test_duplicate_unit_raises",
+        "tests/test_duration.py::test_unknown_unit_raises",
+        "tests/test_duration.py::test_empty_string_raises",
+        "tests/test_duration.py::test_missing_number_raises",
+        "tests/test_duration.py::test_negative_value_raises",
+        "tests/test_duration.py::test_non_string_raises_type_error"
+      ],
+      "tests_failed": [],
+      "independently_verified": true,
+      "remaining_limitations": [
+        "Production readiness warnings: Missing Automated CI/CD Pipeline for Production Target; Missing Automated Database Backup Configuration; Missing Service Health Endpoint (/health)"
+      ],
+      "user_action_required": null,
+      "cost_inr": 0.125588,
+      "token_usage": {
+        "tokens": 7681
+      },
+      "duration_seconds": 50.435,
+      "evidence_references": [
+        "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+        "24b6bd7dbccf2754c05172a5da4e6ec17e85a34c4a5c4f6621b62b4187d3044a",
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\turn_turn-5bd30b1c85e84807a830727a118d54bf_run1.json"
+      ],
+      "production_readiness_verdict": "NOT_PRODUCTION_READY",
+      "production_readiness_findings": [
+        {
+          "finding_id": "PROD-CICD-MISSING-001",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "category": "CICD",
+          "severity": "HIGH",
+          "title": "Missing Automated CI/CD Pipeline for Production Target",
+          "description": "No CI/CD pipeline definition files (.github/workflows) discovered in repository.",
+          "evidence_source": "Repository root",
+          "affected_component": "ci_cd",
+          "environment": "STANDARD_PROD",
+          "confidence": 1.0,
+          "recommended_remediation": "Establish an automated CI/CD workflow to test, build, and gate production deployments.",
+          "required_approval": false,
+          "verification_status": "OPEN",
+          "first_detected": 1794115118.2567148,
+          "last_evaluated": 1794115118.2567155,
+          "revision_history": []
+        },
+        {
+          "finding_id": "PROD-BAK-MISSING-001",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "category": "BACKUP_RECOVERY",
+          "severity": "HIGH",
+          "title": "Missing Automated Database Backup Configuration",
+          "description": "No automated backup schedule or snapshot script located in workspace.",
+          "evidence_source": "Infrastructure definitions",
+          "affected_component": "backup_recovery",
+          "environment": "STANDARD_PROD",
+          "confidence": 1.0,
+          "recommended_remediation": "Configure automated daily backups with retention and point-in-time recovery.",
+          "required_approval": false,
+          "verification_status": "OPEN",
+          "first_detected": 1794115118.2660506,
+          "last_evaluated": 1794115118.266051,
+          "revision_history": []
+        },
+        {
+          "finding_id": "PROD-OBS-HEALTH-001",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "category": "OBSERVABILITY",
+          "severity": "HIGH",
+          "title": "Missing Service Health Endpoint (/health)",
+          "description": "No health, liveness, or readiness check route found in application routes.",
+          "evidence_source": "Application routing",
+          "affected_component": "observability",
+          "environment": "STANDARD_PROD",
+          "confidence": 1.0,
+          "recommended_remediation": "Expose a lightweight '/health' endpoint returning HTTP 200 and subsystem statuses.",
+          "required_approval": false,
+          "verification_status": "OPEN",
+          "first_detected": 1794115118.2733707,
+          "last_evaluated": 1794115118.273371,
+          "revision_history": []
+        },
+        {
+          "finding_id": "PROD-OBS-ALERTS-002",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "category": "OBSERVABILITY",
+          "severity": "MEDIUM",
+          "title": "Missing Operational Alert Rules & Incident Visibility",
+          "description": "Application emits logs/metrics, but no actionable alert rules (Prometheus alerts, PagerDuty, webhooks) exist.",
+          "evidence_source": "Monitoring configurations",
+          "affected_component": "observability",
+          "environment": "STANDARD_PROD",
+          "confidence": 1.0,
+          "recommended_remediation": "Define actionable alert rules for error spikes (HTTP 5xx > 1%), high latency, and service outages.",
+          "required_approval": false,
+          "verification_status": "OPEN",
+          "first_detected": 1794115118.273375,
+          "last_evaluated": 1794115118.2733753,
+          "revision_history": []
+        },
+        {
+          "finding_id": "PROD-REL-SHUTDOWN-001",
+          "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+          "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "category": "RELIABILITY",
+          "severity": "MEDIUM",
+          "title": "Missing Graceful Shutdown Signal Handler",
+          "description": "No SIGTERM or SIGINT signal handler found to drain active requests before process exit.",
+          "evidence_source": "Application entry points",
+          "affected_component": "reliability",
+          "environment": "STANDARD_PROD",
+          "confidence": 1.0,
+          "recommended_remediation": "Listen for SIGTERM signals to finish in-flight requests and close DB pools cleanly.",
+          "required_approval": false,
+          "verification_status": "OPEN",
+          "first_detected": 1794115118.2767708,
+          "last_evaluated": 1794115118.276771,
+          "revision_history": []
+        }
+      ],
+      "test_evidence": {
+        "testing_required": true,
+        "discovery": {
+          "runner": "pytest",
+          "files": [
+            "tests/test_duration.py"
+          ],
+          "generated": [
+            "tests/test_duration.py"
+          ],
+          "explicit": [
+            "tests/test_duration.py"
+          ],
+          "related": [],
+          "command": [
+            "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe",
+            "-m",
+            "pytest",
+            "-q",
+            "--tb=short",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+            "-rf",
+            "--junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+            "tests/test_duration.py"
+          ],
+          "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "reason": "pytest with generated/explicit/related tests",
+          "warnings": []
+        },
+        "final_run": {
+          "runner": "pytest",
+          "command": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m pytest -q --tb=short --no-header -p no:cacheprovider -rf --junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml tests/test_duration.py",
+          "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+          "exit_code": 0,
+          "started_at": 1794115117.0748749,
+          "finished_at": 1794115118.1749682,
+          "duration_s": 1.1,
+          "total": 10,
+          "passed": 10,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "cases": [
+            {
+              "test_id": "tests/test_duration.py::test_one_hour_thirty_minutes",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.001,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_forty_five_seconds",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_hour_minute_second_with_spaces",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_duplicate_unit_raises",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.001,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_unknown_unit_raises",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.001,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_empty_string_raises",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_missing_number_raises",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_negative_value_raises",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            },
+            {
+              "test_id": "tests/test_duration.py::test_non_string_raises_type_error",
+              "file": "tests/test_duration.py",
+              "status": "PASSED",
+              "duration_s": 0.0,
+              "failure_type": null,
+              "message": null,
+              "traceback": null
+            }
+          ],
+          "report_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+          "timed_out": false,
+          "infrastructure_error": null,
+          "source_hashes": {
+            "tests/test_duration.py": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+            "src/duration.py": "79741a7b7dc69dc7ac6053a7b6df9c6cd39dde120084e0b49922f06f2c3bf215"
+          }
+        },
+        "runs": [
+          "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\turn_turn-5bd30b1c85e84807a830727a118d54bf_run1.json"
+        ],
+        "repair_attempts": []
+      },
+      "repair_attempts": [],
+      "requirement_verification": [
+        {
+          "requirement_id": "REQ-001",
+          "intent": "Create src/duration.py with exactly one public function parse_duration(value).",
+          "description": "Create src/duration.py with exactly one public function parse_duration(value).",
+          "acceptance_criteria": [
+            {
+              "criterion": "Verified implementation of: Create src/duration.py with exactly one public function parse_duration(value).",
+              "satisfied": true,
+              "evidence": "Verified in: src/duration.py contains behavioral implementation"
+            }
+          ],
+          "relevant_files": [
+            "src/duration.py"
+          ],
+          "relevant_symbols": [
+            "src/duration.py::parse_duration"
+          ],
+          "related_tests": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "test_results": {
+            "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+            "tests/test_duration.py::test_forty_five_seconds": "PASS",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+            "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+            "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+            "tests/test_duration.py::test_empty_string_raises": "PASS",
+            "tests/test_duration.py::test_missing_number_raises": "PASS",
+            "tests/test_duration.py::test_negative_value_raises": "PASS",
+            "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+          },
+          "status": "VERIFIED",
+          "remaining_limitations": [],
+          "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 1 symbols, 10 passing / 0 failing executed tests."
+        },
+        {
+          "requirement_id": "REQ-002",
+          "intent": "Supported units: h, m, s.",
+          "description": "Supported units: h, m, s.",
+          "acceptance_criteria": [
+            {
+              "criterion": "Verified implementation of: Supported units: h, m, s.",
+              "satisfied": true,
+              "evidence": "Verified in: src/duration.py contains behavioral implementation"
+            }
+          ],
+          "relevant_files": [
+            "src/duration.py"
+          ],
+          "relevant_symbols": [
+            "src/duration.py::parse_duration"
+          ],
+          "related_tests": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "test_results": {
+            "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+            "tests/test_duration.py::test_forty_five_seconds": "PASS",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+            "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+            "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+            "tests/test_duration.py::test_empty_string_raises": "PASS",
+            "tests/test_duration.py::test_missing_number_raises": "PASS",
+            "tests/test_duration.py::test_negative_value_raises": "PASS",
+            "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+          },
+          "status": "VERIFIED",
+          "remaining_limitations": [],
+          "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 1 symbols, 10 passing / 0 failing executed tests."
+        },
+        {
+          "requirement_id": "REQ-003",
+          "intent": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+          "description": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+          "acceptance_criteria": [
+            {
+              "criterion": "Verified implementation of: Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+              "satisfied": true,
+              "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+            }
+          ],
+          "relevant_files": [
+            "tests/test_duration.py"
+          ],
+          "relevant_symbols": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "related_tests": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "test_results": {
+            "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+            "tests/test_duration.py::test_forty_five_seconds": "PASS",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+            "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+            "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+            "tests/test_duration.py::test_empty_string_raises": "PASS",
+            "tests/test_duration.py::test_missing_number_raises": "PASS",
+            "tests/test_duration.py::test_negative_value_raises": "PASS",
+            "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+          },
+          "status": "VERIFIED",
+          "remaining_limitations": [],
+          "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 10 symbols, 10 passing / 0 failing executed tests."
+        },
+        {
+          "requirement_id": "REQ-004",
+          "intent": "Secure credential storage & safe environment variable configuration",
+          "description": "Secure credential storage & safe environment variable configuration",
+          "acceptance_criteria": [
+            {
+              "criterion": "Zero credentials committed in source code",
+              "satisfied": false,
+              "evidence": "No files available to satisfy criterion."
+            },
+            {
+              "criterion": "Sensitive configuration loaded via environment variables",
+              "satisfied": false,
+              "evidence": "No files available to satisfy criterion."
+            }
+          ],
+          "relevant_files": [],
+          "relevant_symbols": [],
+          "related_tests": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "test_results": {
+            "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+            "tests/test_duration.py::test_forty_five_seconds": "PASS",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+            "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+            "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+            "tests/test_duration.py::test_empty_string_raises": "PASS",
+            "tests/test_duration.py::test_missing_number_raises": "PASS",
+            "tests/test_duration.py::test_negative_value_raises": "PASS",
+            "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+          },
+          "status": "NOT_APPLICABLE",
+          "remaining_limitations": [
+            "Unsatisfied criterion: Zero credentials committed in source code",
+            "Unsatisfied criterion: Sensitive configuration loaded via environment variables",
+            "No implementation files found matching requirement scope.",
+            "Optional analyzer suggestion excluded from the mandatory completion scope."
+          ],
+          "evidence_summary": "Satisfied 0/2 criteria. Inspected 0 files, 0 symbols, 10 passing / 0 failing executed tests."
+        },
+        {
+          "requirement_id": "REQ-005",
+          "intent": "Automated unit and integration test suite with high coverage",
+          "description": "Automated unit and integration test suite with high coverage",
+          "acceptance_criteria": [
+            {
+              "criterion": "Automated test runner executes without errors",
+              "satisfied": true,
+              "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+            },
+            {
+              "criterion": "Critical business paths covered by deterministic tests",
+              "satisfied": true,
+              "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+            }
+          ],
+          "relevant_files": [
+            "src/duration.py",
+            "tests/test_duration.py"
+          ],
+          "relevant_symbols": [
+            "src/duration.py::parse_duration",
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "related_tests": [
+            "tests/test_duration.py::test_one_hour_thirty_minutes",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+            "tests/test_duration.py::test_forty_five_seconds",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces",
+            "tests/test_duration.py::test_duplicate_unit_raises",
+            "tests/test_duration.py::test_unknown_unit_raises",
+            "tests/test_duration.py::test_empty_string_raises",
+            "tests/test_duration.py::test_missing_number_raises",
+            "tests/test_duration.py::test_negative_value_raises",
+            "tests/test_duration.py::test_non_string_raises_type_error"
+          ],
+          "test_results": {
+            "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+            "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+            "tests/test_duration.py::test_forty_five_seconds": "PASS",
+            "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+            "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+            "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+            "tests/test_duration.py::test_empty_string_raises": "PASS",
+            "tests/test_duration.py::test_missing_number_raises": "PASS",
+            "tests/test_duration.py::test_negative_value_raises": "PASS",
+            "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+          },
+          "status": "VERIFIED",
+          "remaining_limitations": [],
+          "evidence_summary": "Satisfied 2/2 criteria. Inspected 2 files, 11 symbols, 10 passing / 0 failing executed tests."
+        }
+      ],
+      "contract": {
+        "contract_id": "CONTRACT-003a6fdb4e7c",
+        "task_id": "turn_turn-5bd30b1c85e84807a830727a118d54bf",
+        "prompt_sha256": "a887a669c05b7f2c1392405f830d0661b517dbadc7aa30ce75a253b254fe05f8",
+        "version": 1,
+        "components": [
+          {
+            "component_id": "COMP-001",
+            "name": "duration",
+            "responsibility": "Create src/duration.py with exactly one public function parse_duration(value). | Supported units: h, m, s.",
+            "target_file": "src/duration.py",
+            "role": "SOURCE",
+            "requirement_ids": [
+              "REQ-001",
+              "REQ-002"
+            ],
+            "classification": "EXPLICIT",
+            "symbols": [
+              "parse_duration"
+            ],
+            "signatures": {
+              "parse_duration": [
+                "value"
+              ]
+            },
+            "returns": "int",
+            "units": [
+              "h",
+              "m",
+              "s"
+            ],
+            "formats": [
+              "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+              "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+              "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+            ],
+            "errors": [
+              {
+                "type": "ValueError",
+                "when": "an empty string, unknown units, duplicate units, missing numbers, or negative values"
+              },
+              {
+                "type": "TypeError",
+                "when": "value is not a string"
+              }
+            ],
+            "forbidden": [
+              "floats",
+              "additional public functions, classes, constants or CLI",
+              "modifying unrelated files"
+            ],
+            "edge_cases": [
+              "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+              "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+              "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+            ],
+            "imports": [],
+            "test_cases": [],
+            "evidence_required": [
+              "pytest executed",
+              "public symbol present",
+              "return contract satisfied"
+            ]
+          },
+          {
+            "component_id": "COMP-002",
+            "name": "test_duration",
+            "responsibility": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+            "target_file": "tests/test_duration.py",
+            "role": "TEST",
+            "requirement_ids": [
+              "REQ-003"
+            ],
+            "classification": "EXPLICIT",
+            "symbols": [
+              "parse_duration"
+            ],
+            "signatures": {
+              "parse_duration": [
+                "value"
+              ]
+            },
+            "returns": "int",
+            "units": [
+              "h",
+              "m",
+              "s"
+            ],
+            "formats": [],
+            "errors": [
+              {
+                "type": "ValueError",
+                "when": "an empty string, unknown units, duplicate units, missing numbers, or negative values"
+              },
+              {
+                "type": "TypeError",
+                "when": "value is not a string"
+              }
+            ],
+            "forbidden": [
+              "floats",
+              "additional public functions, classes, constants or CLI",
+              "modifying unrelated files"
+            ],
+            "edge_cases": [
+              "Input may contain multiple components in any order (for example '1h30m' or '2m 15s'), optional spaces, and no duplicate units.",
+              "Raise ValueError for an empty string, unknown units, duplicate units, missing numbers, or negative values.",
+              "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError."
+            ],
+            "imports": [
+              {
+                "module": "src.duration",
+                "symbols": [
+                  "parse_duration"
+                ],
+                "style": "from"
+              }
+            ],
+            "test_cases": [
+              {
+                "input": "1h30m",
+                "expected": 5400
+              },
+              {
+                "input": "2m 15s",
+                "expected": 135
+              },
+              {
+                "input": "45s",
+                "expected": 45
+              },
+              {
+                "input": "1h 30m 15s",
+                "expected": 5415
+              },
+              {
+                "input": "1h1h",
+                "raises": "ValueError"
+              }
+            ],
+            "evidence_required": [
+              "tests executed",
+              "import contract satisfied"
+            ]
+          }
+        ],
+        "requirement_map": {
+          "REQ-001": [
+            "src/duration.py"
+          ],
+          "REQ-002": [
+            "src/duration.py"
+          ],
+          "REQ-003": [
+            "tests/test_duration.py"
+          ]
+        },
+        "ambiguities": [],
+        "optional_suggestions": [
+          {
+            "id": "REQ-004",
+            "description": "Secure credential storage & safe environment variable configuration",
+            "classification": "OPTIONAL_SUGGESTION"
+          },
+          {
+            "id": "REQ-005",
+            "description": "Automated unit and integration test suite with high coverage",
+            "classification": "OPTIONAL_SUGGESTION"
+          }
+        ],
+        "contract_hash": "003a6fdb4e7c1fb05c38175542ce4dd84ef374669a6be2eca2315d549edff6c8"
+      },
+      "cross_file_validation": {
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "checked_files": {
+          "src/duration.py": {
+            "role": "SOURCE",
+            "public_symbols": [
+              "parse_duration"
+            ]
+          },
+          "tests/test_duration.py": {
+            "role": "TEST",
+            "imports": [
+              {
+                "module": "pytest",
+                "symbols": [],
+                "alias": null
+              },
+              {
+                "module": "src.duration",
+                "symbols": [
+                  "parse_duration"
+                ]
+              }
+            ]
+          }
+        },
+        "contract_hash": "003a6fdb4e7c1fb05c38175542ce4dd84ef374669a6be2eca2315d549edff6c8",
+        "method": "static_ast",
+        "note": "a clean static report is not proof of semantic correctness; execution is authoritative"
+      }
+    },
+    "requirement_verification": [
+      {
+        "requirement_id": "REQ-001",
+        "intent": "Create src/duration.py with exactly one public function parse_duration(value).",
+        "description": "Create src/duration.py with exactly one public function parse_duration(value).",
+        "acceptance_criteria": [
+          {
+            "criterion": "Verified implementation of: Create src/duration.py with exactly one public function parse_duration(value).",
+            "satisfied": true,
+            "evidence": "Verified in: src/duration.py contains behavioral implementation"
+          }
+        ],
+        "relevant_files": [
+          "src/duration.py"
+        ],
+        "relevant_symbols": [
+          "src/duration.py::parse_duration"
+        ],
+        "related_tests": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "test_results": {
+          "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+          "tests/test_duration.py::test_forty_five_seconds": "PASS",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+          "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+          "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+          "tests/test_duration.py::test_empty_string_raises": "PASS",
+          "tests/test_duration.py::test_missing_number_raises": "PASS",
+          "tests/test_duration.py::test_negative_value_raises": "PASS",
+          "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+        },
+        "status": "VERIFIED",
+        "remaining_limitations": [],
+        "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 1 symbols, 10 passing / 0 failing executed tests."
+      },
+      {
+        "requirement_id": "REQ-002",
+        "intent": "Supported units: h, m, s.",
+        "description": "Supported units: h, m, s.",
+        "acceptance_criteria": [
+          {
+            "criterion": "Verified implementation of: Supported units: h, m, s.",
+            "satisfied": true,
+            "evidence": "Verified in: src/duration.py contains behavioral implementation"
+          }
+        ],
+        "relevant_files": [
+          "src/duration.py"
+        ],
+        "relevant_symbols": [
+          "src/duration.py::parse_duration"
+        ],
+        "related_tests": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "test_results": {
+          "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+          "tests/test_duration.py::test_forty_five_seconds": "PASS",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+          "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+          "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+          "tests/test_duration.py::test_empty_string_raises": "PASS",
+          "tests/test_duration.py::test_missing_number_raises": "PASS",
+          "tests/test_duration.py::test_negative_value_raises": "PASS",
+          "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+        },
+        "status": "VERIFIED",
+        "remaining_limitations": [],
+        "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 1 symbols, 10 passing / 0 failing executed tests."
+      },
+      {
+        "requirement_id": "REQ-003",
+        "intent": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+        "description": "Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+        "acceptance_criteria": [
+          {
+            "criterion": "Verified implementation of: Then create tests/test_duration.py with pytest tests for: '1h30m' -> 5400, '2m 15s' -> 135, '45s' -> 45, '1h 30m 15s' -> 5415, duplicate '1h1h' raises ValueError, unknown '1d' raises, empty string raises, '-1h' raises, non-string raises TypeError.",
+            "satisfied": true,
+            "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+          }
+        ],
+        "relevant_files": [
+          "tests/test_duration.py"
+        ],
+        "relevant_symbols": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "related_tests": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "test_results": {
+          "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+          "tests/test_duration.py::test_forty_five_seconds": "PASS",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+          "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+          "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+          "tests/test_duration.py::test_empty_string_raises": "PASS",
+          "tests/test_duration.py::test_missing_number_raises": "PASS",
+          "tests/test_duration.py::test_negative_value_raises": "PASS",
+          "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+        },
+        "status": "VERIFIED",
+        "remaining_limitations": [],
+        "evidence_summary": "Satisfied 1/1 criteria. Inspected 1 files, 10 symbols, 10 passing / 0 failing executed tests."
+      },
+      {
+        "requirement_id": "REQ-004",
+        "intent": "Secure credential storage & safe environment variable configuration",
+        "description": "Secure credential storage & safe environment variable configuration",
+        "acceptance_criteria": [
+          {
+            "criterion": "Zero credentials committed in source code",
+            "satisfied": false,
+            "evidence": "No files available to satisfy criterion."
+          },
+          {
+            "criterion": "Sensitive configuration loaded via environment variables",
+            "satisfied": false,
+            "evidence": "No files available to satisfy criterion."
+          }
+        ],
+        "relevant_files": [],
+        "relevant_symbols": [],
+        "related_tests": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "test_results": {
+          "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+          "tests/test_duration.py::test_forty_five_seconds": "PASS",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+          "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+          "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+          "tests/test_duration.py::test_empty_string_raises": "PASS",
+          "tests/test_duration.py::test_missing_number_raises": "PASS",
+          "tests/test_duration.py::test_negative_value_raises": "PASS",
+          "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+        },
+        "status": "NOT_APPLICABLE",
+        "remaining_limitations": [
+          "Unsatisfied criterion: Zero credentials committed in source code",
+          "Unsatisfied criterion: Sensitive configuration loaded via environment variables",
+          "No implementation files found matching requirement scope.",
+          "Optional analyzer suggestion excluded from the mandatory completion scope."
+        ],
+        "evidence_summary": "Satisfied 0/2 criteria. Inspected 0 files, 0 symbols, 10 passing / 0 failing executed tests."
+      },
+      {
+        "requirement_id": "REQ-005",
+        "intent": "Automated unit and integration test suite with high coverage",
+        "description": "Automated unit and integration test suite with high coverage",
+        "acceptance_criteria": [
+          {
+            "criterion": "Automated test runner executes without errors",
+            "satisfied": true,
+            "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+          },
+          {
+            "criterion": "Critical business paths covered by deterministic tests",
+            "satisfied": true,
+            "evidence": "Verified in: tests/test_duration.py contains behavioral implementation"
+          }
+        ],
+        "relevant_files": [
+          "src/duration.py",
+          "tests/test_duration.py"
+        ],
+        "relevant_symbols": [
+          "src/duration.py::parse_duration",
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "related_tests": [
+          "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "tests/test_duration.py::test_forty_five_seconds",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "tests/test_duration.py::test_duplicate_unit_raises",
+          "tests/test_duration.py::test_unknown_unit_raises",
+          "tests/test_duration.py::test_empty_string_raises",
+          "tests/test_duration.py::test_missing_number_raises",
+          "tests/test_duration.py::test_negative_value_raises",
+          "tests/test_duration.py::test_non_string_raises_type_error"
+        ],
+        "test_results": {
+          "tests/test_duration.py::test_one_hour_thirty_minutes": "PASS",
+          "tests/test_duration.py::test_two_minutes_fifteen_seconds": "PASS",
+          "tests/test_duration.py::test_forty_five_seconds": "PASS",
+          "tests/test_duration.py::test_hour_minute_second_with_spaces": "PASS",
+          "tests/test_duration.py::test_duplicate_unit_raises": "PASS",
+          "tests/test_duration.py::test_unknown_unit_raises": "PASS",
+          "tests/test_duration.py::test_empty_string_raises": "PASS",
+          "tests/test_duration.py::test_missing_number_raises": "PASS",
+          "tests/test_duration.py::test_negative_value_raises": "PASS",
+          "tests/test_duration.py::test_non_string_raises_type_error": "PASS"
+        },
+        "status": "VERIFIED",
+        "remaining_limitations": [],
+        "evidence_summary": "Satisfied 2/2 criteria. Inspected 2 files, 11 symbols, 10 passing / 0 failing executed tests."
+      }
+    ],
+    "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\tenants\\default_tenant\\tasks\\turn_turn-5bd30b1c85e84807a830727a118d54bf\\orchestration_journal.jsonl",
+    "event_types": [
+      "TASK_INITIALIZED",
+      "REQUEST_UNDERSTOOD",
+      "DISCOVERY_COMPLETED",
+      "ARCHITECTURE_ESTABLISHED",
+      "CONTRACT_EXTRACTED",
+      "FILES_ASSIGNED",
+      "PLAN_VALIDATED",
+      "PLAN_GENERATED",
+      "IMPACT_EVALUATED",
+      "BASELINE_CAPTURED",
+      "IMPLEMENTATION_DONE",
+      "ARTIFACTS_VALIDATED",
+      "CROSS_FILE_VALIDATED",
+      "TESTS_DISCOVERED",
+      "TESTS_EXECUTED",
+      "PRODUCTION_READINESS_EVALUATED",
+      "COMPLETION_EVALUATED",
+      "TASK_DELIVERED"
+    ],
+    "final_test_run": {
+      "runner": "pytest",
+      "command": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m pytest -q --tb=short --no-header -p no:cacheprovider -rf --junitxml=C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml tests/test_duration.py",
+      "cwd": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1",
+      "exit_code": 0,
+      "started_at": 1794115117.0748749,
+      "finished_at": 1794115118.1749682,
+      "duration_s": 1.1,
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        {
+          "test_id": "tests/test_duration.py::test_one_hour_thirty_minutes",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.001,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_two_minutes_fifteen_seconds",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_forty_five_seconds",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_hour_minute_second_with_spaces",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_duplicate_unit_raises",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.001,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_unknown_unit_raises",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.001,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_empty_string_raises",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_missing_number_raises",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_negative_value_raises",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        },
+        {
+          "test_id": "tests/test_duration.py::test_non_string_raises_type_error",
+          "file": "tests/test_duration.py",
+          "status": "PASSED",
+          "duration_s": 0.0,
+          "failure_type": null,
+          "message": null,
+          "traceback": null
+        }
+      ],
+      "report_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hjyc6vo1\\.crusorai\\test_reports\\latest.xml",
+      "timed_out": false,
+      "infrastructure_error": null,
+      "source_hashes": {
+        "tests/test_duration.py": "a14471ad516bfd4c834156b7caae903865b8aadef56970a7c4e51463166e9ea5",
+        "src/duration.py": "79741a7b7dc69dc7ac6053a7b6df9c6cd39dde120084e0b49922f06f2c3bf215"
+      }
+    },
+    "evidence_dir": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_8\\live8\\test_reports"
+  },
+  "verdict": "P0.6.8_ACCEPTANCE_FAILED",
+  "finished_at": "2026-11-08T05:18:42.472Z",
+  "records": []
+}

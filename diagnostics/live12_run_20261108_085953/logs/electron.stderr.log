@@ -1,0 +1,41 @@
+
+DevTools listening on ws://127.0.0.1:59089/devtools/browser/88c1cbaa-44d4-45d9-acc4-f3727c4b8966
+Warning: 'remote-debugging-port' is not in the list of known options, but still passed to Electron/Chromium.
+Warning: 'remote-allow-origins' is not in the list of known options, but still passed to Electron/Chromium.
+Warning: 'enable-logging' is not in the list of known options, but still passed to Electron/Chromium.
+[main 2026-11-08T17:00:14.027Z] Error: Could not locate the bindings file. Tried:
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\build\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\build\Debug\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\build\Release\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\out\Debug\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\Debug\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\out\Release\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\Release\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\build\default\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\compiled\24.18.1\win32\x64\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\addon-build\release\install-root\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\addon-build\debug\install-root\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\addon-build\default\install-root\vscode-policy-watcher.node
+ → C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\lib\binding\node-v146-win32-x64\vscode-policy-watcher.node
+    at bindings (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\bindings\bindings.js:126:9)
+    at Object.<anonymous> (C:\Users\Administrator\Downloads\CRUSORAI\PulseAIRepo\desktop\vscode\node_modules\@vscode\policy-watcher\index.js:6:44)
+    at Module._compile (node:internal/modules/cjs/loader:1879:14)
+    at Object..js (node:internal/modules/cjs/loader:2012:10)
+    at Module.load (node:internal/modules/cjs/loader:1601:32)
+    at node:internal/modules/cjs/loader:1403:12
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:378:15)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:246:9)
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async NativePolicyService._updatePolicyDefinitions (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/policy/node/nativePolicyService.js:28:35)
+    at async NativePolicyService.updatePolicyDefinitions (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/policy/common/policy.js:59:13)
+    at async PolicyConfiguration.updatePolicyDefinitions (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/configuration/common/configurations.js:152:13)
+    at async PolicyConfiguration.initialize (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/configuration/common/configurations.js:102:21)
+    at async Promise.all (index 1)
+    at async ConfigurationService.initialize (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/platform/configuration/common/configurationService.js:39:56)
+    at async Promise.all (index 2)
+    at async Object.settled (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/base/common/async.js:1482:24)
+    at async CodeMain.initServices (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-main/main.js:280:9)
+    at async CodeMain.startup (file:///C:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-main/main.js:102:17)

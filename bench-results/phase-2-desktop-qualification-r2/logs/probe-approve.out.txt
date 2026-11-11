@@ -1,0 +1,51 @@
+{
+  "mode": "approve",
+  "session_id": "probe-approve-003",
+  "workspace": "<TEMP>\\p2r2-approve\\workspace",
+  "hello": {
+    "protocol": 2,
+    "engine": "crusorai"
+  },
+  "frame_types": [
+    "session_info",
+    "workspace.bound",
+    "workspace.bound",
+    "turn_started",
+    "runtime_degraded",
+    "turn_failed"
+  ],
+  "approvals": [],
+  "terminal": {
+    "type": "turn_failed",
+    "completed": false,
+    "cancelled": null,
+    "message": null
+  },
+  "file_content": "# Notes\n\nApproval target file.\n",
+  "messages": [
+    {
+      "role": "user",
+      "text": "Write the approval target line into notes.md"
+    }
+  ],
+  "bridge_exit": 0,
+  "stderr_tail": [
+    "[bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+    "[settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+    "[bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+    "[bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+    "[bridge] engine build: unknown",
+    "[bridge] DESKTOP WORKBENCH STALE: the shipped panel was emitted from DIFFERENT crusorai sources than this checkout (sha256 465a6bb15486\u2026 != 905b87f7e277\u2026) \u2014 the Agent pane will render OLD cards no matter what the engine runs. Fix: `git pull` (the repo ships a current compiled panel), or `npx gulp co",
+    "[bridge] STALE diagnosis (per-file manifest): modified: src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css \u2014 compare with `git status -- desktop/vscode/src/vs/workbench/contrib/crusorai` and restore with `git checkout -- <file>` (or delete the extra file).",
+    "[preview] preview proxy already serving <TEMP>\\p2r2-approve\\workspace at http://127.0.0.1:8931 \u2014 reusing it",
+    "[tools] binding 67 tools; unavailable this session: typecheck_workspace (no tsconfig.json in the workspace or its immediate project folders)",
+    "[aux] routing to cheap/qwen/qwen3.7-flash",
+    "[ContextEngine] context window 1,048,576 for 'z-ai/glm-5.3-flash' (source: velona-api); token budget 996,148 (provider cap 996,148)",
+    "[ContextEngine] scan budget: entries 1,000, files 1,000, 16 MiB, 5.0s (source: defaults)",
+    "[ContextEngine] per-call input budget: context 32,768 + history 32,768 tokens (source: defaults)",
+    "repo map layer: off (CRUSORAI_REPO_MAP=on to enable)",
+    "[ContextEngine] (auto: trusting discovered window)",
+    "[tokenizer] no built-in mapping (encoding_for_model('z-ai/glm-5.3-flash')): KeyError: 'Could not automatically map z-ai/glm-5.3-flash to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.' \u2014 using the standard cl100k_base tokenizer (exact counts). Never fatal",
+    "[bridge] turn FAILED after 1.7s: ImportError(\"cannot import name 'compact_assistant_tool_call_arguments' from 'src.context.compaction' (<REPO>\\\\src\\\\context\\\\compaction.py)\")"
+  ]
+}

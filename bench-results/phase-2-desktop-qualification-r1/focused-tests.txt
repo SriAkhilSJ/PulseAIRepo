@@ -1,0 +1,40 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: <REPO>
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 160 items
+
+src\tests\test_bridge_protocol_v2.py .........                           [  5%]
+src\tests\test_desktop_renderer_architecture.py ...s..FF................ [ 20%]
+...x..F..........................................................F...... [ 65%]
+......................                                                   [ 79%]
+src\tests\test_crusor_session_registration_parity.py sssss.s.....        [ 86%]
+src\tests\test_preview_contract.py ................                      [ 96%]
+src\tests\test_crusor_file_icons.py .....                                [100%]
+
+================================== FAILURES ===================================
+___ test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native ____
+src\tests\test_desktop_renderer_architecture.py:159: in test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native
+    assert behavior in renderer
+E   AssertionError: assert 'host.submitPrompt(value)' in '/*---------------------------------------------------------------------------------------------\n * Framework-neutral...er); confirmRemoveTimer = undefined; }\n\t\t\tlastModel = undefined;\n\t\t\troot.replaceChildren();\n\t\t},\n\t};\n}\n'
+__________ test_execution_mode_picker_is_functional_and_theme_driven __________
+src\tests\test_desktop_renderer_architecture.py:201: in test_execution_mode_picker_is_functional_and_theme_driven
+    assert "this.send({ type: 'prompt'" in service
+E   assert "this.send({ type: 'prompt'" in '/*---------------------------------------------------------------------------------------------\n * One shared event ... return URI.parse(resource); }\n\t\treturn folder ? URI.joinPath(folder.uri, resource) : URI.file(resource);\n\t}\n}\n'
+___________________ test_crusorai_type_grammar_is_tokenized ___________________
+src\tests\test_desktop_renderer_architecture.py:736: in test_crusorai_type_grammar_is_tokenized
+    assert not raw_sizes, f"raw font sizes: {raw_sizes}"
+E   AssertionError: raw font sizes: ['font-size: 11px', 'font-size: 10px', 'font-size: 12px', 'font-size: 10px']
+E   assert not ['font-size: 11px', 'font-size: 10px', 'font-size: 12px', 'font-size: 10px']
+__________________ test_tool_cards_follow_opencode_basictool __________________
+src\tests\test_desktop_renderer_architecture.py:1966: in test_tool_cards_follow_opencode_basictool
+    assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in renderer
+E   assert "presentation.family === 'subagent' ? [] : toolArgsChips(tool)" in '/*---------------------------------------------------------------------------------------------\n * Framework-neutral...er); confirmRemoveTimer = undefined; }\n\t\t\tlastModel = undefined;\n\t\t\troot.replaceChildren();\n\t\t},\n\t};\n}\n'
+=========================== short test summary info ===========================
+FAILED src/tests/test_desktop_renderer_architecture.py::test_agent_layout_keeps_progressive_disclosure_and_stable_docks_native
+FAILED src/tests/test_desktop_renderer_architecture.py::test_execution_mode_picker_is_functional_and_theme_driven
+FAILED src/tests/test_desktop_renderer_architecture.py::test_crusorai_type_grammar_is_tokenized
+FAILED src/tests/test_desktop_renderer_architecture.py::test_tool_cards_follow_opencode_basictool
+============ 4 failed, 148 passed, 7 skipped, 1 xfailed in 49.07s =============

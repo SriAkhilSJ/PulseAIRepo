@@ -54,7 +54,7 @@ export function crusorSessionStatusName(input) {
     if (input.hasApproval) {
         return 'needsInput';
     }
-    if (input.turnOutcome === 'failed') {
+    if (input.turnOutcome === 'failed' || input.turnOutcome === 'denied') {
         return 'failed';
     }
     if (input.running || input.turnOutcome === 'running') {

@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 
 AbortHandle = Callable[[], None]
 
+# How long an accepted-but-not-yet-begun prompt may accept a startup Stop.
+# Bounded by construction: one pending slot per session, cleared by begin()
+# and by expiry, so a late Stop can never poison a future turn.
+PENDING_CANCEL_TTL_S = 120.0
+
 
 @dataclass
 class _Control:
@@ -17,8 +22,17 @@ class _Control:
     # Queued prompts ride as (text, reasoning_effort) pairs so a turn started
     # while another is active keeps ITS Think pick, not the active turn's.
     queued: deque[tuple[str, str | None]] = field(default_factory=deque)
+    # Parallel submission ids for the queued prompts (Live11 exactly-once).
+    queued_ids: deque[str | None] = field(default_factory=deque)
     active: bool = False
     active_depth: int = 0
+    # A prompt was ACCEPTED by the bridge and its worker is starting, but the
+    # turn has not called begin() yet. A Stop that lands in that window must
+    # not be silently dropped (field r1: accepted=False, turn_elapsed=None,
+    # prompt still completed); it is recorded once here and consumed by the
+    # first begin(). Single-slot by design: no queue, no cross-turn leak.
+    pending_since: float | None = None
+    startup_cancel: bool = False
     # Wall-clock moment the current turn's first owner began (for the
     # observability receipt's duration_s). None once the turn ends.
     turn_started_at: float | None = None
@@ -57,11 +71,19 @@ class TurnControlRegistry:
         may begin the same turn again, so ownership is depth-counted. Only the
         first owner of a new turn clears the previous turn's cancellation;
         nested begin calls can never erase a Stop from the active turn.
+
+        A Stop received while the prompt was still starting is applied here,
+        before any provider/tool work: ``cancel()`` recorded it on the pending
+        slot, and the first ``begin()`` consumes it into ``cancel_event``.
         """
         item = self._get(session_id)
         with item.lock:
             if item.active_depth == 0:
                 item.cancel_event.clear()
+                item.pending_since = None
+                if item.startup_cancel:
+                    item.startup_cancel = False
+                    item.cancel_event.set()
                 item.turn_started_at = time.time()
             item.active_depth += 1
             item.active = True
@@ -92,6 +114,8 @@ class TurnControlRegistry:
             if item.active_depth == 0:
                 item.cancel_event.clear()
                 item.turn_started_at = None
+                item.startup_cancel = False
+                item.pending_since = None
                 is_last = True
         # End the OTel turn span when the LAST owner releases (no-op unless on).
         # Decided under the lock above; span teardown happens outside it.
@@ -117,17 +141,53 @@ class TurnControlRegistry:
         """Cancel an active turn and interrupt its registered requests.
 
         Cancelling an inactive session is rejected instead of poisoning the
-        next turn. The event and callback snapshot are serialized with begin()
-        and request registration, while callbacks run outside the lock.
+        next turn. The one exception is a prompt the bridge has accepted but
+        whose turn has not begun yet: that Stop is recorded on the single
+        pending slot and applied by the first begin(), so it can never be
+        dropped, and it expires with the pending window so a later turn is
+        never poisoned. The event and callback snapshot are serialized with
+        begin() and request registration; callbacks run outside the lock.
         """
         item = self._get(session_id)
         with item.lock:
             if item.active_depth == 0:
-                return False
+                pending = item.pending_since
+                if pending is None or (time.monotonic() - pending) > PENDING_CANCEL_TTL_S:
+                    item.pending_since = None
+                    item.startup_cancel = False
+                    return False
+                item.startup_cancel = True
+                item.cancel_event.set()
+                return True
             item.cancel_event.set()
             callbacks = tuple(item.aborts)
         self._fire(callbacks)
         return True
+
+    def mark_pending(self, session_id: str) -> None:
+        """Record that this session's prompt was accepted and is starting.
+
+        Called by the bridge on the main thread before the turn worker is
+        dispatched, so the startup window (imports, evidence setup, durable
+        row creation) is covered by cancel(). A later begin() consumes the
+        slot; an expiry check in cancel() bounds a worker that never begins.
+        """
+        item = self._get(session_id)
+        with item.lock:
+            if item.active_depth == 0:
+                item.pending_since = time.monotonic()
+                item.startup_cancel = False
+
+    def clear_pending(self, session_id: str) -> None:
+        item = self._get(session_id)
+        with item.lock:
+            item.pending_since = None
+            item.startup_cancel = False
+
+    def pending(self, session_id: str) -> bool:
+        item = self._get(session_id)
+        with item.lock:
+            return item.pending_since is not None
 
     def register_abort(self, session_id: str, fn: AbortHandle) -> None:
         """Register a request-owned abort handle for an active session.
@@ -197,16 +257,32 @@ class TurnControlRegistry:
             item.steer.clear()
             return out
 
-    def queue(self, session_id: str, text: str, reasoning_effort: str | None = None) -> int:
+    def queue(self, session_id: str, text: str, reasoning_effort: str | None = None,
+              submission_id: str | None = None) -> int:
         item = self._get(session_id)
         with item.lock:
             item.queued.append((str(text).strip(), reasoning_effort))
+            item.queued_ids.append(str(submission_id) if submission_id else None)
             return len(item.queued)
 
     def pop_queued(self, session_id: str) -> tuple[str, str | None] | None:
         item = self._get(session_id)
         with item.lock:
-            return item.queued.popleft() if item.queued else None
+            if not item.queued:
+                return None
+            if item.queued_ids:
+                item.queued_ids.popleft()
+            return item.queued.popleft()
+
+    def pop_queued_submission(self, session_id: str) -> tuple[str, str | None, str | None] | None:
+        """Pop a queued prompt together with its submission id."""
+        item = self._get(session_id)
+        with item.lock:
+            if not item.queued:
+                return None
+            text, effort = item.queued.popleft()
+            submission_id = item.queued_ids.popleft() if item.queued_ids else None
+            return text, effort, submission_id
 
     def reset(self, session_id: str) -> None:
         with self._lock:

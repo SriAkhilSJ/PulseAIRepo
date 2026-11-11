@@ -1,0 +1,110 @@
+# Agent interface evidence
+
+Surface: native auxiliary-bar "Crusor Agent" view, opened with
+`Crusor: Open Agent` (`crusorai.focus`). Visuals: `screenshots/02_agent_panel_open.png`,
+`08_before_reload.png`, `10_after_recovery_turn.png`.
+
+## A. Startup and activation
+
+- Workbench DOM after launch: `.monaco-workbench`, `.part.titlebar`,
+  `.part.activitybar`, `.part.sidebar`, `.part.editor`, `.part.statusbar`,
+  `.part.panel` all present; `document.readyState === "complete"`.
+- The view starts closed by design (`CrusorAutoHideContribution` closes it after
+  restore). Opening it mounts the pane.
+- No renderer crash and no boot loop across three launches.
+
+## B. Opening the panel
+
+`Ctrl+L` did not open the panel in this runtime: three `Control+l` presses left
+no composer and no `crusorai*` DOM node. The command palette path
+(`F1` → `Crusor: Open Agent` → `Enter`) opened it immediately. The same command
+is registered with the `Ctrl/Cmd+L` keybinding, so this is an input-delivery
+observation in this host/CDP session, not a missing command. Status:
+**command PASS; default keybinding NOT PROVEN**.
+
+After opening, the pane contained:
+
+```
+CRUSOR / CRUSOR AGENT / Manager / Crusor ready / ui 2026-10-25-42
+CRUSOR / Agent / Off / Enter to send / Shift+Enter for new line / Agent / Preview
+```
+
+`textarea.crusorai-composer-input` placeholder:
+`Ask anything, / for commands, @ for context...`; a `button.crusorai-send-button`
+with `aria-label="Send"` exists; mode chips and the "Off" approvals chip exist.
+
+## C. Provider-free deterministic turn
+
+Prompt `phase2 qualification ping` sent through the send button. Observed
+transcript before reload (`screenshots/08_before_reload.png`):
+
+```
+user      : phase2 qualification ping
+assistant : phase2 qualification ping          (echo token, test_runner=echo)
+status    : Agent Core evidence capture is degraded. Missing: report, trace_empty,
+            trace_finalization, trace_verdict, report_verdict. ...
+```
+
+- The response is rendered as a normal assistant message; the echo token is not
+  visually announced as a test runner (the bridge also emits a
+  `runtime_degraded` notice, but only the turn-receipt warning row is painted).
+- Running state: while in flight the pane shows `Thinking` and
+  `Esc to interrupt` (`screenshots/06_cancel_inflight.png`).
+- Completed state: `Enter to send` returns, no `Esc to interrupt`
+  (`screenshots/08_before_reload.png`).
+- Cancelled state: assistant text `Operation cancelled by the user.` plus a
+  distinct receipt row `Run cancelled` with class
+  `crusorai-turn-receipt is-cancelled` (`screenshots/07_cancel_result.png`).
+- Failed state: the approval deny path produced a `Failed` tool card and the
+  receipt `Run cancelled · 1 landed` (`screenshots/15_theme_picker_attempt.png`).
+
+Tool calls and results are represented by `.crusorai-assistant-message` tool
+cards (`Write`, file name, diff stats, result/error body). See
+`approval-flow.txt`.
+
+## D. Duplicate transcript check
+
+Transcript lane children after three turns and one cancellation:
+
+| # | class | text |
+|---|---|---|
+| 1 | crusorai-user-message | cancel probe turn |
+| 2 | crusorai-assistant-message | cancel probe turn |
+| 3 | crusorai-user-message | cancel probe two |
+| 4 | crusorai-assistant-message | Operation cancelled by the user. |
+| 5 | crusorai-turn-receipt is-cancelled | Run cancelled |
+| 6 | crusorai-user-message | replay probe turn |
+| 7 | crusorai-assistant-message | replay probe turn |
+| 8 | crusorai-context-status-row is-warning | Agent Core evidence capture is degraded ... |
+
+One row per message/turn; no duplicated assistant text and no duplicated
+receipt. After a renderer reload the lane still had exactly 8 children with the
+same text (see `session-replay.txt`).
+
+## E. Visual observations
+
+- Dark theme renders correctly; empty and populated states are distinct
+  (`02_agent_panel_open.png` vs `08_before_reload.png`).
+- Panel horizontal overflow is 0 and transcript horizontal overflow is 0.
+- Focusable controls are native `button`/`textarea` elements (Manager, Copy,
+  send, mode chips, tabs, composer), so keyboard tab order exists.
+- Approval dock layout is broken at the default 299 px panel width — recorded in
+  `visual-findings.md`.
+- Light theme was not exercised: the dev build's theme picker listed marketplace
+  themes only and a profile `workbench.colorTheme` write was reset to `{}` on
+  reload. Status: NOT EXERCISED.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Agent panel opens | PASS (command palette) |
+| Deterministic provider-free response renders | PASS |
+| Running / completed / failed / cancelled distinguishable | PASS |
+| Tool call/result represented | PASS |
+| No duplicate transcript rows | PASS |
+| Ctrl+L default shortcut | NOT PROVEN |
+
+Source-level renderer-architecture tests for this surface are failing; see
+`focused-tests.txt`. That failure is tracked separately and is not promoted to a
+runtime pass.

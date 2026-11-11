@@ -18,7 +18,9 @@ Produces:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from src.impact.models import ChangeImpactReport
@@ -26,6 +28,7 @@ from src.intelligence.architecture_models import ArchitectureBlueprint
 from src.intelligence.models import ProjectKnowledge
 from src.intelligence.requirement_models import ProjectSpecification
 from src.orchestration.models import EngineeringPlanDAG, EngineeringTaskNode
+from src.orchestration.test_execution import is_test_file
 from src.regression.models import TestBaseline
 from src.workspace.models import ChangePlan
 
@@ -35,6 +38,114 @@ log = logging.getLogger("crusor.orchestration.planner")
 class ScopeCreepError(ValueError):
     """Raised when an unapproved scope expansion is detected."""
     pass
+
+
+class PlanBudgetExceeded(RuntimeError):
+    """The plan cannot be expressed within the dispatches available.
+
+    Raised BEFORE any provider request, so an over-budget plan costs nothing.
+    """
+
+    def __init__(self, requested_nodes: int, allowed_nodes: int, requirement_ids: list[str]) -> None:
+        self.requested_nodes = requested_nodes
+        self.allowed_nodes = allowed_nodes
+        self.requirement_ids = requirement_ids
+        super().__init__(
+            f"plan needs {requested_nodes} nodes but only {allowed_nodes} dispatch(es) "
+            f"are available for requirements {requirement_ids}; refusing to execute"
+        )
+
+
+_RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+#: Only work the user actually asked for (or inferred as necessary) may become a
+#: mandatory plan node. Analyzer defaults are suggestions: they are recorded on
+#: the DAG but cannot silently expand scope or block completion.
+_MANDATORY_CLASSIFICATIONS = {"EXPLICIT", "NECESSARY_INFERRED"}
+
+
+def requirement_classification(req: Any) -> str:
+    raw = getattr(req, "classification", None)
+    value = getattr(raw, "value", raw)
+    return str(value or "").upper()
+
+
+def is_mandatory_requirement(req: Any) -> bool:
+    classification = requirement_classification(req)
+    if not classification:
+        # Legacy/fake specifications without classification keep the old
+        # behaviour: every listed requirement is work.
+        return True
+    return classification in _MANDATORY_CLASSIFICATIONS
+
+
+def merge_requirement_nodes(nodes: list[EngineeringTaskNode]) -> EngineeringTaskNode:
+    """Coalesce requirement nodes into ONE node without dropping requirements.
+
+    Requirement ids, target files, tests and acceptance criteria are UNIONed so
+    nothing is silently lost; member dependencies are kept and the highest risk
+    wins. This is how a 6-requirement plan becomes a plan that fits a
+    5-dispatch budget.
+    """
+    first = nodes[0]
+    req_ids: list[str] = []
+    targets: list[str] = []
+    tests: list[str] = []
+    criteria: list[str] = []
+    outputs: list[str] = []
+    deps: list[str] = []
+    for node in nodes:
+        for bucket, values in (
+            (req_ids, node.related_requirement_ids),
+            (targets, node.target_files),
+            (tests, node.required_tests),
+            (criteria, node.acceptance_criteria),
+            (outputs, node.expected_outputs),
+            (deps, node.dependencies),
+        ):
+            for value in values:
+                if value not in bucket:
+                    bucket.append(value)
+    risk = max((node.risk_level for node in nodes), key=lambda r: _RISK_ORDER.get(r, 0))
+    ceilings = [node.max_tokens for node in nodes if node.max_tokens]
+    return EngineeringTaskNode(
+        node_id=first.node_id,
+        description=("Implement requirements: " + ", ".join(req_ids)) if req_ids else first.description,
+        objective=" | ".join(dict.fromkeys(node.objective for node in nodes)),
+        related_requirement_ids=req_ids,
+        related_architecture_decisions=list(dict.fromkeys(
+            adr for node in nodes for adr in node.related_architecture_decisions)),
+        target_files=targets,
+        dependencies=[d for d in deps if d not in {n.node_id for n in nodes}],
+        risk_level=risk,
+        expected_outputs=outputs or ["Working code"],
+        required_tests=tests,
+        acceptance_criteria=criteria or ["Passes verification"],
+        completion_conditions=["Passing targeted unit tests"],
+        max_tokens=max(ceilings) if ceilings else None,
+    )
+
+
+def absorb_requirement_nodes(target: EngineeringTaskNode, others: list[EngineeringTaskNode]) -> None:
+    """Fold other requirement nodes into ``target`` WITHOUT adding files.
+
+    Used when the user named the files: their requested modules are the units
+    of work, and analyzer-derived placeholder nodes are absorbed into them so
+    every requirement id stays in the traceability map while no extra
+    ``src/req_00N_module.py`` file is invented (and no extra dispatch spent).
+    """
+    for node in others:
+        for rid in node.related_requirement_ids:
+            if rid not in target.related_requirement_ids:
+                target.related_requirement_ids.append(rid)
+        for bucket, values in (
+            (target.required_tests, node.required_tests),
+            (target.acceptance_criteria, node.acceptance_criteria),
+        ):
+            for value in values:
+                if value not in bucket:
+                    bucket.append(value)
+        target.objective = " | ".join(dict.fromkeys([target.objective, node.objective]))
 
 
 class EngineeringTaskPlanner:
@@ -55,6 +166,10 @@ class EngineeringTaskPlanner:
         impact_report: Optional[ChangeImpactReport] = None,
         test_baseline: Optional[TestBaseline] = None,
         change_plan: Optional[ChangePlan] = None,
+        max_nodes: Optional[int] = None,
+        requested_files: Optional[list[str]] = None,
+        task_prompt: Optional[str] = None,
+        contract: Optional[Any] = None,
     ) -> EngineeringPlanDAG:
         """
         Synthesizes an EngineeringPlanDAG tailored strictly to approved requirements.
@@ -68,10 +183,46 @@ class EngineeringTaskPlanner:
             all_reqs = getattr(specification, "requirements", [])
         approved_req_ids = {r.id for r in all_reqs if getattr(r.status, "value", str(r.status)) in {"APPROVED", "DISCOVERED", "PROPOSED", "VERIFIED"}}
 
+        # 1a. Analyzer discipline: only mandatory requirements become work.
+        #     Domain templates and "reasonable defaults" are recorded as
+        #     suggestions, never silently promoted into mandatory scope.
+        mandatory_reqs = [r for r in all_reqs if is_mandatory_requirement(r)]
+        optional_reqs = [r for r in all_reqs if not is_mandatory_requirement(r)]
+        dag.optional_requirements = [
+            {
+                "id": getattr(req, "id", ""),
+                "description": getattr(req, "description", ""),
+                "classification": requirement_classification(req),
+                "reason": "optional suggestion; not part of the requested mandatory scope",
+            }
+            for req in optional_reqs
+        ]
+
+        # P0.6.8: contract-first planning. When a contract is supplied, work
+        # units come from its components (role, target file, requirement ids and
+        # structured contract fields) instead of positional file assignment.
+        if contract is not None:
+            return self._build_contract_plan(
+                dag,
+                contract,
+                task_prompt=task_prompt,
+                blueprint=blueprint,
+                impact_report=impact_report,
+                max_nodes=max_nodes,
+            )
+
         # 2. Extract tasks directly mapped to requirements
         created_nodes: Dict[str, EngineeringTaskNode] = {}
+        # Files the USER actually named in the request take precedence over the
+        # synthesized ``src/<req>_module.py`` names: a plan that writes to paths
+        # nobody asked for satisfies nobody, even when it "completes".
+        requested_pool = [f for f in (requested_files or []) if f]
+        requested_set = set(requested_pool)
+        requested_tests = [f for f in requested_pool if is_test_file(f)]
+        requested_sources = [f for f in requested_pool if not is_test_file(f)]
+        used_requested: Set[str] = set()
 
-        for req in all_reqs:
+        for req in mandatory_reqs:
             node_id = f"task_{req.id.lower().replace('-', '_')}"
             target_files = getattr(req, "affected_files", None) or []
             if not target_files:
@@ -81,6 +232,21 @@ class EngineeringTaskPlanner:
                     target_files = file_mentions
                 else:
                     target_files = [f"src/{req.id.lower().replace('-', '_')}_module.py"]
+            # Assign user-named files by ROLE, not FIFO. The P0.6.7 live run
+            # proved the old pop(0) gave the test file to a "Supported units"
+            # requirement and dispatched the same path twice while the actual
+            # tests requirement targeted the module.
+            description = (req.description or "").lower()
+            is_test_requirement = bool(re.search(
+                r"\b(?:test|tests|pytest|unittest|spec|specs)\b", description,
+            ))
+            if is_test_requirement:
+                available = [f for f in requested_tests if f not in used_requested]
+            else:
+                available = [f for f in requested_sources if f not in used_requested]
+            if available:
+                target_files = [available[0]]
+                used_requested.add(available[0])
 
             # Risk classification based on impact report if available
             risk = "LOW"
@@ -121,6 +287,125 @@ class EngineeringTaskPlanner:
             )
             created_nodes["task_main"] = fallback_node
 
+        # 1a0. Every user-named file is a work unit. A file named by the user
+        #      must not disappear because no requirement happened to match its
+        #      role (e.g. "add tests" phrased as a generic requirement).
+        planned_targets = {f for node in created_nodes.values() for f in node.target_files}
+        for unused in requested_pool:
+            if unused in planned_targets:
+                continue
+            stem = unused.replace("\\", "/").rsplit("/", 1)[-1].split(".")[0]
+            node_id = f"task_{'tests_' if is_test_file(unused) else ''}{stem}"
+            base_id = node_id
+            suffix = 1
+            while node_id in created_nodes:
+                suffix += 1
+                node_id = f"{base_id}_{suffix}"
+            created_nodes[node_id] = EngineeringTaskNode(
+                node_id=node_id,
+                description=f"Create {unused}",
+                objective=task_prompt or f"Create {unused}",
+                related_requirement_ids=[],
+                target_files=[unused],
+                dependencies=[],
+                risk_level="LOW",
+                expected_outputs=[f"Working {unused}"],
+                required_tests=[],
+                acceptance_criteria=["Passes verification"],
+                completion_conditions=["Clean tests"],
+            )
+            planned_targets.add(unused)
+
+        # 1a1. Two requirements that resolve to the SAME file are one dispatch,
+        #      not two writes of the same path. Merge them (ids preserved).
+        merged_by_target: Dict[str, EngineeringTaskNode] = {}
+        for node in created_nodes.values():
+            key = node.target_files[0] if len(node.target_files) == 1 else None
+            if key and key in merged_by_target:
+                absorb_requirement_nodes(merged_by_target[key], [node])
+            elif key:
+                merged_by_target[key] = node
+            else:
+                merged_by_target[node.node_id] = node
+        created_nodes = {n.node_id: n for n in merged_by_target.values()}
+
+        # 1a. If the user named files, those files ARE the work units: keep the
+        #     nodes that received a requested path and absorb the analyzer's
+        #     placeholder nodes into them (ids preserved, no invented files, no
+        #     extra dispatch spent on ``src/req_00N_module.py``).
+        if requested_set:
+            requested_nodes = [
+                n for n in created_nodes.values()
+                if n.target_files and n.target_files[0] in requested_set
+            ]
+            if requested_nodes:
+                absorbed = [n for n in created_nodes.values() if n not in requested_nodes]
+                for index, node in enumerate(absorbed):
+                    absorb_requirement_nodes(requested_nodes[index % len(requested_nodes)], [node])
+                created_nodes = {n.node_id: n for n in requested_nodes}
+                # The USER's words, not the analyzer's inferred specification,
+                # govern a file the user named. Without this the node objective
+                # demanded RFC-5321/DNS/CLI work the user never asked for (963
+                # generated lines, contract violated, self-tests failing).
+                if task_prompt and task_prompt.strip():
+                    for node in requested_nodes:
+                        node.objective = task_prompt.strip()
+                        node.description = (
+                            f"Implement {node.target_files[0]} exactly as the user asked "
+                            "(minimal scope; no extra APIs, classes or CLI)"
+                        )
+
+        # 1b. Dispatch budget: coalesce requirement nodes so the plan fits.
+        #     Every requirement id is preserved (union), never dropped.
+        #
+        #     IMPORTANT: the adapter dispatches once PER TARGET FILE (the
+        #     verification node dispatches none), so the budget is measured in
+        #     files, not nodes. When the surviving files still exceed the
+        #     implementation budget, each merged node is consolidated onto a
+        #     single module and the absorbed paths are recorded in
+        #     ``expected_outputs`` — a visible plan decision, not a silent drop.
+        if max_nodes is not None:
+            if int(max_nodes) < 2:
+                raise PlanBudgetExceeded(
+                    requested_nodes=len(created_nodes) + 1,
+                    allowed_nodes=int(max_nodes),
+                    requirement_ids=[r.id for r in all_reqs],
+                )
+            impl_budget = int(max_nodes) - 1
+            if len(created_nodes) > impl_budget:
+                ordered = list(created_nodes.values())
+                buckets: list[list[EngineeringTaskNode]] = [[] for _ in range(impl_budget)]
+                for index, node in enumerate(ordered):
+                    buckets[index % impl_budget].append(node)
+                merged: Dict[str, EngineeringTaskNode] = {}
+                for bucket in buckets:
+                    if not bucket:
+                        continue
+                    node = merge_requirement_nodes(bucket) if len(bucket) > 1 else bucket[0]
+                    merged[node.node_id] = node
+                covered = {rid for n in merged.values() for rid in n.related_requirement_ids}
+                expected = {rid for n in ordered for rid in n.related_requirement_ids}
+                missing = expected - covered
+                if missing:
+                    raise PlanBudgetExceeded(
+                        requested_nodes=len(created_nodes) + 1,
+                        allowed_nodes=int(max_nodes),
+                        requirement_ids=sorted(missing),
+                    )
+                created_nodes = merged
+
+            file_demand = sum(max(1, len(n.target_files)) for n in created_nodes.values())
+            if file_demand > impl_budget:
+                for node in created_nodes.values():
+                    if len(node.target_files) <= 1:
+                        continue
+                    primary = node.target_files[0]
+                    absorbed = node.target_files[1:]
+                    node.target_files = [primary]
+                    node.expected_outputs = list(node.expected_outputs) + [
+                        f"consolidated into {primary}: {path}" for path in absorbed
+                    ]
+
         # Add nodes to DAG
         for node in created_nodes.values():
             dag.add_node(node)
@@ -142,6 +427,112 @@ class EngineeringTaskPlanner:
         dag.add_node(verify_node)
 
         # Validate DAG dependencies and topological order
+        dag.get_execution_order()
+        return dag
+
+    def _build_contract_plan(
+        self,
+        dag: EngineeringPlanDAG,
+        contract: Any,
+        *,
+        task_prompt: Optional[str],
+        blueprint: Any,
+        impact_report: Any,
+        max_nodes: Optional[int],
+    ) -> EngineeringPlanDAG:
+        """Turn validated contract components into one work unit per file.
+
+        The contract already resolved Requirement → Role → File. The planner does
+        not re-decide roles, reorder files or invent targets here.
+        """
+        from src.orchestration.contract import FileRole
+
+        adr_ids = [adr.id for adr in (blueprint.adrs if blueprint else [])]
+        risk = "LOW"
+        if impact_report:
+            risk = getattr(
+                getattr(impact_report, "risk_classification", None), "value",
+                str(getattr(impact_report, "risk_classification", "LOW")),
+            )
+
+        nodes: List[EngineeringTaskNode] = []
+        used_ids: Set[str] = set()
+        for component in contract.components:
+            role = str(component.role)
+            stem = Path(str(component.target_file)).stem
+            prefix = "tests_" if role == FileRole.TEST.value else ""
+            node_id = f"task_{prefix}{stem}"
+            suffix = 1
+            base = node_id
+            while node_id in used_ids:
+                suffix += 1
+                node_id = f"{base}_{suffix}"
+            used_ids.add(node_id)
+
+            requirement_ids = list(component.requirement_ids)
+            objective = (task_prompt or component.responsibility or f"Create {component.target_file}").strip()
+            node = EngineeringTaskNode(
+                node_id=node_id,
+                description=(
+                    f"{role} {component.target_file}: "
+                    f"{(component.responsibility or component.name)[:140]}"
+                ),
+                objective=objective,
+                related_requirement_ids=requirement_ids,
+                related_architecture_decisions=adr_ids,
+                target_files=[component.target_file],
+                dependencies=[],
+                risk_level=risk,
+                expected_outputs=[f"Working {component.target_file}"],
+                required_tests=[f"test_{rid.lower().replace('-', '_')}" for rid in requirement_ids],
+                acceptance_criteria=["Passes the authoritative engineering contract"],
+                completion_conditions=["Contract-consistent tests pass"],
+                file_role=role,
+                contract=component.to_dict(),
+                contract_hash=contract.contract_hash,
+            )
+            nodes.append(node)
+
+        if not nodes:
+            nodes.append(EngineeringTaskNode(
+                node_id="task_main",
+                description="Implement requested task outcome",
+                objective=(task_prompt or "Fulfill the user request").strip(),
+                target_files=["src/main_task.py"],
+                expected_outputs=["Working code"],
+                acceptance_criteria=["Passes verification"],
+                completion_conditions=["Clean tests"],
+            ))
+
+        demand = len(nodes)
+        if max_nodes is not None and demand > int(max_nodes):
+            raise PlanBudgetExceeded(
+                requested_nodes=demand,
+                allowed_nodes=int(max_nodes),
+                requirement_ids=sorted({
+                    rid for c in contract.components for rid in c.requirement_ids
+                }),
+            )
+
+        for node in nodes:
+            dag.add_node(node)
+
+        impl_keys = [n.node_id for n in nodes]
+        verification = EngineeringTaskNode(
+            node_id="task_verification",
+            description="Run contract verification and independent completion checks",
+            objective="Ensure every contract requirement is verified by executed tests",
+            related_requirement_ids=sorted({
+                rid for c in contract.components for rid in c.requirement_ids
+            }),
+            dependencies=impl_keys,
+            risk_level="LOW",
+            expected_outputs=["Cross-file report", "Test report"],
+            required_tests=["suite_verification"],
+            acceptance_criteria=["Contract report clean", "Executed tests pass"],
+            completion_conditions=["Completion gate satisfied"],
+        )
+        dag.add_node(verification)
         dag.get_execution_order()
         return dag
 

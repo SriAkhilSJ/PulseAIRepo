@@ -1,0 +1,19 @@
+{
+  "main_model": "z-ai/glm-5.3-flash",
+  "aux_model": "qwen/qwen3.7-flash",
+  "main_max_cost_inr_8192": 0.153887,
+  "aux_max_cost_inr_64": 0.005179,
+  "live11_observed": {
+    "source": 0.023767,
+    "tests": 0.009156,
+    "aux": 0.004809,
+    "total": 0.037732
+  },
+  "task_budget_checked_inr": 1.0,
+  "eng_over_budget_blocked": true,
+  "eng_message": "Operation rejected: estimated cost INR 1.0100 exceeds remaining budget INR 1.0000 (budget: INR 1.0000, spent: INR 0.0000, reserved: INR 0.0000)",
+  "aux_budget_checked_inr": 0.2,
+  "aux_over_budget_blocked": true,
+  "aux_client_not_reached": true,
+  "aux_message": "reservation refused: Operation rejected: estimated cost INR 2.22 exceeds remaining budget INR 0.20"
+}

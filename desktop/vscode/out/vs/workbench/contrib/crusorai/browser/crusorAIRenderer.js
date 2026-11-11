@@ -5,6 +5,7 @@
 import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { openHubDialog } from './crusorAIHubDialog.js';
+import { cardHeadline } from '../common/crusorAICards.js';
 import { crusorSessionIdFromUri } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
@@ -2084,11 +2085,11 @@ function toolRow(tool, host, openTools, closedTools, pendingClarify, subAgents =
     // counted +a −r next to the filename — earned from the result, so it
     // appears when the edit lands, never while running.
     const headerDiffStats = presentation.family === 'file-write' ? editDiffStats(tool) : undefined;
-    const titleMain = element('span', undefined, titleSpan, subtitle, 
+    const titleMain = element('span', undefined, titleSpan, subtitle,
     // The sub-agent card carries mode/type/description itself; the
     // generic k=v chips would only repeat it (founder screenshot
     // 2026-10-15: 'Delegate mode=research subagent_type=research').
-    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined, 
+    ...toolArgsChips(tool), headerDiffStats ? diffChangesChip(headerDiffStats) : undefined,
     // Inline info (#L1-N, match count) hugs the filename on the same
     // line — never pushed to the row's far edge (founder 2026-10-15).
     inlineInfo ? toolInfoChip(inlineInfo) : undefined);
@@ -2296,7 +2297,7 @@ function toolSection(tools, host, openTools, closedTools, live, showHeading = tr
         const header = activityGroupHeader(group.groupKey, runTools, runLive);
         const groupArrow = element('span', undefined, icon('chevron-down'));
         groupArrow.dataset.slot = 'collapsible-arrow';
-        const summary = element('summary', 'crusorai-tool-run-summary', 
+        const summary = element('summary', 'crusorai-tool-run-summary',
         // The disclosure arrow LEADS the header (founder
         // 2026-10-17: arrow marks at the start — "⌄ Terminal
         // 3", not "Terminal 3 ⌄"); the global collapsible-arrow
@@ -2631,6 +2632,10 @@ function assistantTurn(spec, host, openTools, closedTools) {
     if (orphans.length) {
         response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested));
     }
+    const cards = agentCardStack(spec.cards ?? []);
+    if (cards) {
+        response.append(cards);
+    }
     if (spec.assistantText && lastTextIndex < 0) {
         response.append(textPart(spec.assistantText, spec.current ? 'session-turn-content' : undefined));
     }
@@ -2645,7 +2650,135 @@ function assistantTurn(spec, host, openTools, closedTools) {
     }
     return response;
 }
-// OpenCode user-message anatomy (message-part.css): a borderless bubble
+// Typed execution cards. Every value is painted as TEXT (never innerHTML):
+// model output is untrusted, and unknown card types stay visible but inert.
+function agentCardView(card) {
+    const wrap = element('section', `crusorai-agent-card is-${card.cardType}${card.supported ? '' : ' is-unsupported'}`);
+    wrap.dataset.cardId = card.cardId;
+    wrap.dataset.cardType = card.cardType;
+    const head = element('div', 'crusorai-agent-card-head');
+    const glyph = card.cardType === 'approval' ? 'shield'
+        : card.cardType === 'file_change' ? 'file'
+            : card.cardType === 'test_results' ? 'beaker'
+                : card.cardType === 'verification' ? 'pass-filled'
+                    : card.cardType === 'delivery' ? 'rocket'
+                        : card.cardType === 'cost' ? 'credit-card'
+                            : card.cardType === 'plan' ? 'checklist'
+                                : card.cardType === 'tool' ? 'tools'
+                                    : 'loading';
+    head.append(icon(glyph), element('span', 'crusorai-agent-card-title', cardHeadline(card)));
+    if (!card.supported) {
+        head.append(element('span', 'crusorai-agent-card-badge is-warn', 'Unsupported'));
+    }
+    wrap.append(head);
+    const d = card.data;
+    const row = (label, value) => element('div', 'crusorai-agent-card-row', element('span', 'crusorai-agent-card-label', label), element('span', 'crusorai-agent-card-value', value));
+    if (!card.supported) {
+        wrap.append(element('div', 'crusorai-agent-card-note', `Unsupported card type: ${card.declaredType}`));
+        return wrap;
+    }
+    if (card.cardType === 'activity') {
+        const status = String(d.status ?? 'running');
+        head.append(element('span', `crusorai-agent-card-badge is-${status}`, status));
+        if (d.detail) {
+            wrap.append(element('div', 'crusorai-agent-card-note', String(d.detail)));
+        }
+    }
+    else if (card.cardType === 'plan') {
+        if (d.outcome) {
+            wrap.append(element('div', 'crusorai-agent-card-note', String(d.outcome)));
+        }
+        const steps = Array.isArray(d.steps) ? d.steps : [];
+        const list = element('div', 'crusorai-agent-card-list');
+        for (const raw of steps) {
+            const step = (raw ?? {});
+            const status = String(step.status ?? 'pending');
+            list.append(element('div', `crusorai-agent-card-step is-${status}`, element('span', 'crusorai-agent-card-step-glyph', status === 'completed' ? '✓' : status === 'in_progress' ? '▸' : status === 'failed' ? '✕' : '○'), element('span', undefined, String(step.text ?? ''))));
+        }
+        if (steps.length) {
+            wrap.append(list);
+        }
+        const files = Array.isArray(d.files) ? d.files : [];
+        if (files.length) {
+            wrap.append(element('div', 'crusorai-agent-card-note', `Files: ${files.join(', ')}`));
+        }
+    }
+    else if (card.cardType === 'file_change') {
+        wrap.append(row('Path', String(d.path ?? '(unknown)')));
+        wrap.append(row('Change', `${String(d.operation ?? 'change')}  +${String(d.added ?? 0)} −${String(d.removed ?? 0)}`));
+        wrap.append(row('Status', String(d.status ?? 'completed')));
+    }
+    else if (card.cardType === 'approval') {
+        wrap.append(row('Path', String(d.path ?? '(proposed)')));
+        wrap.append(row('Operation', String(d.operation ?? 'write')));
+        wrap.append(row('Status', String(d.status ?? 'pending')));
+        if (d.diff) {
+            wrap.append(element('pre', 'crusorai-agent-card-diff', String(d.diff)));
+        }
+        if (d.digest) {
+            wrap.append(element('div', 'crusorai-agent-card-note', `digest ${String(d.digest)}`));
+        }
+    }
+    else if (card.cardType === 'tool') {
+        wrap.append(row('Tool', String(d.name ?? 'tool')));
+        wrap.append(row('Status', String(d.status ?? 'running')));
+        if (d.duration_ms !== undefined && d.duration_ms !== null) {
+            wrap.append(row('Duration', `${String(d.duration_ms)} ms`));
+        }
+    }
+    else if (card.cardType === 'test_results') {
+        wrap.append(row('Executed', String(d.executed ?? 0)));
+        wrap.append(row('Passed', String(d.passed ?? 0)));
+        wrap.append(row('Failed', String(d.failed ?? 0)));
+        wrap.append(row('Skipped', String(d.skipped ?? 0)));
+        const failures = Array.isArray(d.failures) ? d.failures : [];
+        if (failures.length) {
+            wrap.append(element('pre', 'crusorai-agent-card-diff', failures.join('\n')));
+        }
+    }
+    else if (card.cardType === 'verification') {
+        const status = String(d.status ?? 'unknown').toUpperCase();
+        head.append(element('span', `crusorai-agent-card-badge ${status === 'VERIFIED' ? 'is-succeeded' : 'is-warn'}`, status));
+        const verified = Array.isArray(d.verified) ? d.verified : [];
+        const unverified = Array.isArray(d.unverified) ? d.unverified : [];
+        if (verified.length) {
+            wrap.append(element('div', 'crusorai-agent-card-note', `Verified: ${verified.join(' · ')}`));
+        }
+        if (unverified.length) {
+            wrap.append(element('div', 'crusorai-agent-card-note is-warn', `Unverified: ${unverified.join(' · ')}`));
+        }
+    }
+    else if (card.cardType === 'delivery') {
+        wrap.append(row('Verdict', String(d.verdict ?? d.status ?? 'unknown')));
+        wrap.append(row('Verification', String(d.verification ?? 'unknown')));
+        wrap.append(row('Files', Array.isArray(d.files_modified) ? d.files_modified.join(', ') : '(none)'));
+        wrap.append(row('Approvals / mutations', `${String(d.approvals ?? 0)} / ${String(d.mutations ?? 0)}`));
+    }
+    else if (card.cardType === 'cost') {
+        wrap.append(row('Model', String(d.model ?? 'unknown')));
+        wrap.append(row('Provider', String(d.provider ?? 'unknown')));
+        wrap.append(row('Tokens', `${String(d.input_tokens ?? '?')} in / ${String(d.output_tokens ?? '?')} out / ${String(d.cached_tokens ?? 0)} cached`));
+        const certainty = String(d.certainty ?? 'unknown');
+        const cost = d.cost_inr !== undefined && d.cost_inr !== null ? `₹${String(d.cost_inr)}` : 'unknown';
+        wrap.append(row('Cost', `${cost} (${certainty})`));
+        const invocations = Array.isArray(d.invocation_ids) ? d.invocation_ids : [];
+        if (invocations.length) {
+            wrap.append(row('Invocation', String(invocations[0])));
+        }
+    }
+    return wrap;
+}
+function agentCardStack(cards) {
+    if (!cards.length) {
+        return undefined;
+    }
+    const stack = element('section', 'crusorai-agent-cards');
+    stack.dataset.component = 'agent-cards';
+    for (const card of cards) {
+        stack.append(agentCardView(card));
+    }
+    return stack;
+}
 // hugging the right edge — body max-width min(82%, 64ch), bubble padding
 // 8px 12px / radius 10px — built as a named slot so the CSS layer and any
 // future surface styling target the same shape.
@@ -2716,8 +2849,8 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
         // cards via assistantTurn's spec.subAgents for child matching.
         // Hermes pattern: no green confetti for success -- the answer IS the
         // completion receipt. Only real deviations (cancelled, failed) get a row.
-        if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'failed') {
-            const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
+        if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'denied' || turn.turnOutcome === 'failed') {
+            const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : turn.turnOutcome === 'denied' ? 'Run denied' : 'Run failed';
             const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
             const row = element('div', `crusorai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label));
             const intr = turn.interrupt;
@@ -2746,12 +2879,13 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     // claiming the agent was inspecting the workspace, which the turn had never done -- so a run that
     // died on a provider error still printed confident progress. The spinner and the 'Working' label
     // already say the only true thing: the turn is open.
-    if (model.assistantText || model.reasoningParts.length || model.running || model.parts.length || model.tools.length) {
+    if (model.assistantText || model.reasoningParts.length || model.running || model.parts.length || model.tools.length || (model.cards?.length ?? 0)) {
         lane.append(assistantTurn({
             reasoningParts: model.reasoningParts,
             assistantText: model.assistantText,
             parts: model.parts,
             tools: model.tools,
+            cards: model.cards,
             live: model.running,
             current: true,
             thoughtSeconds: liveThoughtSeconds,
@@ -2766,8 +2900,8 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     // sub-agent UI. The old section repeated every child a second
     // time at the transcript's end — and, hydrated from a resume,
     // trailed turns that never delegated at all.
-    if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'failed') {
-        const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : 'Run failed';
+    if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'denied' || model.turnOutcome === 'failed') {
+        const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : model.turnOutcome === 'denied' ? 'Run denied' : 'Run failed';
         const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
         const row = element('div', `crusorai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label));
         const intr = model.interrupt;

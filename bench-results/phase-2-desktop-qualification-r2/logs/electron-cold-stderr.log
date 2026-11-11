@@ -1,0 +1,85 @@
+
+DevTools listening on ws://127.0.0.1:9333/devtools/browser/7b707c68-661c-4318-83ff-167f098f20d1
+Error: Cannot find module './build/Debug/keymapping'
+Require stack:
+- <REPO>\desktop\vscode\node_modules\native-keymap\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at NativeBinding._init (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:19:24)
+    at NativeBinding.getKeyMap (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:24:10)
+    at exports.getKeyMap (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:63:18)
+    at readKeyboardLayoutData (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:61:45)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '<REPO>\\desktop\\vscode\\node_modules\\native-keymap\\index.js'
+  ]
+}
+TypeError: Cannot read properties of null (reading 'getCurrentKeyboardLayout')
+    at NativeBinding.getCurrentKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:34:29)
+    at exports.getCurrentKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:60:18)
+    at readKeyboardLayoutData (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:62:48)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:40:36)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+TypeError: Cannot read properties of null (reading 'onDidChangeKeyboardLayout')
+    at NativeBinding.onDidChangeKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:43:22)
+    at exports.onDidChangeKeyboardLayout (<REPO>\desktop\vscode\node_modules\native-keymap\index.js:66:18)
+    at KeyboardLayoutMainService._doInitialize (file:///<REPO>/desktop/vscode/out/vs/platform/keyboardLayout/electron-main/keyboardLayoutMainService.js:45:29)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[16664:1109/111721.112:INFO:CONSOLE:102] "[CrusorAI][watermark] startupEditor="none" colorTheme="CrusorAI Dark" tipsEnabled=true isEmptyWindow=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/browser/parts/editor/editorGroupWatermark.js (102)
+[16664:1109/111721.179:ERROR:electron\shell\browser\api\electron_api_app.cc:1347] Failed to begin Jump List transaction.
+[main 2026-11-09T19:17:21.180Z] updateWindowsJumpList#setJumpList unexpected result: error
+Error: Cannot find module './build/Release/iselevated'
+Require stack:
+- <REPO>\desktop\vscode\node_modules\native-is-elevated\index.js
+    at node:internal/modules/cjs/loader:1524:15
+    at Module._resolveFilename (node:electron/js2c/browser_init:2:143184)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1078:27)
+    at defaultResolveImplForCJSLoading (node:internal/modules/cjs/loader:1102:10)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1129:12)
+    at node:internal/modules/cjs/loader:1301:5
+    at Module._load (node:electron/js2c/node_init:2:18068)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:262:19)
+    at Module.require (node:internal/modules/cjs/loader:1624:12)
+    at require (node:internal/modules/helpers:153:16)
+    at isElevatedWindows (<REPO>\desktop\vscode\node_modules\native-is-elevated\index.js:25:13)
+    at Module.isElevated (<REPO>\desktop\vscode\node_modules\native-is-elevated\index.js:10:12)
+    at NativeHostMainService.isAdmin (file:///<REPO>/desktop/vscode/out/vs/platform/native/electron-main/nativeHostMainService.js:589:67) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '<REPO>\\desktop\\vscode\\node_modules\\native-is-elevated\\index.js'
+  ]
+}
+[16664:1109/111721.396:INFO:CONSOLE:329] "%c[Extension Host] %cdebugger listening on port 5870 color: blue color:", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (329)
+[16664:1109/111721.420:INFO:CONSOLE:101] "%c INFO color: #33f Started local extension host with pid 9168.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111721.703:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.experimentalOnboarding'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111721.706:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.walkthroughs.openOnInstall'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111721.707:INFO:CONSOLE:101] "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'crusorai.hideBuiltInCopilotUI'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111721.823:INFO:CONSOLE:260] "%c[Extension Host] %cdebugger inspector at devtools://devtools/bundled/js_app.html?v8only=true&ws=127.0.0.1:5870/b74d2822-90cf-4181-825c-fe15dff5167f color: blue color:", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/workbench/services/extensions/electron-browser/localProcessExtensionHost.js (260)
+[16664:1109/111722.026:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111722.134:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111722.159:INFO:CONSOLE:101] "%c  ERR color: #f33 Unable to create workbench contribution 'chat.contextContributions'. Error: [createInstance] SessionReferenceContextPickerPick depends on UNKNOWN service chatSessionRoutingProviderService.", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111726.907:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111726.907:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111726.923:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) — boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111726.923:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: unknown", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111726.931:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) — panel is current", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111727.029:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [preview] preview proxy already serving <TEMP>\p2r2-cancel-ui\workspace at http://127.0.0.1:8931 — reusing it", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111727.148:INFO:CONSOLE:101] "%c INFO color: #33f [AccountPolicyGate] apply: state=inactive, reason=undefined, isRestricted=false", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[main 2026-11-09T19:18:13.278Z] [UtilityProcessWorker]: createWorker() found an existing worker that will be terminated (window: 1, moduleId: vs/workbench/contrib/crusorai/node/crusorAIWorkerMain)
+[16664:1109/111813.595:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.540:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.556:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.564:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) — boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.566:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: unknown", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.574:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) — panel is current", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)
+[16664:1109/111817.673:INFO:CONSOLE:101] "%c WARN color: #993 [CrusorAI Engine] [preview] preview proxy already serving <TEMP>\p2r2-cancel-ui\workspace at http://127.0.0.1:8931 — reusing it", source: vscode-file://vscode-app/<REPO>/desktop/vscode/out/vs/platform/log/common/log.js (101)

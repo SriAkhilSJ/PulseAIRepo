@@ -1,0 +1,60 @@
+# Desktop approval smoke — Phase 3.1
+
+Real Electron app (`desktop/vscode/.build/electron/CrusorAI.exe`), disposable
+user-data/extensions/workspace/profile, provider-free orchestrator
+(`CRUSORAI_ORCHESTRATOR_MOCK=1`, `CRUSORAI_BRIDGE_APPROVAL_POLICY=ask`).
+
+## Run
+
+| Item | Value |
+|---|---|
+| Main PID | 22336 |
+| Window | `workspace - CrusorAI IDE Dev`, debug port 9333 |
+| Prompt | `Create notes.md with a short greeting for the project.` |
+| Docks | `Change notes.md?` then `Change req_001_module.py?` |
+| Action | clicked **Allow once** on each |
+| Result | turn completed; `notes.md` (1236 B) and `req_001_module.py` (1415 B) created |
+| Warning rows | **0** (`crusorai-context-status-row.is-warning` empty) |
+
+Screenshots:
+
+- `screenshots/04_desktop_approval_final.png` — real dock from the default
+  orchestrator, `Allow once` fully visible.
+- `screenshots/05_desktop_completed_no_warning.png` — completed turn, files
+  written, no yellow evidence banner.
+- `screenshots/01/02/03` — the earlier run (before the orchestrator evidence
+  reason was passed); retained as the pre-fix comparison.
+
+## What this proves
+
+- The active default orchestrator no longer auto-approves: the dock appeared
+  before implementation, and no file existed until the click arrived.
+- The desktop `safety_reply` controls execution: clicking Allow once released
+  the second gate and the mutations landed.
+- The same run shows no evidence degradation banner after the fix.
+
+## Not exercised in this smoke
+
+- Desktop denial: proven at the bridge level (`probe-deny.txt`, turn cancelled,
+  no files). A desktop deny click uses the same `safety_reply` path and queue
+  resolution, but was not re-shot in Electron this round.
+- Approval timeout/cancel through the dock: proven at the bridge level.
+- Real provider/tool pipeline: this run uses deterministic orchestrator mock
+  code generation; the approval, token and mutation-broker path is real.
+
+## Deny run (final)
+
+| Item | Value |
+|---|---|
+| Main PID | 24860 |
+| Prompt | `Create notes.md with a short greeting for the project.` |
+| Dock | `Change notes.md?` |
+| Action | clicked **Deny** |
+| Result | turn cancelled; **no files** in the workspace; 0 warning rows |
+| Screenshot | `screenshots/06_desktop_denied.png` |
+
+The denied tool card is painted `crusorai-tool-row is-failed`; the transcript
+receipt reads `Run cancelled · 1 landed`. The file is absent, so the mutation
+was prevented. The "1 landed" count is a known receipt-accounting bug: the
+renderer's `stampInterrupt()` counts a `failed` tool (the denied approval card)
+as landed (B-DESK-006). It is a display defect, not an authorization one.

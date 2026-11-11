@@ -1,0 +1,43 @@
+# Worker recovery — r2
+
+Screenshot: `10_worker_recovery.png`.
+
+## Kill
+
+Cold-restart launch (real bridge, echo runner, isolated profile). The sidecar
+tree was killed:
+
+```
+taskkill /PID 13952 /T /F      (python -m src.bridge and its child)
+```
+
+## Observed
+
+| Moment | Observation |
+|---|---|
+| before | pane `Crusor ready`, cold session restored empty |
+| immediately after kill | the Agent view had been closed (Manager tab was active), so no stale status was visible |
+| +4 s | no crash dialog; app alive |
+| +20 s | new bridge process tree present (`26192` + child `21844`); engine log shows a fresh `[bridge][env] loaded` sequence |
+| next prompt | `post kill probe` completed and echoed; pane back to `Crusor ready` |
+| follow-up | `duplicate check two` also completed |
+
+The restart is a single supervised sidecar restart (the Electron main log
+records `createWorker() found an existing worker that will be terminated`), not
+a crash loop. The workbench stayed alive throughout.
+
+## Bounds / gaps
+
+- One kill only: backoff, attempt caps and loop suppression were not measured.
+- The kill happened while idle. In-flight turn recovery was not exercised.
+- The graph path is blocked (see `approval-execution.txt`), so "real tool turn
+  survives a restart" is not claimed.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Sidecar restarts after a kill | PASS |
+| UI reports recovery (`Crusor ready`) | PASS |
+| Turn succeeds on the new worker | PASS |
+| Restart bounds / in-flight recovery | NOT MEASURED |

@@ -41,6 +41,12 @@ class RequirementVerificationStatus(str, enum.Enum):
     BLOCKED = "BLOCKED"
     NOT_TESTED = "NOT_TESTED"
     NOT_APPLICABLE = "NOT_APPLICABLE"
+    # P0.6.7: a file can exist while no executed test establishes the required
+    # behavior. That is not "verified" and not "missing"; it is unproven.
+    NOT_VERIFIED = "NOT_VERIFIED"
+    # Evidence exists but cannot be attributed (runner crash, timeout, mixed
+    # failures). Completion must refuse rather than guess.
+    INCONCLUSIVE = "INCONCLUSIVE"
 
 
 class TestEvidenceClassification(str, enum.Enum):

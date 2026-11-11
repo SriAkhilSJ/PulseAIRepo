@@ -1,0 +1,39 @@
+{
+  "accounting": {
+    "task_id": "turn_turn-9005244b5df841d9b7a07c97e5e9617b",
+    "budget_inr": 1.8,
+    "spent_inr": 0.0,
+    "spent_usd": 0.0,
+    "reserved_inr": 0.167204,
+    "reserved_usd": 0.001808,
+    "token_budget": 150000,
+    "tokens_consumed": 0,
+    "reserved_tokens": 11598,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cached_tokens": 0,
+    "tool_execution_seconds": 0.0,
+    "test_execution_seconds": 0.0,
+    "calls_count": 0,
+    "is_breached": false,
+    "breach_reason": null
+  },
+  "active_reservations": {
+    "res_d7990e4d3dc3": {
+      "reservation_id": "res_d7990e4d3dc3",
+      "task_id": "turn_turn-9005244b5df841d9b7a07c97e5e9617b",
+      "amount_inr": 0.167204,
+      "amount_usd": 0.001808,
+      "tokens": 11598,
+      "purpose": "node_task_duration",
+      "created_at": 1794125893.5853937,
+      "is_committed": false,
+      "is_released": false,
+      "canonical_reservation_id": "c2663432-6c5b-49",
+      "canonical_amount_usd": 0.001944,
+      "status": "in_flight"
+    }
+  },
+  "uncertain_reservations": {},
+  "settled_reservations": {}
+}

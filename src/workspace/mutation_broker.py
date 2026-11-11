@@ -27,6 +27,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.workspace.baseline import WorkspaceBaselineManager, compute_file_sha256
+from src.workspace.approval_digest import (
+    content_digest as approval_digest,
+    precondition_digest as approval_precondition,
+)
 from src.workspace.ledger import WorkspaceChangeLedger
 from src.workspace.models import (
     ChangeRecord,
@@ -89,6 +93,69 @@ class WorkspaceMutationBroker:
                 self._path_locks[k] = threading.RLock()
             return self._path_locks[k]
 
+    def _verify_approval(
+        self,
+        token: str,
+        task_id: str,
+        rel_path: str,
+        operation: WorkspaceOperationType,
+        expected_digest: str,
+        require_digest: bool,
+        *,
+        precondition_digest: str = "",
+        session_id: str = "",
+        turn_id: str = "",
+    ) -> Tuple[bool, str]:
+        """Verify a token with digest/precondition binding, legacy compatible.
+
+        Increment 2/3 production callers pass ``require_digest=True``; a token
+        minted for different bytes or a different workspace precondition can
+        never match. Legacy callers/tests that minted a path-only token keep
+        the historical Phase 3.1 semantics only when they did not demand
+        digest binding.
+        """
+        ok, msg = self.risk_gate.verify_and_consume_approval_token(
+            token,
+            task_id,
+            str(self.workspace_root),
+            rel_path,
+            operation,
+            content_digest=expected_digest,
+            precondition_digest=precondition_digest,
+            session_id=session_id,
+            turn_id=turn_id,
+            require_digest=require_digest,
+        )
+        if ok or require_digest:
+            return ok, msg
+        # Legacy path-only token (Phase 3.1): session/turn were not bound.
+        ok, msg = self.risk_gate.verify_and_consume_approval_token(
+            token,
+            task_id,
+            str(self.workspace_root),
+            rel_path,
+            operation,
+            content_digest=expected_digest,
+            precondition_digest=precondition_digest,
+            session_id="",
+            turn_id="",
+            require_digest=False,
+        )
+        if ok:
+            return ok, msg
+        return self.risk_gate.verify_and_consume_approval_token(
+            token,
+            task_id,
+            str(self.workspace_root),
+            rel_path,
+            operation,
+            content_digest="",
+            precondition_digest="",
+            session_id="",
+            turn_id="",
+            require_digest=False,
+        )
+
     def create_file(
         self,
         path: str,
@@ -98,6 +165,11 @@ class WorkspaceMutationBroker:
         related_requirement_ids: Optional[List[str]] = None,
         related_architecture_decisions: Optional[List[str]] = None,
         approval_token: Optional[str] = None,
+        *,
+        require_approval: bool = False,
+        require_digest: bool = False,
+        session_id: str = "",
+        turn_id: str = "",
     ) -> ChangeRecord:
         """
         Create a new file in the workspace.
@@ -109,6 +181,11 @@ class WorkspaceMutationBroker:
         with self._get_path_lock(safe_path):
             file_exists = safe_path.exists()
             orig_hash = compute_file_sha256(safe_path) if file_exists else None
+            existing_state = (
+                safe_path.read_text(encoding="utf-8", errors="replace")
+                if file_exists else None
+            )
+            actual_precondition = approval_precondition(file_exists, existing_state)
 
             # Ownership check: is it an existing user file?
             provenance = self.baseline_mgr.classify_file_provenance(rel_path)
@@ -118,7 +195,24 @@ class WorkspaceMutationBroker:
                 provenance,
             )
 
-            if file_exists and provenance in {
+            # Increment 2: the token (when supplied) always binds the exact
+            # content being written, not merely the path. Callers that demand
+            # approval cannot reach the write without a token.
+            expected_digest = approval_digest(content)
+            if approval_token:
+                ok, msg = self._verify_approval(
+                    approval_token, task_id, rel_path,
+                    WorkspaceOperationType.CREATE, expected_digest, require_digest,
+                    precondition_digest=actual_precondition,
+                    session_id=session_id, turn_id=turn_id,
+                )
+                if not ok:
+                    raise MutationAuthorizationError(f"Approval verification failed: {msg}")
+            elif require_approval:
+                raise MutationAuthorizationError(
+                    f"Refusing to create '{rel_path}' without an approved mutation token."
+                )
+            elif file_exists and provenance in {
                 FileOwnershipCategory.EXISTING_USER_CLEAN,
                 FileOwnershipCategory.EXISTING_USER_MODIFIED,
                 FileOwnershipCategory.EXISTING_USER_STAGED,
@@ -126,15 +220,9 @@ class WorkspaceMutationBroker:
                 FileOwnershipCategory.USER_SUPERSEDED_AGENT,
             }:
                 # Overwriting user file requires HIGH_RISK approval
-                if not approval_token:
-                    raise MutationAuthorizationError(
-                        f"Refusing to overwrite existing user file '{rel_path}' without explicit authorization token."
-                    )
-                ok, msg = self.risk_gate.verify_and_consume_approval_token(
-                    approval_token, task_id, str(self.workspace_root), rel_path, WorkspaceOperationType.CREATE
+                raise MutationAuthorizationError(
+                    f"Refusing to overwrite existing user file '{rel_path}' without explicit authorization token."
                 )
-                if not ok:
-                    raise MutationAuthorizationError(f"Approval verification failed: {msg}")
 
             # Parent directories
             safe_path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,14 +256,20 @@ class WorkspaceMutationBroker:
     def modify_file(
         self,
         path: str,
-        old_text: str,
-        new_text: str,
+        old_text: str = "",
+        new_text: str = "",
         task_id: str = "default_task",
         change_reason: str = "Modify file",
         related_requirement_ids: Optional[List[str]] = None,
         related_architecture_decisions: Optional[List[str]] = None,
         approval_token: Optional[str] = None,
         expected_hash: Optional[str] = None,
+        new_content: Optional[str] = None,
+        *,
+        require_approval: bool = False,
+        require_digest: bool = False,
+        session_id: str = "",
+        turn_id: str = "",
     ) -> ChangeRecord:
         """
         Surgically modify an existing file.
@@ -198,7 +292,17 @@ class WorkspaceMutationBroker:
                     f"Expected hash {expected_hash[:12]}, found {current_hash[:12]}."
                 )
 
-            # 2. Risk check
+            # 2. Content update logic: direct new_content or replacement of old_text
+            if new_content is not None:
+                updated_content = new_content
+            else:
+                if old_text not in current_content:
+                    raise ValueError(
+                        f"Target block to replace not found in '{rel_path}'."
+                    )
+                updated_content = current_content.replace(old_text, new_text, 1)
+
+            # 3. Risk check
             provenance = self.baseline_mgr.classify_file_provenance(rel_path)
             is_config = rel_path.endswith((".json", ".toml", ".yaml", ".yml"))
             is_sec = any(k in rel_path.lower() for k in ("auth", "security", "schema"))
@@ -210,26 +314,30 @@ class WorkspaceMutationBroker:
                 is_schema_or_auth=is_sec,
             )
 
-            if risk in (RiskLevel.HIGH_RISK, RiskLevel.PROHIBITED):
-                if not approval_token:
-                    raise MutationAuthorizationError(
-                        f"Refusing to modify high-risk file '{rel_path}' without approval token."
-                    )
-                ok, msg = self.risk_gate.verify_and_consume_approval_token(
-                    approval_token, task_id, str(self.workspace_root), rel_path, WorkspaceOperationType.MODIFY
+            # 4. Approval: a supplied token binds the exact new bytes AND the
+            # pre-image the human saw. A concurrent external change therefore
+            # invalidates the approval instead of being overwritten.
+            actual_precondition = approval_precondition(True, current_content)
+            expected_digest = approval_digest(updated_content)
+            if approval_token:
+                ok, msg = self._verify_approval(
+                    approval_token, task_id, rel_path,
+                    WorkspaceOperationType.MODIFY, expected_digest, require_digest,
+                    precondition_digest=actual_precondition,
+                    session_id=session_id, turn_id=turn_id,
                 )
                 if not ok:
                     raise MutationAuthorizationError(f"Approval verification failed: {msg}")
-
-            # 3. Replace text
-            if old_text not in current_content:
-                raise ValueError(
-                    f"Target block to replace not found in '{rel_path}'."
+            elif require_approval:
+                raise MutationAuthorizationError(
+                    f"Refusing to modify '{rel_path}' without an approved mutation token."
+                )
+            elif risk in (RiskLevel.HIGH_RISK, RiskLevel.PROHIBITED):
+                raise MutationAuthorizationError(
+                    f"Refusing to modify high-risk file '{rel_path}' without approval token."
                 )
 
-            updated_content = current_content.replace(old_text, new_text, 1)
-
-            # 4. Atomic write
+            # 5. Atomic write
             new_hash = self._atomic_write(safe_path, updated_content)
 
             op_id = f"OP-{uuid.uuid4().hex[:12]}"
@@ -262,6 +370,11 @@ class WorkspaceMutationBroker:
         related_requirement_ids: Optional[List[str]] = None,
         related_architecture_decisions: Optional[List[str]] = None,
         approval_token: Optional[str] = None,
+        *,
+        require_approval: bool = False,
+        require_digest: bool = False,
+        session_id: str = "",
+        turn_id: str = "",
     ) -> ChangeRecord:
         """
         Delete a file.
@@ -275,24 +388,32 @@ class WorkspaceMutationBroker:
                 raise FileNotFoundError(f"File '{rel_path}' does not exist.")
 
             current_hash = compute_file_sha256(safe_path)
+            current_content = safe_path.read_text(encoding="utf-8", errors="replace")
             live_ownership = self.ledger.evaluate_live_ownership(task_id, rel_path)
             base_provenance = self.baseline_mgr.classify_file_provenance(rel_path)
 
             is_user_file = live_ownership == FileOwnershipCategory.USER_SUPERSEDED_AGENT or self.baseline_mgr.is_user_owned(rel_path)
 
-            if is_user_file:
-                if not approval_token:
-                    raise MutationAuthorizationError(
-                        f"Refusing to delete user-owned file '{rel_path}' without explicit authorization token."
-                    )
-                ok, msg = self.risk_gate.verify_and_consume_approval_token(
-                    approval_token, task_id, str(self.workspace_root), rel_path, WorkspaceOperationType.DELETE
+            actual_precondition = approval_precondition(True, current_content)
+            expected_digest = approval_digest(current_content)
+            if approval_token:
+                ok, msg = self._verify_approval(
+                    approval_token, task_id, rel_path,
+                    WorkspaceOperationType.DELETE, expected_digest, require_digest,
+                    precondition_digest=actual_precondition,
+                    session_id=session_id, turn_id=turn_id,
                 )
                 if not ok:
                     raise MutationAuthorizationError(f"Approval verification failed: {msg}")
+            elif require_approval or is_user_file:
+                raise MutationAuthorizationError(
+                    f"Refusing to delete '{rel_path}' without explicit authorization token."
+                )
 
             # Backup before deletion
-            backup_dir = self.workspace_root / ".crusorai" / "tenants" / self.tenant_id / "journal"
+            from src.runtime.app_paths import app_data_root
+
+            backup_dir = app_data_root(self.workspace_root) / "tenants" / self.tenant_id / "journal"
             backup_dir.mkdir(parents=True, exist_ok=True)
             op_id = f"OP-{uuid.uuid4().hex[:12]}"
             backup_path = backup_dir / f"backup_{op_id}"
@@ -328,6 +449,11 @@ class WorkspaceMutationBroker:
         task_id: str = "default_task",
         change_reason: str = "Rename file",
         approval_token: Optional[str] = None,
+        *,
+        require_approval: bool = False,
+        require_digest: bool = False,
+        session_id: str = "",
+        turn_id: str = "",
     ) -> ChangeRecord:
         """Rename or move a file within the workspace boundaries."""
         safe_old = PathSafetyValidator.resolve_and_verify(self.workspace_root, old_path)
@@ -342,6 +468,23 @@ class WorkspaceMutationBroker:
                 raise FileExistsError(f"Destination path '{rel_new}' already exists.")
 
             current_hash = compute_file_sha256(safe_old)
+            pre_image = safe_old.read_text(encoding="utf-8", errors="replace")
+            actual_precondition = approval_precondition(True, pre_image)
+            expected_digest = approval_digest(pre_image)
+            if approval_token:
+                ok, msg = self._verify_approval(
+                    approval_token, task_id, rel_old,
+                    WorkspaceOperationType.RENAME, expected_digest, require_digest,
+                    precondition_digest=actual_precondition,
+                    session_id=session_id, turn_id=turn_id,
+                )
+                if not ok:
+                    raise MutationAuthorizationError(f"Approval verification failed: {msg}")
+            elif require_approval:
+                raise MutationAuthorizationError(
+                    f"Refusing to rename '{rel_old}' without an approved mutation token."
+                )
+
             safe_new.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(safe_old), str(safe_new))
 
@@ -366,6 +509,110 @@ class WorkspaceMutationBroker:
             self.ledger.record_change(record)
             return record
 
+    def copy_file(
+        self,
+        src_path: str,
+        dst_path: str,
+        task_id: str = "default_task",
+        change_reason: str = "Copy file",
+        approval_token: Optional[str] = None,
+        *,
+        require_approval: bool = False,
+        require_digest: bool = False,
+        session_id: str = "",
+        turn_id: str = "",
+    ) -> ChangeRecord:
+        """Copy a file within the workspace boundaries with risk and ownership controls."""
+        safe_src = PathSafetyValidator.resolve_and_verify(self.workspace_root, src_path)
+        safe_dst = PathSafetyValidator.resolve_and_verify(self.workspace_root, dst_path)
+        rel_src = PathSafetyValidator.get_relative_normalized(self.workspace_root, safe_src)
+        rel_dst = PathSafetyValidator.get_relative_normalized(self.workspace_root, safe_dst)
+
+        with self._get_path_lock(safe_dst):
+            if not safe_src.exists() or not safe_src.is_file():
+                raise FileNotFoundError(f"Source file '{rel_src}' does not exist.")
+
+            dst_exists = safe_dst.exists()
+            orig_hash = compute_file_sha256(safe_dst) if dst_exists else None
+
+            # Ownership & risk check on dst
+            provenance = self.baseline_mgr.classify_file_provenance(rel_dst)
+            risk = self.risk_gate.classify_operation_risk(
+                rel_dst,
+                WorkspaceOperationType.CREATE,
+                provenance,
+            )
+
+            source_bytes = safe_src.read_bytes()
+            existing_dst_text = (
+                safe_dst.read_text(encoding="utf-8", errors="replace")
+                if dst_exists else None
+            )
+            actual_precondition = approval_precondition(dst_exists, existing_dst_text)
+            expected_digest = approval_digest(source_bytes)
+            if approval_token:
+                ok, msg = self._verify_approval(
+                    approval_token, task_id, rel_dst,
+                    WorkspaceOperationType.CREATE, expected_digest, require_digest,
+                    precondition_digest=actual_precondition,
+                    session_id=session_id, turn_id=turn_id,
+                )
+                if not ok:
+                    raise MutationAuthorizationError(f"Approval verification failed: {msg}")
+            elif require_approval:
+                raise MutationAuthorizationError(
+                    f"Refusing to copy to '{rel_dst}' without an approved mutation token."
+                )
+            elif dst_exists and provenance in {
+                FileOwnershipCategory.EXISTING_USER_CLEAN,
+                FileOwnershipCategory.EXISTING_USER_MODIFIED,
+                FileOwnershipCategory.EXISTING_USER_STAGED,
+                FileOwnershipCategory.EXISTING_USER_UNTRACKED,
+                FileOwnershipCategory.USER_SUPERSEDED_AGENT,
+            }:
+                raise MutationAuthorizationError(
+                    f"Refusing to overwrite existing user file '{rel_dst}' without explicit authorization token."
+                )
+
+            safe_dst.parent.mkdir(parents=True, exist_ok=True)
+            # Atomic copy via temp file in same destination directory
+            fd, tmp_file = tempfile.mkstemp(
+                dir=str(safe_dst.parent),
+                prefix=f".crusor_tmp_{safe_dst.name}_",
+                suffix=".tmp",
+            )
+            try:
+                os.close(fd)
+                shutil.copy2(str(safe_src), tmp_file)
+                os.replace(tmp_file, str(safe_dst))
+                new_hash = compute_file_sha256(safe_dst)
+            except Exception:
+                try:
+                    os.unlink(tmp_file)
+                except OSError:
+                    pass
+                raise
+
+            op_id = f"OP-{uuid.uuid4().hex[:12]}"
+            record = ChangeRecord(
+                task_id=task_id,
+                workspace_id=str(self.workspace_root),
+                operation_id=op_id,
+                file_path=rel_dst,
+                operation_type=WorkspaceOperationType.CREATE,
+                original_hash=orig_hash,
+                new_hash=new_hash,
+                original_existence=dst_exists,
+                change_reason=change_reason,
+                approval_ref=approval_token,
+                status=JournalState.APPLIED,
+                verification_status="VERIFIED",
+                ownership_category=FileOwnershipCategory.AGENT_CREATED,
+            )
+
+            self.ledger.record_change(record)
+            return record
+
     def _atomic_write(self, target_path: Path, content: str) -> str:
         """
         Atomically write content to target_path using tempfile in the same directory + os.replace.
@@ -378,7 +625,7 @@ class WorkspaceMutationBroker:
             suffix=".tmp",
         )
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)
 
             # Atomically replace target

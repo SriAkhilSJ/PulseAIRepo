@@ -1,0 +1,1 @@
+protocol generated file is current: <REPO>\desktop\vscode\src\vs\workbench\contrib\crusorai\common\crusorAIProtocol.generated.ts

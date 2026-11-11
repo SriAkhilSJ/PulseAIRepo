@@ -1,0 +1,25 @@
+{
+  "run_id": "p0_6_5_20261108T090012_ccd13cd7",
+  "provider": "custom",
+  "model": "z-ai/glm-5.3-flash",
+  "dispatches": 0,
+  "invocations": 0,
+  "settled_calls": 0,
+  "uncertain_calls": 0,
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "cached_tokens": 0,
+  "settled_cost_inr": 0.0,
+  "auxiliary_calls": 0,
+  "auxiliary_spend_inr": 0.0,
+  "reservations": [],
+  "historical_reservation": {
+    "id": "res_d7990e4d3dc3",
+    "status": "in_flight",
+    "amount_inr": 0.167204,
+    "touched": false
+  },
+  "budget_inr": 1.0,
+  "remaining_inr": 1.0,
+  "evidence": "no CRUSORAI_HOME, sessions.db, finops state or provider invocation file was created; Electron crashed before the bridge"
+}

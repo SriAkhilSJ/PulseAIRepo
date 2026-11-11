@@ -120,10 +120,26 @@ class RiskApprovalGate:
         file_path: str,
         operation_type: WorkspaceOperationType,
         expiry_seconds: float = 300.0,
+        *,
+        content_digest: str = "",
+        precondition_digest: str = "",
+        session_id: str = "",
+        turn_id: str = "",
     ) -> str:
-        """Issue a cryptographic single-use approval token bound to exact parameters."""
+        """Issue a cryptographic single-use approval token bound to exact parameters.
+
+        ``content_digest`` binds the authorization to the exact proposed bytes
+        (Increment 2). ``precondition_digest`` binds the workspace state the
+        human saw (Increment 3): a file changed between approval and mutation
+        invalidates the token. An empty digest is the legacy/path-only scope
+        and is rejected by callers that require digest binding.
+        """
         exp = int(time.time() + expiry_seconds)
-        payload = f"{task_id}:{workspace_root}:{file_path.replace(os.sep, '/')}:{operation_type.value}:{exp}"
+        payload = (
+            f"{task_id}:{workspace_root}:{file_path.replace(os.sep, '/')}:"
+            f"{operation_type.value}:{content_digest}:{precondition_digest}:"
+            f"{session_id}:{turn_id}:{exp}"
+        )
         sig = hmac.new(_SECRET_SALT.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
         token = f"APPV-{sig[:24]}-{exp}"
         return token
@@ -135,10 +151,20 @@ class RiskApprovalGate:
         workspace_root: str,
         file_path: str,
         operation_type: WorkspaceOperationType,
+        *,
+        content_digest: str = "",
+        precondition_digest: str = "",
+        session_id: str = "",
+        turn_id: str = "",
+        require_digest: bool = False,
     ) -> Tuple[bool, str]:
         """
         Verify that token is cryptographically valid, not expired, matches parameters,
         and has not been previously consumed.
+
+        When ``require_digest`` is true the token must carry a non-empty
+        content digest and it must equal ``content_digest`` (the digest the
+        broker computed from the bytes it is about to apply).
         """
         if not token or not token.startswith("APPV-"):
             return False, "Invalid or missing approval token format."
@@ -154,11 +180,26 @@ class RiskApprovalGate:
             if time.time() > exp:
                 return False, f"Approval token expired at {exp} (current time {time.time()})."
 
-            # Check signature by reconstructing HMAC over expected payload
-            payload = f"{task_id}:{workspace_root}:{file_path.replace(os.sep, '/')}:{operation_type.value}:{exp}"
+            # Check signature by reconstructing HMAC over expected payload.
+            payload = (
+                f"{task_id}:{workspace_root}:{file_path.replace(os.sep, '/')}:"
+                f"{operation_type.value}:{content_digest}:{precondition_digest}:"
+                f"{session_id}:{turn_id}:{exp}"
+            )
             expected_sig = hmac.new(_SECRET_SALT.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(parts[1], expected_sig[:24]):
+                if require_digest:
+                    return False, (
+                        "Approval token signature mismatch: the token is not "
+                        "bound to the exact proposed content/diff digest and "
+                        "workspace precondition."
+                    )
                 return False, "Approval token cryptographic signature mismatch or bound to different target."
+
+            # Legacy path-only token: accepted only where the caller has not
+            # demanded digest binding (Increment 2/3 production paths do).
+            if require_digest and not content_digest:
+                return False, "Approval token is missing the required content/diff digest binding."
 
             # Mark as consumed immediately
             self._consumed_tokens.add(token)

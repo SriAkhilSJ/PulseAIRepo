@@ -1,0 +1,243 @@
+﻿src/vs/amdX.ts(39,27): error TS2304: Cannot find name 'TrustedTypePolicy'.
+src/vs/base/browser/browser.ts(145,44): error TS2304: Cannot find name 'TrustedTypePolicyOptions'.
+src/vs/base/browser/browser.ts(148,22): error TS2304: Cannot find name 'TrustedTypePolicy'.
+src/vs/base/browser/browser.ts(148,79): error TS2304: Cannot find name 'TrustedTypePolicyOptions'.
+src/vs/base/browser/domSanitize.ts(238,79): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/base/browser/domSanitize.ts(243,108): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/base/browser/domSanitize.ts(244,116): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/base/browser/domSanitize.ts(333,21): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/base/browser/markdownRenderer.ts(573,4): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/base/browser/markdownRenderer.ts(727,35): error TS7006: Parameter 'm' implicitly has an 'any' type.
+src/vs/base/browser/trustedTypes.ts(14,21): error TS2304: Cannot find name 'TrustedTypePolicy'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(129,12): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(129,37): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(140,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(140,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(152,12): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(152,37): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(170,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/rectangleRenderer.ts(170,35): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/fullFileRenderStrategy.ts(107,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/fullFileRenderStrategy.ts(107,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/fullFileRenderStrategy.ts(118,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/fullFileRenderStrategy.ts(118,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/viewportRenderStrategy.ts(98,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/viewportRenderStrategy.ts(98,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/viewportRenderStrategy.ts(113,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/renderStrategy/viewportRenderStrategy.ts(113,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/gpu/viewGpuContext.ts(102,3): error TS2322: Type 'CanvasRenderingContext2D | GPUCanvasContext | ImageBitmapRenderingContext | WebGLRenderingContext | WebGL2RenderingContext' is not assignable to type 'GPUCanvasContext'.
+  Type 'CanvasRenderingContext2D' is missing the following properties from type 'GPUCanvasContext': configure, getConfiguration, getCurrentTexture, unconfigure
+src/vs/editor/browser/view/viewLayer.ts(515,109): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/editor/browser/view/viewLayer.ts(536,92): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(169,12): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(169,37): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(190,12): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(190,37): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(217,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(217,36): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(226,11): error TS2304: Cannot find name 'GPUTextureUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(227,5): error TS2304: Cannot find name 'GPUTextureUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(228,5): error TS2304: Cannot find name 'GPUTextureUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(240,11): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/viewParts/viewLinesGpu/viewLinesGpu.ts(240,35): error TS2304: Cannot find name 'GPUBufferUsage'.
+src/vs/editor/browser/widget/diffEditor/components/accessibleDiffViewer.ts(618,23): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/editor/browser/widget/diffEditor/components/accessibleDiffViewer.ts(625,23): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/editor/common/services/editorBaseApi.ts(27,47): error TS2304: Cannot find name 'monaco'.
+src/vs/editor/common/services/editorBaseApi.ts(37,45): error TS2304: Cannot find name 'monaco'.
+src/vs/editor/common/services/editorBaseApi.ts(41,33): error TS2304: Cannot find name 'monaco'.
+src/vs/editor/common/services/editorWebWorker.ts(536,13): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+src/vs/platform/dnd/browser/dnd.ts(219,32): error TS2339: Property 'getAsFileSystemHandle' does not exist on type 'DataTransferItem'.
+src/vs/platform/files/browser/htmlFileSystemProvider.ts(479,47): error TS2339: Property 'queryPermission' does not exist on type 'FileSystemHandle'.
+src/vs/platform/files/browser/htmlFileSystemProvider.ts(482,45): error TS2339: Property 'requestPermission' does not exist on type 'FileSystemHandle'.
+src/vs/platform/files/browser/webFileSystemAccess.ts(27,65): error TS2339: Property 'queryPermission' does not exist on type 'FileSystemHandle'.
+src/vs/platform/files/browser/webFileSystemAccess.ts(27,116): error TS2339: Property 'requestPermission' does not exist on type 'FileSystemHandle'.
+src/vs/workbench/contrib/debug/common/debug.ts(128,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(179,30): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(190,22): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(260,16): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(361,10): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(401,18): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(425,25): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(427,36): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(432,35): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(433,37): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(434,38): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(435,35): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(436,40): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(454,52): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(457,102): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(459,53): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(460,174): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(461,111): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(462,57): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(463,38): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(464,117): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(465,78): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(466,102): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(469,39): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(470,60): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(471,42): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(472,42): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(473,43): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(479,130): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(480,92): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(481,77): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(482,37): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(485,22): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(485,84): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(486,52): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(541,21): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(542,23): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(543,24): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(544,25): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(646,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(651,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(678,23): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(679,41): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(687,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(694,21): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(764,52): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(765,90): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(890,32): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(891,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(893,23): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(894,25): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(895,60): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(928,35): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(929,25): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(1003,22): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(1069,41): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(1277,69): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debug.ts(1385,12): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(32,53): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(56,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(91,40): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(161,48): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugModel.ts(162,20): error TS2339: Property 'value' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(162,41): error TS2339: Property 'name' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(162,59): error TS2339: Property 'variablesReference' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(163,36): error TS2339: Property 'name' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(165,22): error TS2339: Property 'name' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,63): error TS2339: Property 'variablesReference' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,85): error TS2339: Property 'name' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,93): error TS2339: Property 'evaluateName' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,109): error TS2339: Property 'value' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,118): error TS2339: Property 'namedVariables' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,136): error TS2339: Property 'indexedVariables' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,156): error TS2339: Property 'memoryReference' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,175): error TS2339: Property 'presentationHint' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,195): error TS2339: Property 'type' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,263): error TS2339: Property 'declarationLocationReference' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(166,295): error TS2339: Property 'valueLocationReference' does not exist on type 'IDebugProtocolVariableWithContext'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(172,32): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugModel.ts(242,71): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(242,107): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(342,27): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(379,21): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(438,49): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(442,27): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(477,27): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(529,37): error TS7006: Parameter 'rs' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugModel.ts(605,34): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(689,42): error TS7006: Parameter 'rsf' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugModel.ts(689,47): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugModel.ts(724,21): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(728,23): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(732,24): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(736,25): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(856,42): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(866,40): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(866,80): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(917,55): error TS2339: Property 'verified' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(917,76): error TS2339: Property 'line' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(917,86): error TS2339: Property 'column' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(932,20): error TS2339: Property 'message' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(936,32): error TS2339: Property 'verified' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(942,13): error TS2339: Property 'verified' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(954,22): error TS2339: Property 'id' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(957,49): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(960,14): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(961,14): error TS2339: Property 'id' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(962,20): error TS2339: Property 'verified' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(963,19): error TS2339: Property 'message' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(964,18): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(965,16): error TS2339: Property 'line' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(966,18): error TS2339: Property 'column' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(967,19): error TS2339: Property 'endLine' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(968,21): error TS2339: Property 'endColumn' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(969,32): error TS2339: Property 'instructionReference' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(970,18): error TS2339: Property 'offset' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1021,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1037,57): error TS2339: Property 'line' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1037,87): error TS2339: Property 'line' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1042,21): error TS2339: Property 'verified' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1056,50): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1056,86): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1056,104): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1060,57): error TS2339: Property 'column' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1060,89): error TS2339: Property 'column' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1072,33): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1072,53): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1072,84): error TS2339: Property 'source' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1076,49): error TS2339: Property 'endLine' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1080,49): error TS2339: Property 'endColumn' does not exist on type 'IBreakpointSessionData'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1184,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1217,15): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1218,14): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1227,31): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1228,30): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1248,47): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1372,18): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1409,11): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1450,43): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1748,64): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1847,59): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1847,105): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1904,71): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1912,90): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1913,66): error TS2339: Property 'appliesTo' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1916,52): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1922,15): error TS2339: Property 'appliesTo' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1923,11): error TS2339: Property 'appliesTo' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1927,84): error TS2339: Property 'label' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1929,16): error TS2339: Property 'label' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1929,37): error TS2339: Property 'label' does not exist on type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugModel.ts(1933,6): error TS2353: Object literal may only specify known properties, and 'mode' does not exist in type 'IBreakpointModeInternal'.
+src/vs/workbench/contrib/debug/common/debugSource.ts(39,7): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugSource.ts(41,20): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugSource.ts(132,39): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(225,43): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(225,91): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(240,44): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(240,92): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(255,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(259,19): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(262,29): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(265,29): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(268,29): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(276,21): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(279,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(282,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(285,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(288,28): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(299,22): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(303,9): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(303,77): error TS7006: Parameter 'frame' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(306,9): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(306,76): error TS7006: Parameter 'source' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(309,9): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(309,68): error TS7006: Parameter 'scope' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(312,9): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(312,89): error TS7006: Parameter 'bp' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(315,9): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(315,81): error TS7006: Parameter 'bp' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(319,20): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(320,38): error TS7006: Parameter 'di' implicitly has an 'any' type.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(324,30): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(392,33): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/debug/common/debugUtils.ts(392,70): error TS2503: Cannot find namespace 'DebugProtocol'.
+src/vs/workbench/contrib/files/browser/fileImportExport.ts(666,72): error TS2339: Property 'showDirectoryPicker' does not exist on type 'CodeWindow'.
+src/vs/workbench/contrib/notebook/browser/view/cellParts/cellDragRenderer.ts(59,101): error TS2304: Cannot find name 'TrustedHTML'.
+src/vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads.ts(1117,26): error TS2339: Property 'trustedTypes' does not exist on type 'Window & typeof globalThis'.
+src/vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads.ts(1118,15): error TS7006: Parameter 'value' implicitly has an 'any' type.
+src/vs/workbench/contrib/notebook/browser/view/renderers/webviewPreloads.ts(1119,17): error TS7006: Parameter 'value' implicitly has an 'any' type.

@@ -1,0 +1,49 @@
+# Cancellation evidence
+
+Launch 2: real bridge, `CRUSORAI_BRIDGE_RUNNER=echo`,
+`CRUSORAI_ECHO_DELAY_MS=6000` (documented in-flight test seam). Screenshots:
+`screenshots/06_cancel_inflight.png`, `screenshots/07_cancel_result.png`.
+
+## Attempt 1 — cancel before the turn is active (race)
+
+- Prompt `cancel probe turn` sent; UI optimistically showed `Thinking`.
+- `Escape` pressed about 0.9 s later. Renderer console:
+  `[crusorai] cancel click sent for session session-673786...`
+- Engine answer:
+  `[bridge] cancel for session-673786...: accepted=False turn_elapsed=None`
+  and `[crusorai] engine cancel ack received: cancel_requested=false`.
+- The turn was **not** cancelled: after the 6 s delay the echo reply landed and
+  the transcript showed the completed turn.
+
+This is a real pre-turn race: a Stop issued while the bridge is still starting
+the turn is rejected and the prompt runs to completion.
+
+## Attempt 2 — cancel an active turn
+
+- Prompt `cancel probe two`; waited 2 s (turn already streaming); `Escape`.
+- Engine answer (log):
+  `[bridge] cancel for session-673786...: accepted=True turn_elapsed=3.157166`
+- UI immediately and stably (checked at t0, t+2 s, t+8 s):
+  `cancel probe two` / `Operation cancelled by the user.` /
+  receipt `Run cancelled` (class `crusorai-turn-receipt is-cancelled`).
+- No echo output was appended after cancellation.
+
+## Truthfulness
+
+- The cancelled turn is not presented as completed: it carries
+  `cancelled: true` semantics (`Operation cancelled by the user.`, `Run cancelled`).
+- The earlier completed turn remains `completed` and its text is unchanged; a
+  cancellation does not rewrite history.
+
+## Verdict
+
+| Check | Result |
+|---|---|
+| Cancellation reaches the runtime | PASS |
+| `cancel_requested` observable | PASS (`accepted=True`, `cancel_requested=true`) |
+| Process actually stops | PASS (no further frames; stable cancelled state) |
+| Final state truthful | PASS |
+| Cancel during engine/turn startup | **FAIL** (rejected, prompt continues) |
+
+Limitation: measured with the echo seam, which checks `turn_controls.cancelled`
+every 50 ms. Cancellation of a real provider/tool turn is NOT EXERCISED.

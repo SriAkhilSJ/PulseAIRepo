@@ -1,0 +1,31 @@
+{
+  "declared_for_launch": {
+    "CRUSORAI_TASK_BUDGET_INR": "1.00",
+    "CRUSORAI_AUX_BUDGET_INR": "0.00",
+    "CRUSORAI_AUX_TOKEN_BUDGET": "0",
+    "CRUSORAI_AUX_MAX_TOKENS": "64",
+    "CRUSORAI_MAX_GENERATION_RECOVERIES": "1",
+    "CRUSORAI_SUBMISSION_REPLAY_WINDOW_S": "600",
+    "CRUSORAI_NEW_SESSION_REPLAY_WINDOW_S": "60",
+    "CRUSORAI_AUTOTITLE": "off",
+    "CRUSORAI_MEMORY": "off",
+    "CRUSORAI_BRIDGE_DIAGNOSTICS": "1"
+  },
+  "harness_extra_env_keys": [
+    "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+    "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+    "CRUSORAI_ACCEPTANCE_RUN_ID",
+    "CRUSORAI_BRIDGE_DIAGNOSTICS",
+    "CRUSORAI_COST_GOVERNANCE",
+    "CRUSORAI_EVIDENCE_DIR",
+    "CRUSORAI_HOME",
+    "CRUSORAI_MEMORY",
+    "CRUSORAI_RESERVE_BUDGET_INR",
+    "CRUSORAI_SESSION_COST_BUDGET_INR",
+    "CRUSORAI_TEST_PYTHON",
+    "CRUSORAI_TURN_COST_BUDGET_INR"
+  ],
+  "autotitle_in_harness_extra_env": false,
+  "propagation_verified_to_bridge": false,
+  "note": "The launch shell set these before starting the harness. The Electron main process crashed before the workbench and bridge started, so no child-layer proof of propagation exists for this attempt."
+}

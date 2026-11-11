@@ -1,0 +1,20 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0
+rootdir: <REPO>
+configfile: pytest.ini
+plugins: anyio-4.14.2, langsmith-0.10.10, asyncio-1.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 115 items / 3 deselected / 112 selected
+
+src\tests\test_orchestrator_approval_integration.py .........            [  8%]
+src\tests\test_approval_testimony.py ...                                 [ 10%]
+src\tests\test_bridge_transport.py ...............                       [ 24%]
+src\tests\test_bridge_orchestrator_protocol.py ....                      [ 27%]
+src\tests\test_bridge_protocol_v2.py .........                           [ 35%]
+src\tests\test_phase_11_3_workspace_discipline.py ...................... [ 55%]
+............                                                             [ 66%]
+src\tests\test_p0_3_orchestrator_integration.py .......                  [ 72%]
+src\tests\test_runtime_evidence_capture.py ............................. [ 98%]
+..                                                                       [100%]
+
+================ 112 passed, 3 deselected in 211.78s (0:03:31) ================

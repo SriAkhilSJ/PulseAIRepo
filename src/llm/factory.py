@@ -502,7 +502,14 @@ class RetryLLMProxy:
         _abort_state: _AbortState | None = None,
     ):
         self._llm = llm
-        self._max_attempts = max_attempts
+        # Acceptance mode (P0.6.4.1): a desktop acceptance turn clamps every
+        # proxy to a single attempt, whatever budget the caller asked for.
+        # Outside acceptance mode this is the identity function.
+        from src.llm.acceptance_guard import clamp_max_attempts, enforce_sdk_single_retry
+        self._max_attempts = clamp_max_attempts(max_attempts)
+        # Prove the raw client has no hidden SDK retries while acceptance mode
+        # is active (fails closed rather than silently multiplying dispatches).
+        enforce_sdk_single_retry(llm)
         self._abort_state = _abort_state or _AbortState(llm)
         self.provider = provider
         if self.provider is None:
@@ -564,6 +571,8 @@ class RetryLLMProxy:
         # Guards auto-limit resolution (double-checked in _safe_limit);
         # the dashboard can invoke this proxy from worker threads.
         self._limit_lock = threading.Lock()
+        # Increment 3: per-attempt trace for the unified invocation ledger.
+        self._attempt_records: list[dict] = []
 
     @property
     def is_aborted(self) -> bool:
@@ -615,6 +624,13 @@ class RetryLLMProxy:
         the active session so every proxied model request is covered by the
         cancellation lifecycle, not just ai_node.
         """
+        # P0.6.9: in acceptance mode every provider request must sit inside a
+        # financial reservation scope. This is the last boundary before the
+        # wire; an unaccounted call fails closed here.
+        from src.finops.invocation_context import assert_governed_for_acceptance
+
+        assert_governed_for_acceptance()
+
         last_error = None
 
         # Register before any request preparation. If Stop already won,
@@ -750,9 +766,17 @@ class RetryLLMProxy:
             ).strip().lower() in {"1", "true", "yes", "on"}
 
             for attempt in range(self._max_attempts):
+                _attempt_started = time.time()
                 # Cancellation gate BEFORE every attempt: a Stop that fired while
                 # the previous attempt was blocked must never launch a new request.
                 self._raise_if_cancelled()
+
+                # Acceptance gate BEFORE the request (and before the "llm.request"
+                # telemetry, which claims to describe an ACTUAL send). When the
+                # turn's dispatch budget is exhausted this raises here, so the
+                # provider is never reached. No-op outside acceptance mode.
+                from src.llm.acceptance_guard import claim_dispatch
+                claim_dispatch(stage="retry_llm_proxy", model=str(self.model or ""))
 
                 # LLM request telemetry (benchmark evidence, PBR-002/012): one
                 # event per ACTUAL provider request attempt, emitted after the
@@ -794,6 +818,13 @@ class RetryLLMProxy:
                         })
                     except Exception:
                         pass
+                    self._attempt_records.append({
+                        "attempt": attempt + 1,
+                        "status": "success",
+                        "started_at": _attempt_started,
+                        "completed_at": time.time(),
+                        "latency_ms": round((time.time() - _attempt_started) * 1000.0, 3),
+                    })
                     return response
                 except Exception as error:
                     # A Stop pressed while this HTTP request was in flight wins
@@ -801,6 +832,15 @@ class RetryLLMProxy:
                     # do NOT fire another (now-unwanted) request.
                     self._raise_if_cancelled(error)
                     last_error = error
+                    self._attempt_records.append({
+                        "attempt": attempt + 1,
+                        "status": "error",
+                        "error_type": type(error).__name__,
+                        "error": str(error)[:300],
+                        "started_at": _attempt_started,
+                        "completed_at": time.time(),
+                        "latency_ms": round((time.time() - _attempt_started) * 1000.0, 3),
+                    })
 
                     # Hermes discipline: a failing call is VISIBLE. One line
                     # per failed attempt into the bridge log
@@ -1213,6 +1253,20 @@ def get_llm(provider, model, max_attempts: int | None = None, request_timeout: f
     (from ``parse_reasoning_effort()``).  Provider-specific wire parameters
     are injected via ``model_kwargs``.
     """
+    # Provider-free qualification seam (desktop Phase 2): a scripted model at
+    # the model-invocation boundary, gated by BOTH CRUSORAI_TEST_MODE=1 and an
+    # inline CRUSORAI_TEST_LLM_SCRIPT. Unset in every normal run; no network.
+    try:
+        from src.llm.scripted_model import scripted_model_active, scripted_model_from_env
+
+        if scripted_model_active():
+            return scripted_model_from_env()
+    except Exception:
+        # A malformed test script must never be silently ignored: let the
+        # caller see the real build error instead of a provider call.
+        if os.environ.get("CRUSORAI_TEST_MODE", "").strip() == "1":
+            raise
+
     # Build extra model_kwargs for provider-side thinking.
     reasoning_kwargs = build_model_kwargs_for_reasoning(provider, model, reasoning_config) if reasoning_config else {}
 
