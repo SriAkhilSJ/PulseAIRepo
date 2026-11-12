@@ -1,7 +1,7 @@
 # EM Execution Plan — PRD-001
 
 Status: **draft for founder approval** · 2026-11-12 · Owner: Engineering Manager
-Traceable to: `pm/08-PRD-001-TOOL-BACKED-ENGINEERING-LOOP.md` rev 1.1 (FR-1…FR-41, AC-1…AC-14)
+Traceable to: `pm/08-PRD-001-TOOL-BACKED-ENGINEERING-LOOP.md` rev 1.2 (FR-1…FR-41, AC-1…AC-14)
 Base: `origin/main` @ `8fa4e240` (contains audit baseline `fb5bd528`; tree identical, merges only)
 
 ---

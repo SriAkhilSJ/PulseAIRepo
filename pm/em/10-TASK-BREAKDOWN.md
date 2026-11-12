@@ -1,6 +1,6 @@
 # Task Breakdown — PRD-001 (T-01…T-21)
 
-Every ticket traces to FR/AC in `08-PRD-001-TOOL-BACKED-ENGINEERING-LOOP.md` rev 1.1.
+Every ticket traces to FR/AC in `08-PRD-001-TOOL-BACKED-ENGINEERING-LOOP.md` rev 1.2.
 Effort is focused hours for one agent session; estimates are ranges, not commitments.
 DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all tickets.
 
@@ -107,12 +107,12 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 ## W3 — Safe by default (WS-C · owner of `terminal_tools.py`, `src/security/**`)
 
 ### T-10 · Containment default-on, fail-closed
-- **Objective:** shell commands run inside AppContainer/Job Object by default where supported.
+- **Objective:** shell commands run inside AppContainer/Job Object by default; containment is fail-closed.
 - **Components:** `terminal_tools.py:1093,1152-1170`, `security/sandbox/windows.py`.
-- **Changes:** default becomes on; remove silent fallback to `Popen`; explicit opt-out with a visible warning.
+- **Changes:** default on; **remove the uncontained fallback and the opt-out entirely**; when containment cannot start, block terminal execution with a stated reason while read/search/edit remain available.
 - **Dependencies:** T-11 (env scrub lands first to avoid leaking during the switch).
-- **Acceptance:** AC-11.
-- **Testing:** `test_prd001_sandbox_default_on`; refusal path test.
+- **Acceptance:** AC-11, including the unsupported-build case.
+- **Testing:** `test_prd001_sandbox_default_on`; `test_prd001_sandbox_unavailable_blocks_terminal`; assert no code path constructs an uncontained `Popen`.
 - **Security:** **this ticket must not be traded for the deadline.** A failure here blocks the milestone.
 - **Effort:** 3h. **Risk:** AppContainer may slow `pytest`; measure, do not disable.
 
@@ -127,13 +127,13 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 - **Effort:** 0.5h.
 
 ### T-12 · Fail-closed proof
-- **Objective:** demonstrate that containment failure blocks rather than degrades.
+- **Objective:** demonstrate that containment failure blocks rather than degrades, and that no configuration restores an uncontained shell.
 - **Components:** sandbox manager, terminal tool.
-- **Changes:** exception path returns a blocked result with reason.
+- **Changes:** exception path returns a blocked result with reason; non-terminal tools stay available; no opt-out flag is honoured.
 - **Dependencies:** T-10.
-- **Acceptance:** forced-failure test asserts no command executed outside containment.
-- **Testing:** monkeypatch the sandbox to raise; assert `blocked`.
-- **Security:** SEC-1, SEC-11.
+- **Acceptance:** forced-failure test asserts terminal blocked, reason surfaced, no uncontained execution, read/search/edit still functional.
+- **Testing:** monkeypatch the sandbox to raise; assert `blocked`; assert an attempted opt-out env var is ignored.
+- **Security:** SEC-1, SEC-11; the founder-rejected opt-out must not be reintroduced.
 - **Effort:** 1h.
 
 ### T-13 · Egress denial by default

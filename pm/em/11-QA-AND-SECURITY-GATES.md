@@ -1,6 +1,6 @@
 # QA Plan, Security Gates & Release Readiness
 
-Traceable to PRD-001 rev 1.1. Nothing here may be waived to meet the two-day target.
+Traceable to PRD-001 rev 1.2. Nothing here may be waived to meet the two-day target.
 
 ---
 
@@ -48,7 +48,7 @@ Traceable to PRD-001 rev 1.1. Nothing here may be waived to meet the two-day tar
 
 | Gate | Condition | Evidence |
 | --- | --- | --- |
-| **SG-1** Containment default | Uncontained execution impossible without explicit opt-out | AC-11 test + code path review |
+| **SG-1** Containment default | Uncontained execution is impossible under **any** configuration; no opt-out exists; when containment is unavailable, terminal is blocked and explained | AC-11 test + code-path review + attempted opt-out ignored |
 | **SG-2** Env isolation | No provider key reachable from a child process | AC-12 dump |
 | **SG-3** Mutation containment | No write outside workspace without grant | Path-containment tests + T4 |
 | **SG-4** Approval integrity | Tokens single-use, HMAC-bound; no replay | Existing tests + one negative test |
@@ -56,6 +56,7 @@ Traceable to PRD-001 rev 1.1. Nothing here may be waived to meet the two-day tar
 | **SG-6** No false verification | `verified` only with executed check | T5 run + code review |
 | **SG-7** Secret hygiene | No key/secret in logs, receipts, diffs, evidence pack | Log scan before commit |
 | **SG-8** Self-escalation blocked | Agent cannot edit its own permission config | Test attempt recorded |
+| **SG-9** No sandbox bypass surface | No setting, env var or profile can restore an uncontained shell | Attempted opt-out ignored in T-12 |
 
 **Hard rule:** if a security gate fails and the fix does not fit the milestone, the milestone is reduced.
 It is never "documented as a known risk and shipped". Note that this milestone does not ship anything —

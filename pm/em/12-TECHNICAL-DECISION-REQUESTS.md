@@ -39,14 +39,15 @@ become untrustworthy again — the exact F-06 failure returning.
 
 | Option | Description | Risk |
 | --- | --- | --- |
-| **C1** Default on; if AppContainer cannot start → task **blocked** with reason | Fail closed | Users on old Windows cannot run the agent until they opt out explicitly |
+| **C1′** Default on; if containment cannot start → **terminal blocked**, reason shown, non-terminal tools remain, **no opt-out** | Fail closed, no bypass surface | Old/unsupported builds cannot run commands at all (accepted) |
+| C1 (rejected) Default on; blocked but with an explicit opt-out | Fail closed by default | The opt-out is an uncontained shell by another name — **founder-rejected** |
 | C2 Default on; fall back to uncontained with a warning | Never blocks | Silent downgrade of the security claim |
 | C3 Default off, prompt the user | Keeps today's behaviour | Repeats F-03; contradicts the product positioning |
 
-**Recommendation:** C1. **Blocks:** T-10, T-12. **If wrong:** C2 is an outage-shaped security incident waiting
-for a malicious repository.
-**Note:** this decision changes user-visible availability on older Windows builds — a product trade, not only a
-technical one. Founder must be aware.
+**Decision (founder, 2026-11-12): C1′ — ACCEPTED.** **Unblocks:** T-10, T-12.
+**Consequence accepted:** on unsupported or misconfigured Windows builds the agent loses shell capability
+entirely; tasks needing a command end `blocked`. Non-terminal work continues. No setting restores an
+uncontained shell.
 
 ---
 
@@ -81,16 +82,15 @@ product's evidence chain — precisely what the audit flagged.
 
 ## Decision log for these requests
 
-| ID | Recommendation | Decided by | Date | Status | Ticket unblocked |
+| ID | Decision | Decided by | Date | Status | Ticket unblocked |
 | --- | --- | --- | --- | --- | --- |
-| TL-DR-1 | **A1** | Tech Lead / Founder | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-02 |
-| TL-DR-2 | **B1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-06 (blocked until signed) |
-| TL-DR-3 | **C1** | Founder (product trade) | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-10 |
-| TL-DR-4 | **D1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-07 |
-| TL-DR-5 | **E1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-05 |
+| TL-DR-1 | **A1** | Founder | 2026-11-12 | ACCEPTED | T-02 |
+| TL-DR-2 | **B1** | Founder | 2026-11-12 | ACCEPTED | T-06 |
+| TL-DR-3 | **C1′** (fail-closed, no opt-out) | Founder | 2026-11-12 | ACCEPTED (corrected) | T-10, T-12 |
+| TL-DR-4 | **D1** | Founder | 2026-11-12 | ACCEPTED | T-07 |
+| TL-DR-5 | **E1** | Founder | 2026-11-12 | ACCEPTED | T-05 |
 
 **Single source of truth:** `15-TECHNICAL-DECISION-REGISTER.md`. This table is a pointer; if the two disagree,
-the register wins. No status becomes `ACCEPTED` until the sign-off block in the register is filled and an ADR is
-written under `docs/adr/` (`develop-adr` skill).
+the register wins. ADRs to be written under `docs/adr/` (`develop-adr` skill) during implementation.
 
 Recorded as ADRs via the `develop-adr` skill once decided; one file per decision under `docs/adr/`.

@@ -127,18 +127,16 @@ PRD-001 rev 1.1 and the five TL decisions are recorded.
 
 ## Revision — founder review (2026-11-12, same day)
 
-- PRD-001 corrected to **rev 1.1**: T-06/TL-DR-2 contradiction removed (T-06 blocked until TL-DR-2 signed);
-  autonomy profiles fixed to **Beginner + Developer only**; F-01 wording corrected (Phase 2A read-only
-  discovery exists; generation binds no read/search/list/test tools; shell tools hard-blocked by
-  `_GRAPH_MUTATION_BLOCKED`); test count 4,968–4,986 with 3 collection errors.
-- Five Technical Lead recommendations recorded **as RECOMMENDED, not Accepted**: A1, B1, C1, D1, E1
-  (`pm/em/15-TECHNICAL-DECISION-REGISTER.md`).
-- Reference provider verified without exposing credentials: `custom` / `velona.in` / `z-ai/glm-5.3-flash`;
-  2-token probe answered `READY` in 8.7 s. Exact balance UNKNOWN (no documented endpoint).
-- Dirty-tree inventory completed: 273 entries, +10,453/−969 lines. **The audit baseline
-  `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` is untracked**, and modified orchestrator code depends on untracked
-  sibling modules. Disposition proposal R1–R5 in `pm/em/16-DIRTY-TREE-DISPOSITION.md`; nothing was run.
-- Implementation still **not authorised**.
+- PRD-001 corrected to **rev 1.2** after founder decision D-022: containment default-on and fail-closed, terminal
+  blocked when the sandbox is unavailable, non-terminal capability retained, and **no opt-out may permit an
+  uncontained shell**. The earlier opt-out clause is prohibited. Five Technical Lead decisions are **ACCEPTED**
+  (A1, B1, C1′, D1, E1).
+- Provider approved as the single evidence configuration (D-024); balance remains UNKNOWN and no expensive run
+  is authorised until a spending limit is confirmed.
+- Dirty-tree approach approved **with conditions** (D-023): R0 backup first, every entry accounted for, no
+  delete/quarantine without content review, no merge without separate approval.
+- Implementation still **not authorised**: R0 backup destination, R1–R4 execution and a provider spending limit
+  are outstanding.
 
 ## Promotion block (append to `docs/CURRENT_STATE.md` once the working tree is dispositioned)
 
@@ -148,7 +146,8 @@ PRD-001 rev 1.1 and the five TL decisions are recorded.
 - Product track: `pm/` (strategy, competitive benchmark, roadmap, milestone, metrics, PRD-001 rev 1.1).
 - Engineering handoff: `pm/em/` (21 tickets, 6 workstreams, Day-1 Go/No-Go, QA/security gates, 5 TL decisions).
 - Branch: `docs/engineering-handoff-prd-001` from `origin/main` @ `8fa4e240`.
-- Founder decisions D-003…D-014 recorded in `pm/DECISION-LOG.md`; PRD-001 rev 1.1 awaiting sign-off.
+- Founder decisions D-003…D-025 recorded in `pm/DECISION-LOG.md`; PRD-001 rev 1.2 approved in direction,
+  signature outstanding.
 - Implementation NOT started. F-01/F-02/F-03/F-06 re-verified and still open.
 - Blockers: 273-entry dirty tree, 5 TL decisions, provider credit, fixtures.
 ```

@@ -38,10 +38,12 @@ stays auditable.
 
 | # | Item | Status after review |
 | --- | --- | --- |
-| C1 | Confirm P4 reference provider and non-zero wallet credit | **CLOSED** — config + 2-token probe pass; balance UNKNOWN by design (D-020) |
-| C2 | Disposition the 273-entry dirty working tree before implementation | **OPEN** — proposal R1–R5 in `em/16`; audit baseline is currently untracked |
-| C3 | Record the five Technical Lead decisions (TL-DR-1…5) | **RECOMMENDED, awaiting sign-off** (D-019) |
-| C4 | Sign PRD-001 rev 1.1 | **OPEN** — sign-off block at the end of `em/14` |
+| C1 | Confirm P4 reference provider and non-zero wallet credit | **CLOSED** — approved (D-024); balance UNKNOWN, spending limit required |
+| C2 | Disposition the 273-entry dirty working tree before implementation | **APPROVED WITH CONDITIONS** (D-023); R0 backup + R1–R4 go-ahead still open |
+| C3 | Record the five Technical Lead decisions (TL-DR-1…5) | **CLOSED** — all ACCEPTED, TL-DR-3 corrected to C1′ (D-021, D-022) |
+| C4 | Sign PRD-001 | **Direction approved** (D-025); rev 1.2 signature line still open |
+| C5 | Confirm a spending limit for provider runs | **OPEN** — gates any expensive evidence run |
+| C6 | Approve R0 backup destination and R1–R4 execution | **OPEN** — gates implementation |
 
 ## Open — evidence gathering (owner: TPM)
 

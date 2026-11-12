@@ -1,8 +1,8 @@
 ---
 artifact: prd
-version: "1.1"
+version: "1.2"
 created: 2026-11-12
-status: draft-rev1.1-for-approval
+status: approved-rev1.2
 id: PRD-001
 initiative: Two-day core-agent milestone
 ---
@@ -219,14 +219,21 @@ And failures and retries are included in the numerator
 And each row carries a receipt id that cannot be double-counted
 ```
 
-#### AC-11 — Containment default (FR-26)
+#### AC-11 — Containment default, fail closed (FR-26)
 
 ```
 Given a supported Windows build and no override env var
 When the agent runs a shell command
 Then it executes inside the AppContainer/Job Object path
-And if containment cannot start, the task fails closed with a visible warning
-And it never falls through to an uncontained Popen
+And no configuration or environment variable can permit an uncontained shell
+
+Given containment cannot start, or the platform/build is unsupported
+When the agent attempts a shell command
+Then terminal execution is blocked before the command runs
+And the block explains why, in the UI and the receipt
+And no uncontained subprocess is created by any code path
+And non-terminal tools (read, search, edit) still work within the workspace
+And any task that requires a command ends as "blocked", not "success"
 ```
 
 #### AC-12 — Environment scrubbing (FR-27)
@@ -343,7 +350,7 @@ Every FR is testable. "Trace" column = repository evidence or audit finding the 
 | FR-23 | TWO profiles MUST ship — Beginner and Developer — expressed as permission rules in the existing schema, stored in `~/.crusorai/settings.json` and `<workspace>/.crusorai/settings.json`. The Enterprise profile is DEFERRED; the rules schema MUST remain extensible (named profiles, deny-by-default floor) so it can be added without migration. | P0 | `permission_config.py` header contract |
 | FR-24 | The active profile MUST be visible in the UI at all times and on every approval prompt. | P0 | audit F-04 |
 | FR-25 | There MUST be no implicit auto-approval. The default profile is `ask` for every mutation, shell and network action. Developer autonomy is an explicit, visible, user-selected opt-in; it MUST NOT silently widen across sessions, and it MUST NOT disable sandbox enforcement. | P0 | F-04 (`workspace_session` default) |
-| FR-26 | OS containment MUST be enabled by default where supported; if unavailable, the task MUST run with a visible warning and MUST NOT claim containment. | P0 | F-03, `terminal_tools.py:1093` |
+| FR-26 | OS containment MUST be enabled by default and **fail closed**. If sandbox initialisation fails, or the platform/build is unsupported, **terminal execution MUST be blocked** — there is no uncontained shell path and **no opt-out that permits one**. The block MUST state why. Non-terminal capability (read/search/edit within the workspace) MUST remain available where it is safe. | P0 | F-03, `terminal_tools.py:1093` |
 | FR-27 | Child processes MUST NOT inherit provider API keys or unrelated secrets; an allowlist env is passed instead. | P0 | F-03 |
 | FR-28 | Network egress from agent-run commands MUST be denied by default, with an explicit per-task grant. | P0 | audit F-03; competitor norm (network off by default) |
 
@@ -415,6 +422,7 @@ in this release.
 | File changes on disk between read and write | Write rejected as stale; agent re-reads before retrying |
 | Symlink inside workspace points outside | Contained; operation denied with reason |
 | Workspace path contains spaces/non-ASCII/UNC | Path handling succeeds; no silent fallback to uncontained execution |
+| AppContainer unavailable or Windows build unsupported | Terminal execution blocked with a stated reason; read/search/edit remain available; tasks needing a command end `blocked`. No opt-out is offered |
 | Two tasks run concurrently in one workspace | Second task queues or is refused; no interleaved writes |
 | Provider rate limit mid-task | Retry per existing policy; receipt counts retries; cost includes retried tokens |
 | Context window exceeded | Existing compaction; if still exceeded → `blocked`, never truncated silently into a wrong edit |
@@ -434,7 +442,7 @@ Consolidated, but every SEC maps to an FR so nothing is aspirational.
 
 | ID | Requirement | Threat addressed | Trace |
 | --- | --- | --- | --- |
-| SEC-1 | Containment is on by default and fails closed; no silent fallback to `subprocess.Popen` | Malicious repo command escaping the workspace | FR-26; `terminal_tools.py:1093,1152` |
+| SEC-1 | Containment is on by default and fails closed. If it cannot start, terminal execution is blocked with a reason; **no opt-out may permit uncontained execution** and no code path may fall through to `subprocess.Popen` | Malicious repo command escaping the workspace | FR-26; `terminal_tools.py:1093,1152` |
 | SEC-2 | Child processes receive an allowlisted environment, never the parent's | API key exfiltration | FR-27 |
 | SEC-3 | Network egress denied by default; grant is per task, visible and recorded | Data exfiltration | FR-28 |
 | SEC-4 | Every mutation passes `WorkspaceMutationBroker` + `path_safety` (traversal, symlink, ADS, device names, 8.3 aliases) | Workspace escape | FR-13; `path_safety.py:49-80` |
@@ -733,5 +741,6 @@ Resolved in rev 1.1 and recorded as ACCEPTED (P1–P3, P5) and ACCEPTED-CONDITIO
 
 | Version | Date | Author | Changes |
 | --- | --- | --- | --- |
+| 1.2 | 2026-11-12 | TPM (founder decision) | Sandbox clarified per founder: containment default-on, fail closed; terminal blocked when containment is unavailable; non-terminal capability retained; **no opt-out permits uncontained execution** (FR-26, AC-11, SEC-1, edge cases). Scope otherwise unchanged. |
 | 1.1 | 2026-11-12 | TPM (EM review) | Resolved five open questions as proposed defaults: declared `crusor.test_command` (FR-19), no implicit auto-approval (FR-25), retention deferred (NFR-6), reference provider proposed (Open Questions P4), Enterprise profile deferred (FR-23). Scope unchanged. |
 | 1.0 | 2026-11-12 | TPM | Initial draft for founder approval; incorporates D-003…D-014 |

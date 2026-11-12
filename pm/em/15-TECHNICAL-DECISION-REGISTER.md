@@ -1,135 +1,123 @@
 # Technical Decision Register — PRD-001
 
-Status of every decision below: **RECOMMENDED (founder review, 2026-11-12) — awaiting explicit sign-off.**
-Nothing is marked Accepted. Implementation remains blocked until each row's status becomes `ACCEPTED`.
-Status vocabulary: `RECOMMENDED` · `ACCEPTED` · `DEFERRED` · `REJECTED`.
-
-Founder recommendations received: TL-DR-1 = A1, TL-DR-2 = B1, TL-DR-3 = C1, TL-DR-4 = D1, TL-DR-5 = E1.
-Consequences are stated before the status, per the review instruction.
+Status: **FOUNDER-ACCEPTED 2026-11-12** (four as recommended, TL-DR-3 corrected before acceptance).
+Single source of truth. `12-TECHNICAL-DECISION-REQUESTS.md` is a pointer to this file.
+Status vocabulary: `ACCEPTED` · `RECOMMENDED` · `DEFERRED` · `REJECTED`.
 
 ---
 
-## TL-DR-1 · Tool-loop entry point → **A1 recommended**
+## TL-DR-1 · Tool-loop entry point → **A1 — ACCEPTED**
 
 | | |
 | --- | --- |
 | **Decision** | Route at `engineering_task_node`; the node delegates to the tool loop and the DAG keeps lifecycle authority |
-| **Blocks** | T-02 |
-| **Status** | RECOMMENDED |
+| **Accepted** | 2026-11-12 (founder) |
+| **Unblocks** | T-02 |
 
-**Consequences of adopting A1**
-- Reuses the routing path already covered by `test_canonical_runtime_engineering_delegation.py`.
-- The DAG keeps verification, regression and impact bookkeeping (FR-2), so nothing already earned is lost.
-- Cost: one node grows in responsibility; its failure mode becomes "engineering task runs as chat", which is
-  visible and labelled in the receipt rather than silent.
-- Residual risk: hidden coupling in `chat_graph.py` (8,218 lines, and 105 lines of it are uncommitted work).
+**Consequences accepted:** reuses the routing path already covered by
+`test_canonical_runtime_engineering_delegation.py`; the DAG keeps verification, regression and impact
+bookkeeping (FR-2). One node grows in responsibility; its failure mode is "engineering task runs as chat",
+which is visible and labelled in the receipt. Residual risk: hidden coupling in `chat_graph.py`
+(8,218 lines, 105 of them uncommitted work — see `16-DIRTY-TREE-DISPOSITION.md`).
 
-**Consequences of the alternatives**
-- A2 (route inside each DAG node): ~4 days, no existing tests for tools on that path, exceeds the milestone.
-- A3 (delete the DAG): re-creates verification/regression/impact guarantees that already exist; weeks.
+**Rejected alternatives:** A2 (route inside each DAG node — ~4 days, untested path, exceeds the milestone);
+A3 (delete the DAG — re-creates guarantees that already exist).
 
 ---
 
-## TL-DR-2 · Observability shadow → **B1 recommended**
+## TL-DR-2 · Observability shadow → **B1 — ACCEPTED**
 
 | | |
 | --- | --- |
 | **Decision** | Rename the module into the package: `src/observability/receipts.py`, update the three import sites |
-| **Blocks** | **T-06**, T-07 |
-| **Status** | RECOMMENDED |
+| **Accepted** | 2026-11-12 (founder) |
+| **Unblocks** | **T-06**, then T-07 |
 
-**Consequences of adopting B1**
-- One owner, one obvious import path; receipts become available with no behavioural change.
-- Touches only the observability surface plus 3 import lines — the smallest blast radius available.
-- Unblocks T-06 and therefore the Day-1 Go/No-Go condition.
+**Consequences accepted:** one owner, one import path, no behavioural change; smallest blast radius.
+T-06 is no longer blocked and is a safe parallel start as of this acceptance.
 
-**Consequences of the alternatives**
-- B2 (rename the package): many import sites, higher risk of a partial rename that silently reintroduces the bug.
-- B3 (duplicate the function): two sources of truth; receipts drift; the F-06 class of failure returns silently.
-
-**Dependency note:** T-06 is **blocked** until this is signed off, then becomes a safe parallel start. An earlier
-draft listed it as both, which was contradictory; corrected in `09` §4 and `10` T-06.
+**Rejected alternatives:** B2 (rename the package — wide blast radius); B3 (duplicate the function — two
+sources of truth, the F-06 failure returns silently).
 
 ---
 
-## TL-DR-3 · Sandbox default → **C1 recommended**
+## TL-DR-3 · Sandbox default → **C1′ — ACCEPTED (corrected by founder)**
 
 | | |
 | --- | --- |
-| **Decision** | Containment default-on; if AppContainer cannot start, the task is **blocked** with a reason (fail closed) |
-| **Blocks** | T-10, T-12 |
-| **Status** | RECOMMENDED — **product trade, founder-owned** |
+| **Decision** | Containment default-on and **fail-closed**. If sandbox initialisation fails, or the Windows build is unsupported: **block terminal execution**, state why, keep non-terminal capability available where safe, and **never permit an uncontained shell through an opt-out** (no opt-out exists). |
+| **Accepted** | 2026-11-12 (founder), after correction |
+| **Unblocks** | T-10, T-12 |
 
-**Consequences of adopting C1**
-- The security claim becomes true; a malicious repository cannot obtain an uncontained shell.
-- Users on unsupported or misconfigured Windows builds **cannot run the agent until they explicitly opt out**.
-  That is a real availability cost on older machines, and it will generate support questions.
-- The opt-out must be visible and recorded in the receipt, otherwise C1 degrades into C2 with extra steps.
+**Correction history.** The earlier recommendation (C1) allowed an *explicit opt-out* for unsupported builds.
+The founder rejected that clause: an opt-out is an uncontained shell by another name. C1′ removes it. The
+register, PRD (FR-26, AC-11, SEC-1), tickets T-10/T-12 and security gate SG-1 now all state the same rule.
 
-**Consequences of the alternatives**
-- C2 (fall back uncontained with a warning): silent downgrade of the product's central claim; an incident waiting
-  for a malicious repo.
-- C3 (default off): repeats F-03 and contradicts the positioning in `02-PRODUCT-STRATEGY.md`.
+**Consequences accepted:**
+- On an unsupported or misconfigured Windows build, **shell commands cannot run at all**. Tasks that need a
+  command end `blocked`, not "partially successful".
+- Read / search / edit inside the workspace keep working, so the agent is degraded, not dead.
+- There is no setting, flag or profile that restores an uncontained shell. Users who need one must fix the
+  environment (supported build, sandbox available) — a support cost, deliberately accepted.
+- The product's containment claim becomes true without a footnote.
+
+**Rejected alternatives:** C2 (fall back uncontained with a warning — silent downgrade); C3 (default off);
+and now also **C1-with-opt-out** (rejected explicitly by the founder).
 
 ---
 
-## TL-DR-4 · Receipt storage → **D1 recommended**
+## TL-DR-4 · Receipt storage → **D1 — ACCEPTED**
 
 | | |
 | --- | --- |
 | **Decision** | Append-only JSONL per day + SQLite rollups (additive) |
-| **Blocks** | T-07, T-08 |
-| **Status** | RECOMMENDED |
+| **Accepted** | 2026-11-12 (founder) |
+| **Unblocks** | T-07, T-08 |
 
-**Consequences of adopting D1**
-- Crash-safe: a killed turn leaves the last complete JSONL row, which the receipt requirement depends on.
-- No new infrastructure to operate as a solo founder; SQLite is already used by the product.
-- Cost: two stores to reconcile. Mitigated by making JSONL the source of truth and SQLite a derived view.
+**Consequences accepted:** crash-safe (last complete row survives a kill); no new infrastructure for a solo
+founder; two stores to reconcile, mitigated by JSONL as source of truth and SQLite as a derived view.
 
-**Consequences of the alternatives**
-- D2 (SQLite only): write contention during long turns; one corrupt write loses the evidence chain.
-- D3 (Postgres/OTel collector): analytics-grade, but adds an operated service before revenue.
+**Rejected alternatives:** D2 (SQLite only — write contention, single corrupt write loses the evidence chain);
+D3 (Postgres/OTel collector — operated service before revenue).
 
 ---
 
-## TL-DR-5 · DAG verifier authority → **E1 recommended**
+## TL-DR-5 · DAG verifier authority → **E1 — ACCEPTED**
 
 | | |
 | --- | --- |
 | **Decision** | Heuristics become advisory; the test exit code is authoritative for `success` |
-| **Blocks** | T-05 |
-| **Status** | RECOMMENDED |
+| **Accepted** | 2026-11-12 (founder) |
+| **Unblocks** | T-05 |
 
-**Consequences of adopting E1**
-- Outcomes become falsifiable: `success` means a command exited 0 (FR-34).
-- Some existing "verification" reporting loses its verdict status; the DAG still uses heuristics for repair targeting.
-- Exposes how much of the current verification was cosmetic — a short-term reporting loss, a long-term trust gain.
+**Consequences accepted:** outcomes become falsifiable (`success` = exit 0). Some existing "verification"
+reporting loses verdict status; the DAG keeps heuristics for repair targeting. Exposes how much current
+verification was cosmetic — a short-term reporting loss for a long-term trust gain.
 
-**Consequences of the alternatives**
-- E2 (keep both verdicts): two answers can disagree; F-09 persists; `latency_ms: 1.2` stays in the evidence chain.
-- E3 (delete heuristics): loses repair targeting, which the DAG needs.
+**Rejected alternatives:** E2 (two verdicts that can disagree — F-09 persists); E3 (delete heuristics — loses
+repair targeting).
 
 ---
 
-## PRD decisions (P1–P5) — status
+## PRD decisions (P1–P5)
 
-| ID | Decision | Status | Note |
+| ID | Decision | Status |
+| --- | --- | --- |
+| P1 | Declared `crusor.test_command` + documented fixture overrides | **ACCEPTED** (FR-19) |
+| P2 | No implicit auto-approval; explicit visible opt-in; sandbox never bypassed | **ACCEPTED** (FR-25) |
+| P3 | Checkpoint retention deferred; no user-data deletion; DB not shipped | **ACCEPTED** (NFR-6) |
+| P4 | Reference provider `custom` / `velona.in` / `z-ai/glm-5.3-flash` | **ACCEPTED** (D-024) — balance unknown; no expensive runs until a spending limit is set |
+| P5 | Enterprise profile deferred; schema extensible | **ACCEPTED** (FR-23) |
+
+## Sign-off
+
+| Decision | Status | Signed by | Date |
 | --- | --- | --- | --- |
-| P1 | Declared `crusor.test_command` + documented fixture overrides | **ACCEPTED (adopted in rev 1.1, FR-19)** | Inference only as a labelled fallback |
-| P2 | No implicit auto-approval; explicit visible opt-in; sandbox never bypassed | **ACCEPTED (FR-25)** | Supersedes the `workspace_session` default |
-| P3 | Checkpoint retention deferred; no user-data deletion; DB not shipped | **ACCEPTED (NFR-6)** | Revisit at P1 |
-| P4 | Reference provider `custom` / `velona.in` / `z-ai/glm-5.3-flash` | **ACCEPTED-CONDITIONAL** | Config verified; **balance not verified** (see §Provider) |
-| P5 | Enterprise profile deferred; schema extensible | **ACCEPTED (FR-23)** | Two profiles ship |
+| TL-DR-1 (A1) | ACCEPTED | Founder | 2026-11-12 |
+| TL-DR-2 (B1) | ACCEPTED | Founder | 2026-11-12 |
+| TL-DR-3 (C1′) | ACCEPTED (corrected) | Founder | 2026-11-12 |
+| TL-DR-4 (D1) | ACCEPTED | Founder | 2026-11-12 |
+| TL-DR-5 (E1) | ACCEPTED | Founder | 2026-11-12 |
 
-## Sign-off block
-
-| Decision | Recorded status | Signed by | Date |
-| --- | --- | --- | --- |
-| TL-DR-1 (A1) | RECOMMENDED | — | — |
-| TL-DR-2 (B1) | RECOMMENDED | — | — |
-| TL-DR-3 (C1) | RECOMMENDED | — | — |
-| TL-DR-4 (D1) | RECOMMENDED | — | — |
-| TL-DR-5 (E1) | RECOMMENDED | — | — |
-
-Each becomes `ACCEPTED` only when this block is filled and an ADR is written under `docs/adr/`
-(one file per decision, `develop-adr` skill).
+ADRs to be written under `docs/adr/` (`develop-adr` skill) as part of the implementation phase — one per
+decision, recording the same consequences.
