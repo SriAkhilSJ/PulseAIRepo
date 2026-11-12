@@ -1,0 +1,274 @@
+status,path,area,category,prd001_overlap,lines_added,lines_removed,last_commit,likely_purpose,recommended_action
+modified,AGENTS.md,AGENTS.md,root-report,,92,15,ed785633|2026-11-10|docs(release): document architecture and qualification results,source or config,archive into an audit-evidence PR
+modified,apps/personal_finance/backend/main.py,apps,"demo-app (not product, D-011)",,66,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/models.py,apps,"demo-app (not product, D-011)",,142,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/repositories/budget_repo.py,apps,"demo-app (not product, D-011)",,67,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/repositories/category_repo.py,apps,"demo-app (not product, D-011)",,37,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/repositories/transaction_repo.py,apps,"demo-app (not product, D-011)",,201,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/routers/budgets.py,apps,"demo-app (not product, D-011)",,36,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/routers/categories.py,apps,"demo-app (not product, D-011)",,31,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/routers/dashboard.py,apps,"demo-app (not product, D-011)",,22,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/routers/export.py,apps,"demo-app (not product, D-011)",,27,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/routers/transactions.py,apps,"demo-app (not product, D-011)",,76,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/services/budget_service.py,apps,"demo-app (not product, D-011)",,93,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/services/dashboard_service.py,apps,"demo-app (not product, D-011)",,99,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/services/export_service.py,apps,"demo-app (not product, D-011)",,48,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/backend/services/transaction_service.py,apps,"demo-app (not product, D-011)",,132,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/index.html,apps,"demo-app (not product, D-011)",,33,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/package.json,apps,"demo-app (not product, D-011)",,23,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/src/App.tsx,apps,"demo-app (not product, D-011)",,345,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/src/api.ts,apps,"demo-app (not product, D-011)",,61,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/src/main.tsx,apps,"demo-app (not product, D-011)",,10,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/src/types.ts,apps,"demo-app (not product, D-011)",,57,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,apps/personal_finance/frontend/tsconfig.json,apps,"demo-app (not product, D-011)",,21,0,cd800b5f|2026-11-04|test(qualification): preserve Crusor Agent Personal Finance application qualification workload,source or config,"leave; demo, D-011"
+modified,desktop/vscode/extensions/copilot/package-lock.json,desktop,desktop-tooling/config,,0,12,d057d8f1|2026-08-15|Vendor VS Code source into desktop/vscode (Phase 2),source or config,review then commit or archive
+modified,desktop/vscode/extensions/package-lock.json,desktop,desktop-tooling/config,,0,18,d057d8f1|2026-08-15|Vendor VS Code source into desktop/vscode (Phase 2),source or config,review then commit or archive
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/BUILD_INFO.json,desktop,generated-build-output,,2,2,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_HASH,desktop,generated-build-output,,1,1,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/SOURCES_MANIFEST.json,desktop,generated-build-output,,9,8,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIActivity.js,desktop,generated-build-output,,1,1,a86d02ce|2026-10-10|chore(desktop): refresh compiled workbench bundle for c3f1b2e0 UI,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.js,desktop,generated-build-output,,101,44,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.js,desktop,generated-build-output,,310,131,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/browser/media/crusorAI.css,desktop,generated-build-output,,34,0,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAICards.js,desktop,generated-build-output,,109,0,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,regenerate/ignore; do not hand-edit
+modified,desktop/vscode/remote/package-lock.json,desktop,desktop-tooling/config,,0,24,d057d8f1|2026-08-15|Vendor VS Code source into desktop/vscode (Phase 2),source or config,review then commit or archive
+modified,desktop/vscode/scripts/accept-crusorai-engineering.mjs,desktop,desktop-tooling/config,,12,8,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,review then commit or archive
+modified,desktop/vscode/scripts/accept-crusorai-streaming.mjs,desktop,desktop-tooling/config,,11,5,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,review then commit or archive
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIActivity.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,1,1,"ca6a2f41|2026-09-15|rebrand: PulseAI → CrusorAI across the entire repo, new logo",source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRenderer.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,99,41,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/browser/crusorAIRendererService.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,298,137,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/browser/media/crusorAI.css,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,34,0,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAICards.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,118,0,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAIProtocol.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,3,1,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAISessionProjection.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,1,1,f3528098|2026-11-10|feat(desktop): integrate streaming agent cards and desktop routing,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,desktop/vscode/test/mcp/package-lock.json,desktop,desktop-tooling/config,,3,0,d057d8f1|2026-08-15|Vendor VS Code source into desktop/vscode (Phase 2),source or config,review then commit or archive
+modified,diagnostics/LATEST_PERFORMANCE_AUDIT.md,diagnostics,diagnostics-evidence,,23,4,"5846984e|2026-11-04|docs(verification): add Phase 9.3-11.8 verification suites, benchmarks, and audit reports",source or config,archive into an audit-evidence PR
+modified,diagnostics/PERFORMANCE_REPORT_cancel-test.md,diagnostics,diagnostics-evidence,,13,6,"0dd4208d|2026-10-30|fix(mcp): close pooled sessions at exit, and record the measured end-to-end costs",source or config,archive into an audit-evidence PR
+modified,diagnostics/PERFORMANCE_REPORT_default.md,diagnostics,diagnostics-evidence,,23,16,"5846984e|2026-11-04|docs(verification): add Phase 9.3-11.8 verification suites, benchmarks, and audit reports",source or config,archive into an audit-evidence PR
+modified,diagnostics/PERFORMANCE_REPORT_s-wd.md,diagnostics,diagnostics-evidence,,52,3,"5846984e|2026-11-04|docs(verification): add Phase 9.3-11.8 verification suites, benchmarks, and audit reports",source or config,archive into an audit-evidence PR
+modified,diagnostics/PERFORMANCE_REPORT_t1.md,diagnostics,diagnostics-evidence,,18,3,"5846984e|2026-11-04|docs(verification): add Phase 9.3-11.8 verification suites, benchmarks, and audit reports",source or config,archive into an audit-evidence PR
+modified,diagnostics/traces/cancel-test.jsonl,diagnostics,diagnostics-evidence,,6,0,"0dd4208d|2026-10-30|fix(mcp): close pooled sessions at exit, and record the measured end-to-end costs",source or config,archive into an audit-evidence PR
+modified,docs/ARCHITECTURE.md,docs,docs-memory,,191,34,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/BUGS_AND_LIMITATIONS.md,docs,docs-memory,,716,58,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/CURRENT_STATE.md,docs,docs-memory,,624,46,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/DECISIONS.md,docs,docs-memory,,311,0,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/ROADMAP.md,docs,docs-memory,,186,41,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/handoffs/HISTORY/README.md,docs,docs-memory,,4,1,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/handoffs/LATEST_HANDOFF.md,docs,docs-memory,,519,115,ed785633|2026-11-10|docs(release): document architecture and qualification results,project memory / doc,archive into an audit-evidence PR
+modified,docs/phases/PHASE_TRACKER.md,docs,docs-memory,,157,10,ed785633|2026-11-10|docs(release): document architecture and qualification results,phase evidence report,archive into an audit-evidence PR
+modified,scripts/test_crusorai_cards.mjs,scripts,scripts,,84,0,82d0727c|2026-11-10|test(agent): add runtime security and qualification coverage,source or config,review then commit or archive
+modified,src/bridge/__main__.py,src,product-code,,232,32,27706b6e|2026-11-10|fix(release): restore terminal trace hook and clear secret-scan fixtures,source or config,review then commit or archive
+modified,src/bridge/agent_cards.py,src,product-code,,3,0,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,review then commit or archive
+modified,src/graphs/chat_graph.py,src,product-code,WS-A:src/graphs/,105,19,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/llm/factory.py,src,product-code,,42,0,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,review then commit or archive
+modified,src/llm/gateway.py,src,product-code,,106,10,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,review then commit or archive
+modified,src/llm/scripted_model.py,src,product-code,,73,3,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,review then commit or archive
+modified,src/orchestration/approval_gateway.py,src,product-code,WS-A:src/orchestration/,133,1,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/context_manager.py,src,product-code,WS-A:src/orchestration/,110,2,"0b0e799d|2026-11-04|feat(intelligence): integrate Phase 9.3-11.8 Engineering Intelligence, RBAC, and Desktop workbench",source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/contract.py,src,product-code,WS-A:src/orchestration/,445,30,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/model_adapter.py,src,product-code,WS-A:src/orchestration/,79,9,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/models.py,src,product-code,WS-A:src/orchestration/,7,1,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/orchestrator.py,src,product-code,WS-A:src/orchestration/,457,14,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/planner.py,src,product-code,WS-A:src/orchestration/,14,1,"72301431|2026-11-07|feat(p0.6.8): contract-first planning, role-correct assignment, cross-file validation",source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/scheduler.py,src,product-code,WS-A:src/orchestration/,73,11,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/orchestration/visibility.py,src,product-code,WS-A:src/orchestration/,16,1,"0b0e799d|2026-11-04|feat(intelligence): integrate Phase 9.3-11.8 Engineering Intelligence, RBAC, and Desktop workbench",source or config,PRIORITY: needs owner disposition before PRD-001 branch
+modified,src/req_001_module.py,src,product-code,,1672,4,"0b0e799d|2026-11-04|feat(intelligence): integrate Phase 9.3-11.8 Engineering Intelligence, RBAC, and Desktop workbench",GENERATED ARTIFACT (F-11 contamination),review then commit or archive
+modified,src/req_002_module.py,src,product-code,,877,4,"0b0e799d|2026-11-04|feat(intelligence): integrate Phase 9.3-11.8 Engineering Intelligence, RBAC, and Desktop workbench",GENERATED ARTIFACT (F-11 contamination),review then commit or archive
+modified,src/runtime/app_paths.py,src,product-code,,61,2,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,review then commit or archive
+modified,src/runtime/session_store.py,src,product-code,,3,7,20f0dcc2|2026-10-15|Open the child live mid-run; children root their own lineage,source or config,review then commit or archive
+modified,src/tests/conftest.py,src,tests,,9,3,4a137be5|2026-11-02|test(governance): add 17-scenario persistent financial accounting test suite and test isolation fixture,source or config,review then commit or archive
+modified,src/tests/test_desktop_renderer_architecture.py,src,tests,,9,5,"73c4d0a7|2026-11-09|fix(desktop): reconcile renderer tests, dock layout and startup cancel",test module,review then commit or archive
+modified,src/tests/test_desktop_session_pipeline.py,src,tests,,6,2,437d2e17|2026-10-16|Mid-run navigation is never refused: the way home always works,test module,review then commit or archive
+modified,src/tests/test_otel_tracing.py,src,tests,,30,11,06f126fd|2026-10-12|Observability: replace hand-rolled AgentOps dashboard with OTel -> self-hosted Langfuse,test module,review then commit or archive
+modified,src/verification/authority.py,src,product-code,,35,6,"0b0e799d|2026-11-04|feat(intelligence): integrate Phase 9.3-11.8 Engineering Intelligence, RBAC, and Desktop workbench",source or config,review then commit or archive
+modified,src/verification/engine.py,src,product-code,,7,0,"72301431|2026-11-07|feat(p0.6.8): contract-first planning, role-correct assignment, cross-file validation",source or config,review then commit or archive
+modified,src/workspace/mutation_broker.py,src,product-code,SEC:src/workspace/mutation_broker.py,56,4,5197937a|2026-11-10|feat(agent): finalize canonical runtime and execution boundaries,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+untracked,ACTUAL_EXECUTION_PATH_AUDIT.md,ACTUAL_EXECUTION_PATH_AUDIT.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,COMPLETE_INTEGRATION_ARCHITECTURE.md,COMPLETE_INTEGRATION_ARCHITECTURE.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,CRUSOR_AGENTIC_TIMELINE_REPORT.md,CRUSOR_AGENTIC_TIMELINE_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_AGENT_CORE_ENGINEERING_QUALIFICATION.md,CRUSOR_AGENT_CORE_ENGINEERING_QUALIFICATION.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_AGENT_CORE_TERMINAL_QUALIFICATION.md,CRUSOR_AGENT_CORE_TERMINAL_QUALIFICATION.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_COMPLETE_FRONTEND_ARCHITECTURE_AUDIT.md,CRUSOR_COMPLETE_FRONTEND_ARCHITECTURE_AUDIT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_CONVERSATIONAL_UI_RESTORATION_REPORT.md,CRUSOR_CONVERSATIONAL_UI_RESTORATION_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_CONVERSATIONAL_UI_RESTORE.md,CRUSOR_CONVERSATIONAL_UI_RESTORE.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_FRONTEND_UNDERSTANDING.md,CRUSOR_FRONTEND_UNDERSTANDING.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_P0_CONTRACT_AND_FAILURE_REPORT.md,CRUSOR_P0_CONTRACT_AND_FAILURE_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_P1A_ENGINEERING_STREAMING_REPORT.md,CRUSOR_P1A_ENGINEERING_STREAMING_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PACED_STREAMING_EXPERIMENT.md,CRUSOR_PACED_STREAMING_EXPERIMENT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PHASE_2A_WORKSPACE_DISCOVERY.md,CRUSOR_PHASE_2A_WORKSPACE_DISCOVERY.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PHASE_2D_OUTSIDE_WORKSPACE_ACCESS.md,CRUSOR_PHASE_2D_OUTSIDE_WORKSPACE_ACCESS.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PLAN_COMPLETION_REPORT.md,CRUSOR_PLAN_COMPLETION_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PLAN_OUTCOME_SEMANTICS_REPORT.md,CRUSOR_PLAN_OUTCOME_SEMANTICS_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_PROGRESS_INTEGRATION_REPORT.md,CRUSOR_PROGRESS_INTEGRATION_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_REAL_PROVIDER_E2E_QUALIFICATION.md,CRUSOR_REAL_PROVIDER_E2E_QUALIFICATION.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_STREAMING_REPAINT_DIAGNOSTIC.md,CRUSOR_STREAMING_REPAINT_DIAGNOSTIC.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,CRUSOR_TURN_CARD_RESTORATION_REPORT.md,CRUSOR_TURN_CARD_RESTORATION_REPORT.md,root-report,,,,,audit/status report,archive into an audit-evidence PR
+untracked,DESKTOP_TO_AGENT_INTEGRATION.md,DESKTOP_TO_AGENT_INTEGRATION.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,DISCONNECTED_COMPONENTS_REPORT.md,DISCONNECTED_COMPONENTS_REPORT.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,FINAL_CRUSOR_DESKTOP_ENGINEERING_DEMO.md,FINAL_CRUSOR_DESKTOP_ENGINEERING_DEMO.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,INTEGRATION_GAP_ANALYSIS.md,INTEGRATION_GAP_ANALYSIS.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,MOCK_VS_REAL_TEST_EVIDENCE.md,MOCK_VS_REAL_TEST_EVIDENCE.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,OPENCODE_EXECUTION_ARCHITECTURE_COMPARISON.md,OPENCODE_EXECUTION_ARCHITECTURE_COMPARISON.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,PERFORMANCE_AND_FINOPS_RESULTS.md,PERFORMANCE_AND_FINOPS_RESULTS.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,PHASE_12_0_1_FINAL_VERDICT.md,PHASE_12_0_1_FINAL_VERDICT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_DESKTOP_RUNTIME_EVIDENCE.md,PHASE_12_1_1_DESKTOP_RUNTIME_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_END_TO_END_RESULTS.md,PHASE_12_1_1_END_TO_END_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_FINAL_VERDICT.md,PHASE_12_1_1_FINAL_VERDICT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_IDENTITY_FINOPS_EVIDENCE.md,PHASE_12_1_1_IDENTITY_FINOPS_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_MODEL_EXECUTION_EVIDENCE.md,PHASE_12_1_1_MODEL_EXECUTION_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_REMAINING_LIMITATIONS.md,PHASE_12_1_1_REMAINING_LIMITATIONS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_SECURITY_QUALIFICATION.md,PHASE_12_1_1_SECURITY_QUALIFICATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_TEST_RECONCILIATION.md,PHASE_12_1_1_TEST_RECONCILIATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_1_WORKSPACE_INTEGRITY.md,PHASE_12_1_1_WORKSPACE_INTEGRITY.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_APPCONTAINER_INTEGRATION.md,PHASE_12_1_2_APPCONTAINER_INTEGRATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_DESKTOP_END_TO_END.md,PHASE_12_1_2_DESKTOP_END_TO_END.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_DESKTOP_LAUNCH_REPORT.md,PHASE_12_1_2_DESKTOP_LAUNCH_REPORT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_ELECTRON_ROOT_CAUSE.md,PHASE_12_1_2_ELECTRON_ROOT_CAUSE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_FAILURE_RECOVERY.md,PHASE_12_1_2_FAILURE_RECOVERY.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_FINAL_VERDICT.md,PHASE_12_1_2_FINAL_VERDICT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_LIVE_MODEL_EXECUTION.md,PHASE_12_1_2_LIVE_MODEL_EXECUTION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_OS_SECURITY_TESTS.md,PHASE_12_1_2_OS_SECURITY_TESTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_REGRESSION_RESULTS.md,PHASE_12_1_2_REGRESSION_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_2_REMAINING_LIMITATIONS.md,PHASE_12_1_2_REMAINING_LIMITATIONS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_APPCONTAINER_EVIDENCE.md,PHASE_12_1_3_APPCONTAINER_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_DESKTOP_ENGINEERING_TASK.md,PHASE_12_1_3_DESKTOP_ENGINEERING_TASK.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_ELECTRON_RUNTIME.md,PHASE_12_1_3_ELECTRON_RUNTIME.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_FINAL_VERDICT.md,PHASE_12_1_3_FINAL_VERDICT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_LIVE_MODEL_PROVIDER.md,PHASE_12_1_3_LIVE_MODEL_PROVIDER.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_NETWORK_ISOLATION.md,PHASE_12_1_3_NETWORK_ISOLATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_REGRESSION_RESULTS.md,PHASE_12_1_3_REGRESSION_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_REMAINING_LIMITATIONS.md,PHASE_12_1_3_REMAINING_LIMITATIONS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_REPRODUCIBLE_BUILD.md,PHASE_12_1_3_REPRODUCIBLE_BUILD.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_3_WORKSPACE_INTEGRITY.md,PHASE_12_1_3_WORKSPACE_INTEGRITY.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_BASELINE_AND_WORKSPACE_AUDIT.md,PHASE_12_1_BASELINE_AND_WORKSPACE_AUDIT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_DESKTOP_EXECUTION_ARCHITECTURE.md,PHASE_12_1_DESKTOP_EXECUTION_ARCHITECTURE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_DESKTOP_PROGRESS_INTEGRATION.md,PHASE_12_1_DESKTOP_PROGRESS_INTEGRATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_END_TO_END_TEST_RESULTS.md,PHASE_12_1_END_TO_END_TEST_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_FINAL_VERDICT.md,PHASE_12_1_FINAL_VERDICT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_IDENTITY_FINOPS_INTEGRATION.md,PHASE_12_1_IDENTITY_FINOPS_INTEGRATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_MODEL_EXECUTION_INTEGRATION.md,PHASE_12_1_MODEL_EXECUTION_INTEGRATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_MUTATION_SECURITY_REPORT.md,PHASE_12_1_MUTATION_SECURITY_REPORT.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_PRODUCTION_READINESS_INTEGRATION.md,PHASE_12_1_PRODUCTION_READINESS_INTEGRATION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_12_1_REMAINING_LIMITATIONS.md,PHASE_12_1_REMAINING_LIMITATIONS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_CDP_DESKTOP_RUNTIME.md,PHASE_CDP_DESKTOP_RUNTIME.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_CDP_UI_INTERACTION_EVIDENCE.md,PHASE_CDP_UI_INTERACTION_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_ACCEPTANCE_LIMITATIONS.md,PHASE_LIVE_ACCEPTANCE_LIMITATIONS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_FAILURE_RECOVERY.md,PHASE_LIVE_FAILURE_RECOVERY.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_FINOPS_ATTRIBUTION.md,PHASE_LIVE_FINOPS_ATTRIBUTION.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_PRODUCT_ACCEPTANCE_FINAL.md,PHASE_LIVE_PRODUCT_ACCEPTANCE_FINAL.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_REGRESSION_RESULTS.md,PHASE_LIVE_REGRESSION_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_LIVE_VELONA_PROVIDER_EVIDENCE.md,PHASE_LIVE_VELONA_PROVIDER_EVIDENCE.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_REAL_MODEL_ENGINEERING_TASK.md,PHASE_REAL_MODEL_ENGINEERING_TASK.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,PHASE_WORKSPACE_SECURITY_RESULTS.md,PHASE_WORKSPACE_SECURITY_RESULTS.md,root-report,,,,,phase evidence report,archive into an audit-evidence PR
+untracked,REAL_RUNTIME_TEST_RESULTS.md,REAL_RUNTIME_TEST_RESULTS.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,REMAINING_LIMITATIONS.md,REMAINING_LIMITATIONS.md,root-report,,,,,limitations snapshot,archive into an audit-evidence PR
+untracked,SECURITY_BOUNDARY_INTEGRATION_AUDIT.md,SECURITY_BOUNDARY_INTEGRATION_AUDIT.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,SUBSYSTEM_INTEGRATION_MATRIX.md,SUBSYSTEM_INTEGRATION_MATRIX.md,root-report,,,,,source or config,archive into an audit-evidence PR
+untracked,apps/personal_finance/frontend/package-lock.json,apps,"demo-app (not product, D-011)",,,,,source or config,"leave; demo, D-011"
+untracked,apps/personal_finance/frontend/src/index.css,apps,"demo-app (not product, D-011)",,,,,source or config,"leave; demo, D-011"
+untracked,apps/personal_finance/frontend/vite.config.ts,apps,"demo-app (not product, D-011)",,,,,source or config,"leave; demo, D-011"
+untracked,apps/personal_finance/src/,apps,"demo-app (not product, D-011)",,,,,source or config,"leave; demo, D-011"
+untracked,apps/personal_finance/tests/test_dashboard.py,apps,"demo-app (not product, D-011)",,,,,test module,"leave; demo, D-011"
+untracked,apps/personal_finance/tests/test_transactions.py,apps,"demo-app (not product, D-011)",,,,,test module,"leave; demo, D-011"
+untracked,desktop/vscode/out/vs/workbench/contrib/crusorai/common/crusorAITurnOutcome.js,desktop,generated-build-output,,,,,source or config,regenerate/ignore; do not hand-edit
+untracked,desktop/vscode/scripts/accept-crusorai-conversation.mjs,desktop,desktop-tooling/config,,,,,source or config,review then commit or archive
+untracked,desktop/vscode/scripts/accept-crusorai-p0.mjs,desktop,desktop-tooling/config,,,,,source or config,review then commit or archive
+untracked,desktop/vscode/scripts/accept-crusorai-progress.mjs,desktop,desktop-tooling/config,,,,,source or config,review then commit or archive
+untracked,desktop/vscode/scripts/accept-crusorai-streaming-engine.mjs,desktop,desktop-tooling/config,,,,,source or config,review then commit or archive
+untracked,desktop/vscode/src/vs/workbench/contrib/crusorai/common/crusorAITurnOutcome.ts,desktop,vendored-code-oss (off limits),WS-D:desktop/vscode/src/vs/workbench/contrib/crusorai/,,,,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+untracked,diagnostics/PERFORMANCE_REPORT_plan-approval-test.md,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/generation_boundary/live_acceptance/live11_20261108/evidence_workspace/finops/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/generation_boundary/live_acceptance/live11_20261108/evidence_workspace/finops/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/generation_boundary/live_acceptance/live11_20261108/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4/user-data/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_1/preflight/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_1/preflight_raced/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_1/preflight_run2/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt1_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt2_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt3_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt4_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt5_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt6_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt7_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt8_failed/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_4_dev_attempts/p0_6_4_attempt9_partial_pass/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/domcheck/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live2/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live3/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live4/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live4/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live4/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live4/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/live4/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight_attempt1/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight_final/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight_final/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight_final/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_5/preflight_panel/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live2/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live3/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live4/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live5/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live6/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live6/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live6/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live6/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_6/live6/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_7/live7/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_7/live7/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_7/live7/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_7/live7/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_7/live7/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_8/live8/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_8/live8/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_8/live8/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_8/live8/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_8/live8/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live10/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live10/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live10/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live10/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live10/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live9/home/runtime_events.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live9/home/runtime_events.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live9/home/sessions.db-shm,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live9/home/sessions.db-wal,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,diagnostics/p0_6_9/live9/portable/,diagnostics,diagnostics-evidence,,,,,source or config,archive into an audit-evidence PR
+untracked,docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md,docs,docs-memory,,,,,project memory / doc,archive into an audit-evidence PR
+untracked,docs/handoffs/HISTORY/2026-11-10_agent-runtime-increments.md,docs,docs-memory,,,,,project memory / doc,archive into an audit-evidence PR
+untracked,docs/handoffs/HISTORY/2026-11-12_p1a-pre.md,docs,docs-memory,,,,,project memory / doc,archive into an audit-evidence PR
+untracked,docs/handoffs/HISTORY/2026-11-12_pre-reconciliation.md,docs,docs-memory,,,,,project memory / doc,archive into an audit-evidence PR
+untracked,docs/reviews/,docs,docs-memory,,,,,project memory / doc,archive into an audit-evidence PR
+untracked,scripts/demonstrate_ui_to_ai.py,scripts,scripts,,,,,source or config,review then commit or archive
+untracked,scripts/streaming_provider_stub.py,scripts,scripts,,,,,source or config,review then commit or archive
+untracked,scripts/test_crusorai_turn_outcome.mjs,scripts,scripts,,,,,source or config,review then commit or archive
+untracked,src/orchestration/generation_progress.py,src,product-code,WS-A:src/orchestration/,,,,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+untracked,src/orchestration/progress_events.py,src,product-code,WS-A:src/orchestration/,,,,source or config,PRIORITY: needs owner disposition before PRD-001 branch
+untracked,src/p0_6_2_acceptance.py,src,product-code,,,,,source or config,review then commit or archive
+untracked,src/req_003_module.py,src,product-code,,,,,GENERATED ARTIFACT (F-11 contamination),review then commit or archive
+untracked,src/req_004_module.py,src,product-code,,,,,GENERATED ARTIFACT (F-11 contamination),review then commit or archive
+untracked,src/req_005_module.py,src,product-code,,,,,GENERATED ARTIFACT (F-11 contamination),review then commit or archive
+untracked,src/tests/test_checkpoint_isolation.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_checkpoint_uri_isolation.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_contract_natural_language.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_engineering_progress_events.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_engineering_streaming.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_gateway_streaming.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_generation_progress_events.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_outside_workspace_access.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_phase_12_1_1_expense_tracker_task.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_plan_completion.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_plan_outcome_semantics.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_prior_checkpoint_isolation.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_scripted_model_pacing.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_turn_card_association.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_turn_card_rendering.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_turn_outcome_semantics.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/tests/test_workspace_discovery_phase2a.py,src,tests,,,,,test module,review then commit or archive
+untracked,src/workspace/access_grants.py,src,product-code,,,,,source or config,review then commit or archive
+untracked,src/workspace/discovery.py,src,product-code,,,,,source or config,review then commit or archive
+untracked,src/workspace/evidence.py,src,product-code,,,,,source or config,review then commit or archive

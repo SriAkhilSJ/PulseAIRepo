@@ -125,6 +125,21 @@ PRD-001 rev 1.1 and the five TL decisions are recorded.
 
 ---
 
+## Revision — founder review (2026-11-12, same day)
+
+- PRD-001 corrected to **rev 1.1**: T-06/TL-DR-2 contradiction removed (T-06 blocked until TL-DR-2 signed);
+  autonomy profiles fixed to **Beginner + Developer only**; F-01 wording corrected (Phase 2A read-only
+  discovery exists; generation binds no read/search/list/test tools; shell tools hard-blocked by
+  `_GRAPH_MUTATION_BLOCKED`); test count 4,968–4,986 with 3 collection errors.
+- Five Technical Lead recommendations recorded **as RECOMMENDED, not Accepted**: A1, B1, C1, D1, E1
+  (`pm/em/15-TECHNICAL-DECISION-REGISTER.md`).
+- Reference provider verified without exposing credentials: `custom` / `velona.in` / `z-ai/glm-5.3-flash`;
+  2-token probe answered `READY` in 8.7 s. Exact balance UNKNOWN (no documented endpoint).
+- Dirty-tree inventory completed: 273 entries, +10,453/−969 lines. **The audit baseline
+  `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` is untracked**, and modified orchestrator code depends on untracked
+  sibling modules. Disposition proposal R1–R5 in `pm/em/16-DIRTY-TREE-DISPOSITION.md`; nothing was run.
+- Implementation still **not authorised**.
+
 ## Promotion block (append to `docs/CURRENT_STATE.md` once the working tree is dispositioned)
 
 ```markdown

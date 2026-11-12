@@ -39,7 +39,7 @@ enforced.
 | 4 | Route engineering execution through the tool loop (read → edit → test) | 4d | 1 |
 | 5 | Fix `src/observability/` shadowing; emit TurnReceipt per task | 1.5d | — |
 | 6 | Containment default-on, fail-closed, env scrubbed | 2d | — |
-| 7 | Three visible autonomy profiles (beginner/developer/enterprise) | 2d | 6 |
+| 7 | Two visible autonomy profiles (beginner/developer) | 2d | 6 |
 | 8 | Task ledger + `/ops` view (cost per successful task) | 2d | 5 |
 | 9 | Run T1–T5 acceptance tasks; publish evidence pack | 1d | 4,5,6 |
 | 10 | Installer + signing pipeline | 5d | 7 |

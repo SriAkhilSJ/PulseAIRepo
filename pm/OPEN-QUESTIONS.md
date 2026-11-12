@@ -12,7 +12,7 @@ stays auditable.
 | Q3 | Runway / team / revenue timing? | Solo. Core agent working within 2 days. Revenue in 3–6 months. Track monthly spend, API/infra cost, agent performance, cost per successful task. | D-005 |
 | Q4 | Which workflow must be flawless? | All three: greenfield, bug fix in existing repos, refactor/migration. | D-006 |
 | Q5 | Fork permanent or transitional? | Permanent — continue maintaining the VS Code OSS fork and native integrations. | D-008 |
-| Q6 | "Autonomous" or "supervised"? | Hybrid and configurable: user controls permissions and approval levels; safe ops autonomous; sensitive ops approved; beginner/developer/enterprise profiles. | D-009 |
+| Q6 | "Autonomous" or "supervised"? | Hybrid and configurable: user controls permissions and approval levels; safe ops autonomous; sensitive ops approved; beginner/developer/enterprise profiles. *(Historical answer. This milestone ships Beginner + Developer; Enterprise deferred — D-017.)* | D-009 |
 | Q7 | Accept the Nov-12 audit as condition of record? | Yes — baseline for implementation, with critical findings re-verified against current code. | D-010 |
 | Q8 | Own the `linkedin-app` / `showcase` / `personal_finance` artifacts? | Not intended product components. Do not delete/archive without dependency check and approval. | D-011 |
 
@@ -36,11 +36,12 @@ stays auditable.
 
 ## Open — founder confirmation
 
-| # | Item | Blocking |
+| # | Item | Status after review |
 | --- | --- | --- |
-| C1 | Confirm P4 reference provider and non-zero wallet credit | Day 1 09:00 live run |
-| C2 | Disposition the 273-entry dirty working tree before implementation | Clean implementation branch (R-03) |
-| C3 | Record the five Technical Lead decisions (TL-DR-1…5) | T-02, T-05, T-06, T-07, T-10 |
+| C1 | Confirm P4 reference provider and non-zero wallet credit | **CLOSED** — config + 2-token probe pass; balance UNKNOWN by design (D-020) |
+| C2 | Disposition the 273-entry dirty working tree before implementation | **OPEN** — proposal R1–R5 in `em/16`; audit baseline is currently untracked |
+| C3 | Record the five Technical Lead decisions (TL-DR-1…5) | **RECOMMENDED, awaiting sign-off** (D-019) |
+| C4 | Sign PRD-001 rev 1.1 | **OPEN** — sign-off block in `em/14` §9 |
 
 ## Open — evidence gathering (owner: TPM)
 

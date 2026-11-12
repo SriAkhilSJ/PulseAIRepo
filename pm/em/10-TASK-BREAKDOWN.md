@@ -66,7 +66,7 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 - **Objective:** `from src.observability import record_turn_receipt` works.
 - **Components:** `src/observability.py` (module), `src/observability/` (package).
 - **Changes:** one rename/merge; update the 3 import sites; no behaviour change beyond availability.
-- **Dependencies:** none (safe parallel start).
+- **Dependencies:** **TL-DR-2 recorded (recommendation B1)** — blocked until then. No other dependency; becomes a safe parallel start the moment the decision is signed.
 - **Acceptance:** FR-29; collection error for `test_observability.py` disappears.
 - **Testing:** import test + existing observability tests pass.
 - **Security:** do not weaken the receipt path to make imports resolve.

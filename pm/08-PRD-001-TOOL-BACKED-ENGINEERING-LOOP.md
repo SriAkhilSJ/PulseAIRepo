@@ -1,6 +1,6 @@
 ---
 artifact: prd
-version: "1.0"
+version: "1.1"
 created: 2026-11-12
 status: draft-rev1.1-for-approval
 id: PRD-001
@@ -18,14 +18,19 @@ work. That promise is true on the chat path and **false on the engineering path*
 
 Verified at `PulseAIRepo@fb5bd528` **[V]**:
 
-- `git grep 'bind_tools|read_file|search_code' -- src/orchestration` → **zero matches**. The engineering
-  orchestrator generates whole files and verifies them with text heuristics; it cannot read a file before
-  rewriting it, search the repository, or run the tests it must pass.
+- `git grep 'bind_tools|read_file|search_code' -- src/orchestration` → **zero matches** *during generation*.
+  Phase 2A added bounded **read-only discovery before planning**, so repository awareness is not zero — but
+  generation still regenerates whole files and binds no read/search/list/test tools. It cannot target an edit
+  or run the tests it must pass. The repository's own `AGENTS.md` records the same condition (F-01).
+- The canonical graph hard-blocks shell tools (`_GRAPH_MUTATION_BLOCKED`), so terminal execution is
+  defense-in-depth rather than an active agent path. Making the loop genuinely tool-using therefore includes
+  a *reviewed* re-enablement of shell execution through the broker — not a default flip.
 - Receipts are dead: `src/observability/` (package) shadows `src/observability.py` (module), so
   `from src.observability import record_turn_receipt` raises `ImportError`. Confirmed by test collection.
 - Containment is implemented but disabled by default: `CRUSOR_SANDBOX_TERMINAL` / `CRUSOR_APPCONTAINER_TERMINAL`
   default to `"0"` (`src/tools/terminal_tools.py:1093`); only test modules set it to `1`.
-- The test baseline cannot be trusted: 4,986 tests collected with 3 collection errors; CI never runs the suite
+- The test baseline cannot be trusted: collection reports **4,968–4,986 tests with 3 collection errors**
+  (the range reflects collection against the dirty working tree versus HEAD); CI never runs the suite
   (`.github/workflows` runs file subsets; the full-suite workflow is in `ci/`, outside the trigger path).
 
 This is audit findings **F-01 (critical), F-02, F-03, F-04, F-06** of the 2026-11-12 audit **[V]**, re-verified

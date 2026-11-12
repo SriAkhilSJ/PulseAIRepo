@@ -81,12 +81,16 @@ product's evidence chain — precisely what the audit flagged.
 
 ## Decision log for these requests
 
-| ID | Decision | Decided by | Date | Ticket unblocked |
-| --- | --- | --- | --- | --- |
-| TL-DR-1 | — pending — | Tech Lead / Founder | | T-02 |
-| TL-DR-2 | — pending — | Tech Lead | | T-06 |
-| TL-DR-3 | — pending — | Founder (product trade) | | T-10 |
-| TL-DR-4 | — pending — | Tech Lead | | T-07 |
-| TL-DR-5 | — pending — | Tech Lead | | T-05 |
+| ID | Recommendation | Decided by | Date | Status | Ticket unblocked |
+| --- | --- | --- | --- | --- | --- |
+| TL-DR-1 | **A1** | Tech Lead / Founder | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-02 |
+| TL-DR-2 | **B1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-06 (blocked until signed) |
+| TL-DR-3 | **C1** | Founder (product trade) | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-10 |
+| TL-DR-4 | **D1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-07 |
+| TL-DR-5 | **E1** | Tech Lead | 2026-11-12 | RECOMMENDED — awaiting sign-off | T-05 |
+
+**Single source of truth:** `15-TECHNICAL-DECISION-REGISTER.md`. This table is a pointer; if the two disagree,
+the register wins. No status becomes `ACCEPTED` until the sign-off block in the register is filled and an ADR is
+written under `docs/adr/` (`develop-adr` skill).
 
 Recorded as ADRs via the `develop-adr` skill once decided; one file per decision under `docs/adr/`.

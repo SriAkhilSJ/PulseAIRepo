@@ -23,6 +23,9 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-12 | D-015 | PRD-001 (Tool-Backed Engineering Loop with Receipts) submitted for approval | TPM | **Superseded by D-016 (rev 1.1)** | `08-PRD-001-TOOL-BACKED-ENGINEERING-LOOP.md` |
 | 2026-11-12 | D-016 | PRD-001 rev 1.1: five open questions resolved as proposed defaults — declared `crusor.test_command`; no implicit auto-approval; checkpoint retention deferred; two profiles ship with Enterprise deferred; reference provider proposed as `custom`/`velona.in` + `z-ai/glm-5.3-flash` (confirmation pending) | Founder (proposed) + TPM/EM | **Adopted in PRD; provider confirmation pending** | PRD rev 1.1, `14-PRD-001-APPROVAL-PACKET.md` |
 | 2026-11-12 | D-017 | Engineering Manager handoff prepared: 21 tickets across 6 workstreams, exclusive file ownership, Day-1 Go/No-Go, QA/security gates, 5 Technical Lead decision requests | EM | **Submitted; implementation not authorised** | `pm/em/09`…`14` |
+| 2026-11-12 | D-018 | Founder review corrections applied: T-06/TL-DR-2 contradiction resolved (T-06 blocked until TL-DR-2 signed); autonomy profiles fixed to Beginner + Developer everywhere; PRD frontmatter set to version 1.1; F-01 wording corrected to "no tool bindings during generation (Phase 2A read-only discovery exists)"; test count stated as 4,968–4,986 | Founder (review) + EM | Adopted | PRD rev 1.1; `em/14` §2 |
+| 2026-11-12 | D-019 | Five Technical Lead recommendations recorded: TL-DR-1=A1, TL-DR-2=B1, TL-DR-3=C1, TL-DR-4=D1, TL-DR-5=E1 | Founder (recommended) | **RECOMMENDED — awaiting sign-off; not Accepted** | `15-TECHNICAL-DECISION-REGISTER.md` |
+| 2026-11-12 | D-020 | Reference provider verified: `custom` / `velona.in` / `z-ai/glm-5.3-flash`; config check clean; 2-token live probe answered `READY` in 8.7s (credit > 0). Exact balance remains UNKNOWN (no documented balance endpoint) | EM | Verified (balance unknown) | `14` §4 |
 
 ## Rejected proposals
 

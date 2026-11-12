@@ -96,7 +96,7 @@ We will compete on **three** things and explicitly decline two:
 **Compete on**
 1. **Verified execution** — every task produces a receipt: plan, tool calls, diffs, test results, tokens,
    cost, outcome. Nobody in the benchmark publishes "cost per successful task" as a user-facing metric **[R]**.
-2. **Configurable autonomy that is actually enforced** — beginner / developer / enterprise profiles mapped
+2. **Configurable autonomy that is actually enforced** — beginner / developer profiles now (enterprise later), mapped
    to real permission modes, default-safe, visible in UI.
 3. **Context quality, measured** — publish a reproducible benchmark of Crusor's 19-layer engine against
    naive grep/RAG baselines on task success, not on vibes.

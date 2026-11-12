@@ -80,7 +80,13 @@ T-19 (fixtures) ──► T-20 (AC execution) ──► T-21 (evidence pack)   [
 ```
 
 **Critical path:** T-01 → T-02 → T-03 → T-04 → T-19 → T-20 → T-21.
-Anything not on this path is parallelisable; T-17/T-18 and T-06 are safe parallel starts.
+**Unblocked immediately:** T-17, T-19.
+**Unblocked on TL decision sign-off:** T-06 (needs TL-DR-2), T-05 (TL-DR-5), T-07/T-08 (TL-DR-4), T-10/T-12 (TL-DR-3),
+T-02 (TL-DR-1).
+
+> **Dependency correction (founder review, 2026-11-12):** an earlier revision listed T-06 both as a "safe parallel
+> start" and as blocked by TL-DR-2. It cannot be both. **T-06 is blocked until TL-DR-2 is recorded**, and becomes a
+> safe parallel start immediately afterwards. Recommendation B1 is on the table; formal sign-off is still required.
 
 ---
 
@@ -112,7 +118,7 @@ Anything not on this path is parallelisable; T-17/T-18 and T-06 are safe paralle
 **GO requires all four:**
 
 1. T-02 complete: an engineering-classified task enters the tool loop and the receipt records the path.
-2. T-06 complete: `record_turn_receipt` imports and writes without raising.
+2. T-06 complete: `record_turn_receipt` imports and writes without raising. **This requires TL-DR-2 to be signed off at 09:00**; it is not a dependency-free start.
 3. T-19 complete: fixtures exist, are committed, and each declares `crusor.test_command`.
 4. No new security regression: containment/env work has not been weakened to make T-02 pass.
 

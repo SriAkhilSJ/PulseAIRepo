@@ -46,7 +46,7 @@ agent turn ──► TurnReceipt (JSONL append)  ──►  ledger.sqlite  ─�
 | `ts_start`, `ts_end` | iso8601 | wall clock, UTC |
 | `workspace_id` | hash | never a raw path (privacy) |
 | `provider`, `model` | string | as routed, not as requested |
-| `profile` | enum | beginner / developer / enterprise |
+| `profile` | enum | beginner / developer (enterprise reserved, deferred) |
 | `autonomy_mode` | enum | allow / ask / deny resolution used |
 | `tokens_in`, `tokens_out`, `tokens_cache_read`, `tokens_cache_write` | int | provider-reported |
 | `cost_usd` | decimal | priced at request time; store the rate-card version |
