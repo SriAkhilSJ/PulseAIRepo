@@ -116,7 +116,7 @@ Raw counts per slice. No percentage claims from five cases.
 
 | # | Decision | Effect if delayed |
 | --- | --- | --- |
-| **D1** | Sign the five TL decisions (A1/B1/C1/D1/E1) | T-02, T-05, T-06, T-07, T-10 stay blocked; only T-17/T-19 can start |
+| **D1** | Sign the five TL decisions (A1/B1/C1/D1/E1) | T-02, T-05, T-06, T-07, T-10 stay blocked; only T-19 and two of T-17's three modules can start |
 | **D2** | Approve the dirty-tree plan (R1–R5) | No clean implementation base; R1 (audit baseline) remains one disk failure from loss |
 | **D3** | Accept C1's availability cost: old/misconfigured Windows builds are blocked until explicit opt-out | The only decision with a user-visible downside; it is yours, not mine |
 | **D4** | Confirm the reference provider as the single evidence provider | Numbers stay non-reproducible; balance is still UNKNOWN |
@@ -126,7 +126,8 @@ Raw counts per slice. No percentage claims from five cases.
 
 ## 9. What approval authorises, and what it does not
 
-**Authorises:** cutting `feat/prd001-*` from a cleaned base; starting T-17 and T-19 immediately; starting
+**Authorises:** cutting `feat/prd001-*` from a cleaned base; starting T-19 immediately and two of T-17's three
+modules (the observability module waits on T-06); starting
 T-06 after D1; running the acceptance matrix on the reference provider.
 
 **Does not authorise:** pushing to `main`, merging the handoff branch, any public binary or download, any public

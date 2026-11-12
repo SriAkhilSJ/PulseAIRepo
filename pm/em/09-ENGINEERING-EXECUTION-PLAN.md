@@ -14,7 +14,7 @@ Solo founder + AI coding agents + this EM plan. Therefore:
 | --- | --- |
 | Founder | Product owner, only human approver, runs the live evidence |
 | EM (me) | Decomposition, sequencing, ownership boundaries, evidence gate |
-| Tech Lead | **Not a separate human.** Four decisions need explicit validation — see `12-TECHNICAL-DECISION-REQUESTS.md`. Until then the default is the conservative option |
+| Tech Lead | **Not a separate human.** Five decisions need explicit validation — see `15-TECHNICAL-DECISION-REGISTER.md`. Until then the default is the conservative option |
 | Coding agents | Implement exactly one ticket at a time, within declared file ownership |
 | QA | Independent verification agent; may not be the agent that wrote the code |
 
@@ -76,11 +76,11 @@ T-14 (profile schema) ──► T-15 (profile UI) ──► T-16 (approval promp
 
 T-17 (collection errors) ──► T-18 (CI gate red/green)        [independent of A–D]
 
-T-19 (fixtures) ──► T-20 (AC execution) ──► T-21 (evidence pack)   [needs T-02…T-07, T-10]
+T-19 (fixtures) ──► T-04 (declared test command) ──► T-20 (AC execution) ──► T-21 (evidence pack)   [needs T-02…T-07, T-10]
 ```
 
-**Critical path:** T-01 → T-02 → T-03 → T-04 → T-19 → T-20 → T-21.
-**Unblocked immediately:** T-17, T-19.
+**Critical path:** T-01 → T-02 → T-03 → T-19 → T-04 → T-20 → T-21.
+**Unblocked immediately:** T-19; and two of T-17's three modules (the observability module waits on T-06 → TL-DR-2).
 **Unblocked on TL decision sign-off:** T-06 (needs TL-DR-2), T-05 (TL-DR-5), T-07/T-08 (TL-DR-4), T-10/T-12 (TL-DR-3),
 T-02 (TL-DR-1).
 

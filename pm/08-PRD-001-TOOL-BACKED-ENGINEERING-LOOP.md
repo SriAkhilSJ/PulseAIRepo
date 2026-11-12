@@ -267,7 +267,7 @@ And the existing delegation tests still pass
 3. Test-in-the-loop: execute the fixture's documented test command, capture output, feed failures back.
 4. Receipt per task: provider-reported tokens, priced cost, duration, outcome and evidence.
 5. Containment default-on, fail-closed, with environment scrubbing for child processes.
-6. Three autonomy profiles mapped onto the existing permission rules engine, visible in the UI.
+6. Two autonomy profiles (Beginner, Developer) mapped onto the existing permission rules engine, visible in the UI; Enterprise deferred (FR-23).
 7. Truth gate: 0 collection errors, full-suite CI workflow in `.github/workflows` with no failure swallowing,
    and a single `TRUTH.md` condition-of-record.
 8. Evidence pack: five runs (T1–T5) with logs, receipts and screenshots.
@@ -628,7 +628,7 @@ assume.
 | Role | What they must deliver or decide | Blocking? |
 | --- | --- | --- |
 | **Engineering Manager** | Sequence FRs into 4 half-day increments matching the Day-1/Go-No-Go plan; protect the exclusion list against scope creep | Yes |
-| **Technical Lead** | Validate the Option A bridge design (where the tool loop is entered, how the DAG keeps lifecycle authority); decide whether `canonical_runtime` becomes default; approve the observability rename approach | Yes — three named technical decisions |
+| **Technical Lead** | Validate the Option A bridge design (where the tool loop is entered, how the DAG keeps lifecycle authority); decide whether `canonical_runtime` becomes default; approve the observability rename approach | Yes — five named technical decisions (TL-DR-1…5) |
 | **Frontend** | Profile indicator, risk class + containment state on approval prompts, test card with exit code and failing assertion, receipt line. Reuse existing card types only | No (after M1) |
 | **Backend** | Tool-loop routing, plan gating, test-in-the-loop, blocked-outcome semantics, receipt emission | Yes |
 | **Database** | Additive receipt storage + rollups; confirm no `sessions.db` migration; retention policy for checkpoints | No |
@@ -647,7 +647,7 @@ Technical Lead validation and recorded as an ADR (`develop-adr`) before implemen
 
 | Dependency | Owner | Status | Impact if delayed |
 | --- | --- | --- | --- |
-| Provider key with credit | Founder | Unverified (repo notes a ₹0.00 wallet at one point) | No live run possible; milestone blocked |
+| Provider key with credit | Founder | **Verified 2026-11-12 (D-020):** config check + 2-token live probe pass, so credit > 0; exact balance unknown | Live runs possible; keep a manual dashboard check before Day 2 |
 | Fixtures T1–T5 prepared and committed | Founder | Not started | Runs become improvisation; evidence invalid |
 | Option A/B decision | Founder | **Decided: A** | — |
 | Windows AppContainer functioning on the test machine | Founder | Partial (opt-in today) | FR-26 degrades to visible "uncontained" warning |
@@ -679,19 +679,21 @@ Technical Lead validation and recorded as an ADR (`develop-adr`) before implemen
 
 ## Open Questions
 
-Resolved in rev 1.1 (proposed defaults, founder review pending). Nothing here blocks Day 1.
+Resolved in rev 1.1 and recorded as ACCEPTED (P1–P3, P5) and ACCEPTED-CONDITIONAL (P4). Nothing here blocks Day 1.
 
 | # | Question | Resolution | Status |
 | --- | --- | --- | --- |
-| P1 | Test command discovery | Explicitly declared `crusor.test_command`, with documented fixture overrides; inference only as a labelled fallback | Adopted in FR-19 |
-| P2 | `workspace_session` auto-approval | No implicit auto-approval. Developer autonomy is an explicit, visible opt-in; sandbox enforcement is never bypassed | Adopted in FR-25 |
-| P3 | Checkpoint retention scope | Deferred. No user-data deletion, no 937 MB DB in the release artifact | Adopted in NFR-6 |
-| P4 | Reference provider for the evidence pack | Recommend `custom` (OpenAI-compatible, host `velona.in`) with `z-ai/glm-5.3-flash`, aux `cheap`/`qwen/qwen3.7-flash` — the only configured key set and the pair used by the repo's own live evidence. **Needs founder confirmation.** | Proposed |
-| P5 | Enterprise profile scope | Deferred. Two profiles ship; the rules schema stays extensible so Enterprise needs no migration | Adopted in FR-23 |
+| P1 | Test command discovery | Explicitly declared `crusor.test_command`, with documented fixture overrides; inference only as a labelled fallback | ACCEPTED (FR-19) |
+| P2 | `workspace_session` auto-approval | No implicit auto-approval. Developer autonomy is an explicit, visible opt-in; sandbox enforcement is never bypassed | ACCEPTED (FR-25) |
+| P3 | Checkpoint retention scope | Deferred. No user-data deletion, no 937 MB DB in the release artifact | ACCEPTED (NFR-6) |
+| P4 | Reference provider for the evidence pack | `custom` (OpenAI-compatible, host `velona.in`) with `z-ai/glm-5.3-flash`, aux `cheap`/`qwen/qwen3.7-flash` — the only configured key set and the pair used by the repo's own live evidence | ACCEPTED-CONDITIONAL — config + 2-token probe pass; exact balance unknown (D-020) |
+| P5 | Enterprise profile scope | Deferred. Two profiles ship; the rules schema stays extensible so Enterprise needs no migration | ACCEPTED (FR-23) |
 
 **Still open (new):**
 
-- [ ] Confirm P4 reference provider and that wallet credit is non-zero before Day 1 09:00. — Owner: Founder.
+- [x] P4 reference provider and wallet credit — **closed 2026-11-12 (D-020)**: configuration verified, a 2-token
+  probe answered `READY` in 8.7 s, so credit > 0. Exact balance is not exposed by a documented endpoint; check the
+  provider dashboard before the Day-2 run.
 - [ ] Confirm whether `sessions.db` on the test machine may be used as-is for two days (no purge, no commit). — Owner: Founder.
 
 ## Appendix

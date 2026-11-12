@@ -52,7 +52,7 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 - **Objective:** `success` only with exit code 0; `blocked` with a reason otherwise; `unverified` never printed as `verified`.
 - **Components:** `finish_gate`, receipt writer, `orchestrator` delivery contract.
 - **Changes:** outcome derivation function; forbid model self-report as evidence.
-- **Dependencies:** T-04, T-07.
+- **Dependencies:** T-04, T-07, **TL-DR-5 signed off**.
 - **Acceptance:** AC-9; T5 returns `blocked`.
 - **Testing:** impossible-invariant fixture; assert `blocked` + no `verified` string.
 - **Security:** a false success is a security failure (FR-34/38).
@@ -244,15 +244,15 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 
 | WS | Tickets | Effort |
 | --- | --- | --- |
-| A Execution | T-01…T-05 | 13h |
+| A Execution | T-01…T-05 | 13–14h |
 | B Receipts | T-06…T-09 | 7h |
 | C Safety | T-10…T-13 | 6h |
 | D Autonomy UI | T-14…T-16 | 6.5h |
 | E Truth gate | T-17…T-18 | 3.5h |
 | F Fixtures/QA | T-19…T-21 | 6.5h |
-| **Total** | **21 tickets** | **≈42.5h** |
+| **Total** | **21 tickets** | **≈42.5–43.5h** |
 
-42.5 hours is more than 16 hours of working time. **That is the honest number, and it is why Day 1 has a
+42.5–43.5 hours is more than 16 hours of working time. **That is the honest number, and it is why Day 1 has a
 Go/No-Go.** The two-day plan assumes parallel agent sessions (A–F run concurrently); a single sequential
 session cannot deliver all 21 tickets in 16 hours. The reduced scope if only one session is available is in
-`09-ENGINEERING-EXECUTION-PLAN.md` §6.
+`09-ENGINEERING-EXECUTION-PLAN.md` §6 NO-GO cut table.

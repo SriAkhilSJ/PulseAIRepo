@@ -51,7 +51,7 @@ The 84 modified files include the entire engineering runtime, and the untracked 
 
 Committing the modified files **without** their untracked siblings would create a commit that does not run.
 The two sets are one change. This also means the code an agent reads today is not `HEAD` — line numbers drift
-(example: AGENTS.md cites the approval default at `:1671-1675`; the file currently shows `:1697-1709`).
+(example: AGENTS.md cites the approval default at `:1671-1675`; the file currently shows `:1697-1713`).
 
 ## 3. PRD-001 overlap — 21 files (the blocking set)
 
