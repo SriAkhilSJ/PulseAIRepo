@@ -39,6 +39,10 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-12 | D-029 | **T-22 created** (next free ID) and resolved: the 7 pre-existing failures are two product regressions plus one security-relevant ordering bug, none caused by R2 (same 7 fail at `7e4bb7ad`). Fixed: turn resets no longer clobber `task_action`/`task_status`/`task_completed`; tool names are canonicalized before the mutation boundary; the alias `run terminal` is now denied instead of reaching a confirmation prompt | Founder (authorised) + EM | **DONE-VERIFIED** (73 passed, 7 skipped; regression guard added) | commit `242decbb` |
 | 2026-11-12 | D-030 | Linux CI runtime qualification **not performed**: no WSL distribution and no Docker on this host. The 30-minute workflow timeout therefore remains unvalidated for Linux; Windows runtime (>40 min) must not be presented as Linux evidence | EM | **BLOCKED (environment)** | `AGENTS.md` §14 |
 
+| 2026-11-12 | D-031 | **T-23 created**: full-suite baseline classified by four read-only workers. 105 failures / 41 modules at HEAD vs 100 / 40 at `7e4bb7ad`; R2 accounts for one. Classes: 18 PRODUCT_BUG modules, 8 ENVIRONMENT_DEPENDENT, 6 TEST_DEFECT, 2 CONFIG, 2 UNRESOLVED. Linux runtime remains unmeasured | Founder (authorised) + EM | **INVESTIGATION DONE; fixes pending** | `pm/em/10-TASK-BREAKDOWN.md` W8 |
+| 2026-11-12 | D-032 | P1 (shell blocked by design) is **ambiguous**: tests encode the T-10/T-12 target while AGENTS.md forbids re-enabling shell before env scrub + containment. Recommendation: `xfail(strict=True)` referencing T-10, no deletion, no re-enable | EM | **AWAITING FOUNDER DECISION** | T-23 §P1 |
+| 2026-11-12 | D-033 | T-22 regression corrected: the incomplete-response guard now runs **before** name repair, so truncated batches are never inspected or executed. `test_autonomous_runtime_contract` loses the `_tools_by_name` failure | EM | **DONE-VERIFIED** | commit `20a5cbe0` |
+
 ## Rejected proposals
 
 | Date | Proposal | Why rejected | Revisit when |
