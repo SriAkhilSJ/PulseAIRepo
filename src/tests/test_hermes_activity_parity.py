@@ -255,16 +255,26 @@ def test_fork_glyph_names_are_the_ones_the_webview_resolves():
 def test_both_surfaces_mount_the_same_column_and_teardown_the_timers():
     renderer = FORK_RENDERER.read_text(encoding="utf-8")
     assert "function createActivityState" in renderer and "function agentColumn" in renderer
-    assert renderer.count("...agentColumn(model, host, openTools, activity, planOpen, setPlanOpen)") == 2, \
+    column_calls = re.findall(r"\.\.\.agentColumn\([^)]*\)", renderer)
+    assert len(column_calls) == 2, \
         "both the pane and the Manager chat box must come from one column"
+    assert column_calls[0] == column_calls[1], \
+        "the two surfaces must mount the same column with the same arguments"
     assert "activity.row(model)" not in renderer, \
         "the breathing status row under the transcript was deleted 2026-10-15 (OpenCode streams the turn)"
     assert "activity.sync(model)" in renderer and "activity.dispose()" in renderer, \
         "a ticking row that outlives its mount keeps repainting a dead surface"
     assert "transcript(model, host, openTools)," not in renderer, \
         "the Manager used to bolt the transcript on by itself; the column owns it now"
-    for glyph in ("icon('brain')", "renderToolIcon(name)"):
-        assert glyph in renderer
+    # The brain glyph is no longer a literal `icon('brain')` call in the renderer:
+    # the R3 refactor routes it through the icon table and the tool catalog, and
+    # the renderer reaches it via renderToolIcon. Assert the same design at its
+    # new source of truth instead of pinning the old call form.
+    assert "'brain':" in FORK_ICONS.read_text(encoding="utf-8"), \
+        "the thinking row's brain glyph definition is gone"
+    assert "think: tool('Think', 'control', 'brain'" in FORK_CATALOG.read_text(encoding="utf-8"), \
+        "the think tool no longer maps to the brain glyph"
+    assert "renderToolIcon(name)" in renderer
     css = (BROWSER / "media" / "crusorAI.css").read_text(encoding="utf-8")
     for rule in ("@keyframes crusorai-sweep",
                  ".crusorai-disclosure-caret", ".crusorai-thought-body"):
