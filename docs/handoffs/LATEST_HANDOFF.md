@@ -571,3 +571,27 @@ acceptance before P1-B starts. No commits or pushes were made.
 limit is confirmed; generated `req_*` modules and private runtime data stay out of git (R0 has them).
 **Landmine:** `src/observability/` is a package — never re-create `src/observability.py`, or F-06 returns.
 
+
+
+---
+
+## 2026-11-12 (T-18) — CI truth gate PARTIAL, T-07 not started
+
+**Branch:** `wip/working-tree-2026-11-12` · **Commits:** `caeca301`, `1ddb6143`
+
+**Done:** workflow relocated to `.github/workflows/agent-core.yml`; concealment removed; red-on-red proven
+(exit 1 on a deliberate failure, temp file removed); parity-test drift fixed (`test_hermes_activity_parity`
+now 120 passed / 8 skipped / 1 xfailed).
+
+**Blocking green-on-green:**
+1. Approval-dock contract test expects an inline `crusorai-approval-diff-preview`; the dock now uses a
+   "Review change" button + native diff. Needs a product decision (restore inline preview vs update contract).
+2. `test_degraded_memory.py` hangs >120 s alone (both HOME modes). Likely a lazy initialisation inside
+   `finalize_node`; must be diagnosed before any full-suite run can complete.
+
+**T-07 status:** investigation complete, **no code written** — its gate is T-18. Findings: receipts are emitted
+only from `finalize_node`; `recovery_limit` and `tool_cycle_limit` go straight to `END` with no receipt; no
+duplicate guard; missing usage coerced to zero; `error` text unredacted; write failures swallowed.
+
+**Next authorised action:** none until the founder decides on the two blockers or authorises T-07 past the gate.
+

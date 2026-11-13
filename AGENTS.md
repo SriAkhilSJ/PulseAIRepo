@@ -356,3 +356,13 @@ guess.
 - External agent memory services or MCP tools, if configured, are auxiliary.
   Never rely on them as the only record. Never store secrets in them.
 - If an external tool conflicts with this repository, the repository wins.
+
+
+## 14. Execution status (2026-11-12)
+
+T-18 (CI truth gate) is **PARTIAL**: `.github/workflows/agent-core.yml` now enforces the full suite with no
+concealment, and red-on-red is proven. Green-on-green is blocked by `test_copilot_parity_permission_diff`
+(approval-dock inline-diff contract) and by `test_degraded_memory` hanging. T-07 (receipt emission) has not
+started. Do not claim a green full suite or a GitHub-hosted run until both are resolved and a real Actions run
+exists.
+

@@ -1251,3 +1251,29 @@ pre-existing failures (two Windows mode-bit assertions and one echo
 - **Not done:** T-01…T-05, T-07…T-16, T-18, T-19…T-21. T-18 (CI gate) is the next unblocked ticket.
 - No merge to `main`. No public release. No provider spend beyond one 2-token probe earlier.
 
+
+
+---
+
+## 2026-11-12 (T-18) — CI truth gate: **PARTIAL**
+
+**Commits:** `caeca301` (rename + parity-test corrective) · `1ddb6143` (workflow enforcement)
+
+- `ci/agent-core.yml` now lives at `.github/workflows/agent-core.yml`. The two `--ignore` flags and the
+  non-blocking `desktop-panel-parity` job are gone; the blocking job runs
+  `bash scripts/run_tests.sh src/tests` on py3.11. Nothing in the workflow can conceal a failure.
+- **Red-on-red: PROVEN.** A temporary failing test produced `1 failed, 4 passed`, exit code **1**; the file
+  was removed and `git status` for that path is empty.
+- **Green-on-green: NOT PROVEN.** Two blockers, both real:
+  1. `test_copilot_parity_permission_diff.py::test_approval_dock_renders_inline_diff_and_warning` fails:
+     it requires `crusorai-approval-diff-preview` / `-header` in the renderer and CSS; neither exists. The
+     approval dock now renders stats + a "Review change" button that opens the native diff editor. This is a
+     **UI contract decision**, not test drift: either the inline preview is restored or the contract is
+     updated. Not decided unilaterally.
+  2. `test_degraded_memory.py` hangs >120 s when run alone, with both a fresh and the real HOME. It blocks any
+     full-suite run, locally and in CI.
+- The background full-suite run reached 17% before the hang: the approval-dock failure above, everything else
+  passing to that point. Local `bash` is WSL without a distro, so the runner environment was replicated in
+  PowerShell — this is local Windows evidence, not a GitHub-hosted run.
+- No push (not authorised). `origin/main` unchanged.
+
