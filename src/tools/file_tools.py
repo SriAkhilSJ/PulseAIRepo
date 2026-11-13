@@ -465,6 +465,14 @@ def write_file(
         path
     )
 
+    # The broker contract is operation-specific: CREATE refuses an existing
+    # user-owned target, MODIFY requires one. write_file used to send every
+    # write down the CREATE path, so a legitimate overwrite of an existing
+    # file was refused. Classify from the observed state here, and re-check
+    # at the write edge (below) so a state flip fails closed instead of
+    # silently switching to an operation no approval was minted for.
+    existed_at_classification = safe_path.exists()
+
     safe_path.parent.mkdir(
         parents=True,
         exist_ok=True
@@ -475,6 +483,19 @@ def write_file(
     from src.tools import file_state
     _tid = file_state.task_id_from_config(config)
     with file_state.lock_path(safe_path):
+        # Classification/execution race: the operation (and therefore the
+        # approval token bound to it) was chosen from the state observed
+        # before the lock. If the target appeared or vanished since, refuse
+        # rather than apply a CREATE/MODIFY the approval does not cover.
+        exists_now = safe_path.exists()
+        if exists_now != existed_at_classification:
+            return (
+                f"⛔ write_file refused: '{path}' changed existence state "
+                f"during the write (existed={existed_at_classification} at "
+                f"classification, existed={exists_now} at write). Re-read the "
+                "file and retry so the operation matches the approved one."
+            )
+
         # D32: refuse to silently overwrite another agent's fresh work.
         if safe_path.exists():
             stale = file_state.check_stale(_tid, safe_path)
@@ -521,18 +542,38 @@ def write_file(
                 graph_requires_approval_token,
             )
 
-            authorization = find_mutation_authorization(config, clean_rel, "CREATE")
-            broker.create_file(
-                path=clean_rel,
-                content=content,
-                task_id=_tid or "default_task",
-                change_reason=f"write_file: {path}",
-                approval_token=(authorization or {}).get("token"),
-                require_approval=graph_requires_approval_token(config),
-                require_digest=bool(authorization),
-                session_id=_tid,
-                turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
+            authorization = find_mutation_authorization(
+                config, clean_rel,
+                "MODIFY" if existed_at_classification else "CREATE",
             )
+            if existed_at_classification:
+                # Existing target: a MODIFY. create_file would refuse a
+                # user-owned file (correctly), so routing an overwrite through
+                # it could never succeed.
+                broker.modify_file(
+                    path=clean_rel,
+                    old_text=original,
+                    new_content=content,
+                    task_id=_tid or "default_task",
+                    change_reason=f"write_file: {path}",
+                    approval_token=(authorization or {}).get("token"),
+                    require_approval=graph_requires_approval_token(config),
+                    require_digest=bool((authorization or {}).get("token")),
+                    session_id=_tid,
+                    turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
+                )
+            else:
+                broker.create_file(
+                    path=clean_rel,
+                    content=content,
+                    task_id=_tid or "default_task",
+                    change_reason=f"write_file: {path}",
+                    approval_token=(authorization or {}).get("token"),
+                    require_approval=graph_requires_approval_token(config),
+                    require_digest=bool((authorization or {}).get("token")),
+                    session_id=_tid,
+                    turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
+                )
         except (MutationAuthorizationError, PathSecurityViolation, ConcurrencyConflictError) as exc:
             return f"⛔ Workspace safety restriction: {exc}"
         except Exception as exc:
@@ -1527,7 +1568,7 @@ def edit_file(
             change_reason=f"edit_file ({match_mode}): {path}",
             approval_token=(authorization or {}).get("token"),
             require_approval=graph_requires_approval_token(config),
-            require_digest=bool(authorization),
+            require_digest=bool((authorization or {}).get("token")),
             session_id=_tid,
             turn_id=str((config or {}).get("configurable", {}).get("turn_id") or ""),
         )

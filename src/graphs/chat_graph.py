@@ -6828,11 +6828,30 @@ class SafeToolNode:
                     flush=True,
                 )
                 continue
-            operation = (
-                WorkspaceOperationType.CREATE
-                if name == "write_file"
-                else WorkspaceOperationType.MODIFY
-            )
+            # The operation must match what the tool will actually do. It is
+            # derived from the validated payload (``_diff_payload`` observes
+            # the target: create when absent, modify when present) and never
+            # from the tool name — ``write_file`` overwrites existing files
+            # through MODIFY, and minting CREATE for it would be refused by
+            # the broker. Unknown/missing/inconsistent action => no token.
+            action = str(payload.get("action") or "").strip().lower()
+            if action == "create":
+                operation = WorkspaceOperationType.CREATE
+            elif action == "modify":
+                operation = WorkspaceOperationType.MODIFY
+            else:
+                operation = None
+            if operation is not None and action == "create" and name != "write_file":
+                # Only write_file legitimately creates: edit_file on a missing
+                # file fails in the tool, and copy_file reports action="copy".
+                operation = None
+            if operation is None:
+                print(
+                    f"[SafeToolNode] no mappable mutation operation for {name} "
+                    f"(action={action or 'missing'}); the broker will fail closed",
+                    flush=True,
+                )
+                continue
             old_text = payload.get("old_text")
             precondition = precondition_digest(
                 old_text is not None, old_text,
