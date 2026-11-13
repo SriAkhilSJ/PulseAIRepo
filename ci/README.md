@@ -1,38 +1,29 @@
-# CI configuration (staged)
+# CI configuration
 
-`agent-core.yml` is the GitHub Actions workflow for the agent-core suite. It
-lives here instead of `.github/workflows/` because the GitHub App that created
-the audit-fix commit is not granted the `workflows` permission, so a push
-touching a workflow file is rejected:
+`agent-core.yml` **now lives at `.github/workflows/agent-core.yml`** (moved there
+by T-18). This directory is kept for the history of why it was staged here.
+
+It previously lived in `ci/` because the GitHub App that created the audit-fix
+commit is not granted the `workflows` permission, so a push touching a workflow
+file is rejected:
 
 ```
 ! [remote rejected] ... refusing to allow a GitHub App to create or update
   workflow `.github/workflows/agent-core.yml` without `workflows` permission
 ```
 
-## Install it (one command, from a credential that can push workflows)
-
-```bash
-mkdir -p .github/workflows
-cp ci/agent-core.yml .github/workflows/agent-core.yml
-git add .github/workflows/agent-core.yml
-git commit -m "ci(agent-core): run the hermetic suite"
-git push
-```
-
-Alternatively, reconnect GitHub in Arena with the **Workflows** permission and
-ask the agent to move the file — no manual step needed.
+**If a push is rejected with that message**, the relocation did not reach GitHub:
+reconnect with the **Workflows** permission and push again. Until that happens,
+no GitHub-hosted run of this workflow exists, and a local run is not a substitute.
 
 ## What it runs
 
 - **`agent-core`** (blocking): `bash scripts/run_tests.sh src/tests` on Python
-  3.11 with the full dependency set (tree-sitter grammars, Pillow) plus
-  `pyright`, minus the two desktop-build-output parity modules (see the comment
-  in the workflow; they run in the informational job below).
-- **`desktop-panel-parity`** (informational, `continue-on-error`): the pins that
-  compare the tracked `desktop/vscode/out/**` build output against the current
-  TypeScript sources. Fixing those needs a desktop rebuild, not an agent-core
-  change.
+  3.11 with the full dependency set (tree-sitter grammars, Pillow) plus `pyright`.
+  As of T-18 it runs the **entire** suite, including the two desktop parity
+  modules that were previously excluded and parked in a non-blocking job.
+  Nothing in the workflow is allowed to conceal a failure: no `continue-on-error`,
+  no `|| true`, no ignored directories.
 
 ## Bounded live-run monitoring
 
