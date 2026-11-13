@@ -5,7 +5,8 @@
 import { reasoningEffortLabel } from '../common/crusorAIReasoningEffort.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
 import { openHubDialog } from './crusorAIHubDialog.js';
-import { cardHeadline } from '../common/crusorAICards.js';
+import { cardHeadline, userFacingCards } from '../common/crusorAICards.js';
+import { turnOutcomeReceipt } from '../common/crusorAITurnOutcome.js';
 import { crusorSessionIdFromUri } from '../common/crusorAISessionProjection.js';
 import { crusorAIToolPresentation } from '../common/crusorAIToolCatalog.js';
 import { hasAnsiCodes, parseAnsi, parseDiff, stripTerminalEnvelope, windowedTailLines } from './crusoraiCardFormat.js';
@@ -455,13 +456,21 @@ export function stateLabel(state) {
     if (state === 'running') {
         return 'Running';
     }
+    // Restored from a checkpoint with no recorded verdict: say only what the
+    // checkpoint proves instead of claiming the call succeeded.
+    if (state === 'recorded') {
+        return 'Recorded';
+    }
     return 'Queued';
 }
 export function statusGlyph(state) {
     if (state === 'running') {
         return element('span', 'crusorai-mini-spinner');
     }
-    const name = state === 'passed' ? 'pass-filled' : state === 'failed' ? 'error' : state === 'approval' ? 'shield' : 'circle-outline';
+    const name = state === 'passed' ? 'pass-filled'
+        : state === 'failed' ? 'error'
+            : state === 'approval' ? 'shield'
+                : state === 'recorded' ? 'history' : 'circle-outline';
     return icon(name);
 }
 function labeledPayload(label, value) {
@@ -2353,9 +2362,26 @@ function planStepGlyph(status) {
     if (status === 'failed') {
         return icon('circle-slash');
     }
+    if (status === 'blocked') {
+        return icon('debug-pause');
+    }
+    if (status === 'cancelled') {
+        return icon('stop-circle');
+    }
     const ring = element('span', 'crusorai-todo-ring');
     ring.setAttribute('aria-hidden', 'true');
     return ring;
+}
+/** Text mark for one plan step inside the typed card (same states as the strip). */
+function planStepMark(status) {
+    switch (status) {
+        case 'completed': return '✓';
+        case 'in_progress': return '▸';
+        case 'failed': return '✕';
+        case 'blocked': return '⊘';
+        case 'cancelled': return '–';
+        default: return '○';
+    }
 }
 function planStrip(model, open, onToggle) {
     if (!model.plan.length) {
@@ -2403,6 +2429,9 @@ function createActivityState(tick) {
             else {
                 closeMeasurement(thoughtKey(model), Date.now());
             }
+            // Engineering progress (a real backend stage/generation fact) counts as
+            // visible progress: it restarts the quiet window so the row does not
+            // claim silence while the orchestrator is reporting movement.
             const signature = activitySignature(parts);
             if (signature !== lastSignature) {
                 lastSignature = signature;
@@ -2569,6 +2598,9 @@ function assistantTurn(spec, host, openTools, closedTools) {
     const live = spec.live;
     const response = element('section', 'crusorai-assistant-message');
     response.dataset.component = spec.current ? 'session-turn' : 'assistant-message';
+    if (spec.turnId) {
+        response.dataset.turnId = spec.turnId;
+    }
     response.append(element('div', 'crusorai-assistant-label', icon('crusor'), element('strong', undefined, 'Crusor'), live ? element('span', 'crusorai-stream-label', spec.cancelRequested ? 'Stopping.' : 'Working') : undefined));
     // Reasoning parts are tracked INLINE in the parts array (kind='reasoning') so their
     // chronological position relative to text and tools is always preserved exactly.
@@ -2599,10 +2631,25 @@ function assistantTurn(spec, host, openTools, closedTools) {
         response.append(toolSection(run, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested));
         run = [];
     };
+    const cardsById = new Map((spec.cards ?? []).map(card => [card.cardId, card]));
+    let cardRun = [];
+    const flushCards = () => {
+        if (!cardRun.length) {
+            return;
+        }
+        // agentCardStack returns undefined when every card in the run is an
+        // internal (non-surface) type; appending that would throw.
+        const stack = agentCardStack(cardRun);
+        if (stack) {
+            response.append(stack);
+        }
+        cardRun = [];
+    };
     parts.forEach((part, index) => {
         if (part.kind === 'reasoning') {
             // Flush any accumulated tool run BEFORE the reasoning block (preserves order)
             flushRun();
+            flushCards();
             const rp = reasoningParts[part.reasoningIndex];
             if (rp && rp.text) {
                 // A reasoning block is "live" (spinner + growing text) only when it is the
@@ -2612,7 +2659,16 @@ function assistantTurn(spec, host, openTools, closedTools) {
             }
             return;
         }
+        if (part.kind === 'card') {
+            flushRun();
+            const card = cardsById.get(part.cardId);
+            if (card && userFacingCards([card]).length) {
+                cardRun.push(card);
+            }
+            return;
+        }
         if (part.kind === 'tool') {
+            flushCards();
             const tool = toolsById.get(part.toolId);
             if (tool) {
                 run.push(tool);
@@ -2623,16 +2679,21 @@ function assistantTurn(spec, host, openTools, closedTools) {
             return;
         }
         flushRun();
+        flushCards();
         response.append(textPart(part.text, spec.current && index === lastTextIndex ? 'session-turn-content' : undefined));
     });
     flushRun();
+    flushCards();
     // A tool with no part (a replay that lost its start frame) must still show.
     const inTimeline = new Set(parts.filter(p => p.kind === 'tool').map(p => p.toolId));
     const orphans = spec.tools.filter(t => !inTimeline.has(t.id));
     if (orphans.length) {
         response.append(toolSection(orphans, host, openTools, closedTools, live, false, spec.clarify, spec.subAgents, spec.cancelRequested));
     }
-    const cards = agentCardStack(spec.cards ?? []);
+    // Cards without a pin (legacy hydration, a late frame) still render after the
+    // timeline; the same user-facing policy applies.
+    const pinned = new Set(parts.filter(p => p.kind === 'card').map(p => p.cardId));
+    const cards = agentCardStack((spec.cards ?? []).filter(card => !pinned.has(card.cardId)));
     if (cards) {
         response.append(cards);
     }
@@ -2678,22 +2739,20 @@ function agentCardView(card) {
         return wrap;
     }
     if (card.cardType === 'activity') {
-        const status = String(d.status ?? 'running');
-        head.append(element('span', `crusorai-agent-card-badge is-${status}`, status));
+        // No status badge: "RUNNING"/"COMPLETED" is engine bookkeeping, not
+        // conversation. The label and its safe detail carry the progress.
         if (d.detail) {
             wrap.append(element('div', 'crusorai-agent-card-note', String(d.detail)));
         }
     }
     else if (card.cardType === 'plan') {
-        if (d.outcome) {
-            wrap.append(element('div', 'crusorai-agent-card-note', String(d.outcome)));
-        }
+        // No outcome banner either: the per-step marks already say what finished.
         const steps = Array.isArray(d.steps) ? d.steps : [];
         const list = element('div', 'crusorai-agent-card-list');
         for (const raw of steps) {
             const step = (raw ?? {});
             const status = String(step.status ?? 'pending');
-            list.append(element('div', `crusorai-agent-card-step is-${status}`, element('span', 'crusorai-agent-card-step-glyph', status === 'completed' ? '✓' : status === 'in_progress' ? '▸' : status === 'failed' ? '✕' : '○'), element('span', undefined, String(step.text ?? ''))));
+            list.append(element('div', `crusorai-agent-card-step is-${status}`, element('span', 'crusorai-agent-card-step-glyph', planStepMark(status)), element('span', undefined, String(step.text ?? ''))));
         }
         if (steps.length) {
             wrap.append(list);
@@ -2769,12 +2828,13 @@ function agentCardView(card) {
     return wrap;
 }
 function agentCardStack(cards) {
-    if (!cards.length) {
+    const visible = userFacingCards(cards);
+    if (!visible.length) {
         return undefined;
     }
     const stack = element('section', 'crusorai-agent-cards');
     stack.dataset.component = 'agent-cards';
-    for (const card of cards) {
+    for (const card of visible) {
         stack.append(agentCardView(card));
     }
     return stack;
@@ -2811,6 +2871,25 @@ function historyTurnClarify(model, turn) {
     // turn's unsettled clarify call.
     return turn.tools.some(tool => tool.name === 'clarify' && tool.result === undefined) ? pending : undefined;
 }
+/** One receipt row for a turn that did not settle as a plain success. */
+function turnReceiptRow(outcome, interrupt) {
+    const receipt = turnOutcomeReceipt(outcome);
+    if (!receipt) {
+        return undefined;
+    }
+    const row = element('div', `crusorai-turn-receipt is-${outcome}`, icon(receipt.glyph), element('span', undefined, receipt.label));
+    if (interrupt && (interrupt.landed > 0 || interrupt.dropped > 0)) {
+        const bits = [];
+        if (interrupt.landed > 0) {
+            bits.push(`${interrupt.landed} landed`);
+        }
+        if (interrupt.dropped > 0) {
+            bits.push(`${interrupt.dropped} dropped`);
+        }
+        row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
+    }
+    return row;
+}
 function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     const scroll = element('div', 'crusorai-transcript-scroll');
     const lane = element('div', 'crusorai-transcript-lane');
@@ -2832,6 +2911,8 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
                 assistantText: turn.assistantText,
                 parts: turn.parts,
                 tools: turn.tools,
+                cards: turn.cards,
+                turnId: turn.turnId,
                 live: false,
                 turnKey: `history:${model.sessionId || 's'}`,
                 // A turn rebuilt before its records landed (or by an
@@ -2848,23 +2929,11 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
         // last??", founder 2026-10-15). Records still thread into the
         // cards via assistantTurn's spec.subAgents for child matching.
         // Hermes pattern: no green confetti for success -- the answer IS the
-        // completion receipt. Only real deviations (cancelled, failed) get a row.
-        if (turn.turnOutcome === 'cancelled' || turn.turnOutcome === 'denied' || turn.turnOutcome === 'failed') {
-            const label = turn.turnOutcome === 'cancelled' ? 'Run cancelled' : turn.turnOutcome === 'denied' ? 'Run denied' : 'Run failed';
-            const iconName = turn.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-            const row = element('div', `crusorai-turn-receipt is-${turn.turnOutcome}`, icon(iconName), element('span', undefined, label));
-            const intr = turn.interrupt;
-            if (intr && (intr.landed > 0 || intr.dropped > 0)) {
-                const bits = [];
-                if (intr.landed > 0) {
-                    bits.push(`${intr.landed} landed`);
-                }
-                if (intr.dropped > 0) {
-                    bits.push(`${intr.dropped} dropped`);
-                }
-                row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
-            }
-            lane.append(row);
+        // completion receipt. Only real deviations (cancelled, failed,
+        // incomplete, unknown) get a row.
+        const receiptRow = turnReceiptRow(turn.turnOutcome, turn.interrupt);
+        if (receiptRow) {
+            lane.append(receiptRow);
         }
         // No per-turn rollup box (founder 2026-10-17: "what is
         // the use of box?? why spawning now itself"): it repeated the
@@ -2886,6 +2955,7 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
             parts: model.parts,
             tools: model.tools,
             cards: model.cards,
+            turnId: model.currentTurnId,
             live: model.running,
             current: true,
             thoughtSeconds: liveThoughtSeconds,
@@ -2900,22 +2970,9 @@ function transcript(model, host, openTools, closedTools, liveThoughtSeconds) {
     // sub-agent UI. The old section repeated every child a second
     // time at the transcript's end — and, hydrated from a resume,
     // trailed turns that never delegated at all.
-    if (model.turnOutcome === 'cancelled' || model.turnOutcome === 'denied' || model.turnOutcome === 'failed') {
-        const label = model.turnOutcome === 'cancelled' ? 'Run cancelled' : model.turnOutcome === 'denied' ? 'Run denied' : 'Run failed';
-        const iconName = model.turnOutcome === 'cancelled' ? 'circle-slash' : 'error';
-        const row = element('div', `crusorai-turn-receipt is-${model.turnOutcome}`, icon(iconName), element('span', undefined, label));
-        const intr = model.interrupt;
-        if (intr && (intr.landed > 0 || intr.dropped > 0)) {
-            const bits = [];
-            if (intr.landed > 0) {
-                bits.push(`${intr.landed} landed`);
-            }
-            if (intr.dropped > 0) {
-                bits.push(`${intr.dropped} dropped`);
-            }
-            row.append(element('span', 'crusorai-receipt-meta', `· ${bits.join(' · ')}`));
-        }
-        lane.append(row);
+    const receiptRow = turnReceiptRow(model.turnOutcome, model.interrupt);
+    if (receiptRow) {
+        lane.append(receiptRow);
     }
     if (model.voiceHeard) {
         const heard = model.voiceHeard;

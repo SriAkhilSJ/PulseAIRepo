@@ -100,7 +100,7 @@ export function elapsedSeconds(now, origin) {
     return Math.max(0, Math.floor((now - origin) / 1000));
 }
 /** The settled states of the fork's tool lifecycle -- `result` presence is what upstream reads. */
-const SETTLED_STATES = new Set(['completed', 'passed', 'failed', 'cancelled']);
+const SETTLED_STATES = new Set(['completed', 'passed', 'failed', 'cancelled', 'recorded']);
 /**
  * The fork's render model, expressed as the part list upstream computes over.
  *

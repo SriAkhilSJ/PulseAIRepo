@@ -153,13 +153,10 @@ try {
 		report.limitations.push('approval dock did not appear (workspace-session policy may auto-approve)');
 	}
 
-	try {
-		await page.waitForSelector('.crusorai-agent-card.is-delivery', { timeout: 300_000 });
-	} catch {
-		await page.waitForFunction(() => !document.querySelector('.crusorai-send-stop'), null, { timeout: 300_000 });
-	}
+	await page.waitForFunction(() => !document.querySelector('.crusorai-send-stop'), null, { timeout: 300_000 });
 	await page.waitForTimeout(1500);
 	const cards = await page.locator('.crusorai-agent-card').allInnerTexts();
+	const assistantText = await page.locator('.crusorai-assistant-message').last().innerText();
 	await shot('04-engineering-complete.png');
 	const before = audit();
 	const rows = ledger();
@@ -178,11 +175,18 @@ try {
 	check('exactly one user deliverable', files.length === 1 && files[0] === 'acceptance.md', JSON.stringify(files));
 	check('no internal metadata in workspace', !files.some(f => f.startsWith('.crusorai/') || f.startsWith('diagnostics/')), JSON.stringify(files));
 	check('acceptance.md has UTF-8 content', acceptanceText.includes(expected), JSON.stringify(acceptanceText).slice(0, 200));
-	check('engineering completed and verified', /COMPLETED|VERIFIED/.test(cards.join('\n')), cards.join('\n').slice(0, 300));
-	check('delivery card rendered', cards.some(c => /Verdict|COMPLETED/.test(c)));
+	check('engineering completed and verified', /COMPLETED/.test(assistantText) && /VERIFIED/.test(assistantText), assistantText.slice(0, 300));
+	check('delivery summary remains in the assistant response', /Engineering Execution Report|Verdict/.test(assistantText), assistantText.slice(0, 300));
 	check('plan card rendered', cards.some(c => /Plan|Inspect|Create|Verify/.test(c)));
 	check('file-change card rendered', cards.some(c => /acceptance\.md/.test(c)));
-	check('verification card rendered', cards.some(c => /VERIFIED|NOT_VERIFIED|Verification/.test(c)));
+	const hiddenCards = await page.evaluate(() => ({
+		verification: document.querySelectorAll('.crusorai-agent-card.is-verification').length,
+		delivery: document.querySelectorAll('.crusorai-agent-card.is-delivery').length,
+		cost: document.querySelectorAll('.crusorai-agent-card.is-cost').length,
+	}));
+	check('no dedicated verification/delivery/cost cards',
+		hiddenCards.verification === 0 && hiddenCards.delivery === 0 && hiddenCards.cost === 0,
+		JSON.stringify(hiddenCards));
 	check('ledger ids are canonical', ledgerIds.length > 0 && ledgerIds.every(id => id.startsWith('inv-')));
 	check('receipt ids equal ledger ids', receiptIds.length > 0 && receiptIds.every(id => ledgerIds.includes(id)), JSON.stringify({ receiptIds, ledgerIds }));
 	check('checkpoint has persisted messages', (before.messages ?? []).length >= 2, JSON.stringify(before.messages));

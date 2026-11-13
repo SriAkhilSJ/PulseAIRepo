@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------------------------
- * One shared event model and host adapter for the compact Agent view and Crusor Manager.
- *--------------------------------------------------------------------------------------------*/
+* One shared event model and host adapter for the compact Agent view and Crusor Manager.
+*--------------------------------------------------------------------------------------------*/
 var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
     var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
     if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
@@ -29,7 +29,8 @@ import { INotificationService, Severity } from '../../../../platform/notificatio
 import { ICrusorAIEngineService, CrusorAIEngineSetupError, CrusorAIEngineState } from '../common/crusorAIEngineService.js';
 import { CRUSOR_AI_WORKBENCH_CAPABILITIES } from '../common/crusorAIWorkbenchCapabilities.js';
 import { separateGluedReasoningBlocks } from './crusorAIReasoningBlocks.js';
-import { cardFromFrame, normalizeCrusorCard } from '../common/crusorAICards.js';
+import { cardFromFrame, CrusorCardStore, isUserFacingCard, normalizeCrusorCard, userFacingCards } from '../common/crusorAICards.js';
+import { restoredTurnOutcome, terminalTurnOutcome } from '../common/crusorAITurnOutcome.js';
 import { ICrusorAISessionStore } from '../common/crusorAISessionStore.js';
 import { crusorFactsFromEngineRow, crusorSessionLabel, crusorSessionLabelIsFallback, crusorSessionRows, crusorSessionStatusName } from '../common/crusorAISessionProjection.js';
 import { ICrusorAIWorkbenchService } from '../common/crusorAIWorkbenchService.js';
@@ -63,7 +64,7 @@ function toolState(status) {
 /**
  * Engine sub-agent states, normalized to the desktop vocabulary at
  * intake: the lifecycle says `succeeded`, the views speak `completed`
- * — unnormalized, a settled child matched NEITHER running nor settled
+ * â€” unnormalized, a settled child matched NEITHER running nor settled
  * anywhere, so its card could not say it had ended (field 2026-10-16:
  * "we can't find out it ended or started").
  */
@@ -100,7 +101,7 @@ function planText(step) {
     }
     return 'Plan step';
 }
-const PLAN_STATUSES = ['pending', 'in_progress', 'completed', 'failed'];
+const PLAN_STATUSES = ['pending', 'in_progress', 'completed', 'failed', 'blocked', 'cancelled'];
 /**
  * Content equality for hydrated history. Both lists come from the same
  * builder, so key order is stable and a JSON compare is exact; any doubt
@@ -144,7 +145,7 @@ function stringField(source, keys) {
 let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     /** OpenCode's session-tree rule (session-request-tree.ts): the viewed
      *  session's own pending question first, then the first pending
-     *  question among its descendants (BFS order ≈ arrival order here). A
+     *  question among its descendants (BFS order â‰ˆ arrival order here). A
      *  question asked OUTSIDE the viewed tree stays parked until its own
      *  view (or an ancestor's) opens. */
     pickTreeClarify() {
@@ -265,7 +266,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.cancelRequested = false;
         /** Every pending hermes clarify batch (the ask tool), any session's,
          *  keyed by request id until its tool settles. buildModel surfaces one
-         *  per render via pickTreeClarify — the OpenCode session-tree rule. */
+         *  per render via pickTreeClarify â€” the OpenCode session-tree rule. */
         this.clarifies = new Map();
         /** Live hermes todo_list state, reconciled atomically on {todos, revision}. */
         this.todos = [];
@@ -280,7 +281,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
          * turn boundaries with the rest of the turn state.
          */
         this.parts = [];
-        /** Reasoning parts seen this turn — each LLM call that produces reasoning adds a new part. */
+        /** Reasoning parts seen this turn â€” each LLM call that produces reasoning adds a new part. */
         this.reasoningParts = [];
         this.reasoningPending = false;
         /** Every pending safety approval, any session's, keyed by tool id.
@@ -294,13 +295,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.parentMap = new Map();
         this.plan = [];
         this.telemetry = {};
-        /** Typed cards for the live turn, keyed by stable card id (updates replace). */
-        this.cards = new Map();
-        this.cardOrder = [];
+        /** Typed cards for every turn, keyed by (turn id, card id). Updates replace
+         *  in place; a card id reused in another turn is another card. */
+        this.cardStore = new CrusorCardStore();
         this.engineSetupError = false;
         /** A provider attempt has been named this turn (llm.request seen).
-         * Reasoning arriving AFTER this is real model thought — a buffered
-         * endpoint delivers it as a single whole-text frame — while reasoning
+         * Reasoning arriving AFTER this is real model thought â€” a buffered
+         * endpoint delivers it as a single whole-text frame â€” while reasoning
          * before any provider attempt is the legacy liveness dress-up. */
         this.hadProviderAttempt = false;
         this.history = [];
@@ -358,7 +359,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             steer: text => { this.send({ type: 'steer', session_id: this.sessionId, text }); this.draft = ''; this.render(); },
             replyToSafety: (toolId, approved, alwaysAllow) => {
                 // The verdict routes to the ASKING session (the bridge queue
-                // rejects replies addressed to any other session — same rule as
+                // rejects replies addressed to any other session â€” same rule as
                 // clarify), then the pending entry retires.
                 const entry = this.approvals.get(toolId);
                 this.send({ type: 'safety_reply', session_id: entry?.sessionId ?? this.sessionId, tool_id: toolId, approved, always_allow: alwaysAllow });
@@ -376,7 +377,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 // qid; an explicit Skip resolves the batch empty (deliberate, not a
                 // timeout). The reply routes to the ASKING session (a child's
                 // question answered from the parent view must resolve the child's
-                // wait — the bridge's queue rejects replies addressed to any other
+                // wait â€” the bridge's queue rejects replies addressed to any other
                 // session), then the card clears; the ask tool's own tool_call_end
                 // paints the settled Q&A in the asking session's transcript.
                 const entry = this.clarifies.get(requestId);
@@ -397,7 +398,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             resourceSrc: resource => this.resourceBrowserSrc(resource),
             syntaxColors: language => this.syntaxColors(language),
             fileIconClasses: resource => {
-                // VS Code's own file-icon resolution (Seti theme classes) — the
+                // VS Code's own file-icon resolution (Seti theme classes) â€” the
                 // same classes the Explorer paints for this file.
                 try {
                     return getIconClasses(this.modelService, this.languageService, this.resourceUri(resource), FileKind.FILE).join(' ');
@@ -436,8 +437,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             openFolder: () => { void this.commandService.executeCommand('workbench.action.files.openFolder'); },
             openEngineSettings: () => { void this.commandService.executeCommand(CrusorAICommandId.OpenSettings); },
             openManager: () => { this.openManagerWindow(); },
-            // Composer + -> the Add… dialog (native QuickPick; each row routes to
-            // its registered command — one code path with the palette).
+            // Composer + -> the Addâ€¦ dialog (native QuickPick; each row routes to
+            // its registered command â€” one code path with the palette).
             skillsHubOp: (op, extra) => this.skillsHubOp(op, extra),
             copyToClipboard: text => {
                 // Real clipboard (field: navigator.clipboard.writeText is
@@ -449,17 +450,17 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 catch { /* best effort */ }
             },
             // Composer + dialog, One-Shot tab (field 2026-10-02 rev 4): one quick
-            // job over the oneshot envelope — same request/response pairing as
+            // job over the oneshot envelope â€” same request/response pairing as
             // the hub op hook.
             oneshotRun: (template, instructions, variables) => {
                 return new Promise((resolve, reject) => {
                     let listener;
-                    // 60s: one-shots are REAL model calls — a slow provider is
+                    // 60s: one-shots are REAL model calls â€” a slow provider is
                     // normal-ish; the engine bounds the call itself at 50s, so a
                     // timeout here means the frame never got answered at all.
                     const timer = setTimeout(() => {
                         listener?.dispose();
-                        reject(new Error('One-shot: the engine did not answer in 60s. Try once more — if it repeats, fully restart CrusorAI so the bridge runs this build (the engine log prints a "[bridge] oneshot" line for every attempt).'));
+                        reject(new Error('One-shot: the engine did not answer in 60s. Try once more â€” if it repeats, fully restart CrusorAI so the bridge runs this build (the engine log prints a "[bridge] oneshot" line for every attempt).'));
                     }, 60000);
                     listener = this.onOneshotResult(frame => {
                         clearTimeout(timer);
@@ -651,8 +652,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,
-            cards: [...this.cards.values()],
-            cardOrder: [...this.cardOrder],
+            cardTurns: this.cardStore.snapshot(),
+            currentTurnId: this.currentTurnId,
             approval: this.pickTreeApproval(),
             clarify: this.pickTreeClarify(),
             todos: this.todos,
@@ -699,11 +700,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.plan = snapshot.plan;
         this.verification = snapshot.verification;
         this.telemetry = snapshot.telemetry;
-        this.cards.clear();
-        for (const card of snapshot.cards) {
-            this.cards.set(card.cardId, card);
-        }
-        this.cardOrder = [...snapshot.cardOrder];
+        this.cardStore.restore(snapshot.cardTurns);
+        this.currentTurnId = snapshot.currentTurnId;
         // Pending approvals are service-level tree state, not surface state:
         // the `approvals` map survives the stash and pickTreeApproval
         // re-derives what this view shows.
@@ -727,7 +725,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     /**
      * Adopt the viewed child's tail history turn into the live lane. The
      * opening snapshot paints the child's turn-so-far as history; the first
-     * live frame for the viewed child means the real stream has arrived —
+     * live frame for the viewed child means the real stream has arrived â€”
      * continuing to append to a fresh live lane would duplicate that turn
      * (history + live both painting it). Moving the tail up makes the
      * stream CONTINUE the painted turn exactly like the parent's, and the
@@ -761,7 +759,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     /**
      * The viewed child's adopted turn just settled: move it into history
-     * and clear the live lane. Order-independent — if a settle snapshot
+     * and clear the live lane. Order-independent â€” if a settle snapshot
      * already hydrated the same turn into the history tail, the lane is
      * simply cleared so the turn never paints twice (history + live).
      */
@@ -804,7 +802,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     /**
      * While a child session is open and its record has not settled, keep its
      * transcript checkpoint-fresh on a timer until its live frames adopt the
-     * tail turn — from then on the child's own stream (forwarded by the
+     * tail turn â€” from then on the child's own stream (forwarded by the
      * bridge on proven lineage) is the truth and snapshots stand down. The
      * poll also stops the moment the record settles or the user leaves.
      */
@@ -851,6 +849,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.plan = [];
         this.verification = undefined;
         this.telemetry = {};
+        this.cardStore.clear();
+        this.currentTurnId = undefined;
         this.todos = [];
         this.todoRevision = 0;
         this.compacting = undefined;
@@ -940,7 +940,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             plan: this.plan,
             verification: this.verification,
             telemetry: this.telemetry,
-            cards: this.cardOrder.map(id => this.cards.get(id)).filter((card) => !!card),
+            cards: this.cardStore.cardsFor(this.currentTurnId ?? ''),
+            currentTurnId: this.currentTurnId,
             capabilitySummary: this.capabilitySummary,
             error: this.error,
             engineFault: this.engineFault === undefined ? undefined : {
@@ -973,7 +974,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.stopChildLivePoll();
         // BACK to a stashed live surface: restore it exactly where it left
         // off, whether or not a run is still in flight. This is checked
-        // FIRST — while viewing a running child, this.running is true, and
+        // FIRST â€” while viewing a running child, this.running is true, and
         // the way home must never be refused (field 2026-10-16: the back
         // arrow inside a running child answered 'Stop the current run
         // before switching sessions.').
@@ -1015,7 +1016,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         this.resetSessionState();
         this.sessionId = targetSessionId;
         // Optimistic parentage ONLY when the previous session actually owns the target
-        // (its subagent record says so, or the warm map agrees) — never on the way back
+        // (its subagent record says so, or the warm map agrees) â€” never on the way back
         // to a known parent. Linking every target as a child of the previous session is
         // what painted the child header (prompt disabled) on plain sessions opened from
         // History (field 2026-09-28).
@@ -1076,7 +1077,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     /**
      * This session's own delegated goal when it is a sub-agent child: the record whose
-     * child thread is the active session. The child header paints this — never a hardcoded
+     * child thread is the active session. The child header paints this â€” never a hardcoded
      * title (field 2026-09-28: every sub-agent view read "Main / Sub-agent").
      */
     currentSubAgentGoal() {
@@ -1136,7 +1137,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * navigation link, the parent map, the child's own sub-agent
      * record, and the durable session row. Whichever hop learned the
      * lineage first, the others may never hear of it (cold panel,
-     * legacy rows) — the child chrome must not depend on one channel.
+     * legacy rows) â€” the child chrome must not depend on one channel.
      */
     currentParentId() {
         if (!this.sessionId) {
@@ -1151,7 +1152,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * True when the open session is a delegated child, by any signal.
      * The field failure (2026-10-16, "where am i this is not parent
      * screen") was a child transcript painting under a parent
-     * identity — composer live, no back row — because the one signal
+     * identity â€” composer live, no back row â€” because the one signal
      * consulted had not survived the trip. Never again one channel.
      */
     isDelegateChildView() {
@@ -1164,7 +1165,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             || [...this.subAgents.values()].some(entry => (entry.childThreadId ?? entry.id) === this.sessionId);
         // Deliberately NOT "the durable row names a parent": fork
         // continuations carry a parent id too, and they are sessions
-        // the user chats in — only delegate signals mark a child.
+        // the user chats in â€” only delegate signals mark a child.
     }
     sessionRows() {
         const readState = new Map();
@@ -1175,7 +1176,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
         // The list shows ROOT sessions only (OpenCode: children are reached
-        // through their parent's delegate cards, never as list rows — a
+        // through their parent's delegate cards, never as list rows â€” a
         // delegation-heavy session otherwise floods the Manager with
         // workers). Records stay in the store: titles, the session tree,
         // and navigation keep resolving children from them.
@@ -1192,7 +1193,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             return;
         }
         // The label is the engine's created title (fixed, unique). Until it lands the row
-        // renders the generic placeholder — the first message is NEVER captured as the
+        // renders the generic placeholder â€” the first message is NEVER captured as the
         // title (field 2026-09-28). A generic fallback is never sticky: the titler's
         // live push upgrades it exactly once.
         const previousLabel = this.sessionStore.records().find(record => record.sessionId === this.sessionId)?.label;
@@ -1237,7 +1238,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const base = crusorFactsFromEngineRow(row, { workspaceLabel: this.workspaceLabel, statusName, now: Date.now() });
         // Active label: the engine's created title wins (fixed, unique; the rename path
         // upgrades it the same way); otherwise the first-seen non-fallback label sticks.
-        // No title yet: the generic placeholder — never the first message.
+        // No title yet: the generic placeholder â€” never the first message.
         const engineTitle = (row.title ?? '').trim();
         const previousLabel = this.sessionStore.records().find(record => record.sessionId === sessionId)?.label;
         const liveLabel = engineTitle || (previousLabel && !crusorSessionLabelIsFallback(previousLabel) ? previousLabel : crusorSessionLabel(undefined, sessionId));
@@ -1276,7 +1277,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         const workspaceLabel = previous?.workspaceLabel ?? this.workspaceLabel;
         if (frame.type === 'turn_done' || frame.type === 'turn_failed') {
             // The stashed parent settled while the user was inside its
-            // child: the snapshot is stale now — drop it so returning
+            // child: the snapshot is stale now â€” drop it so returning
             // hydrates the finished transcript. And if the CHILD is what
             // is open, its final steps just landed: snapshot it now.
             if (this.liveStash?.sessionId === foreignId) {
@@ -1356,21 +1357,35 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * cards from the assistant's tool_calls plus the matching tool results (joined on
      * tool_call_id); a result with no card falls back to truncated text rather than vanishing.
      */
-    hydrateTranscript(messages) {
+    hydrateTranscript(messages, turnOutcomes) {
         const turns = [];
-        let current = { assistantText: '', parts: [], reasoningParts: [], tools: [] };
+        let current = { turnId: undefined, assistantText: '', parts: [], reasoningParts: [], tools: [] };
         const toolIndex = new Map();
         const dirty = (turn) => turn.userMessage !== undefined || turn.assistantText !== '' || turn.parts.length > 0 || turn.reasoningParts.length > 0 || turn.tools.length > 0;
         const rollTurn = () => {
             if (dirty(current)) {
                 turns.push(current);
             }
-            current = { assistantText: '', parts: [], reasoningParts: [], tools: [] };
+            current = { turnId: undefined, assistantText: '', parts: [], reasoningParts: [], tools: [] };
         };
         for (const message of messages) {
+            // The bridge stamps each message with the turn that produced it
+            // (journal turn.started request hash). A turn-id change is a hard
+            // boundary even when the first message of the new turn is not a
+            // user message (a split page starting mid-turn).
+            const messageTurnId = typeof message.turn_id === 'string' ? message.turn_id : '';
+            if (messageTurnId && current.turnId && messageTurnId !== current.turnId && dirty(current)) {
+                rollTurn();
+            }
+            if (messageTurnId && !current.turnId) {
+                current.turnId = messageTurnId;
+            }
             if (message.role === 'user') {
                 if (dirty(current) && current.userMessage !== undefined) {
                     rollTurn();
+                }
+                if (messageTurnId && !current.turnId) {
+                    current.turnId = messageTurnId;
                 }
                 current.userMessage = current.userMessage ? `${current.userMessage}\n${message.content}` : message.content;
             }
@@ -1389,9 +1404,12 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 }
                 for (const call of message.tool_calls ?? []) {
                     const id = call.id || `hydrate-${turns.length}-${current.tools.length}`;
-                    // Checkpoints carry no per-tool verdict: the turn completed, so the card paints
-                    // passed; a failed tool's stderr still shows in its result body.
-                    const tool = { id, name: call.name, state: 'passed', arguments: call.args };
+                    // A checkpoint carries the call and (later) its result, never a
+                    // verdict: the turn's terminal status is the only authority on
+                    // whether it succeeded. Painting `passed` here invented success
+                    // after reload (B-LIVE-002); the neutral `recorded` state says
+                    // exactly what the checkpoint proves.
+                    const tool = { id, name: call.name, state: 'recorded', arguments: call.args };
                     current.tools.push(tool);
                     current.parts.push({ kind: 'tool', toolId: id });
                     if (call.id) {
@@ -1412,31 +1430,87 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
         rollTurn();
-        const nextHistory = turns.slice(-20).map(turn => ({
-            userMessage: turn.userMessage,
-            assistantText: turn.assistantText,
-            parts: turn.parts,
-            reasoningParts: turn.reasoningParts,
-            tools: turn.tools,
-            // Hydrated turns must keep the session's sub-agent records:
-            // without them a rebuilt delegate card cannot resolve its
-            // child and renders dead — no click, no record state
-            // (field 2026-10-16: "even if completed why can't i see
-            // the session"). Records are session-scoped and current
-            // at hydration time.
-            subAgents: [...this.subAgents.values()],
-            turnOutcome: 'completed',
-            plan: [],
-        }));
+        const windowTurns = turns.slice(-20);
+        // A legacy session (messages without turn ids) can still be associated
+        // only when the relationship is unambiguous: exactly one hydrated turn
+        // and exactly one card bucket. Otherwise cards stay unassigned rather
+        // than being attached to the newest turn.
+        const singleBucket = windowTurns.length === 1 && this.cardStore.turnIds().length === 1
+            ? this.cardStore.turnIds()[0]
+            : undefined;
+        const nextHistory = windowTurns.map(turn => {
+            const liveTurn = this.running && turn.turnId !== undefined && turn.turnId === this.currentTurnId;
+            const cards = liveTurn
+                ? []
+                : turn.turnId
+                    ? this.cardStore.cardsFor(turn.turnId)
+                    : singleBucket
+                        ? this.cardStore.cardsFor(singleBucket)
+                        : [];
+            return {
+                turnId: turn.turnId,
+                cards,
+                userMessage: turn.userMessage,
+                assistantText: turn.assistantText,
+                parts: this.withCardPins(turn.parts, cards, turn.tools),
+                reasoningParts: turn.reasoningParts,
+                tools: turn.tools,
+                // Hydrated turns must keep the session's sub-agent records:
+                // without them a rebuilt delegate card cannot resolve its
+                // child and renders dead â€” no click, no record state
+                // (field 2026-10-16: "even if completed why can't i see
+                // the session"). Records are session-scoped and current
+                // at hydration time.
+                subAgents: [...this.subAgents.values()],
+                // The durable terminal event for this turn is the only authority.
+                // Missing evidence keeps the turn ambiguous â€” never `completed`.
+                turnOutcome: restoredTurnOutcome(turnOutcomes, turn.turnId),
+                plan: [],
+            };
+        });
         // A watched child is re-snapshotted every 3s. Byte-identical
         // hydration must keep the SAME turn objects: fresh ones defeat
         // the renderer's stream envelope and the lane is torn down and
-        // rebuilt under the user's wheel every poll — the transcript
+        // rebuilt under the user's wheel every poll â€” the transcript
         // reads as unscrollable (field 2026-10-15).
         if (!sameHistoryTurns(nextHistory, this.history)) {
+            this.warnUnclaimedCards(windowTurns);
             this.history = nextHistory;
         }
         this.render();
+    }
+    /** Keep a late update for a history turn's cards visible without touching
+     *  any other turn (or the live lane). */
+    syncHistoryCards(turnId) {
+        const cards = this.cardStore.cardsFor(turnId);
+        let changed = false;
+        const next = this.history.map(turn => {
+            if (turn.turnId !== turnId) {
+                return turn;
+            }
+            if (JSON.stringify(turn.cards ?? []) === JSON.stringify(cards)) {
+                return turn;
+            }
+            changed = true;
+            return { ...turn, cards };
+        });
+        if (changed) {
+            this.history = next;
+        }
+    }
+    /** Cards whose turn is not in the hydrated window are kept in the store
+     *  (never merged into another turn) and named once instead of silently
+     *  disappearing. */
+    warnUnclaimedCards(turns) {
+        if (!turns.length) {
+            return;
+        }
+        const owned = new Set(turns.map(turn => turn.turnId).filter((id) => !!id));
+        const live = this.running ? this.currentTurnId : undefined;
+        const unclaimed = this.cardStore.turnIds().filter(id => !!id && id !== live && !owned.has(id));
+        if (unclaimed.length) {
+            console.warn('[CrusorAI] cards without a hydrated turn were kept out of the transcript:', unclaimed);
+        }
     }
     render() {
         this.noteSession();
@@ -1479,7 +1553,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         if (!workspace) {
             this.engineSetupError = false;
             // Field 2026-09-05: a dead engine with zero log lines is
-            // undebuggable — every quiet path out of start() must speak.
+            // undebuggable â€” every quiet path out of start() must speak.
             console.warn('[CrusorAI] engine start skipped: no workspace folder is open. Open a folder to enable the agent.');
             return;
         }
@@ -1583,7 +1657,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 case 'preview.open': {
                     // The agent asked for the Preview window by name: route through
                     // the same command the Preview chip runs (no preview-service DI
-                    // edge here — that would be a cycle). An explicit URL target is
+                    // edge here â€” that would be a cycle). An explicit URL target is
                     // honored; otherwise the service resolves the freshest evidence.
                     // The command forwards the service's honest {ok, reason} so the
                     // agent cannot claim success over a refused spawn (dead proxy,
@@ -1741,7 +1815,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         // A bounded wait, not an unbounded one: ensureEngine resolves when
         // start() settles, but a wedged sidecar must not eat the user's
-        // click forever (field 2026-09-05: "send button not working" — the
+        // click forever (field 2026-09-05: "send button not working" â€” the
         // click died in the old silent not-ready return with ZERO feedback).
         await Promise.race([
             this.ensureEngine(),
@@ -1752,11 +1826,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // user typed a prompt and pressed send; the panel owes them the
             // state of the engine and an action (hermes: state the fact,
             // keep an option). start() failures already paint their own
-            // message — only the quiet paths get words here. The draft is
+            // message â€” only the quiet paths get words here. The draft is
             // preserved (cleared only after the ready check below).
             console.warn(`[CrusorAI] prompt not sent: engine state=${this.engineService.state}, workspace=${this.workspacePath ? 'ok' : 'MISSING'}`);
             if (!this.error) {
-                this.error = `Crusor engine is ${this.engineService.state} — not accepting prompts yet. Give it a moment, or retry from the Manager panel.`;
+                this.error = `Crusor engine is ${this.engineService.state} â€” not accepting prompts yet. Give it a moment, or retry from the Manager panel.`;
             }
             this.render();
             return;
@@ -1807,11 +1881,11 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
      * A turn opened by code outside the composer (today: the Preview window's
      * reviewed batch, whose `prompt` frame is dispatched by the preview service
      * itself). The engine will stream `turn_started` and everything after; the
-     * only thing missing without this is the USER half of the turn — the bubble
+     * only thing missing without this is the USER half of the turn â€” the bubble
      * and the fresh-turn bookkeeping. When a session is live, run exactly what
      * `startTurn` runs minus the send and answer true: the caller's frame is
      * the turn's prompt. Without a session, park the text as the pending
-     * prompt behind a `session_create` and answer false — the caller's frame
+     * prompt behind a `session_create` and answer false â€” the caller's frame
      * would only be refused (session required), and the `session_info`
      * handler starts the turn with the parked text instead.
      */
@@ -1837,6 +1911,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             return;
         }
         this.history = [...this.history, {
+                turnId: this.currentTurnId,
+                cards: this.cardStore.cardsFor(this.currentTurnId ?? ''),
                 userMessage: this.userMessage,
                 assistantText: this.assistantText,
                 parts: [...this.parts],
@@ -1899,7 +1975,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     /**
      * Timeline writers (hermes parts ingestion): text extends the LAST text
-     * segment — a token that follows tool calls opens a NEW segment instead of
+     * segment â€” a token that follows tool calls opens a NEW segment instead of
      * teleporting into the pre-tool text, which is what keeps interleave order
      * truthful. Tools pin their position once; updates go through the tools
      * map, never the timeline.
@@ -1950,6 +2026,82 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         this.parts.push({ kind: 'tool', toolId });
     }
+    /**
+     * A failed turn's status text must not survive as the assistant's answer.
+     * The engineering failure path emits one chunk with the failure text before
+     * the terminal frame; when that chunk is byte-identical to the failure the
+     * error row now carries, drop it so the panel shows one honest failure
+     * instead of a confident paragraph plus an error box.
+     */
+    dropDuplicatedFailureText(message) {
+        const text = (message ?? '').trim();
+        if (!text || this.assistantText.trim() !== text) {
+            return;
+        }
+        this.assistantText = '';
+        this.parts = this.parts.filter(part => part.kind !== 'text');
+    }
+    /** Pin a visible card where its event arrived (live chronology). A card
+     *  that lands after the final assistant text (receipt file/test cards) is
+     *  placed before that answer, preserving arrival order among late cards. */
+    pushCardPart(cardId) {
+        if (!cardId || this.parts.some(p => p.kind === 'card' && p.cardId === cardId)) {
+            return;
+        }
+        let lastText = -1;
+        for (let index = 0; index < this.parts.length; index++) {
+            const part = this.parts[index];
+            if (part.kind === 'text' && part.text) {
+                lastText = index;
+            }
+        }
+        const pin = { kind: 'card', cardId };
+        if (lastText < 0) {
+            this.parts.push(pin);
+            return;
+        }
+        // Insert after any cards already waiting before the answer so late
+        // cards keep their arrival order (approval before the receipt file,
+        // file before tests, ...), always above the final text.
+        this.parts.splice(lastText, 0, pin);
+    }
+    /**
+     * Historical turns carry cards but checkpoint messages carry no per-event
+     * sequence. Preserve the stored card order with two honest anchors: the
+     * plan card belongs to the early planning stage, and the remaining outcome
+     * cards belong before the final assistant answer. Typed tool cards whose
+     * tool row already renders are not duplicated.
+     */
+    withCardPins(parts, cards, tools) {
+        const toolIds = new Set(tools.map(tool => tool.id));
+        const visible = userFacingCards(cards).filter(card => card.cardType !== 'tool' || !toolIds.has(String(card.data.tool_id ?? '')));
+        if (!visible.length) {
+            return [...parts];
+        }
+        const out = [...parts];
+        const early = visible.filter(card => card.cardType === 'plan');
+        const late = visible.filter(card => card.cardType !== 'plan');
+        let insertAt = out.findIndex(part => part.kind !== 'reasoning');
+        if (insertAt < 0) {
+            insertAt = out.length;
+        }
+        out.splice(insertAt, 0, ...early.map(card => ({ kind: 'card', cardId: card.cardId })));
+        let lastText = -1;
+        for (let index = 0; index < out.length; index++) {
+            const part = out[index];
+            if (part.kind === 'text' && part.text) {
+                lastText = index;
+            }
+        }
+        const latePins = late.map(card => ({ kind: 'card', cardId: card.cardId }));
+        if (lastText >= 0) {
+            out.splice(lastText, 0, ...latePins);
+        }
+        else {
+            out.push(...latePins);
+        }
+        return out;
+    }
     sendSkillsHubOp(op, extra) {
         this.send({ type: 'skills_hub_op', session_id: this.sessionId, op, ...(extra ?? {}) });
     }
@@ -1958,9 +2110,9 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         return toDisposable(() => this._hubListeners.delete(listener));
     }
     /**
-     * One skills_hub_op request → its result dict (the Manager Skills tab's
+     * One skills_hub_op request â†’ its result dict (the Manager Skills tab's
      * bridge). Same contract the palette's hubRequest uses: one matching
-     * frame, bounded wait, hard failure named — the tab paints it inline
+     * frame, bounded wait, hard failure named â€” the tab paints it inline
      * instead of hanging on a silent panel. Palette flows are modal, so a
      * same-op request from QuickPick and this method cannot race in practice;
      * within this method the tab's parallel reads use distinct ops.
@@ -1970,7 +2122,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             let listener;
             const timer = setTimeout(() => {
                 listener?.dispose();
-                reject(new Error(`the engine did not answer the '${op}' request — fully restart CrusorAI so the bridge runs the current build.`));
+                reject(new Error(`the engine did not answer the '${op}' request â€” fully restart CrusorAI so the bridge runs the current build.`));
             }, 12000);
             listener = this.onSkillsHubResult(frame => {
                 if (frame.op !== op) {
@@ -1981,7 +2133,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 resolve((frame.result ?? {}));
             });
             // connector ops (probe / attach / detach) read and write the
-            // WORKSPACE's .crusorai/mcp.json — the engine has no other way
+            // WORKSPACE's .crusorai/mcp.json â€” the engine has no other way
             // to know which folder is open.
             this.sendSkillsHubOp(op, (op.startsWith('connector') || op === 'skill_create') ? { ...extra, workspace: this.workspacePath } : extra);
         });
@@ -2009,7 +2161,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 listener(frame);
             }
             catch {
-                // isolated on purpose — a broken listener must not break the chain
+                // isolated on purpose â€” a broken listener must not break the chain
             }
         }
     }
@@ -2038,7 +2190,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }, 5 * 60 * 1000);
         // HARD rendering kill (owner, 2026-09-04: "after the task is finished,
-        // rendering should stop" — the panel rendered Working for many minutes
+        // rendering should stop" â€” the panel rendered Working for many minutes
         // after the engine had gone quiet). Seven minutes with ZERO frames
         // cannot be a live turn: every provider call is bracketed by
         // llm.request/llm.response frames, so real silence means the engine
@@ -2058,7 +2210,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.cancelRequested = false;
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
-            // Hermes parity: greeting already answered — silent complete, not failed
+            // Hermes parity: greeting already answered â€” silent complete, not failed
             if (_isGreeting) {
                 this.turnOutcome = 'completed';
                 this.error = undefined;
@@ -2066,7 +2218,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
             else {
                 this.turnOutcome = 'failed';
-                this.error = 'The engine stopped responding — the turn was ended locally. The reply above is everything it produced; send another message to continue.';
+                this.error = 'The engine stopped responding â€” the turn was ended locally. The reply above is everything it produced; send another message to continue.';
             }
             this.stalled = undefined;
             this.llmStatus = undefined;
@@ -2094,7 +2246,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         // Hermes watchdog (apps/desktop/src/store/session-states.ts): ANY state
         // publish re-arms the window; a busy turn that publishes nothing for the
-        // whole window paints `stalled`. Presentation hint only — it never
+        // whole window paints `stalled`. Presentation hint only â€” it never
         // mutates the engine's real turn state, and the next frame clears it.
         if (this.running) {
             this.stalled = undefined;
@@ -2128,7 +2280,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 // A tool id equal to the request id is no tool id at all
                 // (older bridges stamped the queue item's id there): the
                 // renderer matches a pending ask to its transcript tool
-                // call by this field, and a request id can never match —
+                // call by this field, and a request id can never match â€”
                 // the ask painted read-only forever (field 2026-10-16).
                 toolId: frame.tool_id && frame.tool_id !== frame.request_id ? frame.tool_id : undefined,
                 questions: frame.questions,
@@ -2198,13 +2350,20 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         if (frame.type === 'agent_card') {
             // Typed UI card: re-validated here (model output is untrusted).
-            // Same id replaces in place so activity/approval states update.
+            // Same (turn, card) identity replaces in place so activity/approval
+            // states update. A different turn never overwrites this one.
             const card = cardFromFrame(frame);
             if (card) {
-                if (!this.cards.has(card.cardId)) {
-                    this.cardOrder.push(card.cardId);
+                const turnId = card.turnId || this.currentTurnId || '';
+                const added = this.cardStore.update(card, turnId);
+                if (added && turnId === (this.currentTurnId ?? '') && isUserFacingCard(card) && card.cardType !== 'tool') {
+                    // Pin the card where its event arrived; a typed tool card is
+                    // carried by its tool row instead of duplicating it here.
+                    this.pushCardPart(card.cardId);
                 }
-                this.cards.set(card.cardId, card);
+                if (turnId && turnId !== (this.currentTurnId ?? '')) {
+                    this.syncHistoryCards(turnId);
+                }
                 this.render();
             }
             return;
@@ -2222,14 +2381,14 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 this.noteEngineRow(frame.session);
             }
             // Stop ack from the bridge: another surface (or a queued cancel)
-            // may have pulled the brake — this pane's button must agree.
+            // may have pulled the brake â€” this pane's button must agree.
             if (typeof frame.cancel_requested === 'boolean') {
                 console.info(`[crusorai] engine cancel ack received: cancel_requested=${frame.cancel_requested} (session ${frame.session_id ?? '?'})`);
                 this.cancelRequested = frame.cancel_requested;
             }
             // Live auto-title push (Hermes session.title parity): the engine titler runs
             // async after the turn and emits the same ack shape as rename. A titled row
-            // is noted directly — even a foreign one — so no list refetch is needed.
+            // is noted directly â€” even a foreign one â€” so no list refetch is needed.
             if (frame.session_id && frame.renamed === true && typeof frame.title === 'string'
                 && !frame.sessions && !frame.session && !frame.resumed) {
                 this.noteEngineRow({ session_id: frame.session_id, id: frame.session_id, title: frame.title });
@@ -2251,7 +2410,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // A resume can resolve to a lineage tip that is NOT the requested id (fork
             // children): the surface binds the tip, because that is what the user now sees.
             // NEVER for a delegated child the user explicitly opened: its transcript
-            // would keep painting under the parent's identity — live composer, no
+            // would keep painting under the parent's identity â€” live composer, no
             // back row, "where am i this is not parent screen" (field 2026-10-16).
             const openedIsDelegateChild = !!previousSessionId && (this.childParentId !== undefined
                 || this.parentMap.has(previousSessionId) || previousSessionId.startsWith('sub-')
@@ -2339,8 +2498,13 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.llmHeads = undefined;
             this.degraded = evidenceDegradation(frame.evidence);
             this.voiceHeard = undefined;
-            this.cards.clear();
-            this.cardOrder = [];
+            // A new turn owns a fresh card bucket. The previous turn's cards
+            // stay in the store (history/archive/replay), never in this lane.
+            this.currentTurnId = typeof frame.turn_id === 'string' && frame.turn_id ? frame.turn_id : undefined;
+            if (this.currentTurnId) {
+                this.cardStore.clearTurn(this.currentTurnId);
+            }
+            this.cardStore.clearTurn('');
             this.hadProviderAttempt = false;
             this.clearStallWatchdog();
             this.armStallWatchdog();
@@ -2420,7 +2584,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             }
         }
         else if (frame.type === 'tool_call_progress') {
-            // Live install loader (founder 2026-10-18: "0 to 100 — I know
+            // Live install loader (founder 2026-10-18: "0 to 100 â€” I know
             // it's an installation, I wait"). The emitting tool cannot know
             // its call id, so the frame names the tool; SDK installs are
             // serialized engine-side, so this session's running card with
@@ -2492,7 +2656,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // tracked tree-wide in the pre-routing hook above.)
             this.pushToolPart(frame.tool_id);
             // 1: Show in editor automatically like Copilot ChatEditingCodeEditorIntegration
-            // (viewZones + diffDecorations on live file) — don't wait for user to click Review.
+            // (viewZones + diffDecorations on live file) â€” don't wait for user to click Review.
             // Best-effort: if diff has inline text, open inline diff preview.
             try {
                 void this.openDiff(frame.tool_id);
@@ -2501,7 +2665,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         else if (frame.type === 'clarify_request') {
             // Hermes ask-tool card: the batch of questions rides its own frame
-            // (args alone can't drive the form — no qids to respond with). The
+            // (args alone can't drive the form â€” no qids to respond with). The
             // pending entry itself was tracked tree-wide in the pre-routing
             // hook above; here the viewed session only needs the tool's place
             // in its own transcript lane.
@@ -2533,7 +2697,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (this.sessionId && this.parentMap.has(this.sessionId)) {
                 this.childParentId = this.parentMap.get(this.sessionId);
             }
-            // The open session IS this child: its steps just moved —
+            // The open session IS this child: its steps just moved â€”
             // refresh the transcript snapshot and re-decide liveness.
             if (subagentId === this.sessionId || childId === this.sessionId) {
                 const record = this.subAgents.get(subagentId);
@@ -2544,7 +2708,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                     // frame ever names the child, so the record's
                     // settle IS the child's turn end. Without this the
                     // adopted live turn stayed `running` forever after
-                    // the child finished — the copy action never
+                    // the child finished â€” the copy action never
                     // spawned at the end of its answer and the live
                     // Thinking machinery never stood down (field
                     // 2026-10-16: "copy button not there inside sub
@@ -2594,7 +2758,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         }
         else if (frame.type === 'subagent_background_completed') {
             // A background child finished: update its RECORD only. The
-            // child's output is never appended to this session's voice —
+            // child's output is never appended to this session's voice â€”
             // that injection merged the child into the parent and showed
             // its answer twice (field 2026-10-16). The parent model
             // learns the result through the engine's own channel; here
@@ -2635,24 +2799,36 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.turnStartedAt = undefined;
             this.turnEndedAt = Date.now();
             // A turn ended with an unanswered clarify: the blocking layer has
-            // already timed the wait out — never leave a dead interactive card.
+            // already timed the wait out â€” never leave a dead interactive card.
             this.clearClarifiesFor(this.sessionId);
             this.clearApprovalsFor(this.sessionId);
-            // Transport verdict vs task verdict: `completed:false` with
-            // `cancelled:false` is an ENDED-INCOMPLETE turn (finalize said the
-            // task failed) — the run itself finished and its trailing receipt
-            // already says so in-band. Only a real cancel paints "Run
-            // cancelled"; calling every incomplete run cancelled is progress
-            // theatre in reverse (a lie about the Stop button).
-            this.turnOutcome = frame.cancelled ? 'cancelled' : 'completed';
-            if (canonical?.terminal_status) {
-                const status = canonical.terminal_status;
-                this.turnOutcome = status === 'CANCELLED'
-                    ? 'cancelled'
-                    : status === 'DENIED' ? 'denied'
-                        : status === 'COMPLETED' ? 'completed' : 'failed';
+            // Terminal authority, in order: a user cancellation, the canonical
+            // receipt status, then the bridge's `completed` flag. A missing
+            // receipt must never imply success (B-LIVE-002): an engineering run
+            // that ended `completed: false` is a FAILED run, and `completed`
+            // absent is UNKNOWN, not completed.
+            this.turnOutcome = terminalTurnOutcome({
+                cancelled: frame.cancelled,
+                completed: frame.completed,
+                terminalStatus: canonical?.terminal_status,
+                evidenceStatus: frame.evidence?.status,
+            });
+            const failed = this.turnOutcome === 'failed' || this.turnOutcome === 'incomplete';
+            if (failed) {
+                // The failure text is the turn's status, not the assistant's
+                // answer: keep it in `error` (the existing error row) and drop a
+                // byte-identical chunk that streamed into the transcript before
+                // the terminal frame, so the panel does not paint the failure
+                // twice â€” once as confident prose, once as an error.
+                const failureText = typeof frame.message === 'string' && frame.message.trim()
+                    ? frame.message
+                    : undefined;
+                if (!this.error && failureText) {
+                    this.error = failureText;
+                }
+                this.dropDuplicatedFailureText(failureText);
             }
-            if (frame.message && !this.assistantText) {
+            else if (frame.message && !this.assistantText) {
                 this.assistantText = frame.message;
                 this.appendTextPart(frame.message);
             }
@@ -2672,8 +2848,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             // Show a native workbench notification when the agent finishes, so a
             // user who switched windows still knows the task is done. Mirrors
             // Cursor/Copilot's "Agent finished" toast. Respects `crusorai.notifyOnComplete`.
+            // A failed turn is announced as a failure: a "Response Ready" toast for
+            // an error is the same lie as painting it as a completed answer.
             if (!frame.cancelled) {
-                this.notifyResponseReady(frame.message);
+                this.notifyResponseReady(frame.message ?? this.error, this.turnOutcome !== 'completed' && this.turnOutcome !== 'running');
             }
             // The finished turn minted the durable row's title and counts: re-sync the list.
             this.requestSessionList();
@@ -2687,6 +2865,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             this.turnEndedAt = Date.now();
             this.turnOutcome = 'failed';
             this.error = frame.error;
+            this.dropDuplicatedFailureText(frame.error);
             this.compacting = undefined;
             this.contextStatus = undefined;
             this.llmStatus = undefined;
@@ -2725,7 +2904,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             };
         }
         else if (frame.type === 'runtime_degraded') {
-            // Greeting with no tools — scan budget is irrelevant, don't show yellow degraded bar
+            // Greeting with no tools â€” scan budget is irrelevant, don't show yellow degraded bar
             if (frame.reason && frame.reason.includes('scan budget') && this.tools.size === 0) {
                 // suppress
             }
@@ -2757,18 +2936,18 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
                 }
             }
             this.pendingHydration = undefined;
-            this.hydrateTranscript(frame.messages);
-            this.cards.clear();
-            this.cardOrder = [];
+            // A settled/open hydration rebuilds the card store from the journal.
+            // A mid-run refresh MERGES: the live turn's bucket is still painting.
+            if (!this.running) {
+                this.cardStore.clear();
+            }
             for (const raw of frame.cards ?? []) {
                 const card = normalizeCrusorCard(raw);
                 if (card) {
-                    if (!this.cards.has(card.cardId)) {
-                        this.cardOrder.push(card.cardId);
-                    }
-                    this.cards.set(card.cardId, card);
+                    this.cardStore.update(card);
                 }
             }
+            this.hydrateTranscript(frame.messages, frame.turn_outcomes);
             if (this.healAfterRestore && forId === this.sessionId) {
                 // The settled turn now lives in history; clear the live-turn
                 // fields so it cannot paint twice (once per lane).
@@ -2866,7 +3045,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (!original || !modified) {
                 // No preview exists for this approval (shell commands,
                 // repeat/external asks carry no diff). The preview is
-                // best-effort decoration — the dock itself is the ask.
+                // best-effort decoration â€” the dock itself is the ask.
                 // Silently skip: field 2026-10-17, this threw into the
                 // engine-error lane and painted a red "receipt" box
                 // with a Retry button mid-run.
@@ -2881,8 +3060,8 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     }
     /**
      * The active editor theme's real token colours for the file
-     * viewers: resolved through IColorTheme.getTokenStyleMetadata —
-     * the same machinery the editor itself paints with — and cached
+     * viewers: resolved through IColorTheme.getTokenStyleMetadata â€”
+     * the same machinery the editor itself paints with â€” and cached
      * per language bucket until the theme changes.
      */
     syntaxColors(language) {
@@ -2915,7 +3094,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     resourceBrowserSrc(resource) {
         // file:// is not loadable from the workbench DOM; FileAccess translates
         // it to the scheme the renderer may fetch (same path resolution as
-        // revealFile — Windows drives, schemes, workspace-relative).
+        // revealFile â€” Windows drives, schemes, workspace-relative).
         try {
             return FileAccess.uriToBrowserUri(this.resourceUri(resource)).toString(true);
         }
@@ -2937,7 +3116,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
             if (this.configurationService.getValue('crusorai.notifyOnComplete') === false) {
                 return;
             }
-            const msg = isError ? 'Crusor — task ended with an issue' : 'Response Ready — Crusor';
+            const msg = isError ? 'Crusor â€” task ended with an issue' : 'Response Ready â€” Crusor';
             const detailLine = detail ? String(detail).split('\n')[0].slice(0, 160) : '';
             this.notificationService.notify({
                 severity: isError ? Severity.Warning : Severity.Info,
@@ -2959,10 +3138,10 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
     resourceUri(resource) {
         const folder = this.workspaceContextService.getWorkspace().folders[0];
         // Windows drive letters ("D:\repo", "D:/repo") and UNC paths are
-        // filesystem paths, NOT URI schemes — so they are tested FIRST. A
+        // filesystem paths, NOT URI schemes â€” so they are tested FIRST. A
         // bare `D:\repo` matches the scheme sniff below (`D:` looks like a
         // scheme to it), and URI.parse mangles the backslashes into
-        // `D:%5Crepo` — which the text-model resolver then refuses. That was
+        // `D:%5Crepo` â€” which the text-model resolver then refuses. That was
         // the owner's "died after a tool call" (2026-09-04 log, Reveal
         // location). Hermes display-path.ts: copy/reveal/IPC always carry
         // the real absolute path; display formatting is paint only.
@@ -2970,7 +3149,7 @@ let CrusorAIRendererService = class CrusorAIRendererService extends Disposable {
         // bash shell, so tool args and card rows carry `/d/TestCrusorAI/...`;
         // URI.file() reads that as a rootless path on the current drive ->
         // "The editor could not be opened because the file was not found"
-        // while the file exists — the owner clicked the changed-file row and
+        // while the file exists â€” the owner clicked the changed-file row and
         // got the dead editor). Convert to the real drive path first.
         const gitBash = /^\/([a-z])\/(.*)$/i.exec(resource);
         if (gitBash) {

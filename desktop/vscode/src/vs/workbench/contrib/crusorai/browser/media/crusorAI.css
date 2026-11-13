@@ -142,6 +142,9 @@
 .crusorai-plan-strip-list { display: grid; gap: 5px; margin: 0; padding: 2px 12px 9px 30px; list-style: none; }
 .crusorai-plan-strip-list li { display: grid; grid-template-columns: 13px minmax(0, 1fr); align-items: start; gap: 6px; color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-meta); line-height: 1.35; }
 .crusorai-plan-strip-list li.is-active { color: var(--vscode-foreground); }
+.crusorai-plan-strip-list li.is-failed { color: var(--vscode-errorForeground); }
+.crusorai-plan-strip-list li.is-blocked { color: var(--vscode-editorWarning-foreground); }
+.crusorai-plan-strip-list li.is-cancelled { color: var(--vscode-disabledForeground); }
 
 .crusorai-agent-shell > .crusorai-transcript-scroll { flex: 1 1 auto; }
 
@@ -664,6 +667,18 @@
 .crusorai-turn-receipt.is-completed > .codicon { color: var(--crusorai-verified); }
 .crusorai-turn-receipt.is-cancelled > .codicon { color: var(--crusorai-approval); }
 .crusorai-turn-receipt.is-failed > .codicon { color: var(--crusorai-failed); }
+/* B-LIVE-002: interrupted and unrecorded turns get their own honest tone --
+   neither a failure red nor a silent success. */
+.crusorai-turn-receipt.is-incomplete {
+	border-color: color-mix(in srgb, var(--crusorai-approval) 45%, transparent);
+}
+.crusorai-turn-receipt.is-incomplete > .codicon { color: var(--crusorai-approval); }
+.crusorai-turn-receipt.is-unknown {
+	border-color: var(--crusorai-bubble-border);
+	background: transparent;
+	opacity: 0.8;
+}
+.crusorai-turn-receipt.is-unknown > .codicon { color: var(--vscode-descriptionForeground); }
 .crusorai-link-button {
 	display: inline-flex;
 	align-items: center;
@@ -760,6 +775,13 @@
 	color: var(--vscode-descriptionForeground);
 }
 .crusorai-scaffold-hint { font-weight: 500; }
+/* Engineering progress detail (elapsed / characters / target). Same row,
+   quieter than the stage label; never a second widget. */
+.crusorai-scaffold-status .crusorai-scaffold-detail {
+	margin-left: 6px;
+	opacity: 0.72;
+	font-size: var(--crusorai-text-meta);
+}
 .crusorai-scaffold-meta { margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- Thinking, behind a row (upstream DisclosureRow affordance) ----
@@ -4542,6 +4564,18 @@
 
 .crusorai-agent-card-step.is-completed {
 	color: var(--vscode-descriptionForeground);
+}
+
+.crusorai-agent-card-step.is-failed {
+	color: var(--vscode-errorForeground);
+}
+
+.crusorai-agent-card-step.is-blocked {
+	color: var(--vscode-editorWarning-foreground);
+}
+
+.crusorai-agent-card-step.is-cancelled {
+	color: var(--vscode-disabledForeground);
 }
 
 .crusorai-agent-card-step-glyph {

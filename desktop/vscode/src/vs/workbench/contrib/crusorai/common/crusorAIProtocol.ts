@@ -48,6 +48,8 @@ export interface CrusorSessionMessage {
 	readonly id?: number | string;
 	readonly role: 'user' | 'assistant' | 'tool';
 	readonly content: string;
+	/** Turn that produced this message (journal turn.started request hash). */
+	readonly turn_id?: string;
 	/** Persisted thinking (Hermes reasoning parts): renders the Think card on history turns. */
 	readonly reasoning?: string;
 	readonly tool_calls?: readonly { readonly id?: string; readonly name: string; readonly args?: unknown }[];
@@ -151,7 +153,7 @@ export interface CrusorEvidenceReceipt {
 export type CrusorServerEvent =
 	| { readonly type: 'hello'; readonly protocol: typeof CRUSOR_AI_PROTOCOL_VERSION; readonly engine: 'crusorai'; readonly engine_version: string; readonly capabilities: readonly string[] }
 	| ({ readonly type: 'session_info' } & CrusorSessionInfo)
-	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean }; readonly cards?: readonly unknown[] } & CrusorIdentity)
+	| ({ readonly type: 'session_messages'; readonly requested_session_id?: string; readonly messages: readonly CrusorSessionMessage[]; readonly pagination: { readonly limit: number; readonly offset: number; readonly order: 'latest' | 'oldest'; readonly returned: number; readonly total: number; readonly has_more: boolean }; readonly cards?: readonly unknown[]; /** Durable per-turn terminal outcomes from the journal (`turnId -> completed|failed|cancelled|incomplete`). Absent on legacy journals; a missing entry must be treated as unknown, never as success. */ readonly turn_outcomes?: Readonly<Record<string, string>> } & CrusorIdentity)
 	| ({ readonly type: 'session_deleted'; readonly deleted: boolean } & CrusorIdentity)
 	| ({ readonly type: 'turn_started'; readonly evidence?: CrusorEvidenceReceipt } & CrusorIdentity)
 	| ({ readonly type: 'turn_lifecycle'; readonly lifecycle_status: 'started' | 'completed' | 'cancelled' | 'failed' | 'watchdog' | 'interrupted'; readonly journal_seq?: number; readonly journal_event_hash?: string; readonly evidence_id?: string; readonly completed?: boolean; readonly cancelled?: boolean } & CrusorIdentity)

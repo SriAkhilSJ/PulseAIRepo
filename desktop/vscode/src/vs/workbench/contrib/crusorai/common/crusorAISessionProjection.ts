@@ -124,7 +124,7 @@ export function crusorSessionIdFromUri(resource: URI): string | undefined {
  */
 export function crusorSessionStatusName(input: {
 	readonly running: boolean;
-	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'denied' | 'failed';
+	readonly turnOutcome: 'idle' | 'running' | 'completed' | 'cancelled' | 'denied' | 'failed' | 'incomplete' | 'unknown';
 	readonly hasApproval?: boolean;
 }): CrusorAISessionStatusName | undefined {
 	if (input.hasApproval) {

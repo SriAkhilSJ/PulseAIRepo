@@ -8,6 +8,32 @@ export const CRUSOR_CARD_TYPES = [
     'activity', 'plan', 'file_change', 'approval', 'tool',
     'test_results', 'verification', 'delivery', 'cost',
 ];
+/**
+ * Card types that are journaled, replayed and accounted for but never paint a
+ * dedicated card in the coding conversation.
+ *
+ * Restored Agentic card timeline (2026-11-12): Activity, Plan, File Change,
+ * Tool, Approval and Test Results cards render in the conversation again,
+ * pinned chronologically into the turn. Verification, Delivery and Cost stay
+ * internal per the standing policy:
+ *
+ *   verification  -> TurnReceipt / verification_updated frame (never a card)
+ *   delivery      -> TurnReceipt / turn_done message
+ *   cost          -> telemetry frame + FinOps ledger
+ *
+ * Backend event generation, persistence, journaling, replay and FinOps records
+ * are untouched: only the presentation policy changes.
+ */
+export const CRUSOR_INTERNAL_CARD_TYPES = [
+    'verification', 'delivery', 'cost',
+];
+/** The one user-facing card policy (live and restored history use it). */
+export function isUserFacingCard(card) {
+    return !CRUSOR_INTERNAL_CARD_TYPES.includes(card.cardType);
+}
+export function userFacingCards(cards) {
+    return cards.filter(isUserFacingCard);
+}
 const MAX_TEXT = 8_000;
 const MAX_DIFF = 40_000;
 const MAX_ITEMS = 200;
@@ -110,6 +136,89 @@ export function cardFromFrame(frame) {
         return undefined;
     }
     return normalizeCrusorCard(frame.card);
+}
+/**
+ * Card state grouped by conversation turn.
+ *
+ * One session holds many independent turns; the SAME card id in two turns is
+ * two distinct cards, never an overwrite. Updates replace in place (stable
+ * order), duplicate replay is idempotent, and clearing a session is one call.
+ * The renderer must never key cards by card id alone.
+ */
+export class CrusorCardStore {
+    constructor() {
+        this.turns = new Map();
+    }
+    /** Insert or replace one card. `fallbackTurnId` covers legacy cards that
+     *  were persisted without a turn id while the current turn is known.
+     *  Returns true when this (turn, card) identity is new. */
+    update(card, fallbackTurnId = '') {
+        const turnId = card.turnId || fallbackTurnId;
+        let entry = this.turns.get(turnId);
+        if (!entry) {
+            entry = { cards: new Map(), order: [] };
+            this.turns.set(turnId, entry);
+        }
+        const added = !entry.cards.has(card.cardId);
+        if (added) {
+            entry.order.push(card.cardId);
+        }
+        entry.cards.set(card.cardId, card);
+        return added;
+    }
+    /** This turn's cards, in stable first-arrival order. */
+    cardsFor(turnId) {
+        const entry = this.turns.get(turnId);
+        if (!entry) {
+            return [];
+        }
+        return entry.order
+            .map(id => entry.cards.get(id))
+            .filter((card) => !!card);
+    }
+    turnIds() {
+        return [...this.turns.keys()];
+    }
+    /** Every card, grouped order preserved (diagnostics/tests only). */
+    all() {
+        const out = [];
+        for (const entry of this.turns.values()) {
+            for (const id of entry.order) {
+                const card = entry.cards.get(id);
+                if (card) {
+                    out.push(card);
+                }
+            }
+        }
+        return out;
+    }
+    size() {
+        return this.all().length;
+    }
+    clearTurn(turnId) {
+        this.turns.delete(turnId);
+    }
+    clear() {
+        this.turns.clear();
+    }
+    snapshot() {
+        return [...this.turns.entries()]
+            .map(([turnId, entry]) => ({
+            turnId,
+            cards: entry.order
+                .map(id => entry.cards.get(id))
+                .filter((card) => !!card),
+        }))
+            .filter(entry => entry.cards.length > 0);
+    }
+    restore(turns) {
+        this.turns.clear();
+        for (const turn of turns) {
+            for (const card of turn.cards) {
+                this.update(card, turn.turnId);
+            }
+        }
+    }
 }
 /** Human-safe one-line summary used by compact/narrow layouts. */
 export function cardHeadline(card) {

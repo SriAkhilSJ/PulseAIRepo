@@ -24,6 +24,35 @@ export interface CrusorCardView {
 	readonly data: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Card types that are journaled, replayed and accounted for but never paint a
+ * dedicated card in the coding conversation.
+ *
+ * Restored Agentic card timeline (2026-11-12): Activity, Plan, File Change,
+ * Tool, Approval and Test Results cards render in the conversation again,
+ * pinned chronologically into the turn. Verification, Delivery and Cost stay
+ * internal per the standing policy:
+ *
+ *   verification  -> TurnReceipt / verification_updated frame (never a card)
+ *   delivery      -> TurnReceipt / turn_done message
+ *   cost          -> telemetry frame + FinOps ledger
+ *
+ * Backend event generation, persistence, journaling, replay and FinOps records
+ * are untouched: only the presentation policy changes.
+ */
+export const CRUSOR_INTERNAL_CARD_TYPES = [
+	'verification', 'delivery', 'cost',
+] as const;
+
+/** The one user-facing card policy (live and restored history use it). */
+export function isUserFacingCard(card: CrusorCardView): boolean {
+	return !(CRUSOR_INTERNAL_CARD_TYPES as readonly string[]).includes(card.cardType);
+}
+
+export function userFacingCards(cards: readonly CrusorCardView[]): readonly CrusorCardView[] {
+	return cards.filter(isUserFacingCard);
+}
+
 const MAX_TEXT = 8_000;
 const MAX_DIFF = 40_000;
 const MAX_ITEMS = 200;
@@ -110,6 +139,95 @@ export function normalizeCrusorCard(raw: unknown): CrusorCardView | undefined {
 export function cardFromFrame(frame: unknown): CrusorCardView | undefined {
 	if (!isRecord(frame) || frame.type !== 'agent_card') { return undefined; }
 	return normalizeCrusorCard(frame.card);
+}
+
+/** One turn's cards, in first-arrival order (the shape a surface snapshot stores). */
+export interface CrusorCardTurnSnapshot {
+	readonly turnId: string;
+	readonly cards: readonly CrusorCardView[];
+}
+
+/**
+ * Card state grouped by conversation turn.
+ *
+ * One session holds many independent turns; the SAME card id in two turns is
+ * two distinct cards, never an overwrite. Updates replace in place (stable
+ * order), duplicate replay is idempotent, and clearing a session is one call.
+ * The renderer must never key cards by card id alone.
+ */
+export class CrusorCardStore {
+	private readonly turns = new Map<string, { cards: Map<string, CrusorCardView>; order: string[] }>();
+
+	/** Insert or replace one card. `fallbackTurnId` covers legacy cards that
+	 *  were persisted without a turn id while the current turn is known.
+	 *  Returns true when this (turn, card) identity is new. */
+	update(card: CrusorCardView, fallbackTurnId = ''): boolean {
+		const turnId = card.turnId || fallbackTurnId;
+		let entry = this.turns.get(turnId);
+		if (!entry) {
+			entry = { cards: new Map(), order: [] };
+			this.turns.set(turnId, entry);
+		}
+		const added = !entry.cards.has(card.cardId);
+		if (added) { entry.order.push(card.cardId); }
+		entry.cards.set(card.cardId, card);
+		return added;
+	}
+
+	/** This turn's cards, in stable first-arrival order. */
+	cardsFor(turnId: string): readonly CrusorCardView[] {
+		const entry = this.turns.get(turnId);
+		if (!entry) { return []; }
+		return entry.order
+			.map(id => entry.cards.get(id))
+			.filter((card): card is CrusorCardView => !!card);
+	}
+
+	turnIds(): readonly string[] {
+		return [...this.turns.keys()];
+	}
+
+	/** Every card, grouped order preserved (diagnostics/tests only). */
+	all(): readonly CrusorCardView[] {
+		const out: CrusorCardView[] = [];
+		for (const entry of this.turns.values()) {
+			for (const id of entry.order) {
+				const card = entry.cards.get(id);
+				if (card) { out.push(card); }
+			}
+		}
+		return out;
+	}
+
+	size(): number {
+		return this.all().length;
+	}
+
+	clearTurn(turnId: string): void {
+		this.turns.delete(turnId);
+	}
+
+	clear(): void {
+		this.turns.clear();
+	}
+
+	snapshot(): readonly CrusorCardTurnSnapshot[] {
+		return [...this.turns.entries()]
+			.map(([turnId, entry]) => ({
+				turnId,
+				cards: entry.order
+					.map(id => entry.cards.get(id))
+					.filter((card): card is CrusorCardView => !!card),
+			}))
+			.filter(entry => entry.cards.length > 0);
+	}
+
+	restore(turns: readonly CrusorCardTurnSnapshot[]): void {
+		this.turns.clear();
+		for (const turn of turns) {
+			for (const card of turn.cards) { this.update(card, turn.turnId); }
+		}
+	}
 }
 
 /** Human-safe one-line summary used by compact/narrow layouts. */

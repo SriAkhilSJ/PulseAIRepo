@@ -123,13 +123,19 @@ try {
 	check('approval updates card state', true);
 
 	await page.waitForSelector('.crusorai-agent-card.is-test_results', { timeout: 20_000 });
-	await page.waitForSelector('.crusorai-agent-card.is-verification', { timeout: 20_000 });
-	await page.waitForSelector('.crusorai-agent-card.is-delivery', { timeout: 20_000 });
+	await page.waitForFunction(() => !document.querySelector('.crusorai-send-stop'), null, { timeout: 20_000 });
 	await shot(page, '07-complete-cards.png');
 	check('test results card renders', true);
-	check('verification card renders', await page.locator('.crusorai-agent-card.is-verification').innerText().then(t => /VERIFIED/i.test(t)));
-	check('delivery receipt card renders', true);
-	check('cost card renders', await page.locator('.crusorai-agent-card.is-cost').count() > 0);
+	const hiddenCards = await page.evaluate(() => ({
+		verification: document.querySelectorAll('.crusorai-agent-card.is-verification').length,
+		delivery: document.querySelectorAll('.crusorai-agent-card.is-delivery').length,
+		cost: document.querySelectorAll('.crusorai-agent-card.is-cost').length,
+	}));
+	check('verification/delivery/cost cards are not user-facing',
+		hiddenCards.verification === 0 && hiddenCards.delivery === 0 && hiddenCards.cost === 0,
+		JSON.stringify(hiddenCards));
+	check('final assistant response remains visible',
+		(await page.locator('.crusorai-assistant-message').last().innerText()).length > 0);
 
 	const bytes = fs.readFileSync(path.join(workspace, 'hello.md'));
 	check('workspace file is exact UTF-8', bytes.equals(Buffer.from(expected, 'utf8')),
