@@ -32,6 +32,10 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-12 | D-024 | Reference provider approved as the single evidence configuration. Exact wallet balance remains unknown; **no expensive evidence runs until a spending limit is confirmed** | Founder | **APPROVED** | `14` §5 |
 | 2026-11-12 | D-025 | PRD-001 product direction and technical scope approved; sandbox clarification incorporated as **rev 1.2**. Signature and the R0/R1–R4 go-aheads remain outstanding | Founder | **APPROVED (pending signature)** | `08-PRD-001-…md` rev 1.2 |
 
+| 2026-11-12 | D-026 | Working-tree reconciliation executed on `wip/working-tree-2026-11-12`: R1 audit `40b02500`, R2 agent `fc511e67`, R3 desktop `2ec62a2c`, R4 memory/evidence `952dbd45`. 492 files committed; 39 entries deliberately left untracked (11 generated `req_*`, 28 private-runtime dirs); 1,220 Electron user-profile files excluded from git by policy and preserved in R0 | Founder (authorised) + EM | **DONE** | `docs/CURRENT_STATE.md`; R0 manifest |
+| 2026-11-12 | D-027 | T-06 complete: observability module moved into the package as `receipts.py`, re-exported; F-06 fixed at the import layer | EM | **DONE-VERIFIED** (import OK; 4/4 tests) | commit `823aa7cf` + follow-up |
+| 2026-11-12 | D-028 | T-17 part 1 complete: `deduplicate_streaming_usage` implemented; collection 5,012 tests / 0 errors (was 4,986 / 3). T-18 (CI gate) is the next unblocked ticket | EM | **DONE-VERIFIED** (22/22 modules, collection 0 errors) | commit `19682792` |
+
 ## Rejected proposals
 
 | Date | Proposal | Why rejected | Revisit when |

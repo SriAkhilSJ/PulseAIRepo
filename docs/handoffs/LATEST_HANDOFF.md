@@ -557,3 +557,17 @@ index DBs, workspace placement). The literal `?` end-to-end bridge case cannot
 run on Windows because the filesystem forbids `?`; the URI assertion always runs
 and the end-to-end case runs on POSIX. P1-A + R2 + R3 must pass independent
 acceptance before P1-B starts. No commits or pushes were made.
+
+
+---
+
+## 2026-11-12 (later) — Implementation start
+
+**Branch:** `wip/working-tree-2026-11-12` · **HEAD:** see `git rev-parse HEAD` (not pinned here to avoid drift)
+**State:** reconciliation R1–R4 committed; T-06 done; T-17 part 1 done (collection clean).
+**Next unblocked ticket:** T-18 (move full suite into `.github/workflows`, red/green proof), then T-07
+(receipt emission) now that T-06 unblocked it.
+**Constraints unchanged:** no merge to main; no public release; no expensive provider runs until a spending
+limit is confirmed; generated `req_*` modules and private runtime data stay out of git (R0 has them).
+**Landmine:** `src/observability/` is a package — never re-create `src/observability.py`, or F-06 returns.
+

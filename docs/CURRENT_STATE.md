@@ -1228,3 +1228,26 @@ still 937 MB and 426 `code_index_*.db` files are ~1.88 GB. Workspace-specific
 checkpoint placement was not introduced. `test_runtime_evidence_capture` has 3
 pre-existing failures (two Windows mode-bit assertions and one echo
 `runtime_degraded` expectation). Bridge frame/signature pins remain known red.
+
+
+---
+
+## 2026-11-12 (later) — Implementation start: reconciliation, T-06, T-17 (partial)
+
+**Branch:** `wip/working-tree-2026-11-12` (cut from `docs/engineering-handoff-prd-001` @ `7e4bb7ad`)
+**Reconciliation:** R1 `40b02500` · R2 `fc511e67` · R3 `2ec62a2c` · R4 `952dbd45`
+**Tickets:** T-06 `823aa7cf` (+ corrective follow-up) · T-17 part 1 `19682792`
+
+- Working-tree reconciliation R1–R4 is committed: 492 files across audit baseline, agent code + untracked
+  siblings + tests, desktop contrib, and memory/evidence.
+- **39 entries remain intentionally untracked:** 11 generated `req_*` modules (F-11 contamination, R5
+  review-only) and 28 private-runtime directories. 1,220 Electron user-profile files were excluded from git
+  by policy; all remain preserved in the R0 backup at `C:\CrusorBackups\PulseAIRepo\2026-11-12\R0`.
+- **T-06 complete.** `src/observability.py` moved to `src/observability/receipts.py` (git mv) and re-exported
+  from the package. `from src.observability import record_turn_receipt` now resolves; F-06 is fixed at the
+  import layer. Receipt *emission* is T-07 and is not done.
+- **T-17 part 1 complete.** `deduplicate_streaming_usage` implemented in `src/llm/factory.py`; the two
+  modules that failed collection now pass 22/22. Full collection: **5,012 tests, 0 errors** (was 4,986 with 3).
+- **Not done:** T-01…T-05, T-07…T-16, T-18, T-19…T-21. T-18 (CI gate) is the next unblocked ticket.
+- No merge to `main`. No public release. No provider spend beyond one 2-token probe earlier.
+
