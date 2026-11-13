@@ -302,6 +302,32 @@ def test_d28_write_file_protects_existing_python_only(tmp_path):
     assert out3.startswith("File written")
 
 
+def test_d28_new_file_is_not_subject_to_syntax_regression_gate(tmp_path):
+    """Regression: a brand-new .py has no prior state to regress.
+
+    The receipt's contract is "never leave an EXISTING file worse than we
+    found it". With `original=""` the empty text parsed as valid, so every
+    new file was judged as "was valid, now broken" and skeletons/templates
+    with placeholder signatures were rejected outright.
+    """
+    ws = _ws(tmp_path)
+
+    # 1) New file, valid-but-incomplete-looking signature: must be accepted.
+    skeleton = "async def todo(...) -> ...:\n    ...\n"
+    out = WRITE(path="brand_new.py", content=skeleton,
+                config={"configurable": {"workspace": ws}})
+    assert out.startswith("File written"), out
+    assert (Path(ws) / "brand_new.py").read_text() == skeleton
+
+    # 2) Existing valid .py that the write would break: still refused.
+    existing = Path(ws) / "mod_1.py"
+    before = existing.read_text()
+    broken = WRITE(path="mod_1.py", content="def nope(:\n",
+                   config={"configurable": {"workspace": ws}})
+    assert "rejected" in broken.lower(), broken
+    assert existing.read_text() == before  # untouched
+
+
 # ---------------------------------------------------------------------------
 # D29 — per-thread turn lock
 # ---------------------------------------------------------------------------

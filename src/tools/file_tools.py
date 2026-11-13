@@ -483,11 +483,12 @@ def write_file(
 
         # D28: syntax receipt — a broken-grammar edit is refused before it
         # ever touches disk (multi-language; non-code files unaffected).
-        if _is_syntax_checkable(safe_path):
-            original_now = (
-                safe_path.read_text(encoding="utf-8")
-                if safe_path.exists() else ""
-            )
+        # Scope is "never leave an EXISTING .py worse than we found it": for a
+        # brand-new file there is no prior state to regress, and the empty
+        # original would otherwise parse as "valid", wrongly condemning
+        # legitimate skeletons/templates (e.g. `def todo(...) -> ...:`).
+        if safe_path.exists() and _is_syntax_checkable(safe_path):
+            original_now = safe_path.read_text(encoding="utf-8")
             receipt_error = _syntax_receipt(safe_path, original_now, content)
             if receipt_error is not None:
                 return receipt_error
