@@ -7136,6 +7136,35 @@ class SafeToolNode:
         canonical_runtime = bool(
             (config or {}).get("configurable", {}).get("canonical_runtime", False)
         )
+        # Never execute tool arguments from a token-limited provider response.
+        # This MUST run before name repair and before the side-effect boundary:
+        # a truncated batch must not be inspected, repaired or classified. The
+        # T-22 reorder briefly moved repair above this guard, which let a
+        # truncated call reach the registry (AttributeError on _tools_by_name).
+        if bool(
+            getattr(last_msg, "additional_kwargs", {}).get(
+                "crusor_incomplete_response"
+            )
+        ):
+            _incomplete_reason = str(
+                getattr(last_msg, "additional_kwargs", {}).get(
+                    "crusor_incomplete_reason", "provider token limit"
+                )
+            )
+            return {
+                "messages": [
+                    self._durable_denial(
+                        tc,
+                        "Error: provider response was incomplete "
+                        f"({_incomplete_reason}); tool was NOT executed. Split "
+                        "large file writes into smaller complete files/calls "
+                        "and continue.",
+                        config,
+                    )
+                    for tc in tool_calls
+                ]
+            }
+
         # Canonicalize names BEFORE the side-effect boundary below. The block
         # classifies by name, so an unrepaired dialect alias would be denied
         # under a name that never ran, and history would keep the alias. Both
@@ -7299,32 +7328,8 @@ class SafeToolNode:
                 self._cancelled_tool_messages(calls or tool_calls, config)
             )
 
-        # Never execute tool arguments from a token-limited provider response.
-        # Hermes treats a mid-tool/length completion as incomplete and asks the
-        # model to split or continue; Attempt 8 showed that accepting a partial
-        # write can land a syntactically valid JSON string whose file content
-        # ends mid-CSS. Return one paired error per call, with zero side effects.
-        incomplete = bool(
-            getattr(last_msg, "additional_kwargs", {}).get(
-                "crusor_incomplete_response"
-            )
-        )
-        if incomplete:
-            reason = str(
-                getattr(last_msg, "additional_kwargs", {}).get(
-                    "crusor_incomplete_reason", "provider token limit"
-                )
-            )
-            return _with_repaired([
-                self._durable_denial(
-                    tc,
-                    "Error: provider response was incomplete "
-                    f"({reason}); tool was NOT executed. Split large file "
-                    "writes into smaller complete files/calls and continue.",
-                    config,
-                )
-                for tc in tool_calls
-            ])
+        # (Incomplete responses are rejected above, before name repair and
+        # before the side-effect boundary.)
 
         # Name repair already ran above, BEFORE the side-effect boundary, so an
         # alias cannot be denied (or approved) under a name it never had. The
