@@ -1277,3 +1277,29 @@ pre-existing failures (two Windows mode-bit assertions and one echo
   PowerShell — this is local Windows evidence, not a GitHub-hosted run.
 - No push (not authorised). `origin/main` unchanged.
 
+
+
+---
+
+## 2026-11-12 (T-18 continued) — Option B UI restored, hang fixed, **still PARTIAL**
+
+**Commit:** `c2a36e32`
+
+- **Inline diff preview restored** in the approval dock (`crusorai-approval-diff-preview` /
+  `-header`), rendering the real proposed diff through the existing `diffPreview` renderer. Display-only: no
+  handler, no approval side effect; "Review change" still opens the native multi-diff. Evidence:
+  `test_copilot_parity_permission_diff` **6/6 passed**.
+- **`test_degraded_memory` hang fixed.** Faulthandler showed `finalize_node → _verification_receipt_status →
+  audit_workspace` reading every source file because the test passed `workspace="."`. The test now uses
+  `tmp_path` with one small file — same code path, bounded input. Evidence: **3 passed in 7.17 s** (previously
+  hung >120 s).
+- **Full authoritative run: 97% in ~40 minutes, then killed by the harness cap.** Not green. Remaining
+  failures are pre-existing and unrelated to CI:
+  - `test_unknown_tool_validation.py::test_hermes_dialect_name_is_repaired_and_executed` (1)
+  - `test_user_interest.py` (6) — task-manager interest/mode assertions returning `''`
+  These need their own ticket; they are product behaviour, not gate wiring.
+- **Runtime risk:** the suite exceeded 40 minutes on this host. The workflow's `timeout-minutes: 30` may be too
+  low for Linux CI as well; must be measured on a real runner before claiming green.
+- Product requirement for the full change-review experience recorded in
+  `pm/09-AGENTIC-CHANGE-REVIEW-REQUIREMENT.md` (CR-1…CR-9); CR-5…CR-8 explicitly out of T-18.
+

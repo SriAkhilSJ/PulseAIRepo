@@ -595,3 +595,18 @@ duplicate guard; missing usage coerced to zero; `error` text unredacted; write f
 
 **Next authorised action:** none until the founder decides on the two blockers or authorises T-07 past the gate.
 
+
+
+---
+
+## 2026-11-12 (T-18 continued)
+
+**Commit:** `c2a36e32` — inline approval diff restored (Option B) + degraded-memory test bounded.
+
+**T-18 still PARTIAL.** Remaining blocker is not CI wiring: 7 pre-existing failures in
+`test_unknown_tool_validation` (1) and `test_user_interest` (6), plus a >40-minute suite runtime against a
+30-minute workflow timeout. Red-on-red is proven. Green-on-green is not.
+
+**Next:** triage the 7 failures (product behaviour, likely from the R2 task-manager changes), then measure the
+suite on a real Linux runner. Do not start T-07 until the gate is met or the founder authorises past it.
+
