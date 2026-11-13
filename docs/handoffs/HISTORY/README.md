@@ -18,7 +18,10 @@ This directory archives superseded `LATEST_HANDOFF.md` files.
 |---|---|---|
 | 2026-11-08 | Phase 1.3.1 closeout and memory-system bootstrap | `HISTORY/` archive pending |
 | 2026-11-09 | Phase 3.2 planner/contract closeout | `2026-11-09_phase-3.2-closeout.md` |
-| 2026-11-10 | Agent Runtime Increments 1–3 (current) | current `LATEST_HANDOFF.md` |
+| 2026-11-10 | Agent Runtime Increments 1–3 | `2026-11-10_agent-runtime-increments.md` |
+| 2026-11-11 | Agentic progress + plan outcome semantics | `2026-11-12_pre-reconciliation.md` (snapshot) |
+| 2026-11-12 | Engineering audit + memory reconciliation | `2026-11-12_p1a-pre.md` (snapshot) |
+| 2026-11-12 | P1-A test isolation repair (current) | current `LATEST_HANDOFF.md` |
 
 ## What belongs here
 
