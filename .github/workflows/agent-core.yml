@@ -50,14 +50,20 @@ jobs:
         run: npm install -g pyright
 
       - name: Install desktop parity dependencies
-        # The two parity modules compare the tracked build output against the
-        # current TypeScript sources. Without these they SKIP, which is a false
-        # green: the lane that is supposed to gate PRs never runs. Pinned so a
-        # new esbuild major cannot silently change bundle output.
-        working-directory: desktop/vscode
+        # Install into an isolated directory. Running `npm install` inside
+        # desktop/vscode pulls the fork's whole dependency tree, and `kerberos`
+        # needs krb5 headers that the runner does not have - the step died in
+        # node-gyp before the suite ever started (run 43404607498).
         run: |
-          npm install --no-save --no-package-lock --no-audit --no-fund \
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/parity-deps"
+          cd "$RUNNER_TEMP/parity-deps"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund \
             esbuild@0.25.0 typescript@npm:@typescript/typescript6@6.0.2
+          mkdir -p "$GITHUB_WORKSPACE/desktop/vscode/node_modules"
+          cp -R node_modules/esbuild "$GITHUB_WORKSPACE/desktop/vscode/node_modules/"
+          cp -R node_modules/typescript "$GITHUB_WORKSPACE/desktop/vscode/node_modules/"
 
       - name: Run hermetic test suite
         env:
