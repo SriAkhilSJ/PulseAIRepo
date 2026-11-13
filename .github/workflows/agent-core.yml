@@ -24,7 +24,10 @@ jobs:
   test:
     name: hermetic test suite (py3.14)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Measured on ubuntu-latest / py3.14 (run 43405656459): the suite was still
+    # running when the 30-minute cap killed it at 35m0s. 60 gives headroom for a
+    # full result; tighten only after `--durations` shows where the time goes.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
