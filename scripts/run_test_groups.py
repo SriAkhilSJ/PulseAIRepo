@@ -229,14 +229,19 @@ def main() -> int:
     covered = sum(r["tests"] for r in results)
     complete = covered == total_tests
 
-    (out / "summary.json").write_text(json.dumps({
+    summary_payload = {
         "manifest_tests": total_tests,
         "groups_run": len(results),
         "covered_tests": covered,
         "complete": complete,
         "bad_groups": len(bad),
         "results": results,
-    }, indent=2), encoding="utf-8")
+    }
+    (out / "summary.json").write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
+    if args.only_group and selected:
+        (out / f"summary-{selected[0]['name']}.json").write_text(
+            json.dumps(summary_payload, indent=2), encoding="utf-8"
+        )
 
     print(f"\ncovered {covered}/{total_tests} | bad groups {len(bad)}/{len(results)}")
     if args.only_group:

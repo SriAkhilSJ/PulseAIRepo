@@ -24,10 +24,10 @@ jobs:
   test:
     name: hermetic test suite (py3.14)
     runs-on: ubuntu-latest
-    # Measured on ubuntu-latest / py3.14 (run 43405656459): the suite was still
-    # running when the 30-minute cap killed it at 35m0s. 60 gives headroom for a
-    # full result; tighten only after `--durations` shows where the time goes.
-    timeout-minutes: 60
+    # 12 isolated groups + install. Run 43405656459 was still executing at 35m;
+    # run 43410282051 lost the runner at 51m. 120 is a job cap, not a measured
+    # duration; per-group caps are 1800s in the run steps.
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -68,20 +68,345 @@ jobs:
           cp -R node_modules/esbuild "$GITHUB_WORKSPACE/desktop/vscode/node_modules/"
           cp -R node_modules/typescript "$GITHUB_WORKSPACE/desktop/vscode/node_modules/"
 
-      - name: Run hermetic test suite
+      - name: Plan test groups
+        # One deterministic plan for the whole job. The plan is validated against
+        # the expected names so a silent group drift fails here, not at 3am.
+        run: |
+          python scripts/run_test_groups.py --plan-only --groups 12 --out .test-reports
+          python - <<'PY'
+          import json, sys
+          expected = {
+            "heavy-test_security_containment",
+            "heavy-test_desktop_renderer_architecture",
+            "heavy-test_hermes_browser_tools",
+            "heavy-test_lab_fixes",
+            "heavy-test_phase_11_8_production_readiness",
+            "heavy-test_hermes_prompt_parity",
+            "group-00",
+            "group-01",
+            "group-02",
+            "group-03",
+            "group-04",
+            "group-05",
+          }
+          plan = json.load(open(".test-reports/plan.json"))
+          names = {g["name"] for g in plan["groups"]}
+          missing, extra = expected - names, names - expected
+          print("planned groups:", sorted(names))
+          if missing or extra:
+              sys.exit(f"plan drift: missing={sorted(missing)} extra={sorted(extra)}")
+          PY
+
+      - name: Run heavy-test_security_containment
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
         env:
           CRUSORAI_TEST_PYTHON: python
-          # Keep artifacts out of the runner's real HOME (the runner does this
-          # itself; set explicitly so a future runner change cannot regress it).
           CRUSORAI_PREVIEW_AUTOSTART: "0"
-        # T-18: the whole suite runs here, including the desktop parity pins.
-        # They used to be excluded and parked in a non-blocking job, which
-        # meant a red parity pin could never fail a pull request. A gate that
-        # cannot fail is not a gate.
-        # --durations gives the attribution the 30-minute timeout currently
-        # lacks. The timeout stays 30 until a real Linux run measures it.
         run: |
-          bash scripts/run_tests.sh src/tests -q --durations=50 --durations-min=1.0
+          python scripts/run_test_groups.py --only-group heavy-test_security_containment --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_security_containment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_security_containment
+          path: |
+            .test-reports/heavy-test_security_containment.xml
+            .test-reports/heavy-test_security_containment.log
+            .test-reports/summary-heavy-test_security_containment.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run heavy-test_desktop_renderer_architecture
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group heavy-test_desktop_renderer_architecture --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_desktop_renderer_architecture report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_desktop_renderer_architecture
+          path: |
+            .test-reports/heavy-test_desktop_renderer_architecture.xml
+            .test-reports/heavy-test_desktop_renderer_architecture.log
+            .test-reports/summary-heavy-test_desktop_renderer_architecture.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run heavy-test_hermes_browser_tools
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group heavy-test_hermes_browser_tools --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_hermes_browser_tools report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_hermes_browser_tools
+          path: |
+            .test-reports/heavy-test_hermes_browser_tools.xml
+            .test-reports/heavy-test_hermes_browser_tools.log
+            .test-reports/summary-heavy-test_hermes_browser_tools.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run heavy-test_lab_fixes
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group heavy-test_lab_fixes --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_lab_fixes report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_lab_fixes
+          path: |
+            .test-reports/heavy-test_lab_fixes.xml
+            .test-reports/heavy-test_lab_fixes.log
+            .test-reports/summary-heavy-test_lab_fixes.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run heavy-test_phase_11_8_production_readiness
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group heavy-test_phase_11_8_production_readiness --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_phase_11_8_production_readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_phase_11_8_production_readiness
+          path: |
+            .test-reports/heavy-test_phase_11_8_production_readiness.xml
+            .test-reports/heavy-test_phase_11_8_production_readiness.log
+            .test-reports/summary-heavy-test_phase_11_8_production_readiness.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run heavy-test_hermes_prompt_parity
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group heavy-test_hermes_prompt_parity --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload heavy-test_hermes_prompt_parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-heavy-test_hermes_prompt_parity
+          path: |
+            .test-reports/heavy-test_hermes_prompt_parity.xml
+            .test-reports/heavy-test_hermes_prompt_parity.log
+            .test-reports/summary-heavy-test_hermes_prompt_parity.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-00
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-00 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-00 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-00
+          path: |
+            .test-reports/group-00.xml
+            .test-reports/group-00.log
+            .test-reports/summary-group-00.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-01
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-01 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-01 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-01
+          path: |
+            .test-reports/group-01.xml
+            .test-reports/group-01.log
+            .test-reports/summary-group-01.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-02
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-02 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-02 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-02
+          path: |
+            .test-reports/group-02.xml
+            .test-reports/group-02.log
+            .test-reports/summary-group-02.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-03
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-03 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-03 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-03
+          path: |
+            .test-reports/group-03.xml
+            .test-reports/group-03.log
+            .test-reports/summary-group-03.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-04
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-04 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-04 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-04
+          path: |
+            .test-reports/group-04.xml
+            .test-reports/group-04.log
+            .test-reports/summary-group-04.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run group-05
+        # if: always() so one failing group cannot prevent the remaining groups
+        # from producing evidence. The step still fails the job; the aggregate
+        # step below is what decides the gate.
+        if: always()
+        env:
+          CRUSORAI_TEST_PYTHON: python
+          CRUSORAI_PREVIEW_AUTOSTART: "0"
+        run: |
+          python scripts/run_test_groups.py --only-group group-05 --groups 12 \
+            --group-timeout 1800 --out .test-reports
+
+      - name: Upload group-05 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-group-05
+          path: |
+            .test-reports/group-05.xml
+            .test-reports/group-05.log
+            .test-reports/summary-group-05.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Aggregate group results
+        # The gate. Explicit, and it fails when any group failed, timed out,
+        # failed collection, or never produced a summary.
+        if: always()
+        run: |
+          python - <<'PY'
+          import glob, json, sys
+          files = sorted(glob.glob(".test-reports/summary-*.json"))
+          bad, seen = [], []
+          for f in files:
+              s = json.load(open(f))
+              for r in s["results"]:
+                  seen.append(r["group"])
+                  print(f"{r['group']}: {r['status']} exit={r['exit']} {r['junit']}")
+                  if r["status"] != "ok":
+                      bad.append((r["group"], r["status"]))
+          print(f"groups reported: {len(seen)}")
+          if len(seen) != 12:
+              sys.exit(f"expected 12 groups, found {len(seen)}: {sorted(seen)}")
+          if bad:
+              sys.exit(f"failing groups: {bad}")
+          PY
 
       - name: Upload failure diagnostics
         if: failure()
