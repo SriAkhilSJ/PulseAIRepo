@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -26,7 +27,42 @@ from src.workspace.models import (
 
 log = logging.getLogger("crusor.workspace.risk_policy")
 
-_SECRET_SALT = os.environ.get("CRUSOR_WORKSPACE_APPROVAL_KEY", "crusor-workspace-discipline-salt-2026")
+_SECRET_ENV = "CRUSOR_WORKSPACE_APPROVAL_KEY"
+_SECRET_FILENAME = "approval.key"
+
+
+def _secret_path() -> Path:
+    home = os.environ.get("CRUSORAI_HOME") or os.path.join(os.path.expanduser("~"), ".crusorai")
+    return Path(home) / _SECRET_FILENAME
+
+
+def _load_approval_secret() -> bytes:
+    """Resolve the token signing secret. Never a public constant.
+
+    Order: explicit env override (rotation / CI) -> per-install secret file
+    (generated once with a CSPRNG, restrictive mode) -> empty, which every
+    caller treats as fail-closed. Rotating means changing the env value or
+    deleting the file; both invalidate every outstanding token by design.
+    """
+    override = os.environ.get(_SECRET_ENV, "").strip()
+    if override:
+        return override.encode("utf-8")
+    path = _secret_path()
+    try:
+        if path.is_file():
+            stored = path.read_text(encoding="utf-8").strip()
+            if stored:
+                return stored.encode("utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        generated = secrets.token_hex(32)
+        path.write_text(generated, encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return generated.encode("utf-8")
+    except OSError:
+        return b""
 
 # Protected upstream files that strictly trigger HIGH_RISK or PROHIBITED
 PROTECTED_UPSTREAM_PATHS = frozenset({
@@ -140,7 +176,12 @@ class RiskApprovalGate:
             f"{operation_type.value}:{content_digest}:{precondition_digest}:"
             f"{session_id}:{turn_id}:{exp}"
         )
-        sig = hmac.new(_SECRET_SALT.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        secret = _load_approval_secret()
+        if not secret:
+            raise RuntimeError(
+                "Approval signing secret unavailable; refusing to mint a token (fail closed)."
+            )
+        sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
         token = f"APPV-{sig[:24]}-{exp}"
         return token
 
@@ -186,7 +227,12 @@ class RiskApprovalGate:
                 f"{operation_type.value}:{content_digest}:{precondition_digest}:"
                 f"{session_id}:{turn_id}:{exp}"
             )
-            expected_sig = hmac.new(_SECRET_SALT.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            secret = _load_approval_secret()
+            if not secret:
+                return False, (
+                    "Approval signing secret unavailable; verification fails closed."
+                )
+            expected_sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
             if not hmac.compare_digest(parts[1], expected_sig[:24]):
                 if require_digest:
                     return False, (
