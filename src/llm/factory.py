@@ -324,6 +324,73 @@ def normalize_finish_reason(value: Any) -> tuple[str, str]:
     return raw, normalized
 
 
+def _usage_int(value: Any) -> int:
+    """Bounded non-negative int from a provider field, else 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def deduplicate_streaming_usage(chunks: Any) -> dict[str, Any] | None:
+    """Collapse cumulative streaming usage into a single counter set.
+
+    Providers report usage cumulatively while streaming. Summing the chunks
+    over-counts (100 input tokens reported three times is 100, not 300), and
+    Anthropic-style events split input across ``input_tokens`` and
+    ``cache_read_input_tokens`` while LangChain's ``usage_metadata`` folds the
+    cache into ``input_tokens``. Both shapes are normalised here.
+
+    Returns ``None`` when no usage was reported at all, so callers can tell
+    "no data" apart from "zero tokens".
+    """
+    input_tokens = 0
+    cached_tokens = 0
+    output_tokens = 0
+    finish_reason: str | None = None
+    saw_usage = False
+    anthropic_events = False
+
+    for chunk in chunks or ():
+        if isinstance(chunk, dict):
+            kind = chunk.get("type")
+            if kind == "message_start":
+                usage = (chunk.get("message") or {}).get("usage") or {}
+                if usage:
+                    saw_usage = True
+                    anthropic_events = True
+                    input_tokens = max(input_tokens, _usage_int(usage.get("input_tokens")))
+                    cached_tokens = max(cached_tokens, _usage_int(usage.get("cache_read_input_tokens")))
+                    output_tokens = max(output_tokens, _usage_int(usage.get("output_tokens")))
+            elif kind == "message_delta":
+                usage = chunk.get("usage") or {}
+                if usage:
+                    saw_usage = True
+                    output_tokens = max(output_tokens, _usage_int(usage.get("output_tokens")))
+                stop = (chunk.get("delta") or {}).get("stop_reason")
+                if stop:
+                    finish_reason = str(stop)
+        else:
+            usage = getattr(chunk, "usage_metadata", None)
+            if isinstance(usage, dict) and usage:
+                saw_usage = True
+                input_tokens = max(input_tokens, _usage_int(usage.get("input_tokens")))
+                output_tokens = max(output_tokens, _usage_int(usage.get("output_tokens")))
+                details = usage.get("input_token_details") or {}
+                cached_tokens = max(cached_tokens, _usage_int(details.get("cache_read")))
+
+    if not saw_usage:
+        return None
+
+    total_input = input_tokens + cached_tokens if anthropic_events else input_tokens
+    return {
+        "input_tokens": total_input,
+        "output_tokens": output_tokens,
+        "cached_tokens": cached_tokens,
+        "uncached_tokens": max(0, total_input - cached_tokens),
+        "total_tokens": total_input + output_tokens,
+        "is_partial": finish_reason is None,
+        "finish_reason": finish_reason,
+    }
+
+
 def _response_usage(response: Any, metadata: dict[str, Any]) -> dict[str, int | None]:
     """Normalize bounded token counters from LangChain/provider metadata."""
     usage = getattr(response, "usage_metadata", None)
