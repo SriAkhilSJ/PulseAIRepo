@@ -53,6 +53,10 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-13 | D-040 | Approval operation contract fixed: `write_file` routes existing targets to MODIFY and new targets to CREATE; graph derives the operation from the payload action and fails closed on unknown/inconsistent; `require_digest` keys on the token present (review R2) | Founder (authorised) + EM | **DONE-VERIFIED** (92 passed, 1 skipped; file_state 16 passed) | `f7992f74` |
 | 2026-11-13 | D-041 | Independent security review verdict SAFE-WITH-CONDITIONS: R2 fixed in the same change; R1 (non-canonical callers keep documented historical broker semantics) accepted and recorded, not silently changed | EM | **RECORDED** | Worker B review |
 
+| 2026-11-13 | D-042 | R6 fixed (`d6c98847`): public HMAC fallback removed; env → per-install CSPRNG secret → fail closed. Review verdict SAFE-WITH-CONDITIONS; Windows ACL and atomic-creation residuals opened as T-27 | Founder (authorised) + EM | **DONE-VERIFIED** (102 passed) | T-25 |
+| 2026-11-13 | D-043 | R1 is a **product decision**: non-canonical callers can now overwrite an existing file without a token where the old CREATE path refused. Not changed unilaterally; T-26 records the options and recommends requiring a token only for user-owned provenance | EM | **AWAITING FOUNDER DECISION** | T-26 |
+| 2026-11-13 | D-044 | Publication gate passed (32 commits, 533 files, no forbidden paths, 3 known synthetic/doc scan hits). Branch `wip/working-tree-2026-11-12` pushed `bd43fe12..d6c98847`; Linux qualification run triggered: https://github.com/SriAkhilSJ/PulseAIRepo/actions/runs/43404607498 | Founder (authorised) | **PUSHED; RUN IN PROGRESS** | run 43404607498 |
+
 ## Rejected proposals
 
 | Date | Proposal | Why rejected | Revisit when |

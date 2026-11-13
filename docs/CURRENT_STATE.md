@@ -1431,3 +1431,23 @@ register accidentally truncated by a workspace copy)
 - P4 `b151a746` (79 passed). P5 `f2660e9f`. CI `5414ee16` prepared, not executed.
 - Linux still unmeasured; T-18 PARTIAL; T-07 gated.
 
+
+
+---
+
+## 2026-11-13 (R6 + publication)
+
+**Commit:** `d6c98847` · **Push:** `bd43fe12..d6c98847` · **CI run:** 43404607498
+
+- **R6 fixed:** no public constant can sign an approval token. Env override → per-install CSPRNG secret
+  (`$CRUSORAI_HOME/approval.key`, 0600) → fail closed. Rotation invalidates outstanding tokens by design.
+  Evidence: 7 new tests, 102 passed across token/security suites.
+- **Independent review: SAFE-WITH-CONDITIONS.** Residuals: Windows ACL is not actually restrictive; key creation
+  is non-atomic and trusts an existing file/symlink; `CRUSORAI_HOME` inside a workspace lets the agent read the
+  key; `src/security/contracts.py:169` derives a broker secret from pid+time. Opened as **T-27**.
+- **R1 is an open product decision (T-26):** non-canonical callers can overwrite an existing file without a
+  token where CREATE previously refused. Not changed unilaterally.
+- **Publication gate:** 32 commits, 533 files, no forbidden paths (no `.env`, DB, user-data, `req_*`), 3 scan
+  hits all previously verified synthetic/doc strings. Branch pushed; `main` untouched.
+- **Linux qualification run triggered** on py3.14 with parity deps and `--durations`; result pending.
+

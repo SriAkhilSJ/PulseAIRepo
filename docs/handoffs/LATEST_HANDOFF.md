@@ -682,3 +682,17 @@ Operation contract fixed in `f7992f74` (92 passed, 1 skipped). P4 `b151a746`. P5
 **Remaining T-18 blockers:** genuine Linux run; shell-boundary tests pending T-10/T-11; P2/P3/P6/P7/P8/P9
 classes from the T-23 inventory; T-24 performance work (separate). No push.
 
+
+
+---
+
+## 2026-11-13 (R6 + Linux run)
+
+R6 `d6c98847`. Push `bd43fe12..d6c98847`. Run 43404607498 (in progress).
+
+**Two open decisions:** T-26 (non-canonical overwrite: require token for user-owned provenance?) and T-27
+(Windows ACL + atomic key creation). Do not call R6 fully closed until T-27 lands.
+
+**Linux result must be read from the run**, not inferred. T-18 stays PARTIAL until it is green and the
+known-red classes are dispositioned.
+

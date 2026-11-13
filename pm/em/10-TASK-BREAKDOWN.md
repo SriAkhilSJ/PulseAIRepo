@@ -306,6 +306,38 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
   end-to-end + increment2/3 + orchestrator approval = 92 passed, 1 skipped, exit 0. CI prepared (`5414ee16`),
   not executed. P1 stays blocked by design; P2/P3/P6/P7/P8/P9 remain open.
 
+## W10 — Security hardening (T-25, T-26 · added 2026-11-13)
+
+### T-25 · Remove the public HMAC fallback (R6) — DONE
+- **Finding:** `risk_policy.py:29` signed approval tokens with
+  `crusor-workspace-discipline-salt-2026`, a public constant, so anyone who could read the source could mint a
+  token the broker accepted.
+- **Fix (`d6c98847`):** secret resolved per call — `CRUSOR_WORKSPACE_APPROVAL_KEY` override, else a per-install
+  CSPRNG secret at `$CRUSORAI_HOME/approval.key` (0600), else empty → mint raises, verify returns False.
+  Rotation = change env or delete the file. HMAC payload, 300 s expiry, single-use and cross-operation binding
+  unchanged.
+- **Evidence:** 7 new tests + **102 passed** across the token and security suites, exit 0.
+- **Independent review:** SAFE-WITH-CONDITIONS. Residuals recorded in T-27 below.
+
+### T-26 · Non-canonical overwrite authorization (R1) — **OPEN, needs a product decision**
+- After the operation-contract fix, `write_file` on an existing file routes to `modify_file`. For non-canonical
+  callers (`canonical_runtime=False`, e.g. dashboard/CLI) with `require_approval=False`, `modify_file` permits a
+  LOW_RISK overwrite that `create_file` previously refused. That is a permission expansion.
+- **Not changed unilaterally.** Options: (a) require a token for every existing-target write, (b) require it only
+  for user-owned provenance (needs a provenance signal in the tool path), (c) accept the expansion as the
+  approved autonomy policy. Recommendation: (b), because it preserves autonomous agent edits while keeping the
+  historical refusal for user-owned files.
+- **Blocks:** nothing in CI; it is a product/security decision.
+
+### T-27 · Secret storage hardening (from the R6 review) — OPEN
+- Windows `chmod(0o600)` only toggles the read-only attribute; ACLs stay inherited, so other local users can read
+  `approval.key` on a Windows-first product.
+- Key file creation is non-atomic (write at umask then chmod), does not use `O_EXCL`, and trusts an existing
+  file/symlink unvalidated.
+- If `CRUSORAI_HOME` points inside a workspace, the agent can read the key (the sensitive-path policy blocks
+  writing `*.key`, not reading it).
+- Separate pre-existing weakness: `src/security/contracts.py:169` derives a broker secret from `pid`+time.
+
 ## Summary
 
 | WS | Tickets | Effort |
