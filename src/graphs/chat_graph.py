@@ -2013,9 +2013,12 @@ def _turn_scoped_resets() -> dict[str, Any]:
         "turn_receipt": {},
         "approval_receipts": [],
         "mutation_receipts": [],
-        "task_action": "",
-        "task_status": "in_progress",
-        "task_completed": False,
+        # task_action / task_status / task_completed are deliberately NOT reset
+        # here. Every task_manager branch sets them explicitly, and expanding
+        # this dict *after* those keys silently overwrote them: task_action
+        # became "" on every turn, which made plan_cancelled,
+        # approval_without_plan, execute_approved_plan and revise_plan
+        # unreachable in after_task_manager. Turn-local valves only.
     }
 
 
@@ -5570,6 +5573,8 @@ def task_manager_node(
             "execution_mode": "agent",
             "plan_approved": True,
             "task_action": "execute_approved_plan",
+            "task_status": "in_progress",
+            "task_completed": False,
             "current_task": approved_task,
             "latest_instruction": latest_instruction,
             "user_interest": _interest(approved_task, "continue"),
@@ -5582,6 +5587,7 @@ def task_manager_node(
         return {
             "task_action": "approval_without_plan",
             "task_status": "idle",
+            "task_completed": False,
             "plan_approved": False,
             "latest_instruction": latest_instruction,
             "user_interest": _interest(current_task, "continue"),
@@ -5597,6 +5603,8 @@ def task_manager_node(
     ):
         return {
             "task_action": "revise_plan",
+            "task_status": "in_progress",
+            "task_completed": False,
             "latest_instruction": latest_instruction,
             "user_interest": _interest(current_task, "corrects"),
             "token_usage": state.get("token_usage", _zero_token_usage()),
@@ -7128,6 +7136,20 @@ class SafeToolNode:
         canonical_runtime = bool(
             (config or {}).get("configurable", {}).get("canonical_runtime", False)
         )
+        # Canonicalize names BEFORE the side-effect boundary below. The block
+        # classifies by name, so an unrepaired dialect alias would be denied
+        # under a name that never ran, and history would keep the alias. Both
+        # the alias (`terminal`) and the canonical name (`run_terminal`) are in
+        # _GRAPH_MUTATION_BLOCKED, so repairing first does not widen anything.
+        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
+        _repaired_ai = None
+        if _names_changed:
+            _repaired_ai = AIMessage(
+                content=last_msg.content,
+                tool_calls=tool_calls,
+                id=getattr(last_msg, "id", None),
+            )
+
         blocked: list[dict] = [
             tc for tc in tool_calls
             if str(tc.get("name") or "") in _GRAPH_MUTATION_BLOCKED
@@ -7142,22 +7164,24 @@ class SafeToolNode:
                 "mutation/read boundary",
                 flush=True,
             )
-            return {
-                "messages": [
-                    self._durable_denial(
-                        tc,
-                        (
-                            f"Blocked by runtime policy: `{tc.get('name', '')}` "
-                            "is not allowed to run in this runtime. Operation NOT "
-                            "executed. Unsupported workspace/shell mutations stay "
-                            "disabled until they use the canonical "
-                            "WorkspaceMutationBroker with digest-bound approval."
-                        ),
-                        config,
-                    )
-                    for tc in tool_calls
-                ]
-            }
+            denials = [
+                self._durable_denial(
+                    tc,
+                    (
+                        f"Blocked by runtime policy: `{tc.get('name', '')}` "
+                        "is not allowed to run in this runtime. Operation NOT "
+                        "executed. Unsupported workspace/shell mutations stay "
+                        "disabled until they use the canonical "
+                        "WorkspaceMutationBroker with digest-bound approval."
+                    ),
+                    config,
+                )
+                for tc in tool_calls
+            ]
+            # Keep the repaired assistant message in history (same id, so
+            # add_messages replaces it): the transcript must show the bound name
+            # that policy actually judged, not the dialect alias.
+            return {"messages": ([_repaired_ai] if _repaired_ai is not None else []) + denials}
 
         # hermes _uniquify_tool_call_ids (#58327): models occasionally
         # reuse or omit call ids inside one batch — a reused id silently
@@ -7167,7 +7191,6 @@ class SafeToolNode:
         from src.graphs.parallel_tools import repair_tool_call_ids
         _repaired_tcs, _ids_changed = repair_tool_call_ids(tool_calls)
         tool_calls = _repaired_tcs
-        _repaired_ai = None
         if _ids_changed:
             _repaired_ai = AIMessage(
                 content=last_msg.content,
@@ -7303,18 +7326,9 @@ class SafeToolNode:
                 for tc in tool_calls
             ])
 
-        # Canonicalize names before phase, permission, and SafetyGuard checks.
-        # Repairing only at the executor boundary lets an alias or typo be
-        # approved as an unknown (default-safe) name and then turn into a real
-        # shell/file tool after policy has already run. Incomplete responses
-        # above are rejected without touching the tool registry at all.
-        tool_calls, _names_changed = self._repair_tool_call_names(tool_calls)
-        if _names_changed:
-            _repaired_ai = AIMessage(
-                content=last_msg.content,
-                tool_calls=tool_calls,
-                id=getattr(last_msg, "id", None),
-            )
+        # Name repair already ran above, BEFORE the side-effect boundary, so an
+        # alias cannot be denied (or approved) under a name it never had. The
+        # repair is intentionally not repeated here.
 
         # Increment 2: unknown tools have no side-effect classification and
         # fail closed in the canonical runtime. Name repair ran first, so a

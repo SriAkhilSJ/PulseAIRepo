@@ -111,19 +111,32 @@ def test_blank_name_gets_the_terse_anti_priming_text(tmp_path):
     assert "Available tools:" not in results[0].content
 
 
-def test_hermes_dialect_name_is_repaired_and_executed(tmp_path):
+def test_hermes_dialect_name_is_repaired_and_policy_checked(tmp_path):
+    """Dialect repair rewrites the name; execution still obeys runtime policy.
+
+    `terminal` is a hermes-dialect alias that must be repaired to the bound
+    `run_terminal` name so history shows what actually ran. Execution is a
+    separate question: the canonical graph blocks shell tools by policy until
+    the broker + scrubbed-env work lands (AGENTS.md, audit F-03; T-10/T-12).
+    This test used to assert execution, which contradicted that documented
+    posture. It now pins both halves: repair happens, and the blocked call is
+    reported as an error that says it did not run.
+    """
     node = _node(tmp_path)
     state = {"messages": [AIMessage(content="", tool_calls=[
         {"name": "terminal", "args": {"command": "echo repair-e2e"}, "id": "c1"},
     ])]}
     results = node(state, _config(tmp_path))["messages"]
-    # The assistant message is rewritten (same id) so history shows the bound
-    # name, then the call executes as run_terminal.
+    # The assistant message is rewritten (same id) so history shows the bound name.
     repaired_ai = [m for m in results if isinstance(m, AIMessage)]
     assert repaired_ai and repaired_ai[0].tool_calls[0]["name"] == "run_terminal"
     executed = [m for m in results if isinstance(m, ToolMessage)]
     assert executed and executed[0].tool_call_id == "c1"
-    assert "repair-e2e" in executed[0].content
+    assert executed[0].status == "error"
+    assert "Blocked by runtime policy" in executed[0].content
+    assert "NOT executed" in executed[0].content
+    # The policy block is real: nothing ran, so the echo never produced output.
+    assert "repair-e2e" not in executed[0].content
 
 
 def test_repaired_terminal_name_is_safety_checked_before_execution(tmp_path):
@@ -143,9 +156,19 @@ def test_repaired_terminal_name_is_safety_checked_before_execution(tmp_path):
     results = node(state, _config(tmp_path))["messages"]
 
     assert (protected / "keep.txt").read_text(encoding="utf-8") == "keep"
-    assert len(results) == 1
-    assert isinstance(results[0], AIMessage)
-    assert "confirmation" in str(results[0].content).lower()
+    # T-22: the alias used to slip past the mutation boundary under its raw name
+    # ("run terminal" is not in the blocked set), get repaired, and reach a
+    # confirmation prompt. Names are now canonicalized before the boundary, so
+    # the call is denied outright - the stronger, fail-closed outcome.
+    denials = [m for m in results if isinstance(m, ToolMessage)]
+    assert len(denials) == 1
+    assert denials[0].status == "error"
+    assert "Blocked by runtime policy" in denials[0].content
+    assert "NOT executed" in denials[0].content
+    assert not any(
+        "confirmation" in str(getattr(m, "content", "")).lower()
+        for m in results if isinstance(m, AIMessage)
+    ), "a blocked alias must not reach an approval prompt"
 
 
 def test_progress_printer_prints_fresh_labels_not_the_stale_tail():

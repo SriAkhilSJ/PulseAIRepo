@@ -815,3 +815,25 @@ def test_plan_prompt_carries_versioned_interest_contract(tmp_path):
     assert "Only touch Agent Core" in prompt
     assert "do not deploy" in prompt
     assert out["plan_goal"] == "Implement the router."
+
+
+def test_turn_scoped_resets_do_not_clobber_task_action():
+    """Regression (T-22): the reset dict was expanded after task_action, so the
+    explicit value was overwritten with "". That made plan_cancelled,
+    approval_without_plan, execute_approved_plan and revise_plan unreachable in
+    after_task_manager, and every turn reported task_action="".
+    """
+    import src.graphs.chat_graph as cg
+
+    resets = cg._turn_scoped_resets()
+    for key in ("task_action", "task_status", "task_completed"):
+        assert key not in resets, f"{key} belongs to the branch, not the turn reset"
+
+    out = cg.task_manager_node(
+        {"messages": [HumanMessage("Implement Agent Core interest routing and run tests.")],
+         "current_task": ""},
+        {"configurable": {"thread_id": "reset-guard", "workspace": "."}},
+    )
+    assert out["task_action"] == "new"
+    assert out["task_status"] == "in_progress"
+    assert out["task_completed"] is False
