@@ -1,10 +1,10 @@
 # CrusorAI - Architecture
 
-**Snapshot:** `604605b2a02b3b1b6960f7959f4c122aeeed8bd4` (2026-11-09)
-**Method:** source inspection. Paths are relative to the repository root.
-**Scope note:** this describes the committed architecture. Uncommitted
-working-tree changes are called out separately in
-`docs/BUGS_AND_LIMITATIONS.md`.
+**Snapshot:** `fb5bd528b40933346c4004a1490154683dc0d40e` (2026-11-12 engineering audit)
+**Method:** source inspection at HEAD plus the uncommitted working tree.
+**Scope note:** this describes the architecture as implemented. Where HEAD and
+the working tree differ, the text says which. The verified condition of record
+and findings are in `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md`.
 
 **Agent runtime consolidation decision:** section 14 (2026-11-09).
 
@@ -32,7 +32,7 @@ working-tree changes are called out separately in
 |                                                                       |
 |  bridge (src/bridge)                                                  |
 |    sessions, turns, queue, steer, cancel, replay, approvals           |
-|    orchestrator route (default) or legacy chat graph                  |
+|    stream_agent (single owner); engineering delegated                 |
 |                                                                       |
 |  orchestration (src/orchestration)                                    |
 |    EngineeringExecutionOrchestrator: plan -> dispatch -> verify       |
@@ -109,12 +109,15 @@ runtime schema validator on both ends.
 
 Primary graph: `src/graphs/chat_graph.py`.
 
-**Current routing (verified at HEAD):** the bridge sends `agent`/`plan` to
-`EngineeringExecutionOrchestrator.run_task` (`src/bridge/__main__.py:1374,1467`)
-and `ask`/`debug` (or `CRUSORAI_ORCHESTRATOR_ENGINE=legacy`) to
-`stream_agent` (`:1539`). This is the competing-owner state that section 14
-resolves: the target has one canonical turn lifecycle in LangGraph with the
-orchestrator delegated as an engineering engine.
+**Current routing (verified 2026-11-12 at HEAD + working tree):** the bridge
+has **one** interactive owner. Every prompt calls `stream_agent(...
+canonical_runtime=True)` (`src/bridge/__main__.py:1640-1688`); `agent`/`plan`
+work is delegated inside the graph by `engineering_task_node`
+(`src/graphs/chat_graph.py:5261-5460`), and `ask` stays conversational. The
+historical direct `EngineeringExecutionOrchestrator.run_task` branch and the
+`CRUSORAI_ORCHESTRATOR_ENGINE` selector were removed; no environment flag can
+reactivate them. (The pre-2026-11-10 competing-owner text that used to sit here
+is superseded by ADR-026 and audit F-12.)
 
 Registered nodes (verified at `builder.add_node`):
 
@@ -141,8 +144,8 @@ Supporting modules:
 - `src/graphs/gates.py`, `budget.py`, `loop_guards.py`, `progress_guard.py`,
   `task_validation.py`, `parallel_tools.py`, `verification_helpers.py`.
 - `src/orchestration/orchestrator.py` - `EngineeringExecutionOrchestrator`,
-  selected by the bridge for `agent`/`plan` modes unless
-  `CRUSORAI_ORCHESTRATOR_ENGINE=legacy`.
+  invoked **only** from the graph's `engineering_task_node`; the bridge no
+  longer selects it directly.
 
 Streaming entry points: `stream_agent`, `get_agent_status`,
 `fork_conversation`, `export_session_analytics`.
@@ -203,19 +206,27 @@ through `TokenUsage` and status contracts.
 |---|---|---|
 | Safety guard and approvals | `src/context/safety_guard.py`, graph permission logic | Classifies risky actions, requests approval, fails closed on timeout/cross-session resolve. |
 | Mutation broker | `src/workspace/mutation_broker.py` | Ownership, snapshots, hashes, rollback for workspace writes. |
-| Execution broker | `src/security/execution_broker.py`, `contracts.py` | Single chokepoint for process creation; approval token, workspace jail, env allowlist, output caps, receipt hash. |
+| Execution broker | `src/security/execution_broker.py`, `contracts.py` | Approval token, workspace jail, env allowlist, output caps, receipt hash. **Not the default process path:** terminal tools use it only when `CRUSOR_SANDBOX_TERMINAL=1`, and test execution calls `subprocess` directly (F-03). |
 | OS sandboxes | `src/security/sandbox/{windows,linux,macos,manager}.py` | Windows AppContainer/Job Objects, Linux namespaces/cgroups, macOS sandbox-exec, fail-closed stub. |
 | MCP/browser security | `src/security/mcp/`, `src/security/browser/` | Tool authorization and browser boundary rules. |
-| Identity/RBAC | `src/identity/` | Roles, authorization, tenancy, audit, resource guard, tool authorizer. Implemented; not wired into the live tool path. |
+| Identity/RBAC | `src/identity/` | Roles, authorization, tenancy, audit, resource guard, tool authorizer. **Partial:** called only by the engineering adapter with a hard-coded superadmin, so it cannot deny (F-07). |
 | Static/import guards | `scripts/agent_core_checkup.py`, `src/tests/test_security_containment.py` | Blocks import-time process spawn, writes outside the repo, security API payloads; exact grant body and sync/async ownership, bindings, structures, imports, module declarations, helper body and manager manifests. |
 | Windows runtime harness | `src/tests/test_windows_sandbox_runtime.py`, `src/tests/native/net_probe.c` | Windows-only Job Object/AppContainer runtime evidence; 1 MiB output pipes; native network isolation proof; opt-in AppContainer tests never write machine ACLs. |
-| CI gate | `.github/workflows/security-guard.yml` | Runs the security containment suite on Ubuntu, Windows, macOS. |
+| CI gate | `.github/workflows/security-guard.yml` | Runs the security containment suite on Ubuntu, Windows, macOS. Triggers only on its own four files, not on general `src/**` changes (F-02). |
+
+**Process-execution reality (2026-11-12).** The canonical graph blocks shell
+tools (`_GRAPH_MUTATION_BLOCKED` in `chat_graph.py:1470-1478`), so the default
+interactive turn cannot reach a terminal tool. However the terminal
+implementation still inherits the full process environment and sandboxes only
+on opt-in, and test execution runs model-generated tests through a raw
+subprocess. Treat the broker as an available boundary, not the enforced one,
+until F-03 is closed.
 
 ## 9. Persistence and storage
 
 | Store | Location | Contents |
 |---|---|---|
-| Session checkpoints | `~/.crusorai/sessions.db` (SQLite) | LangGraph checkpoints, session state. |
+| Session checkpoints | `~/.crusorai/sessions.db` (SQLite, env-resolved) | LangGraph checkpoints, session state. Path precedence: `CRUSORAI_CHECKPOINT_DB` > `CRUSORAI_CHECKPOINT_HOME` > `CRUSORAI_SESSIONS_DB` > `CRUSORAI_HOME` > default. Connection is lazy (no import-time open). Retention/vacuum remain open (F-05 PARTIAL). |
 | Financial store | same `sessions.db` or `CRUSORAI_FINANCIAL_DB` | Reservations, invocations, settlements, ledger. |
 | Workspace runtime | `<workspace>/.crusorai/` | `submissions/`, `finops/`, `journals/`, `test_reports/`, `target-evidence/`, project intelligence/baseline. |
 | Event/journal | JSONL under workspace/home | Turn events, run state, submission event stream. |
@@ -223,7 +234,11 @@ through `TokenUsage` and status contracts.
 | Evidence | `diagnostics/`, `bench-results/`, `benchmarks/` | Immutable run packages and reports. |
 
 SQLite is the canonical durable store. Financial records also exist in JSONL
-ledgers; they are reconciled but are not one transactional store.
+ledgers; they are reconciled but are not one transactional store. On this host
+`~/.crusorai/sessions.db` is 937 MB and 426 `code_index_*.db` files total
+~1.88 GB with no pruning/vacuum (F-05 PARTIAL; path/import isolation was fixed
+by P1-A). Checkpoints follow the env override contract above; do not assume
+they always live in the default home.
 
 ## 10. APIs and local services
 
@@ -240,16 +255,21 @@ bind guard.
 ## 11. Testing and CI
 
 - Pytest config: `pytest.ini`, `testpaths = src/tests`, `pythonpath = .`.
-- 334 `test_*.py` modules under `src/tests/`; additional suites under
+- 363 `test_*.py` modules under `src/tests/`; additional suites under
   `tests/e2e/`, `apps/personal_finance/tests/`, and desktop/webview projects.
+  `pytest --collect-only` currently reports **4,968 tests and 3 collection
+  errors**; three modules are known red (F-02).
 - Workflows:
   - `agent-core-checkup.yml` - keyless body checkup on every `src/**` push.
-  - `security-guard.yml` - cross-platform security suite (Python 3.14).
+  - `security-guard.yml` - cross-platform security suite (Python 3.14); triggers
+    only on its own four files, not general `src/**` changes.
   - `host-compatibility.yml` - target contracts on Windows/macOS/Linux.
   - `diagnosability.yml` - termination/token contracts.
-  - `e2e-core.yml` - real GLM 5.3 turn through the real graph.
+  - `e2e-core.yml` - real GLM 5.3 turn through the real graph; `main`/`arena/**`
+    pushes or manual only (not this branch).
   - `long-session.yml` - multi-turn stamina under token/cost caps.
-  - `verify-provider-key.yml` - secret shape and live provider calls.
+  - `verify-provider-key.yml` - secret shape and live provider calls; same
+    trigger limits.
 
 ## 12. Deployment and build
 
@@ -263,28 +283,33 @@ bind guard.
 
 ## 13. Architectural risks
 
-1. Two agent paths exist today (graph vs orchestrator); behaviour can diverge.
-   Section 14 selects LangGraph as the single turn lifecycle and the
-   orchestrator as a delegated engineering engine; the migration is not yet
-   implemented.
+1. **One owner for the desktop, not for every entry point.** LangGraph is the
+   single interactive lifecycle and the orchestrator is delegated inside it.
+   Dashboard/CLI `stream_agent` callers omit `canonical_runtime=True`, so they
+   skip engineering delegation and mutation-token minting (F-10).
 2. Desktop protocol lacks frames for several intelligence artifacts.
-3. Identity/RBAC is implemented but not enforced in the live tool path.
+3. Identity/RBAC is only vacuously wired in the engineering adapter and cannot
+   deny (F-07).
 4. Financial state spans SQLite and JSONL with reconciliation, not a single
-   transaction.
+   transaction; post-dispatch cancellation under-counts (F-08).
 5. Long-turn token cost remains the dominant economic risk.
 6. The desktop fork carries 18k vendored files; upstream drift and build
    reproducibility require the manifest checks.
+7. Generation binds no tools; targeted editing and test-driven repair are not
+   implemented (F-01).
 
 Details and status: `docs/BUGS_AND_LIMITATIONS.md`.
 
 ## 14. Agent runtime consolidation decision (2026-11-09)
 
-**Status:** FROZEN / QUALIFIED (2026-11-11). Increments 1–3 are closed. The
-canonical LangGraph lifecycle, engineering delegation, checkpoint replay,
-provider-boundary fixture, Windows path identity and fresh bridge-process
-recovery are qualified in `bench-results/phase-3.3-canonical-runtime/`.
+**Status:** FROZEN / QUALIFIED (2026-11-11) for the desktop path. Increments 1–3
+are closed. The canonical LangGraph lifecycle, engineering delegation,
+checkpoint replay, provider-boundary fixture, Windows path identity and fresh
+bridge-process recovery are qualified in `bench-results/phase-3.3-canonical-runtime/`.
 Remaining product limitations are recorded in `FINAL_CLOSURE_REPORT.md`; no new
-runtime or migration phase is authorized.
+runtime or migration phase is authorized. The 2026-11-12 audit adds two
+qualifiers: generation binds no tools (F-01) and dashboard/CLI callers are not
+canonical (F-10).
 
 **Baseline:** `604605b2a02b3b1b6960f7959f4c122aeeed8bd4`,
 `feat/prompt-cache-stabilization`.
@@ -311,6 +336,29 @@ showing orchestrator turns leave `session_messages` empty
 (`bench-results/phase-2-desktop-qualification-r2/logs/probe-orchestrator-default.out.txt`).
 
 ### 14.2 Actual state today
+
+> **SUPERSEDED 2026-11-12 (audit F-12).** Sections 14.2.1–14.2.5 preserve the
+> pre-Increment analysis that motivated the migration. They are **history**, not
+> current behaviour. Corrections verified against HEAD `fb5bd528` + working tree:
+>
+> - The bridge has no orchestrator branch and no
+>   `CRUSORAI_ORCHESTRATOR_ENGINE` selector. It always calls
+>   `stream_agent(canonical_runtime=True)` (`src/bridge/__main__.py:1640-1688`).
+> - The graph **can** run: `src/context/compaction.py` exports the two helpers
+>   that B-DESK-001 reported missing; B-DESK-001 is fixed.
+> - `src/tools/file_tools.py` routes `write_file`/`edit_file` through
+>   `WorkspaceMutationBroker` **at HEAD**; B-001 is fixed.
+> - The orchestrator does not call `ContextEngine` itself, but the graph now
+>   assembles one bounded bundle and passes it across the delegation boundary
+>   (`context_engine.py:114-230`, `model_adapter.py:707-738`). "No context at
+>   all" is no longer accurate.
+> - Dashboard/CLI `stream_agent` callers still omit `canonical_runtime=True`
+>   (F-10), so "one owner" is true for the desktop, not for every entry point.
+> - Engineering still binds no generation tools (F-01); the "strongest safety
+>   chain" statement below remains true for mutations only.
+>
+> The detailed table in §14.2.5 is retained as the historical integration
+> classification.
 
 #### 14.2.1 Desktop to bridge
 
@@ -722,3 +770,112 @@ regression lane; live runs are a separate, budget-capped lane.
    architecture but weakens the "repair" evidence until fixed.
 8. **No production cloud topology is verified** in this repository; the target
    above is a design, not an implemented deployment.
+
+### 14.14 Engineering progress and plan outcomes (2026-11-11, uncommitted)
+
+The engineering node no longer computes progress and discards it. The data path is:
+
+```text
+scheduler settles a DAG node
+  → AdaptiveContextManager.record_task_outcome (completed / failed / blocked / cancelled)
+  → orchestrator.emit_progress (DesktopVisibilityReporter snapshot, 240/turn cap)
+  → EngineeringProgressReporter.on_progress
+      ├─ agent.card    → activity card  <turn>:activity
+      └─ plan.created  → plan card      <turn>:plan
+  → event_bus → Bridge._project_event → agent_card / plan_updated
+  → renderer acceptFrame → existing plan card + plan strip → journal replay
+```
+
+Rules:
+
+- Completion is recorded only from the scheduler's settled `COMPLETED`; stage
+  labels, `DELIVERED` and terminal receipts never back-fill the plan.
+- The plan contract is `pending | in_progress | completed | failed | blocked |
+  cancelled`; blocked/cancelled remain distinct from failed (additive, schema
+  v1). `SKIPPED` maps to `blocked` because the scheduler has no intentional-skip
+  outcome.
+- One settled snapshot is marked `final` so it passes the post-Stop suppression.
+- Engineering state, authoritative context and journal are per turn
+  (`app_data_root(workspace)/orchestration/<task_id>`); a shared directory
+  previously leaked terminal state across turns.
+- Node completion is a work-unit fact, separate from the task verdict; delivery
+  and verification cards remain authoritative for the overall outcome.
+
+### 14.15 Workspace discovery before planning (Phase 2A, 2026-11-12, uncommitted)
+
+- The engineering path performs **read-only discovery inside the existing
+  `PROJECT_DISCOVERY` stage**, before `CONTRACT_EXTRACTION`. No new lifecycle
+  stage, no new turn owner, no new event system.
+- Capabilities: `workspace.list_files`, `workspace.read_file`,
+  `workspace.search` (`src/workspace/discovery.py`). Bounded depth / entries /
+  bytes / lines / results / time; ignore set from `repo_map.IGNORED_DIRS`;
+  containment, symlink and sensitive-name checks from
+  `PathSafetyValidator`; no shell, no mutation, no binary reads.
+- Evidence (`src/workspace/evidence.py`) is a ranked, bounded set of discovered
+  files plus ≤4 excerpts. It is journalled as `WORKSPACE_TOOL_CALL` (per call,
+  with tool_call_id/event_id/session/turn/task identity, duration, size,
+  truncation) and `WORKSPACE_DISCOVERED` (paths and reasons only, never file
+  contents).
+- Contract resolution order is explicit → user-requested → **discovered** →
+  synthesis. Synthesis is reached only when no role candidate exists and is
+  named from the request (`src/<symbol>.py`), never from a requirement id.
+  `validate_contract_plan` rejects requirement-id targets whenever evidence is
+  present; ambiguity blocks the plan before any dispatch.
+- Plan nodes carry a bounded `workspace_evidence` digest (target + ≤3
+  neighbours with symbols and short excerpts) that
+  `ModelExecutionAdapter._contract_block` renders next to the existing file
+  content. Generation and mutation semantics are unchanged (whole-file
+  regeneration through the broker and approval gateway).
+- Discovery failures are fail-soft and journalled
+  (`WORKSPACE_DISCOVERY_FAILED`); cancellation is honoured mid-walk and returns
+  a CANCELLED delivery without a plan.
+
+### 14.16 Outside-workspace reads with a human grant (Phase 2D, 2026-11-12)
+
+- A path outside the workspace is **read** only after one explicit approval for
+  that exact canonical boundary. The request rides the existing
+  `tool.approval.request` event (`name="workspace.access"`) and the existing
+  session `ApprovalQueue`; no new approval system and no frontend change.
+- Grants (`src/workspace/access_grants.py`) are turn-scoped (`once`/`turn`),
+  never persisted, exact-boundary (a folder grant does not allow its parent or
+  a `lib2` sibling), and never cover sensitive names. `read` and `write` are
+  separate; only reads exist today.
+- `WorkspaceDiscovery` resolves absolute paths inside the workspace directly.
+  Outside, it returns `access_required` until a grant exists. `../`, UNC,
+  drive-relative, NUL, device names and symlink escapes stay hard rejections
+  and never become prompts.
+- External evidence is **context only**: `add_external_reference` reads at most
+  two files (2.5 KB each) into `WorkspaceEvidence.external`, which is attached
+  to the plan node as a read-only neighbour. It never enters `ranked`, so it
+  cannot become a plan target unless a **write** grant covers it.
+- Writes outside the workspace use the same grant boundary: `create_file` /
+  `modify_file` resolve an absolute external path only when a `write` grant
+  covers it **and** a diff-bound mutation token is supplied; the broker refuses
+  outside writes without both. `delete_file` / `rename_file` / `copy_file` stay
+  workspace-only.
+- The read-only `VerificationAuthority` may inspect a granted external file and
+  still never writes.
+- Journal: `WORKSPACE_ACCESS_REQUESTED / GRANTED / DENIED`; delivery carries
+  `outside_workspace_access` and lists denials as limitations. Grants are
+  installed at discovery and cleared in `run_task`'s `finally`.
+
+### 14.17 2026-11-12 audit corrections to this document
+
+| Claim in this document (pre-audit) | Verified 2026-11-12 | Finding |
+|---|---|---|
+| Bridge routes `agent`/`plan` to the orchestrator; two owners | Bridge always calls `stream_agent`; one desktop owner | F-12 |
+| The graph "cannot run at all" (B-DESK-001) | Compaction helpers exist; graph runs | F-12 |
+| `file_tools.py` at HEAD bypasses the broker (B-001) | Broker wired at HEAD | F-12 |
+| Execution broker is the single process chokepoint | Broker is opt-in; terminals/test exec bypass | F-03 |
+| Identity/RBAC "not wired" | Wired with a hard-coded superadmin; cannot deny | F-07 |
+| 334 test modules, clean-ish suite | 362 modules, 4,953 collected, 3 collection errors | F-02 |
+| Checkpoints in `~/.crusorai/sessions.db` (implied isolated) | Now env-resolved and lazy; tests isolate the store. Retention/vacuum remain open | F-05 |
+| `src/observability.py` provides turn receipts | The `src/observability/` package shadows it; the import is swallowed | F-06 |
+| Bridge comment: interactive sessions default to `ask` | Code default is `workspace_session`; acceptance scripts force `ask` | F-04 |
+| Engineering receives full context (or none) | Graph builds one bounded bundle; engine does no retrieval | F-01 |
+| Requirement-id synthesis impossible | Still falls back without discovery evidence | F-01 |
+
+The runtime sequence in §14.5 remains the intended target. The desktop
+implements it; generation still lacks tools, and non-desktop callers are not
+canonical. See `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` for the evidence
+behind each row.

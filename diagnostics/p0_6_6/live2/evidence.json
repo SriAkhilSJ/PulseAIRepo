@@ -1,0 +1,780 @@
+{
+  "run_id": "p0_6_5_20261107T160308_55845e6f",
+  "started_at": "2026-11-08T00:03:08.062Z",
+  "prompt": "Create src/email_validator.py with a function validate_email(address) that returns True only for a plausible email address, raises ValueError for non-strings, and has a docstring. Add focused unit tests in tests/test_email_validator.py and run them. Do not modify unrelated files.",
+  "prompt_sha256": "94c1c87e60ecf1809421a83ba53ee68df18103300028b1be8fb978791f5c3439",
+  "gates": {
+    "renderer_workbench": {
+      "ok": true,
+      "detail": {
+        "workbench_ready": true,
+        "belongs_to_crusor": true,
+        "identity": {
+          "title": "crusor_p0_6_5_ws_hou8e__e - CrusorAI IDE Dev",
+          "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+          "hasWorkbench": true,
+          "bodyClasses": "",
+          "vscodeApiPresent": true,
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) crusorai-dev/1.134.0 Chrome/148.0.7778.280 Electron/42.8.1 Safari/537.36",
+          "isElectron": true,
+          "devicePixelRatio": 1.5,
+          "viewport": {
+            "w": 1284,
+            "h": 673
+          }
+        }
+      },
+      "at": "2026-11-08T00:03:29.474Z"
+    },
+    "composer_available": {
+      "ok": true,
+      "detail": {
+        "selector": "textarea.crusorai-composer-input",
+        "count": 1,
+        "visible": true,
+        "enabled": true,
+        "text": "",
+        "tag": "TEXTAREA",
+        "id": "",
+        "cls": "crusorai-composer-input",
+        "placeholder": "Ask anything, / for commands, @ for context...",
+        "rect": {
+          "x": 995,
+          "y": 382,
+          "w": 278,
+          "h": 67
+        }
+      },
+      "at": "2026-11-08T00:03:29.578Z"
+    },
+    "engine_ready": {
+      "ok": true,
+      "detail": {
+        "ready": true,
+        "state": {
+          "present": true,
+          "text": "Crusor readyui 2026-10-25-42",
+          "cls": "crusorai-engine-status is-ready"
+        },
+        "samples": [
+          {
+            "at": 73426.041,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73426.444,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73426.847,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73427.251,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73427.658,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73428.061,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73428.464,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73428.869,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73429.324,
+            "present": true,
+            "text": "Engine startingui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-running"
+          },
+          {
+            "at": 73429.728,
+            "present": true,
+            "text": "Crusor readyui 2026-10-25-42",
+            "cls": "crusorai-engine-status is-ready"
+          }
+        ]
+      },
+      "at": "2026-11-08T00:03:55.923Z"
+    },
+    "worker_bridge_owned": {
+      "ok": true,
+      "detail": {
+        "worker_pids": [
+          3148,
+          12192,
+          13992,
+          15204,
+          17652,
+          18756
+        ],
+        "bridge_pids": [
+          23732,
+          26840
+        ],
+        "owned_bridge_pids": [
+          23732,
+          26840
+        ],
+        "ancestry_ok": true
+      },
+      "at": "2026-11-08T00:03:58.195Z"
+    },
+    "acceptance_guard_in_app_bridge": {
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "run_id_matches": true,
+        "max_dispatches": 5,
+        "attempts_per_dispatch": 1,
+        "dispatches_used": 0,
+        "pid": 26840,
+        "owned_bridge_pids": [
+          23732,
+          26840
+        ],
+        "bridge_pid": null,
+        "pid_matches_bridge": true,
+        "claims": []
+      },
+      "at": "2026-11-08T00:03:58.200Z"
+    },
+    "prompt_typed": {
+      "ok": true,
+      "detail": {
+        "focused": {
+          "focused": true,
+          "disabled": false,
+          "readonly": false
+        },
+        "typed_matches_prompt": true,
+        "typed_length": 280,
+        "typed_sha256": "94c1c87e60ecf1809421a83ba53ee68df18103300028b1be8fb978791f5c3439"
+      },
+      "at": "2026-11-08T00:03:58.267Z"
+    },
+    "ui_submission_identified": {
+      "ok": true,
+      "detail": {
+        "composer_after_submit": "",
+        "method": "enter"
+      },
+      "at": "2026-11-08T00:03:58.877Z"
+    },
+    "turn_manifest_prompt_match": {
+      "ok": true,
+      "detail": {
+        "expected": "94c1c87e60ecf1809421a83ba53ee68df18103300028b1be8fb978791f5c3439",
+        "manifest": "94c1c87e60ecf1809421a83ba53ee68df18103300028b1be8fb978791f5c3439"
+      },
+      "at": "2026-11-08T00:04:12.945Z"
+    }
+  },
+  "stages": {
+    "workspace": {
+      "at": "2026-11-08T00:03:09.407Z",
+      "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e",
+      "git_status": "",
+      "git_head": "d9eadb888ab38d9c35092ae7b5518260879c55c5",
+      "inventory": [
+        "README.md"
+      ]
+    },
+    "git": {
+      "at": "2026-11-08T00:03:10.345Z",
+      "branch": "feat/prompt-cache-stabilization",
+      "head": "3c804eb3f509e65245a5d1660593ef15b29477be",
+      "desktop_dirty": 0
+    },
+    "electron_launch": {
+      "at": "2026-11-08T00:03:10.387Z",
+      "pid": 2988,
+      "port": 55121,
+      "exe": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+      "argv": [
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode",
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e",
+        "--remote-debugging-port=55121",
+        "--user-data-dir=C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\user-data",
+        "--remote-allow-origins=http://127.0.0.1",
+        "--enable-logging",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--skip-welcome",
+        "--skip-release-notes",
+        "--disable-telemetry",
+        "--disable-crash-reporter"
+      ],
+      "env_keys": [
+        "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+        "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+        "CRUSORAI_ACCEPTANCE_RUN_ID",
+        "CRUSORAI_BRIDGE_DIAGNOSTICS",
+        "CRUSORAI_COST_GOVERNANCE",
+        "CRUSORAI_EVIDENCE_DIR",
+        "CRUSORAI_HOME",
+        "CRUSORAI_MEMORY",
+        "CRUSORAI_RESERVE_BUDGET_INR",
+        "CRUSORAI_SESSION_COST_BUDGET_INR",
+        "CRUSORAI_TURN_COST_BUDGET_INR"
+      ],
+      "portable_dir": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable"
+    },
+    "cdp": {
+      "at": "2026-11-08T00:03:15.664Z",
+      "port": 55121,
+      "requested_port": 55121,
+      "browser": "Chrome/148.0.7778.280",
+      "protocol_version": "1.3",
+      "target": {
+        "id": "83788A88138A65A33D56EACCA78041D2",
+        "type": "page",
+        "title": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "websocket_origin": "ws://127.0.0.1:55121",
+        "browser_context_id": ""
+      },
+      "loopback_only": true
+    },
+    "panel_stability": {
+      "at": "2026-11-08T00:03:39.298Z",
+      "ok": true,
+      "attempts": [
+        {
+          "at": 73407.03,
+          "reopen": [
+            {
+              "strategy": "dom-click",
+              "result": {
+                "clicked": "[aria-label*='Crusor']",
+                "tag": "DIV",
+                "label": "Crusor"
+              }
+            },
+            {
+              "strategy": "ctrl+l",
+              "result": "dispatched"
+            },
+            {
+              "strategy": "ctrl+l",
+              "ok": true
+            }
+          ]
+        }
+      ],
+      "stable_samples": 2
+    },
+    "processes": {
+      "at": "2026-11-08T00:03:58.191Z",
+      "main_pid": 2988,
+      "worker_pids": [
+        3148,
+        12192,
+        13992,
+        15204,
+        17652,
+        18756
+      ],
+      "workers": [
+        {
+          "pid": 17652,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=network.mojom.NetworkService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708989122997041 --mojo-platform-channel-handle=1960 /prefetch:11",
+          "created_at": "/Date(1794096191163)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 13992,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --nolazy --inspect=5878 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708990997080739 --mojo-platform-channel-handle=5660 /prefetch:14",
+          "created_at": "/Date(1794096207152)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 3148,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --nolazy --experimental-network-inspection --inspect=5879 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708991934122588 --mojo-platform-channel-handle=3828 /prefetch:14",
+          "created_at": "/Date(1794096208270)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 12192,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708992871164437 --mojo-platform-channel-handle=7092 /prefetch:14",
+          "created_at": "/Date(1794096208342)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 18756,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708993808206286 --mojo-platform-channel-handle=4952 /prefetch:14",
+          "created_at": "/Date(1794096208388)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        },
+        {
+          "pid": 15204,
+          "ppid": 2988,
+          "name": "CrusorAI.exe",
+          "command_line": "\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe\" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sandbox-type=none --no-sandbox --dns-result-order=ipv4first --experimental-network-inspection --nolazy --inspect=127.0.0.1:5870 --user-data-dir=\"C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\portable\\user-data\" --standard-schemes=vscode-webview,vscode-file --secure-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --cors-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --fetch-schemes=vscode-webview,vscode-file,vscode-remote-resource,vscode-managed-remote-resource --service-worker-schemes=vscode-webview --code-cache-schemes=vscode-webview,vscode-file --field-trial-handle=1724,i,9860450499457813561,18144632951443973517,262144 --enable-features=DocumentPolicyIncludeJSCallStacksInCrashReports,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,PdfUseShowSaveFilePicker --disable-features=CalculateNativeWinOcclusion,DropInputEventsWhilePaintHolding,LocalNetworkAccessChecks,NetworkServiceSandbox,ScreenAIOCREnabled,SpareRendererForSitePerProcess,TraceSiteInstanceGetProcessCreation --variations-seed-version --pseudonymization-salt-handle=1728,i,8860310044490207135,4002400980171670696,4 --trace-process-track-uuid=3190708994745248135 --mojo-platform-channel-handle=3820 /prefetch:14",
+          "created_at": "/Date(1794096208657)/",
+          "executable": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe"
+        }
+      ],
+      "bridge_pids": [
+        23732,
+        26840
+      ],
+      "bridges": [
+        {
+          "pid": 23732,
+          "ppid": 18756,
+          "name": "python.exe",
+          "command_line": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe -m src.bridge",
+          "created_at": "/Date(1794096210516)/",
+          "executable": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe"
+        },
+        {
+          "pid": 26840,
+          "ppid": 23732,
+          "name": "python.exe",
+          "command_line": "\"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\python.exe\"  -m src.bridge",
+          "created_at": "/Date(1794096210640)/",
+          "executable": "C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\python.exe"
+        }
+      ],
+      "owned_bridge_pids": [
+        23732,
+        26840
+      ],
+      "foreign_python_pids": [
+        10060,
+        11840
+      ],
+      "ancestry_ok": true,
+      "captured_at": "2026-11-08T00:03:58Z"
+    },
+    "guard_console_line": {
+      "at": "2026-11-08T00:03:58.208Z",
+      "found": true,
+      "bucket": "consoleWarns",
+      "message": "%c WARN color: #993 [CrusorAI Engine] [bridge][acceptance] run=p0_6_5_20261107T160308_55845e6f max_dispatches=5 attempts_per_dispatch=1"
+    },
+    "ui_submission": {
+      "at": "2026-11-08T00:03:58.552Z",
+      "method": "enter",
+      "composer_after_submit": "",
+      "cleared": true,
+      "typed": {
+        "focused": {
+          "focused": true,
+          "disabled": false,
+          "readonly": false
+        },
+        "typed_matches_prompt": true,
+        "typed_length": 280,
+        "typed_sha256": "94c1c87e60ecf1809421a83ba53ee68df18103300028b1be8fb978791f5c3439"
+      }
+    },
+    "turn_manifest": {
+      "at": "2026-11-08T00:04:12.943Z",
+      "path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\home\\evidence\\session-5937ce305c294c15b9030ac05dd10c2a\\turn-320550d5edb34c4086ebe733e678b695.json",
+      "prompt_sha256_matches": true
+    },
+    "turn_terminal": {
+      "at": "2026-11-08T00:05:34.429Z",
+      "status": "failed",
+      "completed": false,
+      "duration_s": 89.272,
+      "error": {
+        "body_persisted": false,
+        "byte_length": 138,
+        "sha256": "5111d39fb4948f41d60459b82ecc287948dcfa8b16581b5b1dd169bb9f9b2cea"
+      }
+    }
+  },
+  "env_keys": [
+    "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+    "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+    "CRUSORAI_ACCEPTANCE_RUN_ID",
+    "CRUSORAI_BRIDGE_DIAGNOSTICS",
+    "CRUSORAI_COST_GOVERNANCE",
+    "CRUSORAI_EVIDENCE_DIR",
+    "CRUSORAI_HOME",
+    "CRUSORAI_MEMORY",
+    "CRUSORAI_RESERVE_BUDGET_INR",
+    "CRUSORAI_SESSION_COST_BUDGET_INR",
+    "CRUSORAI_TURN_COST_BUDGET_INR"
+  ],
+  "submit_at": "2026-11-08T00:03:58.552Z",
+  "correlation": {
+    "run_id": "p0_6_5_20261107T160308_55845e6f",
+    "session_id": "session-5937ce305c294c15b9030ac05dd10c2a",
+    "turn_id": "turn-320550d5edb34c4086ebe733e678b695",
+    "workspace_id": "ws-f672570c0bc5f88e",
+    "main_pid": 2988,
+    "worker_pids": [
+      3148,
+      12192,
+      13992,
+      15204,
+      17652,
+      18756
+    ],
+    "bridge_pid": 26840
+  },
+  "renderer_console": {
+    "unhandled_errors": 0,
+    "unhandled_rejections": 0,
+    "warnings_sample": [
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.experimentalOnboarding'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'workbench.welcomePage.walkthroughs.openOnInstall'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [vscode.theme-defaults]: Cannot register configuration defaults for 'crusorai.hideBuiltInCopilotUI'. Only defaults for machine-overridable, window, resource and language overridable scoped settings are supported.",
+      "%c WARN color: #993 [CrusorAI Engine] engine root: workspace 'c:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e' is outside the engine repo \u2014 resolved from the install tree to 'c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo'",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][env] loaded: CRUSORAI_MEMORY='off' LLM_PROVIDER='custom' CRUSORAI_SCAN_MAX_FILES=None",
+      "%c WARN color: #993 [CrusorAI Engine] [settings] loaded: LLM_PROVIDER='custom' LLM_MODEL='z-ai/glm-5.3-flash' CRUSORAI_MEMORY='off' CUSTOM_BASE_URL='https://velona.in/v1'",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][acceptance] run=p0_6_5_20261107T160308_55845e6f max_dispatches=5 attempts_per_dispatch=1",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge][memory] policy check: CRUSORAI_MEMORY='off' opted_in=False DISABLE=None",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] long-term memory: OFF (desktop default; CRUSORAI_MEMORY=on to enable) \u2014 boot warmup disabled (DISABLE='1' WARMUP_AT_BOOT='off')",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] engine build: 3c804eb3 2026-11-07 14:47:29 -0800",
+      "%c WARN color: #993 [CrusorAI Engine] [bridge] desktop UI: compiled workbench matches the pulled crusorai sources (sha256) \u2014 panel is current",
+      "%c WARN color: #993 [CrusorAI Engine] [preview] preview proxy for C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e is up at http://127.0.0.1:8931 (session 'ide')",
+      "%c WARN color: #993 [CrusorAI Engine] Task node task_req_001 failed with exception: Provider stopped before completing output for 'src/email_validator.py': finish_reason='length'.",
+      "%c WARN color: #993 [CrusorAI Engine] Timeout (0:01:00)!",
+      "%c WARN color: #993 [CrusorAI Engine] Thread 0x000015b0 [bridge-events-session-5937ce305c294c15b9030ac05dd10c2a] (most recent call first):",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 373 in wait",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\queue.py\", line 210 in get",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\src\\bridge\\__main__.py\", line 806 in _forward_events",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1024 in run",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1082 in _bootstrap_inner",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1044 in _bootstrap",
+      "%c WARN color: #993 [CrusorAI Engine] ",
+      "%c WARN color: #993 [CrusorAI Engine] Thread 0x00005d40 [OtelBatchSpanRecordProcessor] (most recent call first):",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 373 in wait",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 670 in wait",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\opentelemetry\\sdk\\_shared_internal\\__init__.py\", line 156 in worker",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1024 in run",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1082 in _bootstrap_inner",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1044 in _bootstrap",
+      "%c WARN color: #993 [CrusorAI Engine] ",
+      "%c WARN color: #993 [CrusorAI Engine] Thread 0x000043bc [crusorai-turn-watchdog] (most recent call first):",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 373 in wait",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 670 in wait",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\src\\bridge\\turn_watchdog.py\", line 68 in run_stall_watchdog",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\src\\bridge\\__main__.py\", line 1040 in _stall_watchdog",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1024 in run",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1082 in _bootstrap_inner",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\threading.py\", line 1044 in _bootstrap",
+      "%c WARN color: #993 [CrusorAI Engine] ",
+      "%c WARN color: #993 [CrusorAI Engine] Thread 0x00003484 [bridge-turn-session-5937ce305c294c15b9030ac05dd10c2a] (most recent call first):",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\ssl.py\", line 1140 in read",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"C:\\Users\\Administrator\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\ssl.py\", line 1285 in recv",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpcore\\_backends\\sync.py\", line 128 in read",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpcore\\_sync\\http11.py\", line 217 in _receive_event",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpcore\\_sync\\http11.py\", line 203 in _receive_response_body",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpcore\\_sync\\http11.py\", line 334 in __iter__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpcore\\_sync\\connection_pool.py\", line 403 in __iter__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpx\\_transports\\default.py\", line 127 in __iter__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpx\\_client.py\", line 153 in __iter__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpx\\_models.py\", line 951 in iter_raw",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\httpx\\_models.py\", line 897 in iter_bytes",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\openai\\_streaming.py\", line 308 in _iter_chunks",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\openai\\_streaming.py\", line 297 in iter_bytes",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\openai\\_streaming.py\", line 53 in _iter_events",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\openai\\_streaming.py\", line 62 in __stream__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\openai\\_streaming.py\", line 49 in __iter__",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\langchain_openai\\chat_models\\base.py\", line 1660 in _stream",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\langchain_core\\language_models\\chat_models.py\", line 1953 in _generate_with_cache",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\langchain_core\\language_models\\chat_models.py\", line 1656 in generate",
+      "%c WARN color: #993 [CrusorAI Engine]   File \"c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Lib\\site-packages\\langchain_core\\language_models\\chat_models.py\", line 1849 in generate_prompt"
+    ],
+    "chat_context_error_present": false
+  },
+  "electron_shutdown": {
+    "stopped": true,
+    "exit_code": 1,
+    "stopped_at": 1794096335.1996794,
+    "runtime_seconds": 144.837
+  },
+  "guard_final": {
+    "ok": true,
+    "run_id_matches": true,
+    "max_dispatches": 5,
+    "attempts_per_dispatch": 1,
+    "dispatches_used": 4,
+    "pid": 26840,
+    "owned_bridge_pids": [
+      26840
+    ],
+    "bridge_pid": 26840,
+    "pid_matches_bridge": true,
+    "claims": [
+      {
+        "sequence": 1,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      {
+        "sequence": 2,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      {
+        "sequence": 3,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      {
+        "sequence": 4,
+        "stage": "retry_llm_proxy",
+        "model": "z-ai/glm-5.3-flash"
+      }
+    ]
+  },
+  "financial": {
+    "orchestrator": {
+      "available": true,
+      "finops_json": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e\\.crusorai\\finops\\turn_turn-320550d5edb34c4086ebe733e678b695_finops.json",
+      "workspace": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e",
+      "accounting": {
+        "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+        "budget_inr": 5.0,
+        "spent_inr": 0.266898,
+        "spent_usd": 0.002886,
+        "reserved_inr": 0.0,
+        "reserved_usd": 0.0,
+        "token_budget": 150000,
+        "tokens_consumed": 14762,
+        "reserved_tokens": 0,
+        "input_tokens": 437,
+        "output_tokens": 14325,
+        "cached_tokens": 0,
+        "tool_execution_seconds": 0.0,
+        "test_execution_seconds": 0.0,
+        "calls_count": 4,
+        "is_breached": false,
+        "breach_reason": null
+      },
+      "settled": {
+        "res_580371b6975e": {
+          "reservation_id": "res_580371b6975e",
+          "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+          "amount_inr": 0.078238,
+          "amount_usd": 0.000846,
+          "tokens": 4642,
+          "purpose": "node_task_req_001",
+          "created_at": 1794096254.2221537,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "66792b87-eadb-44",
+          "canonical_amount_usd": 0.000909,
+          "status": "reconciled"
+        },
+        "res_be5ae25973db": {
+          "reservation_id": "res_be5ae25973db",
+          "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+          "amount_inr": 0.078423,
+          "amount_usd": 0.000848,
+          "tokens": 4678,
+          "purpose": "node_task_req_002",
+          "created_at": 1794096283.6297665,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "0e04f9aa-5af4-4f",
+          "canonical_amount_usd": 0.000911,
+          "status": "reconciled"
+        },
+        "res_17f078bffd4a": {
+          "reservation_id": "res_17f078bffd4a",
+          "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+          "amount_inr": 0.078331,
+          "amount_usd": 0.000847,
+          "tokens": 4662,
+          "purpose": "node_task_req_003",
+          "created_at": 1794096295.4423964,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "74c08a24-a955-44",
+          "canonical_amount_usd": 0.00091,
+          "status": "reconciled"
+        },
+        "res_5756f7ddba33": {
+          "reservation_id": "res_5756f7ddba33",
+          "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+          "amount_inr": 0.078331,
+          "amount_usd": 0.000847,
+          "tokens": 4662,
+          "purpose": "node_task_req_004",
+          "created_at": 1794096314.784978,
+          "is_committed": true,
+          "is_released": false,
+          "canonical_reservation_id": "a9110e86-f2f4-41",
+          "canonical_amount_usd": 0.00091,
+          "status": "reconciled"
+        }
+      },
+      "uncertain": {},
+      "active": {},
+      "db": {
+        "reservations": [
+          {
+            "reservation_id": "res_580371b6975e",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.078238",
+            "purpose": "node_task_req_001",
+            "root_session_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+            "created_at": 1794096254.2736197,
+            "updated_at": 1794096283.60246
+          },
+          {
+            "reservation_id": "res_be5ae25973db",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.078423",
+            "purpose": "node_task_req_002",
+            "root_session_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+            "created_at": 1794096283.6514914,
+            "updated_at": 1794096294.6895223
+          },
+          {
+            "reservation_id": "res_17f078bffd4a",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.078331",
+            "purpose": "node_task_req_003",
+            "root_session_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+            "created_at": 1794096295.4708676,
+            "updated_at": 1794096314.7493432
+          },
+          {
+            "reservation_id": "res_5756f7ddba33",
+            "status": "reconciled",
+            "estimated_cost_inr": "0.078331",
+            "purpose": "node_task_req_004",
+            "root_session_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+            "created_at": 1794096314.8123505,
+            "updated_at": 1794096333.7966766
+          }
+        ],
+        "calls": []
+      },
+      "db_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e\\.crusorai\\sessions.db"
+    },
+    "orchestrator_classification": {
+      "ok": true,
+      "checks": {
+        "has_settlements": true,
+        "calls_matched_by_settlements": true,
+        "no_active_reservations": true,
+        "no_uncertain_reservations": true,
+        "within_budget": true,
+        "not_breached": true,
+        "sqlite_reconciled": true,
+        "usage_recorded": true
+      },
+      "calls_count": 4,
+      "settled_count": 4,
+      "uncertain_count": 0,
+      "active_count": 0,
+      "spent_inr": 0.266898,
+      "spent_usd": 0.002886,
+      "input_tokens": 437,
+      "output_tokens": 14325,
+      "budget_inr": 5.0,
+      "db_settled_rows": 4
+    },
+    "cost_governance": {
+      "state": {
+        "available": false,
+        "db": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live2\\home\\sessions.db",
+        "error": "no such table: financial_reservations"
+      },
+      "classification": {
+        "ok": false,
+        "reason": "no such table: financial_reservations"
+      }
+    }
+  },
+  "mutations": [
+    {
+      "tenant_ledger": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e\\.crusorai\\tenants\\default_tenant\\ledger\\turn_turn-320550d5edb34c4086ebe733e678b695_ledger.json",
+      "task_id": "turn_turn-320550d5edb34c4086ebe733e678b695",
+      "workspace_id": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e",
+      "operation_id": "OP-ce3de9f732a0",
+      "file_path": "tests/test_email_validator.py",
+      "operation_type": "CREATE",
+      "original_hash": null,
+      "new_hash": "582ca660530f9a378c329982bf37b3fd249f1e5fee6f2953cf8d8a20648b337f",
+      "original_existence": false,
+      "change_reason": "Phase 11.6 node [task_req_002]: Implement requirement REQ-002: py with a function validate_email(addres",
+      "related_requirement_ids": [
+        "REQ-002"
+      ],
+      "related_architecture_decisions": [
+        "ADR-001",
+        "ADR-002",
+        "ADR-003"
+      ],
+      "approval_ref": null,
+      "timestamp": 1794096295.4337845,
+      "status": "APPLIED",
+      "verification_status": "VERIFIED",
+      "ownership_category": "AGENT_CREATED",
+      "destination_path": null
+    }
+  ],
+  "workspace_after": {
+    "files": [
+      "README.md",
+      "diagnostics/LATEST_PERFORMANCE_AUDIT.md",
+      "diagnostics/PERFORMANCE_REPORT_session-5937ce305c294c15b9030ac05dd10c2a.md",
+      "diagnostics/traces/session-5937ce305c294c15b9030ac05dd10c2a.jsonl",
+      "tests/test_email_validator.py"
+    ],
+    "git_status": "?? .crusorai/\n?? diagnostics/\n?? tests/"
+  },
+  "verification": {
+    "module_exists": false,
+    "tests_exist": true,
+    "tests_sha256": "582ca660530f9a378c329982bf37b3fd249f1e5fee6f2953cf8d8a20648b337f",
+    "pytest_returncode": 2,
+    "pytest_tail": [
+      "    from email_validator import validate_email",
+      "E   ModuleNotFoundError: No module named 'email_validator'",
+      "=========================== short test summary info ===========================",
+      "ERROR tests/test_email_validator.py",
+      "!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!",
+      "1 error in 1.12s"
+    ]
+  },
+  "verdict": "P0.6.5_ACCEPTANCE_FAILED",
+  "finished_at": "2026-11-08T00:05:43.347Z",
+  "records": []
+}

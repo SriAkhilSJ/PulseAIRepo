@@ -1,0 +1,14 @@
+{
+  "health_path": "/crusor-preview/health",
+  "origin": "http://127.0.0.1:8931",
+  "overlay_path": "/crusor-preview/overlay/crusor-preview-overlay.js",
+  "pid": 10060,
+  "port": 8931,
+  "secret": "uo3qiCUBdiJsNOu_So4MzugPQJu1Mk6S",
+  "session_id": "ide",
+  "started_at": 1794096236.7460916,
+  "target_path": "/crusor-preview/target",
+  "token": "",
+  "ui_path": "/crusor-preview/ui/",
+  "workspace": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_hou8e__e"
+}

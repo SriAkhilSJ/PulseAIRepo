@@ -1,0 +1,19 @@
+{
+  "run_id": "p0_6_5_20261107T155428_342c1118",
+  "max_dispatches": 5,
+  "dispatches_used": 1,
+  "dispatches_remaining": 4,
+  "attempts_per_dispatch": 1,
+  "claims": [
+    {
+      "sequence": 1,
+      "stage": "retry_llm_proxy",
+      "model": "z-ai/glm-5.3-flash"
+    }
+  ],
+  "registered_clients": 1,
+  "active": true,
+  "pid": 22096,
+  "engine_version": "0.2.0-runtime",
+  "started_at": 1794095716.7688234
+}

@@ -1,0 +1,13 @@
+{
+  "run_id": "p0_6_5_20261107T143505_3412f75b",
+  "max_dispatches": 5,
+  "dispatches_used": 0,
+  "dispatches_remaining": 5,
+  "attempts_per_dispatch": 1,
+  "claims": [],
+  "registered_clients": 0,
+  "active": true,
+  "pid": 16888,
+  "engine_version": "",
+  "started_at": 1794090919.507645
+}

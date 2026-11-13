@@ -1,6 +1,10 @@
-﻿# CrusorAI - Phase Tracker
+# CrusorAI - Phase Tracker
 
-**Snapshot:** 2026-11-10 (`feat/prompt-cache-stabilization`, HEAD `604605b2`)
+**Snapshot:** 2026-11-12 (`feat/prompt-cache-stabilization`, HEAD `fb5bd528`)
+**Updated:** 2026-11-12 — P1-A checkpoint/session test isolation repaired (§8);
+P1-A-R2 closed the independent-review B-1/B-2 leaks (§8a); P1-A-R3 fixed the
+B-4 SQLite URI path encoding and awaits acceptance (§8b); P1-B remains gated on
+review.
 **Purpose:** one place to see what was attempted, what was verified, and what is
 still open.
 
@@ -39,11 +43,17 @@ still open.
 | 2R2 | Desktop remediation r2 (tests, dock, startup cancel, evidence warning) | `165dc16f` | `73c4d0a7`, `638d4151` | DESKTOP_PARTIAL | `bench-results/phase-2-desktop-qualification-r2` |
 | 3.1 | Orchestrator human-approval integration | `70281b22` | `efda16c9`, `b5277512` | PASS (bounded) | `bench-results/phase-3-approval-integration` |
 | 3.2 | Planner/contract closure (Phase 11.6 baseline) | `b5277512` | `7879e066`, `604605b2` | PASS (bounded) | `bench-results/phase-3.2-planner-contract-closure` |
-| 3.3-1 | Canonical LangGraph owner + engineering delegation + B-DESK-001 | `604605b2` | uncommitted working tree | PASS (bounded) | `bench-results/phase-3.3-canonical-runtime/EVIDENCE.md` |
-| 3.3-2 | One context/model/tool/approval/mutation boundary | `604605b2` | uncommitted working tree | PASS (bounded) | `.../INCREMENT2_EVIDENCE.md` |
-| 3.3-3 | Canonical receipt, persistence, FinOps, B-DESK-006, route retirement | `604605b2` | uncommitted working tree | PASS (runtime gates); Electron E2E blocked | `.../INCREMENT3_EVIDENCE.md` |
-| 3.3-D | Desktop integration repair: chat routing singleton, panel hash, Electron UI E2E | `604605b2` | uncommitted working tree | PASS (provider-free Electron UI) | `.../DESKTOP_REPAIR_EVIDENCE.md` |
-| 3.3-Q | Product qualification: scope fidelity + first live Velona Electron task | `604605b2` | uncommitted working tree | PASS (n=1 live smoke); not production-ready | `.../QUALIFICATION_REPORT.md` |
+| 3.3-1 | Canonical LangGraph owner + engineering delegation + B-DESK-001 | `604605b2` | `5197937a` | PASS (bounded) | `bench-results/phase-3.3-canonical-runtime/EVIDENCE.md` |
+| 3.3-2 | One context/model/tool/approval/mutation boundary | `604605b2` | `5197937a` | PASS (bounded) | `.../INCREMENT2_EVIDENCE.md` |
+| 3.3-3 | Canonical receipt, persistence, FinOps, B-DESK-006, route retirement | `604605b2` | `5197937a` | PASS (runtime gates); Electron E2E later passed (3.3-D) | `.../INCREMENT3_EVIDENCE.md` |
+| 3.3-D | Desktop integration repair: chat routing singleton, panel hash, Electron UI E2E | `604605b2` | `f3528098` | PASS (provider-free Electron UI) | `.../DESKTOP_REPAIR_EVIDENCE.md` |
+| 3.3-Q | Product qualification: scope fidelity + first live Velona Electron task | `604605b2` | uncommitted evidence | PASS (n=1 live smoke); not production-ready | `.../QUALIFICATION_REPORT.md` |
+| 3.3-P1 | Live engineering progress: orchestrator `on_progress` → activity/plan cards → bridge → journal | `fb5bd528` | uncommitted working tree | PASS (provider-free Electron 16/16) | `CRUSOR_PROGRESS_INTEGRATION_REPORT.md`; `.../logs/electron-progress/` |
+| 3.3-P2 | Engineering DAG completion: real node settlement, blocked back-fill, journal outcomes | `fb5bd528` | uncommitted working tree | PASS (deterministic + Electron) | `CRUSOR_PLAN_COMPLETION_REPORT.md` |
+| 3.3-P3 | Plan outcome semantics: `blocked`/`cancelled` states on the existing plan card | `fb5bd528` | uncommitted working tree | PASS (provider-free Electron 21/21) | `CRUSOR_PLAN_OUTCOME_SEMANTICS_REPORT.md` |
+| 3.3-MT | Multi-turn engineering isolation (per-turn state/context/journal storage) | `fb5bd528` | uncommitted working tree | FIXED | `docs/CURRENT_STATE.md` 2026-11-11 section |
+| 3.3-T1 | Per-turn Agentic card ownership: persistence, hydration and reload/restart restoration | `fb5bd528` | uncommitted working tree | PASS (provider-free Electron 32/32) | `CRUSOR_TURN_CARD_RESTORATION_REPORT.md`; `.../logs/electron-progress/07-restarted.png` |
+| 3.3-T2 | Clean chronological Agentic timeline; internal-only verification/delivery/cost cards hidden | `fb5bd528` | uncommitted working tree | PASS (provider-free Electron 40/40) | `CRUSOR_AGENTIC_TIMELINE_REPORT.md`; `.../logs/electron-progress/` |
 
 ### Phase 1.3.1 acceptance record
 
@@ -291,14 +301,63 @@ record claims; this audit did not re-run them.
 | 12.1.2 | AppContainer, Electron runtime, live model | Recorded | DONE-DOCUMENTED |
 | 12.1.3 | Final product qualification | `PRODUCT_QUALIFIED_WITH_LIMITATIONS`; GUI NOT VERIFIED; provider DETERMINISTIC_PROVIDER_ONLY; 395/395 subset | PARTIAL |
 
+### 3.3-P acceptance record (2026-11-11)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Orchestrator progress reaches the existing Agentic cards | Met | `test_engineering_progress_events.py` 19; Electron live stage transitions |
+| Completion recorded only after real executor success | Met | `test_plan_completion.py` 11; `test_plan_outcome_semantics.py` 16 |
+| Failed / blocked / cancelled are distinct states | Met | Real scheduler + orchestrator tests; Electron plan card |
+| Cancellation before, during and at an approval wait | Met | Scheduler predicate + `ApprovalDenied` path tests |
+| No duplicate completion on retry | Met | Two-run idempotency tests |
+| Journal replay keeps every status | Met | Bridge/journal projection test; Electron reload (6 steps, 4 states) |
+| Backward compatibility with four-status cards | Met | Legacy card + legacy view + TS contract tests |
+| Provider-free Electron acceptance | Met | `accept-crusorai-progress.mjs` PASS 21/21, `rows=0` |
+| Multi-turn engineering session | Fixed | Per-turn storage; invalid `COMPLETED → UNDERSTANDING` eliminated |
+| Frontend compile + card contract | Met | `typecheck-client` exit 0; emitter 43 files; `test_crusorai_cards.mjs` ok |
+
+Known failures left untouched: `test_agent_cards.py::test_all_required_card_types_are_declared`
+(working-tree extra Python card types) and two `test_bridge.py` assertions
+(echo frame window, autotitler signature).
+
+### 3.3-T1 acceptance record (2026-11-11)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Cards keyed by `(session, turn, card id)` | Met | `CrusorCardStore`; Node contract tests |
+| Turns never overwrite each other / identical ids safe | Met | Python association 13; Node store; Electron |
+| Session switch clears card state | Met | `resetSessionState`; source contract test |
+| Duplicate replay cannot duplicate cards | Met | Identity-keyed dedupe + idempotent restore |
+| Historical messages carry turn identity | Met | Journal `turn.started` request-hash stamping |
+| Reload restores each turn's cards | Met | Electron 3 turns, `data-turn-id` sections |
+| Repeated hydration is idempotent | Met | Electron second reload identical |
+| Full application restart restores all turns | Met | Electron `07-restarted.png`, 32/32 checks |
+| Legacy cards remain readable | Met | Hash → ordinal → single-turn fallback; ambiguous warned |
+| No paid provider call | Met | `rows=0` |
+
+### 3.3-T2 acceptance record (2026-11-11)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Verification/delivery/cost cards are not user-facing | Met | DOM counts 0 live and after reload; journal still holds all three |
+| Verification execution and outcomes preserved | Met | `test_phase_12_1_end_to_end_acceptance` 5 passed; journal `verified` card |
+| FinOps preserved internally | Met | cost cards journaled; `test_invocation_reconciliation` 13 passed |
+| Activity/plan/tool/file/approval/test UI still renders | Met | Electron cards + existing tool rows; Node policy tests |
+| Chronological timeline | Met | live order `activity → plan → file → approval → text`; final answer last |
+| Per-turn ownership / reload / restart | Met | 3 turns, distinct ids, repeated hydration, full restart |
+| No duplicate typed tool activity | Met | typed tool card suppressed when its tool row exists |
+| No paid provider call | Met | `rows=0` |
+
 ## 4. Open gates
 
 | Gate | Blocks | Owner action |
 |---|---|---|
+| Security defaults | Any product safety claim | Default `ask`; broker/sandbox + scrubbed env for all process creation (F-03/F-04). |
+| Engineering capability | Any "agentic engineering" claim | Bind tools during generation; targeted edits; reject requirement-id targets (F-01). |
 | Full TurnReceipt rendering / headed qualification | Full desktop close | Provider-free Agent pane flow passes; render every receipt field and run broader headed acceptance. |
-| Working-tree disposition | Any clean baseline claim | 239 entries include runtime + desktop + qualification + compiled artifacts + memory layer; decide commit vs retain. |
-| Full-suite baseline | Release confidence | Run the full suite on HEAD + working tree; classify every failure. |
-| Live acceptance | Product acceptance | Authorized headed run; do not reuse historical reservation. |
+| Working-tree disposition | Any clean baseline claim | **272 entries** (262 at audit; 84 modified, 188 untracked, 0 staged) include runtime + desktop + qualification + apps + generated modules + memory layer + P1-A/R2/R3 changes; decide commit vs retain. |
+| Full-suite baseline | Release confidence | Collection fails (3 errors); fix imports/pins, run the full suite, classify every failure (F-02). |
+| Live acceptance | Product acceptance | Authorized headed run after P-0/P-0b; do not reuse historical reservation. |
 
 ## 5. Phase hygiene checklist
 
@@ -314,3 +373,91 @@ Use this for every new phase:
 - [ ] Limitations updated, not hidden.
 - [ ] Final report lists start/implementation/final SHAs.
 - [ ] `CURRENT_STATE.md` and `LATEST_HANDOFF.md` updated.
+
+## 6. Backend qualification — 2026-11-12 (terminal, real provider)
+
+| Aspect | Status | Evidence |
+|---|---|---|
+| Real provider path (auth, dispatch, usage, FinOps settle, latency, turn ids) | DONE-VERIFIED | 5 settled calls, ₹0.1815, `CRUSOR_AGENT_CORE_TERMINAL_QUALIFICATION.md` |
+| Ledger `latency_ms` instrumentation | DONE-VERIFIED (fixed) | rows: 3242 / 1737 / 16381 / 26905 / 9709 ms |
+| Test A — basic implementation (`divide()`) | FAILED | malformed code fence rejected; no recovery; 0 files |
+| Test B — multi-file engineering (`clamp()`) | FAILED | created `src/req_001_module.py`, `src/req_003_module.py`, `tests/test_req_001_module.py`; 0 real files changed |
+| Test C — diagnosis and repair | BLOCKED | failing tests never executed; regression intact (4 failing) |
+| Tool execution on the engineering path | NOT STARTED | no `bind_tools` / tool loop in `orchestrator.py` or `model_adapter.py` |
+| Phase 2A — workspace discovery before planning | **DONE-VERIFIED (deterministic)** | 9 tests A–H; `CRUSOR_PHASE_2A_WORKSPACE_DISCOVERY.md` |
+| Phase 2B — targeted edits | NOT STARTED | whole-file regeneration still in place |
+| Phase 2D — outside-workspace access with permission | **DONE-VERIFIED (reads + writes)** | `test_outside_workspace_access.py` 17 passed; `CRUSOR_PHASE_2D_OUTSIDE_WORKSPACE_ACCESS.md` §8 |
+| Phase 2D-2 — outside-workspace writes | **DONE-VERIFIED (create/modify)** | broker grant + diff token; delete/rename/copy still workspace-only (B-CORE-007) |
+| Phase 2C — test-diagnose-repair | NOT STARTED | existing repair loop unchanged; B-CORE-006 |
+
+## 7. Memory reconciliation — 2026-11-12 (documentation-only)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Initial engineering audit | COMPLETE | `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` (F-01…F-15) |
+| Canonical memory corrected to HEAD `fb5bd528` | COMPLETE | AGENTS + 7 docs updated; no phase executed |
+| Dirty-tree count | **272 after P1-A-R3** (271 after R2; 269 after P1-A; 262 at audit; 84 modified, 188 untracked, 0 staged, 0 deletions) | `git status --porcelain` before/after |
+| Broker status | FIXED at HEAD, not uncommitted | `src/tools/file_tools.py:508-538`; `git diff HEAD` empty |
+| Agent Runtime increments | COMMITTED at `5197937a` | `git log -- src/runtime/turn_receipt.py` |
+| Test baseline | 4,953 collected / 3 errors; 3 known failures | section 6; F-02 |
+| Production readiness | **NOT CLAIMED** | audit findings F-01…F-11 open |
+
+No source, dependency, git or provider change. Findings remain as recorded in
+the audit register; do not mark an open finding closed without a command,
+result and exit code.
+
+## 8. P1-A — test isolation repair (2026-11-12, verified)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Checkpoint path resolves `CRUSORAI_CHECKPOINT_DB` / `_HOME` / `CRUSORAI_SESSIONS_DB` / `CRUSORAI_HOME` | DONE-VERIFIED | `src/runtime/app_paths.py`; 15 tests |
+| Import opens no checkpoint DB | DONE-VERIFIED | subprocess import test; `memory.is_setup is False` |
+| Lazy first-use connection | DONE-VERIFIED | `_LazySqliteConnection`; saver table/read-back test |
+| Tests isolate home/sessions/checkpoint | DONE-VERIFIED | `src/tests/conftest.py`; fixture test |
+| Actual checkpoint persistence retained | DONE-VERIFIED | `SqliteSaver.setup()` tables; cross-process restart test |
+| Real user DB unchanged | DONE-VERIFIED | `sessions.db` sha256 `5fc06788…`, size 937,684,992; runtime/verification unchanged |
+| Retention/vacuum/workspace placement | **OPEN (F-05 remains PARTIAL)** | no prune policy; 937 MB DB, 426 index DBs |
+| P1-B collection/test baseline | NOT STARTED (review gate) | P1 report; F-02 |
+
+Verification: 15 isolation tests pass (39.81 s); core gate 366 passed / 2
+skipped / 1 xfailed (193.28 s); graph/restart 139 passed; session/acceptance 35
+passed; security 232/3; checkup 57/5/0. Bridge 37 passed / 2 known failures;
+`test_runtime_evidence_capture` retains 3 pre-existing failures. HEAD
+unchanged; no commit.
+
+## 8a. P1-A-R2 — independent-review remediation (2026-11-12, verified)
+
+| Item | Status | Evidence |
+|---|---|---|
+| B-1: bridge `prior_checkpoints` uses the graph checkpoint path | DONE-VERIFIED | `src/bridge/__main__.py`; 4 bridge subprocess tests |
+| B-2: OTel cleanup targets the isolated DB, never home | DONE-VERIFIED | `src/tests/test_otel_tracing.py`; B-2 regression seeds/deletes in isolated DB |
+| All nine real DB/sidecar files + journals immutable | DONE-VERIFIED | full SHA-256 + existence/size/mtime before/after |
+| Invalid checkpoint paths fail closed, no home fallback | DONE-VERIFIED | directory target, parent-is-file, nested parent, writable custom path |
+| Existing lazy checkpointer retained | DONE-VERIFIED | no revert; import still opens nothing |
+| Retention/vacuum/workspace placement | **OPEN (F-05 remains PARTIAL)** | no prune policy; 937 MB DB, 426 index DBs |
+| P1-B collection/test baseline | NOT STARTED (re-review gate) | P1 report; F-02 |
+
+Verification: `test_checkpoint_isolation.py` 22 passed (56.50 s);
+`test_prior_checkpoint_isolation.py` 4 passed (26.10 s); targeted P1-A receipt
+43 passed (102.62 s); final R2 receipt 47 passed (181.89 s); persistence/restart
+subset 72 passed (27.81 s); final B-1/B-2/real-data re-run 6 passed (40.26 s).
+Real DB/sidecars and all 61 workspace directories unchanged. HEAD `fb5bd528`
+unchanged; no commit.
+
+## 8b. P1-A-R3 — SQLite URI path correction (2026-11-12, verified)
+
+| Item | Status | Evidence |
+|---|---|---|
+| B-4: checkpoint count uses an encoded absolute file URI | DONE-VERIFIED | `sqlite_readonly_uri()`; `_prior_checkpoint_count` |
+| `#` path cannot be truncated to a decoy DB | DONE-VERIFIED | intended 2 vs pre-`#` decoy 1 → `prior_checkpoints=2` |
+| Spaces, `%`, Unicode paths read the intended DB | DONE-VERIFIED | real bridge subprocess regressions |
+| `?` is percent-encoded, never a query delimiter | DONE-VERIFIED | URI assertion always; actual filename case POSIX-only (Windows forbids `?`) |
+| Read-only mode cannot modify the selected DB | DONE-VERIFIED | `DELETE` raises `OperationalError`; hash unchanged |
+| Existing lazy checkpointer retained | DONE-VERIFIED | no change to `_LazySqliteConnection` |
+| Retention/vacuum/workspace placement | **OPEN (F-05 remains PARTIAL)** | no prune policy; 937 MB DB, 426 index DBs |
+
+Verification: `test_checkpoint_uri_isolation.py` 6 passed / 1 skipped (25.55 s);
+URI + prior-checkpoint + isolation suite 32 passed / 1 skipped (109.47 s);
+session pipeline 7 passed (51.52 s); OTel 7 passed (8.96 s). Real DB/sidecars
+and all 61 workspace directories unchanged. HEAD `fb5bd528` unchanged; no
+commit.

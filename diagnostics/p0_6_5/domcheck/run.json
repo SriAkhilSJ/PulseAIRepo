@@ -1,0 +1,11 @@
+{
+  "run_id": "p0_6_4_20261107T141150_a407243d",
+  "phase": "P0.6.4",
+  "created_at": "2026-11-07T22:11:50.678Z",
+  "workspace_id": "ws_36c196c37b66e430",
+  "immutable_keys": [
+    "created_at",
+    "phase",
+    "run_id"
+  ]
+}

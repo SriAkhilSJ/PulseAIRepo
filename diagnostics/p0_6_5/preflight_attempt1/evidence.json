@@ -1,0 +1,232 @@
+{
+  "run_id": "p0_6_5_20261107T140801_cb463238",
+  "started_at": "2026-11-07T22:08:01.272Z",
+  "prompt": "Create a small, clean Python utility module at src/email_validator.py with a function validate_email(address) that returns True only for a plausible address, raises ValueError for non-strings, and has a docstring. Add focused unit tests in tests/test_email_validator.py, run them, and report exactly what you created and verified. Do not modify unrelated files.",
+  "prompt_sha256": "8e1acff01fa5e1a90fd89ac6aa9e68862d47ec08a253bdf58ba602dd306c08a4",
+  "gates": {
+    "renderer_workbench": {
+      "ok": true,
+      "detail": {
+        "workbench_ready": true,
+        "belongs_to_crusor": true,
+        "identity": {
+          "title": "crusor_p0_6_5_ws_33lxryv6 - CrusorAI IDE Dev",
+          "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+          "hasWorkbench": true,
+          "bodyClasses": "",
+          "vscodeApiPresent": true,
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) crusorai-dev/1.134.0 Chrome/148.0.7778.280 Electron/42.8.1 Safari/537.36",
+          "isElectron": true,
+          "devicePixelRatio": 1.5,
+          "viewport": {
+            "w": 1284,
+            "h": 673
+          }
+        }
+      },
+      "at": "2026-11-07T22:08:08.289Z"
+    },
+    "composer_available": {
+      "ok": true,
+      "detail": {
+        "selector": "textarea.crusorai-composer-input",
+        "count": 1,
+        "visible": true,
+        "enabled": true,
+        "text": "",
+        "tag": "TEXTAREA",
+        "id": "",
+        "cls": "crusorai-composer-input",
+        "placeholder": "Ask anything, / for commands, @ for context...",
+        "rect": {
+          "x": 995,
+          "y": 382,
+          "w": 278,
+          "h": 67
+        }
+      },
+      "at": "2026-11-07T22:08:08.314Z"
+    },
+    "engine_ready": {
+      "ok": false,
+      "detail": {
+        "ready": false,
+        "state": {
+          "present": false
+        },
+        "samples": [
+          {
+            "at": 66624.336,
+            "present": false
+          },
+          {
+            "at": 66624.738,
+            "present": false
+          },
+          {
+            "at": 66625.141,
+            "present": false
+          },
+          {
+            "at": 66625.544,
+            "present": false
+          },
+          {
+            "at": 66625.946,
+            "present": false
+          },
+          {
+            "at": 66626.347,
+            "present": false
+          },
+          {
+            "at": 66626.748,
+            "present": false
+          },
+          {
+            "at": 66627.151,
+            "present": false
+          },
+          {
+            "at": 66627.553,
+            "present": false
+          },
+          {
+            "at": 66627.956,
+            "present": false
+          },
+          {
+            "at": 66628.358,
+            "present": false
+          },
+          {
+            "at": 66628.76,
+            "present": false
+          },
+          {
+            "at": 66629.163,
+            "present": false
+          },
+          {
+            "at": 66629.564,
+            "present": false
+          },
+          {
+            "at": 66629.967,
+            "present": false
+          },
+          {
+            "at": 66630.37,
+            "present": false
+          },
+          {
+            "at": 66630.772,
+            "present": false
+          },
+          {
+            "at": 66631.175,
+            "present": false
+          },
+          {
+            "at": 66631.577,
+            "present": false
+          },
+          {
+            "at": 66631.979,
+            "present": false
+          }
+        ]
+      },
+      "at": "2026-11-07T22:10:38.576Z"
+    }
+  },
+  "stages": {
+    "workspace": {
+      "at": "2026-11-07T22:08:01.690Z",
+      "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_33lxryv6",
+      "git_status": "",
+      "git_head": "4c85ee3fec5f2ce1cc8778cc0c5a779dfe91c105",
+      "inventory": [
+        "README.md"
+      ]
+    },
+    "git": {
+      "at": "2026-11-07T22:08:02.002Z",
+      "branch": "feat/prompt-cache-stabilization",
+      "head": "f781d7d9b20e739ac7e3930ef6fcc746e9af54fe",
+      "desktop_dirty": 0
+    },
+    "electron_launch": {
+      "at": "2026-11-07T22:08:02.055Z",
+      "pid": 19288,
+      "port": 51871,
+      "exe": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+      "argv": [
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode\\.build\\electron\\CrusorAI.exe",
+        "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\desktop\\vscode",
+        "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_33lxryv6",
+        "--remote-debugging-port=51871",
+        "--user-data-dir=C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_5\\preflight\\user-data",
+        "--remote-allow-origins=http://127.0.0.1",
+        "--enable-logging",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--skip-welcome",
+        "--skip-release-notes",
+        "--disable-telemetry",
+        "--disable-crash-reporter"
+      ],
+      "env_keys": [
+        "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+        "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+        "CRUSORAI_ACCEPTANCE_RUN_ID",
+        "CRUSORAI_COST_GOVERNANCE",
+        "CRUSORAI_EVIDENCE_DIR",
+        "CRUSORAI_HOME",
+        "CRUSORAI_MEMORY",
+        "CRUSORAI_RESERVE_BUDGET_INR",
+        "CRUSORAI_SESSION_COST_BUDGET_INR",
+        "CRUSORAI_TURN_COST_BUDGET_INR"
+      ],
+      "portable_dir": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_5\\preflight\\portable"
+    },
+    "cdp": {
+      "at": "2026-11-07T22:08:05.413Z",
+      "port": 51871,
+      "requested_port": 51871,
+      "browser": "Chrome/148.0.7778.280",
+      "protocol_version": "1.3",
+      "target": {
+        "id": "587A7835D3BCA47080AF234BEFE1257B",
+        "type": "page",
+        "title": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "url": "vscode-file://vscode-app/c:/Users/Administrator/Downloads/CRUSORAI/PulseAIRepo/desktop/vscode/out/vs/code/electron-browser/workbench/workbench-dev.html",
+        "websocket_origin": "ws://127.0.0.1:51871",
+        "browser_context_id": ""
+      },
+      "loopback_only": true
+    }
+  },
+  "env_keys": [
+    "CRUSORAI_ACCEPTANCE_EVIDENCE_PATH",
+    "CRUSORAI_ACCEPTANCE_MAX_DISPATCHES",
+    "CRUSORAI_ACCEPTANCE_RUN_ID",
+    "CRUSORAI_COST_GOVERNANCE",
+    "CRUSORAI_EVIDENCE_DIR",
+    "CRUSORAI_HOME",
+    "CRUSORAI_MEMORY",
+    "CRUSORAI_RESERVE_BUDGET_INR",
+    "CRUSORAI_SESSION_COST_BUDGET_INR",
+    "CRUSORAI_TURN_COST_BUDGET_INR"
+  ],
+  "aborted": "gate failed: engine_ready: {'ready': False, 'state': {'present': False}, 'samples': [{'at': 66624.336, 'present': False}, {'at': 66624.738, 'present': False}, {'at': 66625.141, 'present': False}, {'at': 66625.544, 'present': False}, {'at': 66625.946, 'present': False}, {'at': 66626.347, 'present': False}, {'at': 66626.748, 'present': False}, {'at': 66627.151, 'present': False}, {'at': 66627.553, 'present': False}, {'at': 66627.956, 'present': False}, {'at': 66628.358, 'present': False}, {'at': 66628.76, 'present': False}, {'at': 66629.163, 'present': False}, {'at': 66629.564, 'present': False}, {'at': 66629.967, 'present': False}, {'at': 66630.37, 'present': False}, {'at': 66630.772, 'present': False}, {'at': 66631.175, 'present': False}, {'at': 66631.577, 'present': False}, {'at': 66631.979, 'present': False}]}",
+  "verdict": "P0.6.5_PREFLIGHT_ABORTED",
+  "electron_shutdown": {
+    "stopped": true,
+    "exit_code": 1,
+    "stopped_at": 1794089438.6767995,
+    "runtime_seconds": 156.668
+  },
+  "finished_at": "2026-11-07T22:10:38.676Z",
+  "records": []
+}

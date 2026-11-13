@@ -5,7 +5,10 @@ It is not optional context. Read it before planning or editing.
 
 **Repository:** `SriAkhilSJ/PulseAIRepo`
 **Primary branch in active use:** `feat/prompt-cache-stabilization`
-**Memory snapshot:** 2026-11-09, HEAD `e9b6ee02dbe75497353f4d62b12d5ff38ac4b5d3`
+**Memory snapshot:** 2026-11-12, HEAD `fb5bd528b40933346c4004a1490154683dc0d40e` (working tree uncommitted)
+**Audit baseline:** 2026-11-12 — the verified condition of record is
+`docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` (findings F-01…F-15). Cite it
+instead of reconstructing state from narrative reports.
 
 ---
 
@@ -35,6 +38,7 @@ Before implementation, read in this order:
 4. `docs/handoffs/LATEST_HANDOFF.md`
 5. `docs/BUGS_AND_LIMITATIONS.md`
 6. `docs/phases/PHASE_TRACKER.md`
+7. `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` (verified condition and F-01…F-15)
 
 Then inspect the specific source files for the task. Do not propose changes to
 code you have not read.
@@ -69,10 +73,11 @@ and ask before proceeding.
 | `src/runtime/` | Persistence, sessions, identity, evidence, recovery, tracing. |
 | `src/targets/` | Multi-platform detection/build/verification. |
 | `src/intelligence/`, `src/production/` | Requirements/architecture intelligence and production readiness. |
-| `src/tests/` | 334 pytest modules; the main regression surface. |
+| `src/tests/` | 363 pytest modules; the main regression surface. |
 | `scripts/` | Checkup, evidence, build, protocol generation, diagnostics. |
 | `docs/production/` | Phase evidence with commits, commands, and conclusions. |
 | `docs/` (new memory layer) | Current truth, architecture, decisions, bugs, roadmap, phases, handoffs. |
+| `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` | Verified 2026-11-12 condition and findings F-01…F-15 (append-only evidence). |
 | `diagnostics/`, `bench-results/`, `benchmarks/` | Historical run evidence. |
 | `skills/` | Bundled agent skills. |
 | `apps/` | Example/generated apps (not the product core). |
@@ -86,8 +91,13 @@ These rules are not negotiable:
    for a named purpose.
 2. Never run `git add .` or `git add -A`. Stage only named files.
 3. The working tree contains pre-existing user work. At the 2026-11-08 snapshot
-   it was 175 entries (34 modified tracked + 141 untracked). Do not overwrite,
-   revert, or commit those files.
+   it was 175 entries (34 modified tracked + 141 untracked). At the verified
+   2026-11-12 audit it was **262 entries** (80 modified tracked + 182 untracked,
+   zero staged, zero deletions); the documentation reconciliation, P1-A
+   isolation repair, P1-A-R2 remediation and P1-A-R3 URI correction bring the
+   current count to **272** (84 modified, 188 untracked). Do not overwrite,
+   revert, or commit those files. Re-count before and after every task and
+   report the delta.
 4. Do not modify application source, dependencies, schemas, or configuration
    during a documentation-only task.
 5. Do not execute repair scripts, `runner.exe`, Windows ACL changes, Electron
@@ -192,6 +202,7 @@ Update these files after verified work:
 | `docs/ROADMAP.md` | Move completed items; add newly discovered work. |
 | `docs/handoffs/LATEST_HANDOFF.md` | Current state, next task, constraints, landmines. |
 | `docs/ARCHITECTURE.md` | Only if the actual architecture changed. |
+| `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` | Close/annotate findings with a command, result and exit code; never delete a finding. |
 | `docs/PROJECT_MASTER.md` | Only if scope or product definition changed. |
 
 Then archive the prior handoff under `docs/handoffs/HISTORY/` per its README.
@@ -223,12 +234,10 @@ accepted.
   orchestrator to the shared ApprovalQueue (`efda16c9`, bounded PASS); Phase
   3.2 closed the eight Phase 11.6 contract failures (`7879e066`, bounded PASS;
   full file 44/44).
-- **B-DESK-001 (blocker):** `src/context/history_shaper.py` imports
-  `compact_assistant_tool_call_arguments` and `transform_completed_tool_receipts`
-  from `src/context/compaction.py`, where neither exists. The legacy Agent Core
-  graph fails at the first ai-node call. Do not claim real tool approval or cold
-  transcript replay until this is repaired. The default orchestrator path avoids
-  the import but receives no `approval_channel`/`approval_policy`.
+- **B-DESK-001 is FIXED (verified 2026-11-12).** `src/context/compaction.py`
+  now exports `compact_assistant_tool_call_arguments` and
+  `transform_completed_tool_receipts`, and `stream_agent` imports/runs. Do not
+  repeat the old "graph cannot start" claim; audit F-12 covers the stale text.
 - **B-DESK-002:** the Crusor pane ignores the built-in light theme (black pane).
 - **B-DESK-004:** Ctrl/Cmd+L is unproven through a genuine OS input path; the
   command palette command works.
@@ -240,17 +249,85 @@ accepted.
   are not claimed.
 - Job memory peak accounting remains a documented limitation; do not claim a
   hard peak-memory bound from `MemoryError` alone.
-- The working tree contains an uncommitted mutation-broker integration in
-  `src/tools/file_tools.py`; HEAD still bypasses the broker.
-- Identity/RBAC is implemented but not enforced in the live tool path.
+- **The mutation broker is wired at HEAD.** `src/tools/file_tools.py` routes
+  `write_file`/`edit_file` through `WorkspaceMutationBroker`
+  (`:508-538`, `:1503-1529`) and `git diff HEAD -- src/tools/file_tools.py` is
+  empty. B-001 is fixed at HEAD; do not reintroduce an "uncommitted broker"
+  claim or a second write path.
+- Identity/RBAC status: see the F-07 bullet below (vacuous wiring; no denial
+  path in the live tool call).
 - P0.6.9 live acceptance failed; LIVE12 is not revalidated.
-- The last full-suite record has 25 failures; do not claim a clean suite. The
-  Phase 11.6 file itself is now 44/44 (Phase 3.2).
+- **The test suite is NOT clean (verified 2026-11-12).** `pytest --collect-only`
+  reports 4,968 tests with **3 collection errors** (missing
+  `deduplicate_streaming_usage`, shadowed `record_turn_receipt`). Known red:
+  two `test_bridge.py` tests and
+  `test_agent_cards.py::test_all_required_card_types_are_declared`. The
+  historical 25-failure full-suite record remains historical. Do not claim a
+  clean suite.
+- **Engineering binds no tools during generation (F-01).** Phase 2A added
+  bounded read-only discovery before planning; generation still regenerates
+  whole files and binds no read/search/list/test tools. Requirement-id targets
+  are still synthesised when no discovery evidence exists
+  (`src/orchestration/contract.py:981-993`). Do not claim targeted editing or
+  test-driven repair until Phase 2B/2C.
+- **Execution is unsandboxed by default (F-03).** `terminal_tools` inherits
+  `os.environ` and only uses `ExecutionBroker` when
+  `CRUSOR_SANDBOX_TERMINAL=1`; test execution uses a raw subprocess. The
+  canonical graph blocks shell tools today (`_GRAPH_MUTATION_BLOCKED`), so this
+  is defense-in-depth, not a current exploit path. Never re-enable shell tools
+  without routing them through the broker and a scrubbed env.
+- **The product approval default is `workspace_session`, not `ask` (F-04).**
+  `src/bridge/__main__.py:1671-1675` auto-grants LOW-risk mutations. The
+  Electron acceptance scripts force `ask`, so their dock evidence does not
+  describe the shipped default. Treat `ask` as the required behaviour in any
+  new acceptance claim.
+- **Checkpoint storage is env-resolved and lazily opened (P1-A + R2 + R3,
+  F-05 PARTIAL).** `src/runtime/app_paths.py` resolves
+  `CRUSORAI_CHECKPOINT_DB` > `CRUSORAI_CHECKPOINT_HOME` > `CRUSORAI_SESSIONS_DB`
+  > `CRUSORAI_HOME` > `~/.crusorai/sessions.db`; `chat_graph` opens on first
+  use, not import. `conftest.py` pins home/sessions/checkpoint to a temp root.
+  R2 routes the bridge `_prior_checkpoint_count` and the OTel test cleanup
+  through the same resolved checkpoint DB; both used to read/delete the
+  developer's real DB. R3 adds `sqlite_readonly_uri()` (absolute
+  `Path.as_uri()` + `mode=ro`) so `#`, `?`, `%`, spaces and Unicode paths are
+  encoded and cannot resolve to another database. Invalid checkpoint paths fail
+  closed with no home fallback. Do not reintroduce an import-time
+  connect/mkdir/setup, a raw `f"file:{path}?mode=ro"` URI, or a hardcoded
+  `~/.crusorai` checkpoint consumer. Retention/vacuum and the 937 MB file remain
+  open.
+- **Turn observability receipts are currently dead (F-06).**
+  `src/observability/` (package) shadows `src/observability.py`, so
+  `record_turn_receipt` is unavailable and the call site swallows the error.
+  Do not cite observability receipts as evidence until this is repaired.
+- **Identity/RBAC is wired only vacuously (F-07).** The engineering adapter
+  mints a hard-coded superadmin principal (`model_adapter.py:837-851`); it
+  cannot deny. Do not claim enforcement.
+- **FinOps under-counts post-dispatch cancellation (F-08).** A Stop during
+  streaming releases the reservation and records zero usage. Do not present
+  "spend" as complete after a cancelled paid turn.
+- **Only the bridge sets `canonical_runtime=True` (F-10).** Dashboard/CLI
+  `stream_agent` callers do not; they skip engineering delegation and
+  mutation-token minting. Do not describe them as the same product path.
 - Interactive desktop rendering is verified on this Windows host for the
   provider-free path (r1/r2 screenshots); real tool approval and light-theme
   fidelity remain unproven.
 - A historical provider reservation is reported as still `in_flight`; do not
   touch provider/billing state without owner confirmation.
+- Phase 2A read-only discovery before planning is implemented and verified;
+  see `CRUSOR_PHASE_2A_WORKSPACE_DISCOVERY.md`. The remaining generation
+  limitations are covered by the F-01 bullet above.
+- Discovery never mutates: it must not be extended with write/delete/exec
+  capabilities without a separate security review and Phase 2B design.
+- Outside-workspace access is **turn-scoped** (`workspace.access` approval):
+  read and create/modify are allowed after a grant, but the mutation still needs
+  the normal diff token. Never widen a grant to a parent folder, persist it, or
+  let a session policy auto-approve it. Delete/rename/copy outside the workspace
+  remain unsupported (B-CORE-007).
+- `mock_mode` does not gate the repair dispatch path (B-CORE-006); set
+  `max_correction_attempts=0` for offline engine runs.
+- Backend qualification runs from the terminal with
+  `stream_agent(..., canonical_runtime=True)`; the frontend is not required to
+  exercise the backend, and was explicitly out of scope on 2026-11-12.
 
 ## 12. Reporting format
 

@@ -1,0 +1,4 @@
+{
+  "enable-crash-reporter": true,
+  "remote-debugging-port": "51871"
+}

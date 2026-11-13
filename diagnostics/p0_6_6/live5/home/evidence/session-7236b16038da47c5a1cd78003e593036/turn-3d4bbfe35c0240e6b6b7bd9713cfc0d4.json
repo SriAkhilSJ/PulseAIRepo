@@ -1,0 +1,186 @@
+{
+  "artifacts": {
+    "report": {
+      "available": false,
+      "immutable_copy": true,
+      "path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live5\\home\\evidence\\session-7236b16038da47c5a1cd78003e593036\\turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4.artifacts\\performance-report.md",
+      "privacy_filtered": true,
+      "relative_path": "turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4.artifacts/performance-report.md",
+      "source_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_y29mizs2\\diagnostics\\PERFORMANCE_REPORT_session-7236b16038da47c5a1cd78003e593036.md"
+    },
+    "screenshots": [],
+    "trace": {
+      "available": false,
+      "immutable_copy": true,
+      "path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live5\\home\\evidence\\session-7236b16038da47c5a1cd78003e593036\\turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4.artifacts\\trace.jsonl",
+      "privacy_filtered": true,
+      "relative_path": "turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4.artifacts/trace.jsonl",
+      "source_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_y29mizs2\\diagnostics\\traces\\session-7236b16038da47c5a1cd78003e593036.jsonl",
+      "source_start_offset": 0
+    }
+  },
+  "build": {
+    "captured_at": "2026-11-08T00:24:28.366995+00:00",
+    "process": {
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.4",
+      "python_executable": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe"
+    },
+    "reasons": [
+      "repository_dirty",
+      "worktree_fingerprint_unavailable",
+      "renderer_build_ancestry_unavailable"
+    ],
+    "renderer": {
+      "build_commit": "crusorai-dev-phase-9.3.4.1",
+      "build_commit_is_repository_ancestor": null,
+      "build_commit_matches_repository": false,
+      "built_at": "2026-11-05T02:22:20.766Z",
+      "committed_sources_hash": "6d3594d3ab3ce2a5e8c4bd6695bcce3a177bb0bafb0c7091649c8a622c462f11",
+      "emitted_stamp": "2026-10-25-42",
+      "recomputed_sources_hash": "6d3594d3ab3ce2a5e8c4bd6695bcce3a177bb0bafb0c7091649c8a622c462f11",
+      "source_stamp": "2026-10-25-42",
+      "sources_match": true,
+      "stamp_match": true
+    },
+    "repository": {
+      "commit": "3c804eb3f509e65245a5d1660593ef15b29477be",
+      "dirty": true,
+      "path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo",
+      "untracked_file_count": 1253,
+      "worktree_change_count": 1294,
+      "worktree_fingerprint_sha256": null
+    },
+    "schema_version": 1,
+    "status": "dirty"
+  },
+  "capture_status": "degraded",
+  "continuity": {
+    "recovered_interrupted_turns": []
+  },
+  "coverage": {
+    "missing": [
+      "trace",
+      "report",
+      "trace_finalization",
+      "trace_verdict",
+      "report_verdict",
+      "build_identity"
+    ],
+    "screenshot_count": 0,
+    "tool_pairs_complete": true,
+    "trace_finalized": false
+  },
+  "evidence_id": "evidence-turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4",
+  "evidence_scope": {
+    "desktop_capture": false,
+    "kind": "agent_core_runtime",
+    "synthetic_desktop_evidence": false
+  },
+  "identity": {
+    "lineage_root_id": "session-7236b16038da47c5a1cd78003e593036",
+    "runtime_session_id": "runtime-60d28a2831024a8a81c37f59ff6805a1",
+    "session_id": "session-7236b16038da47c5a1cd78003e593036",
+    "turn_id": "turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4",
+    "workspace_id": "ws-4ae5f85fdd8b09b6"
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "sidecar": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live5\\home\\evidence\\session-7236b16038da47c5a1cd78003e593036\\turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4.json.sha256"
+  },
+  "journal": {
+    "chain": {
+      "chain_version": 1,
+      "checked": 2,
+      "event_count": 2,
+      "first_bad_seq": null,
+      "head_hash": "d42a93b99b23e035281e8c80550195efd16fd79ffa785de6592f7eb8a4418104",
+      "valid": true
+    },
+    "database_path": "C:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\diagnostics\\p0_6_6\\live5\\home\\runtime_events.db",
+    "errors": [],
+    "event_count": 2,
+    "event_types": {
+      "turn.completed": 1,
+      "turn.started": 1
+    },
+    "first_seq": 1,
+    "last_seq": 2,
+    "orphan_results": [],
+    "start_seq": 1,
+    "terminal_event": {
+      "event_hash": "d42a93b99b23e035281e8c80550195efd16fd79ffa785de6592f7eb8a4418104",
+      "event_id": "evt-8188f7d97a864c38a1a8ebdb575cc101",
+      "seq": 2,
+      "type": "turn.completed"
+    },
+    "terminal_event_count": 1,
+    "terminal_seq": 2,
+    "tool_receipts": [],
+    "unmatched_intents": [],
+    "verification_event_count": 0,
+    "verification_transitions": []
+  },
+  "lifecycle": {
+    "cancelled": false,
+    "completed": true,
+    "duration_s": 35.153,
+    "ended_at": "2026-11-08T00:24:54.565810+00:00",
+    "reason": null,
+    "started_at": "2026-11-08T00:24:19.412483+00:00",
+    "started_at_epoch": 1794097459.4124825,
+    "status": "completed"
+  },
+  "request": {
+    "body_persisted": false,
+    "byte_length": 593,
+    "mode": "agent",
+    "sha256": "5f1bf108b25b3a6eadc95b93fb32ad53de13c3ffe7e687c37040174e25898945"
+  },
+  "runtime": {
+    "process_id": 2720,
+    "process_started_at": "2026-11-08T00:23:46.111621+00:00",
+    "python_executable": "c:\\Users\\Administrator\\Downloads\\CRUSORAI\\PulseAIRepo\\.venv\\Scripts\\python.exe",
+    "runtime_instance_id": "runtime-8685bcd752524e66ad4dba332caebf14"
+  },
+  "schema_version": 1,
+  "terminal": {
+    "artifacts": {
+      "report": {
+        "available": false,
+        "sha256": null
+      },
+      "trace": {
+        "available": false,
+        "sha256": null
+      }
+    },
+    "cancelled": false,
+    "completed": true,
+    "duration_s": 35.153,
+    "error": null,
+    "evidence_id": "evidence-turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4",
+    "identity": {
+      "lineage_root_id": "session-7236b16038da47c5a1cd78003e593036",
+      "runtime_session_id": "runtime-60d28a2831024a8a81c37f59ff6805a1",
+      "session_id": "session-7236b16038da47c5a1cd78003e593036",
+      "turn_id": "turn-3d4bbfe35c0240e6b6b7bd9713cfc0d4",
+      "workspace_id": "ws-4ae5f85fdd8b09b6"
+    },
+    "message": {
+      "body_persisted": false,
+      "byte_length": 882,
+      "sha256": "b90d9915b2fa3781758f27ad3b916ab6c8c61d011479c937fad5356e1fb1a953"
+    },
+    "reason": null,
+    "schema_version": 1,
+    "status": "completed"
+  },
+  "updated_at": "2026-11-08T00:24:54.582522+00:00",
+  "workspace": {
+    "exists": true,
+    "is_directory": true,
+    "path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\crusor_p0_6_5_ws_y29mizs2",
+    "workspace_id": "ws-4ae5f85fdd8b09b6"
+  }
+}

@@ -198,6 +198,12 @@ failed-check debt; weaker green commands cannot authorize completion.
 **Consequences.**
 - More honest completion and better failure diagnosis.
 - More state to track and more tests to maintain.
+
+**Audit note 2026-11-12 (F-09).** The rule is weaker than it reads: when
+`testing_required` is false (derived from the prompt/plan),
+`RequirementVerifier` can mark a requirement `VERIFIED` from file presence and
+matched criteria with no executed test (`requirement_verifier.py:225-233`).
+SOURCE components should force test evidence or `NOT_VERIFIED`.
 - Users may see "failed/incomplete" when the model believes it succeeded,
   which is intentional.
 
@@ -595,6 +601,12 @@ in Increment 3.
 surface. Engineering work is a graph node, not a second lifecycle. Chat stays
 conversational. No environment flag can reactivate the old top-level route.
 
+**Update 2026-11-12 (audit F-10).** Verified at HEAD for the desktop bridge.
+Dashboard (`src/dashboard_server.py:162-171`) and CLI (`src/main.py:241-246`)
+still call `stream_agent` without `canonical_runtime=True`; they skip
+engineering delegation and digest-bound mutation authorization. "One owner" is
+true for the desktop, not yet for every entry point.
+
 ---
 
 ## ADR-027 - One receipt, one model gateway, digest+precondition approvals
@@ -664,6 +676,7 @@ remain open.
 | P-004 | Commit or discard the working-tree mutation-broker wiring | HEAD still bypasses the broker for interactive file tools. |
 | P-005 | Unify financial persistence or document the reconciliation contract | Multiple stores can disagree after a crash. |
 | P-006 | Re-run and record a full-suite baseline on current HEAD | Historical 25 failures are unresolved. |
+| P-007 | Outside-workspace access with a turn-scoped human grant | **Implemented for reads 2026-11-12** (`D-2026-11-12-03`). Writes outside the workspace remain refused (2D-2). |
 
 Note (2026-11-10): P-004 and P-005 are addressed in the uncommitted working tree
 by ADR-027 (broker-mediated writes, one invocation ledger with reservation ids
@@ -683,3 +696,301 @@ Agent cards are a presentation projection of canonical bridge events, not a
 second execution stream. The wire carries versioned, schema-validated data; the
 renderer re-validates and paints text only. Unknown card types remain visible as
 an unsupported indicator and can never crash the pane or execute markup.
+
+## D-2026-11-11-01 — Engineering progress rides the existing card pipeline
+
+**Status:** Accepted and implemented (uncommitted, provider-free Electron verified)
+
+**Context.** `EngineeringExecutionOrchestrator.emit_progress` produced safe
+`DesktopVisibilityReporter` snapshots, but `engineering_task_node` called
+`run_task_request` without `on_progress`, so the UI saw only a final summary and
+the terminal receipt.
+
+**Decision.** A bounded `EngineeringProgressReporter` is the callback. Each
+snapshot becomes an existing `agent.card` activity card (`<turn>:activity`) and
+an existing `plan.created` plan card (`<turn>:plan`). Stages never impersonate
+tool/file/test/verification/cost events; those stay with their authoritative
+sources. The bridge journals producer-built `agent_card` frames so progress
+survives reload. No second event system, card schema or renderer.
+
+**Consequences.** Live stage and plan updates stream through the existing
+bridge/renderer; plan cards replay. Progress is capped at 240 emissions per turn
+and suppressed after Stop except for one final settled snapshot.
+
+## D-2026-11-11-02 — Six-state plan outcomes; blocked and cancelled are not failed
+
+**Status:** Accepted and implemented (uncommitted, provider-free Electron verified)
+
+**Context.** The plan contract had `pending | in_progress | completed | failed`.
+The scheduler can genuinely cancel, and a halted pipeline leaves work that never
+ran; collapsing both into `failed` (or leaving them `pending`) misreports
+execution.
+
+**Decision.** Keep the four existing states and add exactly two:
+`blocked` (dependency/upstream halt; never attempted) and `cancelled` (Stop
+before, during, or while awaiting approval). `record_task_outcome` is the single
+settlement point. The existing `CrusorAIPlanStepView` union, `PLAN_STATUSES`,
+strip glyphs, card marks and CSS gain the two states; no new schema version.
+
+**Consequences.** Old four-status cards remain valid; unknown statuses on older
+clients still fall back to `pending`. The scheduler has no intentional-skip
+outcome, so `SKIPPED` maps to `blocked` rather than `failed`. Node completion
+remains a work-unit fact, separate from the final task verdict.
+
+## D-2026-11-11-03 — Per-turn orchestration storage
+
+**Status:** Accepted and implemented (uncommitted)
+
+**Context.** The graph passed one shared
+`app_data_root(workspace)/orchestration` directory to every engineering turn.
+`TaskStateMachine`, `AdaptiveContextManager` and the journal key off the provided
+directory, so the second engineering turn loaded the first turn's terminal
+state and raised `cannot move from COMPLETED to UNDERSTANDING` (shown to the
+owner as "Engineering execution failed: Invalid state transition…"). Completed
+steps could also leak into the next plan.
+
+**Decision.** Storage is scoped per turn:
+`app_data_root(workspace)/orchestration/<task_id>`.
+
+**Consequences.** State, authoritative context and journal are isolated per
+turn; multi-turn engineering sessions work. Existing per-task defaults outside
+the graph are unchanged.
+
+## D-2026-11-11-04 — Cards belong to exactly one turn
+
+**Status:** Accepted and implemented (uncommitted, provider-free Electron verified)
+
+**Context.** The renderer kept one global card map keyed by card id; journal
+hydration loaded every card for the session into it and history turns never
+received cards. After multiple turns and a reload, all cards shared one bottom
+stack. The bridge also deduplicated by card id alone and returned messages
+without turn identity.
+
+**Decision.** Card state is a `CrusorCardStore` keyed by `(turnId, cardId)` per
+surface/session. The bridge stamps each historical message with the turn whose
+prompt produced it using the journal's `turn.started.request.sha256`; cards are
+deduplicated by `(session, turn, card id)`; hydration attaches only
+`cardsFor(turn.turnId)` to each history turn, and the existing renderer paints
+them at the end of that turn. Surface reset/snapshot include the store and
+`currentTurnId`.
+
+**Consequences.** Turns cannot overwrite one another, identical card ids across
+turns are independent, session switching clears cards, replay cannot duplicate,
+and reload/restart restores each turn's own cards. Legacy journals without
+request hashes use ordinal association only when counts align; ambiguous cards
+stay unassigned and are warned, never merged into the newest turn.
+
+## D-2026-11-11-05 — User-facing cards are a filtered, chronological timeline
+
+**Status:** Accepted and implemented (uncommitted, provider-free Electron verified)
+
+**Context.** The conversation rendered every typed card in one stack after the
+timeline, including internal verification, delivery and cost cards. That mixed
+execution/accounting records into the developer conversation and put the final
+assistant answer above the work it described.
+
+**Decision.** One rendering policy:
+`verification | delivery | cost` are internal-only and never paint a dedicated
+card; they remain in the model, journal, receipts and FinOps records. Visible
+cards are pinned into the turn timeline (`CrusorAITurnPart` card parts): live at
+event arrival, late receipt cards before the final answer, historical cards by
+stored order with the plan early and other cards before the final answer. Typed
+tool cards are suppressed when the existing tool row already renders the call.
+
+**Consequences.** The transcript reads plan → work/tools → file/approval → final
+answer, with no internal accounting cards. Verification, delivery and cost are
+still recorded and can be surfaced later for audit/debug; the existing plan
+strip, approval dock, tool rows and test cards remain unchanged.
+
+## D-2026-11-12-01 — Engineering is generation+verify until tools are bound
+
+**Status:** Accepted (current behaviour, qualified against a real provider)
+
+**Context.** The real-provider terminal qualification (5 settled calls,
+₹0.1815) failed all three engineering tasks: the plans targeted
+requirement-ID-named files (`src/req_001_module.py`, `src/req_003_module.py`,
+`tests/test_req_001_module.py`) instead of the existing `mini_math` package, a
+single malformed code fence aborted Test A with no recovery, and Test C never
+executed the failing tests. `rg` over `orchestrator.py` and `model_adapter.py`
+finds no `bind_tools`, no tool registry use and no tool loop; the chat path does
+bind tools (`chat_graph.py:2322,2675,2786`).
+
+**Decision.** Treat `EngineeringExecutionOrchestrator` as a metered
+generation + independent-verification engine, not an agent, until Phase 2 lands.
+No report may describe it as inspecting, searching, running or repairing code.
+Phase 2 is scoped to: bind bounded read-only tools (list/read/search) before
+planning; feed discovered files into `_requested_files`/planner so targets are
+real paths; add one bounded format-recovery re-prompt on
+`SourceExtractionError` (metered as its own invocation); close the
+test-diagnose-repair loop on existing verification evidence. LangGraph stays the
+canonical lifecycle owner and all mutations stay on the broker.
+
+**Consequences.** Until Phase 2, engineering outcomes are honest but weak
+(`FAILED`/`BLOCKED` with no file changes), and the deficiency is recorded rather
+than hidden. Paid qualification runs from the terminal via
+`stream_agent(..., canonical_runtime=True)` — same graph, orchestrator and
+gateway as the desktop bridge — so the frontend is not required to exercise the
+backend.
+
+## D-2026-11-12-02 — Engineering plans only against discovered files
+
+**Status:** Accepted and implemented (uncommitted, Phase 2A)
+
+**Context.** The real-provider terminal run failed all three engineering tasks
+because the planner guessed targets. `extract_contract` synthesised
+`src/<requirement_id>_module.py` whenever a requirement did not name a file, so
+the engine wrote `src/req_001_module.py` instead of editing `mini_math`.
+
+**Decision.** The engineering lifecycle inspects the workspace before planning,
+using exactly three read-only capabilities (`workspace.list_files`,
+`workspace.read_file`, `workspace.search`). They are bounded
+(depth/entries/bytes/lines/results/time), reuse the existing ignore set, and
+delegate containment to `PathSafetyValidator`. Discovery produces a ranked,
+bounded `WorkspaceEvidence`; the contract resolves
+explicit → requested → discovered → synthesis, where synthesis is named from
+the request and never from a requirement id. Ambiguity is reported and blocks
+the plan pre-dispatch. `validate_contract_plan` rejects requirement-id targets
+whenever evidence exists. Discovery runs inside the existing
+`PROJECT_DISCOVERY` stage, before `CONTRACT_EXTRACTION`, and is journalled with
+per-call identity. LangGraph and `EngineeringExecutionOrchestrator` remain the
+only lifecycle owners; the model gateway, mutation broker, approval gateway,
+journal, checkpoints, TurnReceipt and FinOps are unchanged.
+
+**Consequences.** Plans reference real files (`src/mini_math/ops.py`,
+`tests/test_ops.py`, `README.md`) and generation receives the existing file plus
+bounded neighbour evidence. Discovery is lexical, not semantic: when it cannot
+choose confidently it blocks rather than fabricates. It does not enable
+targeted edits or repair — those remain Phase 2B/2C. Discovery failures are
+fail-soft and journalled, falling back to request-only targeting.
+
+**Correction 2026-11-12 (audit F-01).** The guarantee is conditional, not
+global. `src/orchestration/contract.py:981-993` still falls back to
+`src/{requirement_id}_module.py` when no discovery evidence and no synthesis key
+exist, and `src/tests/test_contract_assignment_reliability.py:66-70` asserts
+that fallback. Read this decision as "never use a requirement id when evidence
+exists"; Phase 2B must make the rejection unconditional.
+
+## D-2026-11-12-03 — Outside-workspace reads only with a turn-scoped human grant
+
+**Status:** Accepted and implemented (uncommitted, Phase 2D read grants)
+
+**Context.** Phase 2A correctly refuses every path outside the session
+workspace, but a human who explicitly points at a neighbouring folder got a
+hard error with no way to allow it. Other coding agents ask (OpenCode's
+`external_directory` action with allow-once/allow-always/reject; Claude Code's
+separate read/write outside-workspace controls).
+
+**Decision.** A path outside the workspace may be **read** only after one
+explicit approval for that exact canonical boundary, through the existing
+session approval queue and `tool.approval.request` event. Grants are
+turn-scoped (`once` or `turn`), never persisted, never recursive to a parent,
+never implied by a session policy, and never cover sensitive names (`.ssh`,
+`.env*`, key stores). `read` grants never authorise writes. Traversal, UNC,
+drive-relative forms and symlink escapes remain hard rejections and never
+become prompts. External files are **context only**: they are attached to the
+plan node as read-only evidence, and any outside write target is rejected
+before dispatch.
+
+**Consequences.** A user can say "read ../shared/utils.py and use it here" and
+approve exactly that path; the agent then reads it and edits only workspace
+files. A request to **edit** an outside file asks for a ``write`` grant for that
+exact boundary; after approval the mutation still needs the normal diff-bound
+token, and the broker refuses an outside write without one. Delete/rename/copy
+outside the workspace remain unsupported. The approval card reuses the existing
+dock; the frontend was not changed, so its wording is generic.
+
+## D-2026-11-12-04 — The 2026-11-12 audit is the condition baseline for memory
+
+**Status:** Accepted (documentation; no runtime change)
+
+**Context.** Repository memory had drifted from HEAD. It claimed a working-tree
+count of 175/195/211/247, a broker that bypassed at HEAD, an active B-DESK-001
+blocker, competing bridge owners, 334 test modules, a broker that was the only
+process chokepoint, an `ask` approval default, and an impossible
+requirement-id filename synthesis. Each was checked against `fb5bd528` plus the
+working tree and found wrong or conditional.
+
+**Decision.** `docs/AUDIT_2026-11-12_ENGINEERING_AUDIT.md` is the canonical,
+append-only findings register (F-01…F-15) for this snapshot. Future sessions
+cite it instead of reconstructing state from narrative reports. A finding is
+closed by changing its status and adding a command/result/exit-code receipt; it
+is never deleted. If code and memory disagree, code wins and the disagreement
+is itself recorded.
+
+**Consequences.** `AGENTS.md`, `CURRENT_STATE.md`, `ARCHITECTURE.md`,
+`BUGS_AND_LIMITATIONS.md`, `ROADMAP.md`, `PHASE_TRACKER.md` and
+`LATEST_HANDOFF.md` point at the register. Historical phase evidence under
+`docs/production/` is untouched. Production readiness is still not claimed.
+
+## D-2026-11-12-05 — Checkpoint storage is env-resolved and lazily opened
+
+**Status:** Accepted and implemented (P1-A 2026-11-12; extended by P1-A-R2 and
+P1-A-R3 2026-11-12)
+
+**Context.** `src/graphs/chat_graph.py` hardcoded
+`~/.crusorai/sessions.db`, created the directory and opened the connection at
+import, and ignored `CRUSORAI_HOME`/`CRUSORAI_SESSIONS_DB`/
+`CRUSORAI_CHECKPOINT_HOME`. Test runs therefore wrote the developer's real
+session DB; the P1 investigation measured ~0.99 MB growth.
+
+**Decision.** `src/runtime/app_paths.py` owns the path contract:
+`session_db_path()` preserves the existing sessions precedence and
+`checkpoint_db_path()` resolves `CRUSORAI_CHECKPOINT_DB` >
+`CRUSORAI_CHECKPOINT_HOME` > `CRUSORAI_SESSIONS_DB`/`_PATH` >
+`CRUSORAI_HOME` > `~/.crusorai/sessions.db`. The graph wraps `SqliteSaver` in a
+lazy connection proxy; import performs no mkdir/open/setup. The first
+checkpoint operation creates the configured DB and applies WAL/busy_timeout/
+synchronous. `conftest.py` pins `CRUSORAI_HOME`, `CRUSORAI_SESSIONS_DB` and
+`CRUSORAI_CHECKPOINT_HOME` to a per-run temp root. `workspace_app_data_root()`
+also honours `CRUSORAI_HOME`, so per-workspace orchestration/test-report data
+stays under the test home while keeping its workspace subtree.
+
+**Consequences.** Defaults and production persistence are unchanged; tests
+still exercise real checkpoints, `SqliteSaver` tables and cross-process replay,
+but only in throwaway storage. A checkpoint-specific override intentionally
+outranks the shared sessions DB, so an operator who sets both gets separate
+files. Retention/vacuum and workspace-specific placement are not part of this
+decision (F-05 remains PARTIAL).
+
+**R2 extension (2026-11-12).** Every checkpoint *consumer* must use the same
+resolved path, not just the graph:
+
+- `src/bridge/__main__.py::_prior_checkpoint_count` defaults to the graph's
+  captured `_CHECKPOINT_DB` when that module is already imported, otherwise
+  `checkpoint_db_path()`; an explicit `db_path` is only a caller override.
+  `session_create` therefore reports `prior_checkpoints` from the configured
+  checkpoint DB and never silently reads `~/.crusorai/sessions.db`.
+- `src/tests/test_otel_tracing.py::_drop_checkpoints` resolves
+  `chat_graph._CHECKPOINT_DB`, refuses the real home path, and prefers
+  `SqliteSaver.delete_thread()` on the graph's own saver. Direct SQL is a
+  fallback against the isolated file only.
+- Invalid checkpoint paths fail closed with no fallback: an existing directory
+  target raises `sqlite3.OperationalError`; a regular file used as a parent
+  raises `FileExistsError`/`NotADirectoryError`; a missing nested parent is
+  created lazily. The error contract is covered by
+  `src/tests/test_checkpoint_isolation.py`.
+- The bridge path ownership is regression-tested by
+  `src/tests/test_prior_checkpoint_isolation.py` (custom checkpoint DB wins
+  over custom session DB; missing override reports zero; real DB + sidecars
+  unchanged).
+
+**Consequence of R2.** A deployment that configures a custom checkpoint DB now
+also gets its `prior_checkpoints` count from that DB. A missing override is
+honestly zero/unknown rather than a cross-database read. No new fallback path
+was introduced.
+
+**R3 extension (2026-11-12).** The bridge count must not interpolate a
+filesystem path into a SQLite URI. `src/runtime/app_paths.py` now provides
+`sqlite_readonly_uri(db_path)`:
+`Path(db_path).resolve().as_uri() + "?mode=ro"`. This preserves absolute path
+resolution, Windows/POSIX path handling, read-only mode and the caller's timeout,
+while percent-encoding `#` (fragment), `?` (query), `%` (escape), spaces and
+Unicode. `_prior_checkpoint_count` uses it. A path such as
+`cp#frag/sessions.db` can no longer be truncated to `cp` and silently count a
+decoy database.
+
+**Consequence of R3.** Special-character checkpoint paths are safe; the count
+remains read-only (writes raise `sqlite3.OperationalError`) and no home fallback
+exists. `src/tests/test_checkpoint_uri_isolation.py` covers `#`, spaces, `%`,
+Unicode and URI-level `?`; the end-to-end `?` file case runs on POSIX and is
+skipped on Windows, which forbids `?` in filenames.
