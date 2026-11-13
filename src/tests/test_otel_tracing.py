@@ -202,16 +202,33 @@ def _stub_factory():
 
 
 def _drop_checkpoints(thread_id: str) -> None:
-    """Remove a thread's checkpoint rows from the shared sessions DB (best
-    effort; the graph's SqliteSaver is bound to ~/.crusorai at import time)."""
-    try:
-        import os
-        import sqlite3
+    """Remove this run's checkpoint rows from the SAME database the graph uses.
 
-        db = os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
-        if not os.path.exists(db):
+    The graph resolves its ``SqliteSaver`` path from the environment
+    (``CRUSORAI_CHECKPOINT_DB`` / ``CRUSORAI_CHECKPOINT_HOME`` /
+    ``CRUSORAI_SESSIONS_DB`` / ``CRUSORAI_HOME``); pytest's conftest pins that
+    to a per-run temp root. Never touch the developer's real
+    ``~/.crusorai/sessions.db``, even if this module is imported without the
+    fixture.
+    """
+    try:
+        import sqlite3
+        from pathlib import Path
+
+        from src.graphs import chat_graph
+
+        db = Path(chat_graph._CHECKPOINT_DB).resolve()
+        real = (Path.home() / ".crusorai" / "sessions.db").resolve()
+        if db == real or not db.exists():
             return
-        conn = sqlite3.connect(db, timeout=5)
+        saver = getattr(chat_graph, "memory", None)
+        if saver is not None and hasattr(saver, "delete_thread"):
+            try:
+                saver.delete_thread(thread_id)
+                return
+            except Exception:
+                pass  # fall back to the isolated file below
+        conn = sqlite3.connect(str(db), timeout=5)
         try:
             conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
             conn.commit()
@@ -242,9 +259,10 @@ def test_real_turn_produces_trace_tree(tmp_path, monkeypatch, otel_env):
 
     ws = tmp_path / "ws"
     ws.mkdir()
-    # UNIQUE thread id: the graph's SqliteSaver persists to the shared
-    # ~/.crusorai/sessions.db at import time — a fixed id would resume a
-    # stale checkpoint from an earlier run and loop on its state.
+    # UNIQUE thread id: the graph's SqliteSaver persists to the configured
+    # checkpoint DB (conftest pins it to a per-run temp root) — a fixed id
+    # would resume a stale checkpoint from an earlier run and loop on its
+    # state.
     thread = f"otel-trace-test-{uuid.uuid4().hex[:8]}"
     config = {
         "configurable": {
@@ -276,8 +294,9 @@ def test_real_turn_produces_trace_tree(tmp_path, monkeypatch, otel_env):
     finally:
         turn_controls.end(thread)
         set_active_session(None)  # unbind the thread-local
-        # Best-effort: drop this run's checkpoint rows so repeated test runs
-        # don't accumulate in the shared ~/.crusorai/sessions.db.
+        # Best-effort: drop this run's checkpoint rows from the graph's
+        # configured (isolated) checkpoint DB so repeated test runs don't
+        # accumulate there.
         _drop_checkpoints(thread)
     assert (ws / "hello.py").exists(), "the real tool must have written the file"
 

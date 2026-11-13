@@ -13,6 +13,7 @@ import re
 import queue
 import sys
 import threading
+import hashlib
 from pathlib import Path
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -51,6 +52,17 @@ from src.runtime.evidence_capture import TurnEvidenceRecorder
 from src.runtime.identity import TurnIdentity, normalize_id
 
 ENGINE_VERSION = "0.2.0-runtime"
+
+# Durable terminal lifecycle rows (written by TurnEvidenceRecorder) are the
+# only authority on how a restored turn ended. The renderer must never infer
+# success from the absence of a row (B-LIVE-002).
+_TERMINAL_TURN_OUTCOMES = {
+    "turn.completed": "completed",
+    "turn.cancelled": "cancelled",
+    "turn.failed": "failed",
+    "turn.interrupted": "incomplete",
+    "turn.watchdog": "incomplete",
+}
 
 # A session is only ever bound to a real project folder. The renderer disables
 # prompt submission without one; the bridge enforces the same contract so no
@@ -165,13 +177,39 @@ class BridgeServer:
     def _prior_checkpoint_count(sid: str, db_path: str | None = None) -> int | None:
         """Count durable checkpoints for a thread id (read-only, no engine
         import). None = unknown (db unreadable/schema changed) — never
-        reported as 0 when unknown."""
-        db = db_path or os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
+        reported as 0 when unknown.
+
+        The checkpoint rows live wherever the graph's ``SqliteSaver`` writes
+        them, so the default is the graph's captured ``_CHECKPOINT_DB`` when
+        that module is already imported, otherwise ``checkpoint_db_path()`` —
+        the exact same environment contract (``CRUSORAI_CHECKPOINT_DB`` >
+        ``CRUSORAI_CHECKPOINT_HOME`` > shared sessions DB > ``CRUSORAI_HOME``
+        > ``~/.crusorai/sessions.db``). An explicit ``db_path`` is only used by
+        direct callers/tests; there is no silent fallback to the developer's
+        home database when an override is configured.
+        """
+        if db_path is None:
+            # Prefer the already-imported graph's captured path: that is the
+            # exact file its SqliteSaver writes, even if the environment
+            # changed after import. Otherwise resolve the same contract
+            # without paying for an engine import.
+            graph_module = sys.modules.get("src.graphs.chat_graph")
+            captured = getattr(graph_module, "_CHECKPOINT_DB", None) if graph_module else None
+            if captured:
+                db_path = str(captured)
+            else:
+                from src.runtime.app_paths import checkpoint_db_path
+
+                db_path = str(checkpoint_db_path())
+        db = db_path
         if not os.path.exists(db):
             return 0
         try:
             import sqlite3
-            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2.0)
+
+            from src.runtime.app_paths import sqlite_readonly_uri
+
+            conn = sqlite3.connect(sqlite_readonly_uri(db), uri=True, timeout=2.0)
             try:
                 table = conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoints'"
@@ -213,8 +251,149 @@ class BridgeServer:
         )
         return {key: row.get(key) for key in safe if key in row}
 
+    @staticmethod
+    def _journal_events(journal: object, session_id: str, *, page: int = 2000) -> list[dict]:
+        """Every journal row for one session, paged (cards/turns are unbounded
+        by a single 2000-row window)."""
+        events: list[dict] = []
+        after = 0
+        while True:
+            batch = journal.list_events(session_id, after_seq=after, limit=page)  # type: ignore[attr-defined]
+            if not batch:
+                return events
+            events.extend(batch)
+            if len(batch) < page:
+                return events
+            next_after = int(batch[-1].get("seq") or 0)
+            if next_after <= after:
+                return events
+            after = next_after
+
+    @staticmethod
+    def _turn_request_rows(events: list[dict]) -> list[tuple[str, str]]:
+        """(request sha256, turn_id) for each turn.started journal row, in order."""
+        rows: list[tuple[str, str]] = []
+        for event in events:
+            if str(event.get("type") or "") != "turn.started":
+                continue
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+            digest = str(request.get("sha256") or "")
+            turn_id = str(event.get("turn_id") or "")
+            if turn_id:
+                # An empty digest is kept: a legacy journal with turn.started
+                # rows but no request hash can still use the ordinal fallback.
+                rows.append((digest, turn_id))
+        return rows
+
+    @staticmethod
+    def _turn_outcomes(events: list[dict]) -> dict[str, str]:
+        """turn_id -> durable terminal outcome for every turn the journal settled.
+
+        The journal enforces one terminal row per turn, so the first match wins;
+        a turn with no terminal row is deliberately absent (the client must treat
+        it as unknown, never as completed).
+        """
+        outcomes: dict[str, str] = {}
+        for event in events:
+            outcome = _TERMINAL_TURN_OUTCOMES.get(str(event.get("type") or ""))
+            turn_id = str(event.get("turn_id") or "")
+            if outcome and turn_id and turn_id not in outcomes:
+                outcomes[turn_id] = outcome
+        return outcomes
+
+    @staticmethod
+    def _assign_transcript_turn_ids(
+        projected: list[dict], turn_rows: list[tuple[str, str]],
+    ) -> None:
+        """Stamp each projected message with the turn that produced it.
+
+        Primary rule: the journal's turn.started request hash equals the hash
+        of the persisted human message, so a prompt's group is unambiguous even
+        when earlier turns failed or produced no assistant text. A user message
+        that matches no turn (a steer) inherits the open turn. Legacy journals
+        without request hashes fall back to ordinal association ONLY when the
+        number of user messages equals the number of turns (never a "newest
+        turn" guess).
+        """
+        if not projected or not turn_rows:
+            return
+        by_hash: dict[str, list[str]] = {}
+        for digest, turn_id in turn_rows:
+            by_hash.setdefault(digest, []).append(turn_id)
+
+        used: set[str] = set()
+        current = ""
+        matched_any = False
+        for entry in projected:
+            if entry.get("role") == "user":
+                content = str(entry.get("content") or "")
+                digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                candidate = next(
+                    (turn_id for turn_id in by_hash.get(digest, []) if turn_id not in used),
+                    "",
+                )
+                if candidate:
+                    current = candidate
+                    used.add(candidate)
+                    matched_any = True
+            if current:
+                entry["turn_id"] = current
+        if matched_any:
+            return
+
+        users = [entry for entry in projected if entry.get("role") == "user"]
+        turn_ids = [turn_id for _digest, turn_id in turn_rows]
+        if len(users) != len(turn_ids) or len(set(turn_ids)) != len(turn_ids):
+            return
+        current = ""
+        index = 0
+        for entry in projected:
+            if entry.get("role") == "user":
+                current = turn_ids[index]
+                index += 1
+                entry["turn_id"] = current
+            elif current:
+                entry["turn_id"] = current
+
+    @staticmethod
+    def _latest_agent_cards(events: list[dict], fallback_session: str) -> list[dict]:
+        """Latest card per (session, turn, card id), in first-arrival order.
+
+        Keying by card id alone lets a turn with the same id replace another
+        turn's card; the journal's full identity prevents that. Replaying the
+        same identity updates in place (no duplicate).
+        """
+        from src.bridge.agent_cards import normalize_card
+
+        latest: dict[tuple[str, str, str], dict] = {}
+        for event in events:
+            if str(event.get("type") or "") != "agent_card":
+                continue
+            raw = (event.get("payload") or {}).get("card")
+            card = normalize_card(
+                raw,
+                session_id=str(event.get("session_id") or fallback_session),
+                turn_id=str(event.get("turn_id") or ""),
+            )
+            if card is None:
+                continue
+            card_session = str(card.get("session_id") or "")
+            if card_session and fallback_session and card_session != fallback_session:
+                # The journal query is session-scoped; this guard makes the
+                # projection safe even if a foreign row leaks into the batch.
+                continue
+            key = (
+                str(card.get("session_id") or ""),
+                str(card.get("turn_id") or ""),
+                str(card.get("card_id") or ""),
+            )
+            latest[key] = card
+        return list(latest.values())
+
     def _transcript_messages(
         self, sid: str, *, limit: int, offset: int, order: str,
+        turn_rows: list[tuple[str, str]] | None = None,
     ) -> tuple[list[dict], dict]:
         """Paged transcript from the checkpointer (Hermes messages paging).
 
@@ -354,6 +533,10 @@ class BridgeServer:
             if name:
                 entry["tool_name"] = str(name)
             projected.append(entry)
+        # Turn ownership is assigned on the FULL list (before paging) so a
+        # page boundary can never split a turn's messages from its prompt.
+        if turn_rows:
+            self._assign_transcript_turn_ids(projected, turn_rows)
         total = len(projected)
         if order == "latest":
             start = max(0, total - offset - limit)
@@ -612,9 +795,38 @@ class BridgeServer:
                 print(f"[bridge][recovery] shutdown sweep failed for {workspace}: {exc!r}",
                       file=sys.stderr, flush=True)
 
+    def _journal_agent_card(self, card: dict, identity: TurnIdentity) -> None:
+        """Persist one painted card so session replay can restore it."""
+        try:
+            from src.runtime.factory import get_runtime_services
+
+            get_runtime_services().journal.append(
+                "agent_card",
+                {"card": card},
+                session_id=str(card.get("session_id") or identity.session_id),
+                turn_id=str(card.get("turn_id") or identity.turn_id),
+                workspace_id=str(identity.workspace_id or ""),
+            )
+        except Exception:
+            pass
+
     def _emit_companion_cards(self, frame: dict, identity: TurnIdentity) -> None:
         """Project a canonical frame onto typed UI cards (presentation only)."""
         try:
+            if str(frame.get("type") or "") == "agent_card":
+                # A producer already built this card (engineering progress).
+                # It needs the same durable row the projected cards get,
+                # otherwise the card is live-only and replay loses it.
+                card = frame.get("card")
+                if frame.get("ephemeral") is True:
+                    # In-flight generation heartbeats are live-only: the stage
+                    # reporter's snapshots are the replayable record, and
+                    # journaling every heartbeat would bloat the journal with
+                    # rows that must never win a replay.
+                    return
+                if isinstance(card, dict):
+                    self._journal_agent_card(card, identity)
+                return
             from src.bridge.agent_cards import card_frames_for_frame
 
             for card in card_frames_for_frame(frame, turn_id=identity.turn_id):
@@ -625,18 +837,7 @@ class BridgeServer:
                     "card": card,
                 }
                 self.emit(payload)
-                try:
-                    from src.runtime.factory import get_runtime_services
-
-                    get_runtime_services().journal.append(
-                        "agent_card",
-                        {"card": card},
-                        session_id=str(card.get("session_id") or identity.session_id),
-                        turn_id=str(card.get("turn_id") or identity.turn_id),
-                        workspace_id=str(identity.workspace_id or ""),
-                    )
-                except Exception:
-                    pass
+                self._journal_agent_card(card, identity)
         except Exception as exc:  # noqa: BLE001 - cards never block a turn
             print(
                 f"[CrusorAI bridge] companion card skipped: {type(exc).__name__}: {exc}",
@@ -1834,32 +2035,31 @@ class BridgeServer:
             except (TypeError, ValueError):
                 offset = 0
             order = str(frame.get("order") or "latest").strip().lower()
-            messages, pagination = self._transcript_messages(
-                tip, limit=limit, offset=offset, order=order)
-            cards: list[dict] = []
+            events: list[dict] = []
             try:
                 from src.runtime.factory import get_runtime_services
-                from src.bridge.agent_cards import normalize_card
 
-                latest: dict[str, dict] = {}
-                for event in get_runtime_services().journal.list_events(tip):
-                    if str(event.get("type") or "") != "agent_card":
-                        continue
-                    raw = (event.get("payload") or {}).get("card")
-                    card = normalize_card(
-                        raw,
-                        session_id=str(event.get("session_id") or tip),
-                        turn_id=str(event.get("turn_id") or ""),
-                    )
-                    if card is not None:
-                        latest[card["card_id"]] = card
-                cards = list(latest.values())
+                events = self._journal_events(get_runtime_services().journal, tip)
+            except Exception:
+                events = []
+            messages, pagination = self._transcript_messages(
+                tip, limit=limit, offset=offset, order=order,
+                turn_rows=self._turn_request_rows(events),
+            )
+            cards: list[dict] = []
+            try:
+                cards = self._latest_agent_cards(events, tip)
             except Exception:
                 cards = []
+            try:
+                turn_outcomes = self._turn_outcomes(events)
+            except Exception:
+                turn_outcomes = {}
             self.emit({
                 "type": "session_messages", "session_id": tip,
                 "requested_session_id": sid, "messages": messages,
                 "pagination": pagination, "cards": cards,
+                "turn_outcomes": turn_outcomes,
             })
             return True
         if kind == "session_delete":

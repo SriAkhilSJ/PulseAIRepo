@@ -95,6 +95,7 @@ class EngineeringExecutionOrchestrator:
         approval_timeout_s: Optional[float] = None,
         cancellation_checker: Optional[Callable[[], bool]] = None,
         turn_id: str = "",
+        generation_observer=None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
@@ -103,6 +104,10 @@ class EngineeringExecutionOrchestrator:
         #: The governor created by the current run_task, so the wrapper can
         #: reconcile it on EVERY exit (success, failure, cancellation, raise).
         self._last_finops: Optional[OrchestrationFinOpsGovernor] = None
+        #: Phase 2A: read-only workspace evidence produced before planning.
+        self._workspace_evidence: Optional[Any] = None
+        #: Phase 2D: outside-workspace access decisions for the current turn.
+        self._outside_access: List[Dict[str, Any]] = []
 
         # Initialize existing subsystem engines
         self.discovery_mgr = PersistentProjectIntelligenceManager(str(self.workspace_root))
@@ -127,6 +132,7 @@ class EngineeringExecutionOrchestrator:
             mock_mode=mock_mode,
             provider=provider,
             model=model,
+            generation_observer=generation_observer,
         )
         self.production_engine = ProductionReadinessEngine(str(self.workspace_root), tenant_id=tenant_id, storage_dir=storage_dir)
         # Human approval is opt-in per execution channel. The desktop bridge
@@ -189,15 +195,145 @@ class EngineeringExecutionOrchestrator:
 
     @staticmethod
     def _requested_files(task_prompt: str) -> list[str]:
-        """File paths the user named in the request (order preserved, deduped)."""
+        """File paths the user named in the request (order preserved, deduped).
+
+        Token-based rather than a single regex: Windows absolute paths contain
+        ``:`` and 8.3 names contain ``~``, both of which broke the old pattern
+        and produced bogus workspace-relative fragments like ``1/AppData/...``.
+        """
         import re as _re
 
         found: list[str] = []
-        for token in _re.findall(r"[A-Za-z0-9_./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml)\b", task_prompt or ""):
-            cleaned = token.strip("`'\",()[]<>").replace("\\", "/")
-            if cleaned and cleaned not in found:
+        for token in _re.split(r"[\s\"'`<>|,;()\[\]]+", task_prompt or ""):
+            cleaned = token.strip("`'\",;:()[]<>.").replace("\\", "/")
+            if not cleaned:
+                continue
+            if not _re.search(r"\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml)$", cleaned, _re.IGNORECASE):
+                continue
+            if cleaned not in found:
                 found.append(cleaned)
         return found[:8]
+
+    def _history_text(self, limit: int = 4000) -> str:
+        """Bounded recent conversation text from the graph-assembled bundle.
+
+        Used only to find workspace vocabulary on follow-up turns ("now fix the
+        failing tests"). The graph remains the context owner; nothing here
+        retrieves, summarises or expands that context.
+        """
+        rows = (self._context_bundle or {}).get("history") or []
+        parts: list[str] = []
+        for row in reversed(rows if isinstance(rows, list) else []):
+            content = str((row or {}).get("content") or "").strip()
+            if not content:
+                continue
+            parts.append(content)
+            if sum(len(part) for part in parts) >= limit:
+                break
+        return "\n".join(reversed(parts))[:limit]
+
+    # -- Phase 2D: outside-workspace access -------------------------------
+
+    _EXTERNAL_PATH_RE = re.compile(
+        r"""(?:[A-Za-z]:[\\/][^\s"'`<>|,;]+|(?<![\w:/])/(?!/)[^\s"'`<>|,;]+)"""
+    )
+    _EXTERNAL_UP_RE = re.compile(
+        r"""(?:^|[\s(\"'`])(\.\.[\\/][^\s"'`<>|,;]+)"""
+    )
+
+    def _external_path_candidates(self, prompt: str) -> List[str]:
+        """Explicit outside paths named by the human (never inferred).
+
+        Absolute paths and ``../`` paths are resolved against the workspace and
+        kept only when they exist, are outside the workspace, and are not a
+        known-sensitive location. Nothing is scanned or guessed.
+        """
+        from src.workspace.access_grants import (
+            canonical_path,
+            is_sensitive_external_path,
+        )
+
+        root = self.workspace_root
+        found: List[str] = []
+        raw_tokens: List[str] = []
+        for pattern in (self._EXTERNAL_PATH_RE, self._EXTERNAL_UP_RE):
+            raw_tokens.extend(pattern.findall(prompt or ""))
+        for raw in raw_tokens:
+            text = str(raw).strip().strip("`'\"()[]<>.,;:")
+            if not text or "://" in text or text.startswith("//"):
+                continue
+            try:
+                candidate = Path(text).expanduser()
+                if not candidate.is_absolute():
+                    candidate = root / candidate
+                resolved = canonical_path(candidate)
+            except Exception:
+                continue
+            if not resolved.exists():
+                continue
+            try:
+                if resolved == root or root in resolved.parents:
+                    continue
+            except Exception:
+                continue
+            if is_sensitive_external_path(resolved):
+                continue
+            text_resolved = str(resolved)
+            if text_resolved not in found:
+                found.append(text_resolved)
+        return found[:2]
+
+    _MODIFY_VERB_RE = re.compile(
+        r"\b(add|edit|modify|update|change|fix|refactor|rewrite|append|remove|"
+        r"delete|replace|implement|create|write)\b",
+        re.IGNORECASE,
+    )
+    _WRITE_PROXIMITY_RE = re.compile(
+        r"\b(add|edit|modify|update|change|fix|refactor|rewrite|append|remove|"
+        r"delete|replace|implement|create|write)\b[^.;:!?]{0,40}$",
+        re.IGNORECASE,
+    )
+    _WRITE_TARGET_RE = re.compile(
+        r"\b(add|edit|modify|update|change|fix|refactor|rewrite|append|remove|"
+        r"delete|replace|implement|create|write)\b\s+(?:the\s+)?"
+        r"(?:file\s+|folder\s+|directory\s+|module\s+)?"
+        r"[`\"']?(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~[\\/])",
+        re.IGNORECASE,
+    )
+
+    def _external_path_operation(self, prompt: str, path: str) -> str:
+        """``write`` when the request asks to change that path, else ``read``.
+
+        The verb must sit immediately before the path ("edit ../shared/x.py",
+        "add a function to ../shared/x.py"). A read request that merely adds
+        something *elsewhere* ("read ../shared/x.py and add a helper here") must
+        not become a write grant. Short (8.3) and long Windows spellings of the
+        same path are matched by file name.
+        """
+        name = Path(path).name
+        normalized_path = path.replace("\\", "/").lower()
+        for sentence in re.split(r"(?<=[.!?])\s+|\n+|;", prompt or ""):
+            lowered = sentence.lower()
+            index = lowered.find(path.lower())
+            if index < 0:
+                index = lowered.find(name.lower())
+            if index < 0:
+                continue
+            prefix = lowered[max(0, index - 60):index]
+            if re.search(
+                r"\b(?:do\s+not|don't|never|must\s+not)\s+(?:edit|modify|change|write|touch)\b",
+                prefix,
+            ):
+                return "read"
+            if self._WRITE_PROXIMITY_RE.search(prefix):
+                return "write"
+            # Same check without relying on the exact spelling: a write verb
+            # followed by any path-like token, where this file's name follows.
+            for match in self._WRITE_TARGET_RE.finditer(sentence):
+                tail = sentence[match.end(): match.end() + 240].replace("\\", "/").lower()
+                if name.lower() in tail or normalized_path in tail:
+                    return "write"
+        return "read"
 
     # -- P0.6.7 test lifecycle helpers ------------------------------------
 
@@ -402,9 +538,41 @@ class EngineeringExecutionOrchestrator:
         active holds released, uncertain holds reported and retained.
         """
         self._last_finops = None
+        self._workspace_evidence = None
+        self._outside_access = []
         try:
-            return self._run_task_impl(*args, **kwargs)
+            delivery = self._run_task_impl(*args, **kwargs)
+            evidence = self._workspace_evidence
+            if evidence is not None and delivery is not None:
+                try:
+                    delivery.workspace_discovery = evidence.summary()
+                except Exception:  # pragma: no cover - defensive
+                    pass
+            if delivery is not None:
+                delivery.outside_workspace_access = list(self._outside_access)
+                denied = [
+                    item for item in self._outside_access
+                    if item.get("decision") != "allowed"
+                ]
+                for item in denied:
+                    note = (
+                        f"Outside-workspace access to {item.get('path')} was "
+                        f"{item.get('decision')} ({item.get('reason') or 'no reason'}); "
+                        "it was not read."
+                    )
+                    if note not in delivery.remaining_limitations:
+                        delivery.remaining_limitations.append(note)
+            return delivery
         finally:
+            # Turn-scoped grants never survive the turn.
+            try:
+                self.broker.set_access_grants(None)
+            except Exception:
+                pass
+            try:
+                self.verification_engine.set_access_grants(None)
+            except Exception:
+                pass
             finops = self._last_finops
             if finops is not None:
                 try:
@@ -460,6 +628,23 @@ class EngineeringExecutionOrchestrator:
             delivery.mutation_receipts = []
         return delivery
 
+    def _record_scheduler_progress(
+        self,
+        context_mgr: "AdaptiveContextManager",
+        emit_progress: Callable[[str], None],
+        node: EngineeringTaskNode,
+    ) -> None:
+        """Record a DAG node's real outcome, then publish the updated snapshot.
+
+        The scheduler calls this before a node runs (``IN_PROGRESS``) and again
+        after it settles (``COMPLETED`` / ``FAILED`` / ``SKIPPED``). Only the
+        settled status mutates the plan: starting work never marks it complete,
+        a failed or blocked node never does, and reaching ``DELIVERED`` never
+        back-fills the whole plan.
+        """
+        context_mgr.record_task_outcome(node)
+        emit_progress(f"TASK_NODE_{getattr(node, 'node_id', '')}")
+
     def _run_task_impl(
         self,
         task_prompt: str,
@@ -513,7 +698,7 @@ class EngineeringExecutionOrchestrator:
         journal.record_event("TASK_INITIALIZED", {"task_prompt": task_prompt, "constraints": explicit_constraints})
         context_mgr.initialize_request(task_prompt, explicit_constraints)
 
-        def emit_progress(step_name: str) -> None:
+        def emit_progress(step_name: str, *, final: bool = False) -> None:
             if on_progress:
                 plan = context_mgr.context.plan
                 total_steps = list(plan.nodes.keys()) if plan else []
@@ -522,14 +707,28 @@ class EngineeringExecutionOrchestrator:
                     state=state_machine.current_state,
                     current_step=step_name,
                     completed_steps=context_mgr.context.completed_steps,
-                    pending_steps=[s for s in total_steps if s not in context_mgr.context.completed_steps],
+                    pending_steps=[
+                        s for s in total_steps
+                        if s not in context_mgr.context.completed_steps
+                        and s not in context_mgr.context.outstanding_failures
+                        and s not in context_mgr.context.blocked_steps
+                        and s not in context_mgr.context.cancelled_steps
+                    ],
                     failed_steps=context_mgr.context.outstanding_failures,
+                    blocked_steps=context_mgr.context.blocked_steps,
+                    cancelled_steps=context_mgr.context.cancelled_steps,
                     modified_files=list(self.impl_engine.mutated_files),
                     tokens_used=finops.accounting.tokens_consumed,
                     cost_inr=finops.accounting.spent_inr,
                     is_paused=state_machine.is_paused,
                 )
-                on_progress(view.to_safe_dict())
+                payload = view.to_safe_dict()
+                if final:
+                    # Marks the settled snapshot a cancellation path still has
+                    # to publish; the reporter lets only this one through after
+                    # Stop has been requested.
+                    payload["final"] = True
+                on_progress(payload)
 
         # STAGE 1: USER_REQUEST
         lifecycle.begin_stage(TaskLifecycleStage.USER_REQUEST, {"prompt": task_prompt})
@@ -571,8 +770,172 @@ class EngineeringExecutionOrchestrator:
         lifecycle.begin_stage(TaskLifecycleStage.PROJECT_DISCOVERY, {"workspace": str(self.workspace_root)})
         emit_progress("PROJECT_DISCOVERY")
         knowledge = self.discovery_mgr.get_project_knowledge()
+
+        # STAGE 3b: WORKSPACE_DISCOVERY (Phase 2A) - read-only inspection of the
+        # real project BEFORE any planning decision. Everything below plans
+        # against discovered paths; requirement ids never become filenames.
+        # Bounded by DiscoveryLimits; every call is journalled with its own
+        # tool_call_id/event_id and cancellation is honoured mid-walk.
+        workspace_evidence = None
+        access_grants = None
+        try:
+            from src.workspace.discovery import DiscoveryCancelled, WorkspaceDiscovery
+            from src.workspace.evidence import build_workspace_evidence
+
+            def _tool_event(call, payload) -> None:
+                try:
+                    journal.record_event(
+                        "WORKSPACE_TOOL_CALL",
+                        {**call.to_dict(), "data_keys": sorted(payload or {})},
+                    )
+                except Exception:
+                    pass
+
+            # Phase 2D: a path outside the workspace is used only after the
+            # human allows that exact boundary for this turn. Deny/timeout/
+            # cancel leaves it untouched; nothing widens silently.
+            from src.workspace.access_grants import (
+                TURN,
+                AccessGrantSet,
+                WorkspaceAccessGrant,
+            )
+
+            access_grants = AccessGrantSet()
+            external_paths: list[str] = []
+            write_paths: list[str] = []
+            access_report: list[dict] = []
+            for candidate in self._external_path_candidates(task_prompt):
+                operation = self._external_path_operation(task_prompt, candidate)
+                entry = {
+                    "path": candidate,
+                    "operation": operation,
+                    "decision": "denied",
+                    "scope": "",
+                    "reason": "",
+                }
+                if self.approval_gateway is None:
+                    entry["reason"] = "no_approval_channel"
+                    journal.record_event("WORKSPACE_ACCESS_DENIED", entry)
+                    access_report.append(entry)
+                    continue
+                journal.record_event("WORKSPACE_ACCESS_REQUESTED", {
+                    "path": candidate,
+                    "operation": operation,
+                    "task_id": tid,
+                    "turn_id": self._turn_id,
+                    "session_id": self._session_id,
+                })
+                verdict = self.approval_gateway.request_access(
+                    path=candidate,
+                    operation=operation,
+                    reason=(
+                        "the request asks to modify a path outside the workspace"
+                        if operation == "write"
+                        else "the request names a path outside the workspace"
+                    ),
+                )
+                if verdict.get("allowed"):
+                    scope = str(verdict.get("scope") or TURN)
+                    try:
+                        access_grants.add(WorkspaceAccessGrant(
+                            path=str(verdict.get("path") or candidate),
+                            operation=operation,
+                            scope=scope,
+                            approval_id=str(verdict.get("approval_id") or ""),
+                            reason=f"turn-scoped {operation} grant",
+                        ))
+                    except PermissionError as exc:
+                        entry["reason"] = f"sensitive_path: {exc}"
+                        journal.record_event("WORKSPACE_ACCESS_DENIED", entry)
+                        access_report.append(entry)
+                        continue
+                    external_paths.append(candidate)
+                    if operation == "write":
+                        write_paths.append(candidate)
+                    entry.update({
+                        "decision": "allowed",
+                        "scope": scope,
+                        "reason": "",
+                        "approval_id": verdict.get("approval_id", ""),
+                    })
+                    journal.record_event("WORKSPACE_ACCESS_GRANTED", entry)
+                else:
+                    entry["reason"] = str(verdict.get("reason") or "user_denied")
+                    journal.record_event("WORKSPACE_ACCESS_DENIED", entry)
+                access_report.append(entry)
+
+            # The broker may only write outside the workspace for a granted
+            # boundary; the turn's grants are installed here and cleared on exit.
+            self.broker.set_access_grants(access_grants)
+            try:
+                self.verification_engine.set_access_grants(access_grants)
+            except Exception:
+                pass
+
+            discovery = WorkspaceDiscovery(
+                self.workspace_root,
+                session_id=self._session_id,
+                turn_id=self._turn_id,
+                task_id=tid,
+                cancellation_checker=cancellation_checker,
+                on_event=_tool_event,
+                access_grants=access_grants,
+            )
+            workspace_evidence = build_workspace_evidence(
+                discovery,
+                task_prompt,
+                history=self._history_text(),
+                external_paths=external_paths,
+            )
+            workspace_evidence.access = access_report
+            self._workspace_evidence = workspace_evidence
+            self._outside_access = list(access_report)
+            journal.record_event("WORKSPACE_DISCOVERED", workspace_evidence.summary())
+        except DiscoveryCancelled:
+            state_machine.transition_to(
+                TaskExecutionState.CANCELLED,
+                "Cancelled during workspace discovery",
+            )
+            journal.record_event("TASKS_CANCELLED", {
+                "reason": "user_cancelled_during_workspace_discovery",
+            })
+            return DeliveryContract(
+                task_id=tid,
+                original_request=task_prompt,
+                verdict=TaskVerdict.CANCELLED,
+                what_was_requested=task_prompt,
+                what_was_implemented=[],
+                files_changed=[],
+                tests_executed=[],
+                tests_passed=[],
+                tests_failed=[],
+                independently_verified=False,
+                remaining_limitations=[
+                    "Cancelled during read-only workspace discovery; no plan was built."
+                ],
+                user_action_required=None,
+                cost_inr=0.0,
+                token_usage={},
+                duration_seconds=round(time.time() - t_start, 3),
+            )
+        except Exception as exc:  # noqa: BLE001 - discovery must not kill a turn
+            # Fail soft and say so: planning falls back to request-only
+            # targeting, and the limitation is recorded in the journal.
+            workspace_evidence = None
+            journal.record_event("WORKSPACE_DISCOVERY_FAILED", {
+                "reason": f"{type(exc).__name__}: {exc}"[:300],
+            })
+            log.warning("workspace discovery failed: %r", exc)
+
         journal.record_event("DISCOVERY_COMPLETED", {"project_name": knowledge.project_name, "frameworks": [f.name for f in knowledge.frameworks]})
-        lifecycle.complete_stage({"project_name": knowledge.project_name})
+        lifecycle.complete_stage({
+            "project_name": knowledge.project_name,
+            "workspace_files": len(workspace_evidence.files) if workspace_evidence else 0,
+            "workspace_selected": (
+                [item["path"] for item in workspace_evidence.ranked[:5]]
+                if workspace_evidence else []
+            ),
+        })
 
         # STAGE 4: REQUIREMENT_VALIDATION (Phase 11.1)
         state_machine.transition_to(TaskExecutionState.SPECIFICATION_READY, "Validating requirements against repository")
@@ -608,6 +971,16 @@ class EngineeringExecutionOrchestrator:
         lifecycle.begin_stage(TaskLifecycleStage.CONTRACT_EXTRACTION, {})
         emit_progress("CONTRACT_EXTRACTION")
         requested_files = self._requested_files(task_prompt)
+        # Phase 2D: a path outside the workspace is context, never a write
+        # target. External mentions reach the contract only through the
+        # approved read-only grants.
+        from src.orchestration.contract import is_outside_workspace as _outside
+
+        requested_files = [
+            path for path in requested_files
+            if not _outside(path, str(self.workspace_root))
+            or (access_grants is not None and access_grants.allows(path, "write"))
+        ]
         raw_requirements = getattr(analysis_result.specification, "all_requirements", None)
         if callable(raw_requirements):
             all_requirements = raw_requirements()
@@ -621,6 +994,8 @@ class EngineeringExecutionOrchestrator:
             requested_files,
             task_id=tid,
             workspace=str(self.workspace_root),
+            workspace_evidence=workspace_evidence,
+            access_grants=access_grants,
         )
         contract_path = contract.persist(self.workspace_root)
         journal.record_event("CONTRACT_EXTRACTED", {
@@ -672,6 +1047,7 @@ class EngineeringExecutionOrchestrator:
             requested_files=requested_files,
             task_prompt=task_prompt,
             contract=contract,
+            workspace_evidence=workspace_evidence,
         )
         # Pre-dispatch plan validation: Requirement -> Role -> File -> Work Unit.
         try:
@@ -681,6 +1057,9 @@ class EngineeringExecutionOrchestrator:
                 plan_dag,
                 max_dispatches=dispatch_budget,
                 requested_files=requested_files,
+                workspace_evidence=workspace_evidence,
+                workspace=str(self.workspace_root),
+                access_grants=access_grants,
             )
         except Exception as exc:
             state_machine.transition_to(TaskExecutionState.FAILED, "Plan rejected before dispatch")
@@ -799,16 +1178,64 @@ class EngineeringExecutionOrchestrator:
                 turn_id=self._turn_id,
             )
 
+        def _node_progress(node: EngineeringTaskNode) -> None:
+            self._record_scheduler_progress(context_mgr, emit_progress, node)
+            status = str(getattr(node, "status", "") or "").upper()
+            if status in {"COMPLETED", "FAILED", "SKIPPED", "BLOCKED", "CANCELLED"}:
+                journal.record_event(f"TASK_NODE_{status}", {
+                    "node_id": str(getattr(node, "node_id", "") or ""),
+                    "reason": str(getattr(node, "error_message", "") or "")[:300],
+                })
+
         exec_func = custom_executor or default_executor
-        exec_success = self.scheduler.execute_plan(
-            plan=plan_dag,
-            executor_func=exec_func,
-            on_progress=lambda n: emit_progress(f"TASK_NODE_{n.node_id}"),
-        )
+        try:
+            exec_success = self.scheduler.execute_plan(
+                plan=plan_dag,
+                executor_func=exec_func,
+                on_progress=_node_progress,
+                is_cancelled=cancellation_checker,
+            )
+        except PermissionError:
+            # Approval denial/cancellation is a security verdict the graph must
+            # see. When the human's Stop caused it, the interrupted and unrun
+            # nodes are CANCELLED (not failed), so record and publish that
+            # before the verdict leaves the engine.
+            if cancellation_checker and cancellation_checker():
+                cancelled_more: list[str] = []
+                for node in plan_dag.nodes.values():
+                    if str(getattr(node, "status", "") or "").upper() in {"PENDING", "IN_PROGRESS"}:
+                        node.status = "CANCELLED"
+                        node.error_message = "Cancelled by user"
+                        context_mgr.record_task_outcome(node)
+                        cancelled_more.append(node.node_id)
+                if cancelled_more:
+                    journal.record_event("TASKS_CANCELLED", {
+                        "node_ids": cancelled_more,
+                        "reason": "user_cancelled",
+                    })
+                emit_progress("IMPLEMENTATION", final=True)
+            raise
         if not exec_success:
             if cancellation_checker and cancellation_checker():
                 state_machine.transition_to(TaskExecutionState.CANCELLED, "Task cancelled during implementation")
                 journal.record_event("TASK_CANCELLED", {"stage": "IMPLEMENTATION"})
+                # The scheduler reports the interrupted node as CANCELLED; any
+                # node it never reached is cancelled by the same Stop. Record
+                # them truthfully (not failed, not completed) and publish one
+                # final plan snapshot before the turn settles.
+                cancelled: list[str] = []
+                for node in plan_dag.nodes.values():
+                    if str(getattr(node, "status", "") or "").upper() in {"PENDING", "IN_PROGRESS"}:
+                        node.status = "CANCELLED"
+                        node.error_message = "Cancelled by user"
+                        context_mgr.record_task_outcome(node)
+                        cancelled.append(node.node_id)
+                if cancelled:
+                    journal.record_event("TASKS_CANCELLED", {
+                        "node_ids": cancelled,
+                        "reason": "user_cancelled",
+                    })
+                emit_progress("IMPLEMENTATION", final=True)
                 return DeliveryContract(
                     task_id=tid,
                     original_request=task_prompt,
@@ -826,6 +1253,22 @@ class EngineeringExecutionOrchestrator:
                     token_usage={"tokens": finops.accounting.tokens_consumed},
                     duration_seconds=round(time.time() - t_start, 3),
                 )
+            # The scheduler halts the pipeline after a failed wave, so nodes it
+            # never reached remain PENDING. They could not run: record them as
+            # blocked (never attempted), distinct from a genuine failure.
+            blocked: list[str] = []
+            for node in plan_dag.nodes.values():
+                if str(getattr(node, "status", "") or "").upper() in {"PENDING", "IN_PROGRESS"}:
+                    node.status = "BLOCKED"
+                    node.error_message = node.error_message or "Pipeline halted before this task ran"
+                    context_mgr.record_task_outcome(node)
+                    blocked.append(node.node_id)
+            if blocked:
+                journal.record_event("TASKS_BLOCKED", {
+                    "node_ids": blocked,
+                    "reason": "pipeline_halted_after_failure",
+                })
+                emit_progress("IMPLEMENTATION")
             # Check if any failure was due to specific FinOps, accounting, or security errors
             for node in plan_dag.nodes.values():
                 if node.status == "FAILED" and node.error_message:

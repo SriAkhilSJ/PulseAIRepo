@@ -84,14 +84,18 @@ def test_navigation_rebinds_and_hydrates_from_checkpoints():
 
 def test_transcript_hydration_groups_messages_into_history_turns():
     service = _text("browser", "crusorAIRendererService.ts")
-    assert "private hydrateTranscript(messages: readonly CrusorSessionMessage[]): void {" in service
+    assert "private hydrateTranscript(messages: readonly CrusorSessionMessage[], turnOutcomes?: Readonly<Record<string, unknown>>): void {" in service
     # Stale pages (a reply for a session the user already left) are dropped.
     assert "if (forId !== this.pendingHydration && forId !== this.sessionId) { return; }" in service
     # Tool results rejoin their cards on tool_call_id; hydration lands in
     # history (bounded like archived turns), never the live surface.
     assert "toolIndex.get(message.tool_call_id)" in service
     assert "turns.slice(-20)" in service
-    assert "turnOutcome: 'completed' as const" in service
+    # A restored turn keeps its durable outcome; missing evidence stays
+    # ambiguous instead of being upgraded to completed (B-LIVE-002).
+    assert "turnOutcome: restoredTurnOutcome(turnOutcomes, turn.turnId)" in service
+    assert "turnOutcome: 'completed' as const" not in service
+    assert "state: 'recorded'" in service
 
 
 def test_background_turns_route_to_their_list_row():

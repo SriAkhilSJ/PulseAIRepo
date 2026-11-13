@@ -31,6 +31,10 @@ class DesktopTaskProgressView:
     completed_steps: List[str] = field(default_factory=list)
     pending_steps: List[str] = field(default_factory=list)
     failed_steps: List[str] = field(default_factory=list)
+    #: Work that never ran (dependency/upstream halt) and work interrupted by
+    #: the user. Both are distinct from a genuine execution failure.
+    blocked_steps: List[str] = field(default_factory=list)
+    cancelled_steps: List[str] = field(default_factory=list)
     modified_files: List[str] = field(default_factory=list)
     test_results_summary: Dict[str, int] = field(default_factory=dict)
     resource_consumption: Dict[str, Any] = field(default_factory=dict)
@@ -49,6 +53,8 @@ class DesktopTaskProgressView:
             "completed_steps": self.completed_steps,
             "pending_steps": self.pending_steps,
             "failed_steps": self.failed_steps,
+            "blocked_steps": self.blocked_steps,
+            "cancelled_steps": self.cancelled_steps,
             "modified_files": self.modified_files,
             "test_results_summary": self.test_results_summary,
             "resource_consumption": self.resource_consumption,
@@ -81,9 +87,16 @@ class DesktopVisibilityReporter:
         pending_approvals: Optional[List[Dict[str, Any]]] = None,
         blockers: Optional[List[str]] = None,
         is_paused: bool = False,
+        blocked_steps: Optional[List[str]] = None,
+        cancelled_steps: Optional[List[str]] = None,
     ) -> DesktopTaskProgressView:
         """Calculates derived progress percentage based on completed DAG nodes."""
-        total_steps = len(completed_steps) + len(pending_steps) + len(failed_steps)
+        blocked = list(blocked_steps or [])
+        cancelled = list(cancelled_steps or [])
+        total_steps = (
+            len(completed_steps) + len(pending_steps) + len(failed_steps)
+            + len(blocked) + len(cancelled)
+        )
         pct = 0.0
         if state == TaskExecutionState.COMPLETED:
             pct = 100.0
@@ -97,6 +110,8 @@ class DesktopVisibilityReporter:
             completed_steps=completed_steps,
             pending_steps=pending_steps,
             failed_steps=failed_steps,
+            blocked_steps=blocked,
+            cancelled_steps=cancelled,
             modified_files=sorted(list(set(modified_files))),
             test_results_summary=test_summary or {},
             resource_consumption={

@@ -145,7 +145,16 @@ class OrchestratorApprovalGateway:
             unified_diff_text,
         )
 
-        rel_path = Path(path).as_posix()
+        from src.workspace.path_safety import PathSafetyValidator
+
+        raw_path = Path(str(path))
+        # Outside paths must use the same canonical spelling the broker sees
+        # (long names, resolved symlinks), or the token signature will not match.
+        rel_path = (
+            PathSafetyValidator.canonical_path(raw_path).as_posix()
+            if raw_path.is_absolute()
+            else raw_path.as_posix()
+        )
         token_task_id = str(task_id or self.task_id)
         proposed_digest = (
             content_digest(proposed_content) if proposed_content is not None else ""
@@ -308,6 +317,129 @@ class OrchestratorApprovalGateway:
         )
         self._record(auth)
         return auth
+
+    # -- outside-workspace access (Phase 2D) ------------------------------
+
+    def request_access(
+        self,
+        *,
+        path: str,
+        operation: str = "read",
+        reason: str = "",
+        node_id: str = "workspace.discovery",
+    ) -> dict:
+        """Ask the human for access to one exact path outside the workspace.
+
+        Always asks: no session policy, grant or prior approval can widen the
+        workspace silently. Returns a plain verdict instead of raising, so the
+        caller can record the limitation and keep the turn honest.
+        """
+        try:
+            from src.workspace.path_safety import PathSafetyValidator
+
+            canonical = str(PathSafetyValidator.canonical_path(path))
+        except Exception:
+            canonical = str(path)
+        tool_id = (
+            f"orch-{self.task_id}-{int(time.time() * 1000)}-"
+            f"access-{abs(hash((node_id, canonical))) % 10000}"
+        )
+        arguments = {
+            "path": canonical,
+            "operation": operation,
+            "reason": reason,
+            "kind": "external_directory",
+            "task_id": self.task_id,
+            "workspace": str(self.workspace_root),
+        }
+        self.queue.request(
+            tool_id,
+            "workspace.access",
+            arguments,
+            session_id=self.session_id,
+            diff={
+                "kind": "external_directory",
+                "path": canonical,
+                "operation": operation,
+                "reason": reason,
+                "diff": "",
+                "content_digest": "",
+            },
+        )
+        self.emit(
+            "tool.approval.request",
+            {
+                "id": tool_id,
+                "tool_id": tool_id,
+                "name": "workspace.access",
+                "tool_name": "workspace.access",
+                "arguments": arguments,
+                "tool_args": arguments,
+                "diff": {
+                    "kind": "external_directory",
+                    "path": canonical,
+                    "operation": operation,
+                    "reason": reason,
+                },
+                "warning": reason or f"{operation} access outside the workspace",
+                "task_id": self.task_id,
+                "workspace": str(self.workspace_root),
+                "thread_id": self.session_id,
+                "session_id": self.session_id,
+            },
+        )
+
+        def _heartbeat(elapsed: float) -> None:
+            print(
+                f"[orchestrator-approval] waiting {elapsed:.0f}s for {tool_id} "
+                f"({operation} outside workspace {canonical})",
+                flush=True,
+            )
+
+        decision = self.queue.wait_for_decision(
+            tool_id,
+            timeout=self.timeout_s,
+            heartbeat=_heartbeat,
+            heartbeat_interval=self.heartbeat_interval,
+            should_stop=self.cancellation_checker,
+        )
+        verdict = {
+            "allowed": False,
+            "scope": "",
+            "approval_id": tool_id,
+            "path": canonical,
+            "operation": operation,
+            "reason": "",
+        }
+        if decision is None:
+            verdict["reason"] = "approval_abandoned"
+        elif decision.get("session_id") != self.session_id:
+            verdict["reason"] = "wrong_session"
+        elif decision.get("cancelled"):
+            verdict["reason"] = "turn_cancelled"
+        elif decision.get("timeout"):
+            verdict["reason"] = "approval_timeout"
+        elif not decision.get("decision"):
+            verdict["reason"] = "user_denied"
+        else:
+            verdict["allowed"] = True
+            # "Allow always" is capped to this turn. Nothing is persisted, so a
+            # later turn asks again (unlike mutation session grants).
+            verdict["scope"] = "turn" if decision.get("always_allow") else "once"
+
+        self.receipts.append({
+            "approval_id": tool_id,
+            "task_id": self.task_id,
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "workspace": str(self.workspace_root),
+            "path": canonical,
+            "operation": f"access:{operation}",
+            "decision": "allowed" if verdict["allowed"] else "denied",
+            "scope": verdict["scope"],
+            "reason": verdict["reason"],
+        })
+        return verdict
 
     def _record(self, auth: Authorization) -> None:
         """Append a token-free approval receipt for the turn evidence."""

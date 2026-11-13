@@ -170,6 +170,7 @@ class EngineeringTaskPlanner:
         requested_files: Optional[list[str]] = None,
         task_prompt: Optional[str] = None,
         contract: Optional[Any] = None,
+        workspace_evidence: Optional[Any] = None,
     ) -> EngineeringPlanDAG:
         """
         Synthesizes an EngineeringPlanDAG tailored strictly to approved requirements.
@@ -209,6 +210,7 @@ class EngineeringTaskPlanner:
                 blueprint=blueprint,
                 impact_report=impact_report,
                 max_nodes=max_nodes,
+                workspace_evidence=workspace_evidence,
             )
 
         # 2. Extract tasks directly mapped to requirements
@@ -439,6 +441,7 @@ class EngineeringTaskPlanner:
         blueprint: Any,
         impact_report: Any,
         max_nodes: Optional[int],
+        workspace_evidence: Optional[Any] = None,
     ) -> EngineeringPlanDAG:
         """Turn validated contract components into one work unit per file.
 
@@ -471,6 +474,16 @@ class EngineeringTaskPlanner:
 
             requirement_ids = list(component.requirement_ids)
             objective = (task_prompt or component.responsibility or f"Create {component.target_file}").strip()
+            contract_data = component.to_dict()
+            if workspace_evidence is not None:
+                digest_for = getattr(workspace_evidence, "digest_for", None)
+                digest = digest_for(component.target_file) if callable(digest_for) else None
+                if digest:
+                    # Phase 2A: the generating model receives the discovered
+                    # neighbours (package surface, sibling tests) instead of a
+                    # guess. Bounded by the evidence builder.
+                    contract_data["workspace_evidence"] = digest
+                    contract_data["workspace_discovered"] = True
             node = EngineeringTaskNode(
                 node_id=node_id,
                 description=(
@@ -488,7 +501,7 @@ class EngineeringTaskPlanner:
                 acceptance_criteria=["Passes the authoritative engineering contract"],
                 completion_conditions=["Contract-consistent tests pass"],
                 file_role=role,
-                contract=component.to_dict(),
+                contract=contract_data,
                 contract_hash=contract.contract_hash,
             )
             nodes.append(node)

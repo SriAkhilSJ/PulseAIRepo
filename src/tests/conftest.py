@@ -17,9 +17,15 @@ guard. Delete entries from this list as each test is migrated.
 import os as _os
 import tempfile as _tempfile
 
-_os.environ.setdefault(
-    "CRUSORAI_CHECKPOINT_HOME",
-    _tempfile.mkdtemp(prefix="crusorai-test-checkpoints-"),
+_TEST_RUNTIME_ROOT = _tempfile.mkdtemp(prefix="crusorai-test-runtime-")
+_os.environ["CRUSORAI_HOME"] = _TEST_RUNTIME_ROOT
+_os.environ["CRUSORAI_CHECKPOINT_HOME"] = _TEST_RUNTIME_ROOT
+_os.environ.pop("CRUSORAI_CHECKPOINT_DB", None)
+# The durable session rows and the LangGraph checkpoints share one database in
+# production. Point BOTH at the throwaway root so an in-process `_run_turn`
+# cannot write `crusor_sessions` rows to the developer's real sessions.db.
+_os.environ["CRUSORAI_SESSIONS_DB"] = _os.path.join(
+    _TEST_RUNTIME_ROOT, "sessions.db"
 )
 
 # The engine starts the preview proxy the first time a session binds a workspace

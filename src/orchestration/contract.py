@@ -300,6 +300,77 @@ def _split_params(params: str) -> List[str]:
     return [p.strip().lstrip("*") for p in cleaned.split(",") if p.strip()]
 
 
+# Natural-language callable forms. Users name a callable two ways: as a
+# declaration ("def f(x)") and in prose ("implement a divide(a, b) function").
+# The prose form is the common one, and it used to leave `symbols` empty --
+# which made the plan gate reject an unambiguous request before dispatch
+# (B-LIVE-001). The patterns stay deliberately narrow: a name is only kept
+# when the clause asks for something to be created and the name is not
+# governed by a preservation/negation cue.
+_CLAUSE_SPLIT = re.compile(r"(?<=[.!?;])\s+|\n+")
+_CREATION_CUE = re.compile(
+    r"\b(?:implement|add|create|write|define|introduce|export|expose|build|"
+    r"provide|include|support|make)\b",
+    re.IGNORECASE,
+)
+_PRESERVATION_CUE = re.compile(
+    r"\b(?:preserve|preserving|keep|keeping|retain|maintain|leave|leaving|"
+    r"without|do not|don't|dont|never|avoid|must not|should not|unchanged|intact)\b",
+    re.IGNORECASE,
+)
+_DECLARED_CALLABLE = re.compile(
+    r"\b(?:def|function|method)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)"
+)
+_NAMED_WITH_ARGS = re.compile(
+    r"\b([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:as\s+)?(?:a\s+|an\s+|the\s+)?"
+    r"(?:public\s+|python\s+|helper\s+|small\s+|new\s+)?(?:function|method)\b",
+    re.IGNORECASE,
+)
+_CALLED_NAME = re.compile(
+    r"\b(?:function|method)\s+(?:called|named)\s+[`'\"]?([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
+_PUBLIC_NAME = re.compile(
+    r"\b(?:public\s+|python\s+|helper\s+)?(?:function|method)\s+[`'\"]?([A-Za-z_]\w*)",
+    re.IGNORECASE,
+)
+_CALL_EXPR = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\s*\(([^)]*)\)(?!\s*\.\s*[A-Za-z_])")
+_PARAM_SHAPE = re.compile(r"^(?:\*{0,2}[A-Za-z_]\w*(?:\s*[:=].*)?)?$")
+
+# Prose words and standard-library/runtime callables that are never the
+# requested public API. An explicit declaration (def/function NAME(...))
+# bypasses this list: writing the declaration IS unambiguous.
+_NON_SYMBOL_NAMES = frozenset({
+    "exactly", "as", "that", "which", "with", "in", "from", "must", "should",
+    "then", "and", "or", "to", "is", "are", "be", "the", "a", "an", "only",
+    "one", "public", "private", "returns", "calls", "takes", "has",
+    "function", "functions", "method", "methods", "called", "named", "python",
+    "print", "len", "str", "int", "float", "list", "dict", "set", "tuple",
+    "bool", "range", "open", "super", "self", "isinstance", "getattr",
+    "setattr", "hasattr", "enumerate", "zip", "map", "filter", "sorted",
+    "sum", "min", "max", "abs", "round", "type", "format", "input", "main",
+    "pytest", "pip", "node", "npm", "git", "assert", "raise", "return",
+    "import", "def", "class", "test", "tests",
+})
+
+
+def _clauses(text: str) -> List[str]:
+    return [clause for clause in _CLAUSE_SPLIT.split(text) if clause and clause.strip()]
+
+
+def _negated_at(clause: str, index: int) -> bool:
+    """True when a preservation/negation cue governs the match at ``index``."""
+    window = clause[max(0, index - 60):index]
+    return bool(_PRESERVATION_CUE.search(window))
+
+
+def _valid_params(params: str) -> bool:
+    for param in _split_params(params):
+        if not _PARAM_SHAPE.match(param.strip()):
+            return False
+    return True
+
+
 def parse_prompt_contract(prompt: str) -> Dict[str, Any]:
     """Extract explicit contract fields from the user's own words."""
     text = prompt or ""
@@ -307,24 +378,52 @@ def parse_prompt_contract(prompt: str) -> Dict[str, Any]:
 
     symbols: List[str] = []
     signatures: Dict[str, List[str]] = {}
-    # A callable named with parentheses is the unambiguous form.
-    for match in re.finditer(r"\b(?:def|function)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)", text):
-        name = match.group(1)
+
+    def _add(name: str, params: Optional[List[str]] = None) -> None:
+        if not name or name.lower() in _NON_SYMBOL_NAMES:
+            return
         if name not in symbols:
             symbols.append(name)
-            signatures[name] = _split_params(match.group(2) or "")
-    # "public function parse_duration" without a signature: refuse prose words.
-    _symbol_stopwords = {
-        "exactly", "as", "that", "which", "with", "in", "from", "must", "should",
-        "then", "and", "or", "to", "is", "are", "be", "the", "a", "an", "only",
-        "one", "public", "private", "returns", "calls", "takes", "has",
-    }
-    for match in re.finditer(r"\b(?:public\s+)?function\s+([A-Za-z_]\w*)\b", text):
-        name = match.group(1)
-        if name.lower() in _symbol_stopwords or name in symbols:
+            signatures[name] = list(params or [])
+            return
+        if params and not signatures.get(name):
+            signatures[name] = list(params)
+
+    def _scan(pattern: re.Pattern[str], *, with_params: bool, allow_stopwords: bool = False) -> None:
+        for clause in _clauses(text):
+            for match in pattern.finditer(clause):
+                if _negated_at(clause, match.start()):
+                    continue
+                name = match.group(1)
+                params = _split_params(match.group(2) or "") if with_params else []
+                if not allow_stopwords and name.lower() in _NON_SYMBOL_NAMES:
+                    continue
+                if with_params and not _valid_params(match.group(2) or ""):
+                    continue
+                _add(name, params)
+
+    # 1. Explicit declaration: "def divide(a, b)", "function divide(a, b)".
+    _scan(_DECLARED_CALLABLE, with_params=True, allow_stopwords=True)
+    # 2. Name before its argument list, with the word function after it:
+    #    "implement a divide(a, b) function".
+    _scan(_NAMED_WITH_ARGS, with_params=True)
+    # 3. "a function called divide", "a Python function named clamp".
+    _scan(_CALLED_NAME, with_params=False)
+    # 4. "the public method `divide`" -- no argument list at all.
+    _scan(_PUBLIC_NAME, with_params=False)
+    # 5. A bare call in a creation clause: "Create divide(a, b) in the
+    #    existing package." Only the creation cue makes this a request; the
+    #    parameter shape keeps shell commands and literals out.
+    for clause in _clauses(text):
+        if not _CREATION_CUE.search(clause):
             continue
-        symbols.append(name)
-        signatures.setdefault(name, [])
+        for match in _CALL_EXPR.finditer(clause):
+            if _negated_at(clause, match.start()):
+                continue
+            name = match.group(1)
+            if name.lower() in _NON_SYMBOL_NAMES or not _valid_params(match.group(2) or ""):
+                continue
+            _add(name, _split_params(match.group(2) or ""))
 
     returns = None
     return_match = re.search(
@@ -452,10 +551,25 @@ def _requirement_classification(req: Any) -> str:
 
 
 def _mentioned_files(text: str) -> List[str]:
+    """File paths mentioned in text (tokens, not a path regex).
+
+    A regex built from ``[A-Za-z0-9_./\\\\-]`` cannot represent Windows drive
+    letters (``:``) or 8.3 names (``~``); it used to split
+    ``C:\\\\Users\\\\ADMINI~1\\\\...\\\\utils.py`` into ``1/AppData/...``. Tokens
+    keep absolute paths intact.
+    """
     found: List[str] = []
-    for token in _FILE_MENTION_RE.findall(text or ""):
+    for token in re.split(r"[\s\"'`<>|,;()\[\]]+", str(text or "")):
         path = normalize_path(token)
-        if path and path not in found:
+        if not path:
+            continue
+        if not re.search(
+            r"\.(?:py|pyi|ts|tsx|js|jsx|json|md|rst|toml|yaml|yml|ini|cfg|txt|sh|ps1)$",
+            path,
+            re.IGNORECASE,
+        ):
+            continue
+        if path not in found:
             found.append(path)
     return found
 
@@ -479,6 +593,209 @@ def _synthesize_target(intent: FileRole, requirement_id: str) -> str:
     return f"src/{slug}_module.py"
 
 
+_SYNTH_STOPWORDS = frozenset({
+    "about", "after", "also", "and", "another", "because", "before", "build",
+    "create", "existing", "from", "function", "implement", "into", "keep",
+    "make", "must", "need", "only", "package", "please", "should", "that",
+    "their", "then", "there", "these", "this", "update", "using", "value",
+    "when", "where", "which", "while", "with", "without", "your",
+})
+
+
+def _discovery_synthesis_key(prompt: str, fields: Dict[str, Any]) -> str:
+    """A filename seed taken from the USER's words, never a requirement id.
+
+    Used only when discovery found no file of the needed role (a genuinely new
+    artifact). ``src/req_001_module.py`` must not exist in any plan, so the
+    seed is the requested symbol, an explicitly named file's stem, or the first
+    meaningful request word.
+    """
+    symbols = list(fields.get("symbols") or [])
+    if symbols:
+        return _slug(symbols[0])
+    mentioned = _mentioned_files(prompt or "")
+    if mentioned:
+        return _slug(PurePosixPath(mentioned[0]).stem)
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_]{3,}", prompt or ""):
+        lowered = token.lower()
+        if lowered not in _SYNTH_STOPWORDS:
+            return _slug(lowered)
+    return "task"
+
+
+def _synthesize_discovered_target(intent: FileRole, key: str) -> str:
+    """Role-appropriate new path derived from the user's request."""
+    slug = _slug(key)
+    if intent == FileRole.CONFIGURATION:
+        return f"config/{slug}.yaml"
+    if intent == FileRole.DOCUMENTATION:
+        return f"docs/{slug}.md"
+    if intent == FileRole.BUILD:
+        return f"build/{slug}.py"
+    if intent == FileRole.TEST:
+        return f"tests/test_{slug}.py"
+    return f"src/{slug}.py"
+
+
+def _pick_discovered_target(
+    intent: FileRole,
+    *,
+    description: str,
+    evidence: Any,
+    source_targets: List[str],
+) -> tuple[Optional[str], str, bool]:
+    """Choose an EXISTING file for this role from discovery evidence.
+
+    Returns ``(path, reason, ambiguous)``. ``path is None`` with
+    ``ambiguous=True`` means discovery found candidates but could not safely
+    choose one: the caller must report that instead of inventing a file.
+    """
+    candidates_for = getattr(evidence, "candidates_for", None)
+    if candidates_for is None:
+        return None, "", False
+    candidates = list(candidates_for(intent.value) or [])
+    if not candidates:
+        return None, "", False
+
+    if intent == FileRole.SOURCE:
+        # "Export it from the package" is package-surface work, not a second
+        # implementation file: target the discovered __init__.py in the same
+        # package as the implementation.
+        if re.search(
+            r"\b(?:export|re-?export|__all__|__init__|package surface)\b",
+            description or "", re.IGNORECASE,
+        ):
+            package_dirs = {
+                str(PurePosixPath(path).parent) for path in source_targets
+            }
+            inits = list(getattr(evidence, "package_init_candidates", lambda: [])() or [])
+            for candidate in inits:
+                if str(PurePosixPath(candidate["path"]).parent) in package_dirs:
+                    return (
+                        candidate["path"],
+                        "export requirement targets the discovered package surface",
+                        False,
+                    )
+        # A package __init__ is a surface, not the implementation body.
+        implementation = [
+            item for item in candidates
+            if PurePosixPath(item["path"]).name != "__init__.py"
+        ]
+        if implementation:
+            candidates = implementation
+
+    if intent == FileRole.TEST and source_targets:
+        stem = PurePosixPath(source_targets[0]).stem.lower()
+        related = [
+            item for item in candidates
+            if stem and stem in PurePosixPath(item["path"]).stem.lower()
+        ]
+        if related:
+            candidates = related
+
+    if intent == FileRole.DOCUMENTATION:
+        candidates = sorted(
+            candidates,
+            key=lambda item: (
+                PurePosixPath(item["path"]).name.lower() != "readme.md",
+                -int(item.get("score", 0)),
+                item["path"],
+            ),
+        )
+
+    best = candidates[0]
+    if len(candidates) > 1:
+        runner = candidates[1]
+        if (
+            int(best.get("score", 0)) == int(runner.get("score", 0))
+            and int(best.get("defs", 0)) == int(runner.get("defs", 0))
+        ):
+            return (
+                None,
+                f"ambiguous target for {intent.value}: "
+                f"{best['path']} vs {runner['path']} both match the request",
+                True,
+            )
+    reason = "; ".join(str(r) for r in (best.get("reasons") or [])) or (
+        "only discovered file for this role"
+    )
+    return best["path"], reason, False
+
+
+_REQUIREMENT_ID_TARGET_RE = re.compile(
+    r"(?:^|/)(?:req[_-]?\d+|REQ[-_]?\w*\d+)", re.IGNORECASE
+)
+
+
+def is_requirement_id_target(path: str) -> bool:
+    """True when a target was synthesized from a requirement id, not discovery."""
+    return bool(_REQUIREMENT_ID_TARGET_RE.search(str(path or "").replace("\\", "/")))
+
+
+def _granted_mentions(
+    description: str, access_grants: Any, workspace: Optional[str | Path]
+) -> List[str]:
+    """External write grants whose file name is mentioned in the requirement.
+
+    The requirement text is prose from the request analyzer; matching on the
+    file name is the safe bridge between "edit ../shared/utils.py" and the exact
+    human-approved boundary.
+    """
+    if access_grants is None:
+        return []
+    text = (description or "").lower()
+    if not text:
+        return []
+    found: List[str] = []
+    try:
+        grants = access_grants.to_list()
+    except Exception:
+        return []
+    for grant in grants:
+        if str(grant.get("operation")) != "write":
+            continue
+        path = str(grant.get("path") or "")
+        if not path:
+            continue
+        name = PurePosixPath(path.replace("\\", "/")).name.lower()
+        if name and name in text and path not in found:
+            found.append(path)
+    return found
+
+
+def is_outside_workspace(path: str, workspace: Optional[str | Path]) -> bool:
+    """True when ``path`` resolves outside the authorized workspace."""
+    if not workspace:
+        return False
+    try:
+        from src.workspace.path_safety import PathSafetyValidator
+
+        root = PathSafetyValidator.canonical_path(workspace)
+        candidate = Path(str(path))
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        resolved = PathSafetyValidator.canonical_path(candidate)
+        return not (resolved == root or root in resolved.parents)
+    except Exception:
+        return True
+
+
+def _granted_for_write(path: str, workspace: Optional[str | Path], access_grants: Any) -> bool:
+    """True when a human write grant covers this exact outside path."""
+    if access_grants is None:
+        return False
+    try:
+        from src.workspace.path_safety import PathSafetyValidator
+
+        candidate = Path(str(path))
+        if not candidate.is_absolute() and workspace:
+            candidate = PathSafetyValidator.canonical_path(workspace) / candidate
+        return bool(access_grants.allows(PathSafetyValidator.canonical_path(candidate), "write"))
+    except Exception:
+        return False
+
+
+
 def extract_contract(
     prompt: str,
     requirements: Iterable[Any],
@@ -486,8 +803,18 @@ def extract_contract(
     *,
     task_id: str,
     workspace: str | Path,
+    workspace_evidence: Any = None,
+    access_grants: Any = None,
 ) -> EngineeringContract:
-    """Build the authoritative contract for this task BEFORE planning."""
+    """Build the authoritative contract for this task BEFORE planning.
+
+    ``workspace_evidence`` (Phase 2A) is the structured result of the read-only
+    workspace discovery tools. When present, targets are resolved against files
+    that actually exist; a requirement id is never turned into a filename.
+
+    ``access_grants`` (Phase 2D) are the human-approved boundaries outside the
+    workspace. Only a ``write`` grant lets an outside path become a target.
+    """
     prompt = prompt or ""
     requested = [normalize_path(f) for f in requested_files if normalize_path(f)]
     requested = list(dict.fromkeys(requested))
@@ -544,7 +871,19 @@ def extract_contract(
             ambiguities.append(f"{rid} has no description and no target can be inferred")
             continue
         intent = requirement_intent(description)
-        explicit = _mentioned_files(description)
+        explicit_all = _mentioned_files(description)
+        explicit = [
+            path for path in explicit_all
+            if not is_outside_workspace(path, workspace)
+            or _granted_for_write(path, workspace, access_grants)
+        ]
+        for granted_path in _granted_mentions(description, access_grants, workspace):
+            if intent == FileRole.TEST:
+                # A granted implementation file is never a test target.
+                continue
+            normalized_grant = normalize_path(granted_path)
+            if normalized_grant and normalized_grant not in explicit:
+                explicit.append(normalized_grant)
         target: Optional[str] = None
         role = intent
 
@@ -580,7 +919,14 @@ def extract_contract(
             if intent == FileRole.SOURCE and detected == FileRole.SOURCE:
                 target, role = path, FileRole.SOURCE
                 break
-            if intent == FileRole.TEST and (detected == FileRole.TEST or not path.lower().startswith(("src/", "lib/", "app/"))):
+            if intent == FileRole.TEST and detected == FileRole.TEST:
+                target, role = path, FileRole.TEST
+                break
+            if (
+                intent == FileRole.TEST
+                and not is_outside_workspace(path, workspace)
+                and not path.lower().startswith(("src/", "lib/", "app/"))
+            ):
                 target, role = path, FileRole.TEST
                 break
             if detected == intent:
@@ -598,22 +944,54 @@ def extract_contract(
             pool = [f for f in requested if roles.get(f) == intent]
             target = pool[0] if pool else None
 
+        # 2b. Phase 2A: resolve against the DISCOVERED workspace before any
+        #     synthesis. A requirement id must never become a filename; when
+        #     discovery is ambiguous the contract says so instead of inventing.
+        ambiguous_discovery = False
+        if target is None and workspace_evidence is not None:
+            picked, reason, ambiguous = _pick_discovered_target(
+                intent,
+                description=description,
+                evidence=workspace_evidence,
+                source_targets=list(assigned_sources),
+            )
+            if ambiguous:
+                ambiguities.append(f"{rid}: {reason}")
+                ambiguous_discovery = True
+            elif picked:
+                target, role = picked, intent
+
         # 3. Synthesize a necessary path only when the user named none of that role.
-        if target is None and intent == FileRole.TEST:
-            source_stem = PurePosixPath(assigned_sources[0]).stem if assigned_sources else _slug(rid)
-            target = f"tests/test_{source_stem}.py"
+        synthesis_key = (
+            _discovery_synthesis_key(prompt, fields)
+            if workspace_evidence is not None else None
+        )
+        if target is None and not ambiguous_discovery and intent == FileRole.TEST:
+            if synthesis_key:
+                target = _synthesize_discovered_target(intent, synthesis_key)
+            else:
+                source_stem = (
+                    PurePosixPath(assigned_sources[0]).stem
+                    if assigned_sources else _slug(rid)
+                )
+                target = f"tests/test_{source_stem}.py"
             role = FileRole.TEST
-        elif target is None and intent == FileRole.SOURCE:
-            target = f"src/{_slug(rid)}_module.py"
+        elif target is None and not ambiguous_discovery and intent == FileRole.SOURCE:
+            target = (
+                _synthesize_discovered_target(intent, synthesis_key)
+                if synthesis_key else f"src/{_slug(rid)}_module.py"
+            )
             role = FileRole.SOURCE
-        elif target is None:
+        elif target is None and not ambiguous_discovery:
             # Config/doc/build with no explicit or requested file: a necessary
             # role-appropriate artifact is safer than attaching the requirement
             # to an unrelated source file (which produced a role conflict and
-            # rejected the whole plan). The path is deterministic per
-            # requirement id, so contract hashes stay stable and traceability is
-            # preserved. No arbitrary file is invented for SOURCE/TEST.
-            target = _synthesize_target(intent, rid)
+            # rejected the whole plan). With discovery evidence the name comes
+            # from the user's request, never from the requirement id.
+            target = (
+                _synthesize_discovered_target(intent, synthesis_key)
+                if synthesis_key else _synthesize_target(intent, rid)
+            )
             role = intent
 
         if target is None:
@@ -621,6 +999,16 @@ def extract_contract(
             continue
 
         normalized = normalize_path(target)
+        if is_outside_workspace(normalized, workspace) and not _granted_for_write(
+            normalized, workspace, access_grants
+        ):
+            # Phase 2D: reads outside the workspace can be granted; writes need
+            # a write grant (the broker enforces the same boundary).
+            ambiguities.append(
+                f"{rid}: {normalized} is outside the workspace and no write "
+                "grant covers it; it will not be edited"
+            )
+            continue
         detected = detect_file_role(normalized, intent=intent)
         if role == FileRole.SOURCE and detected == FileRole.TEST:
             ambiguities.append(
@@ -748,6 +1136,9 @@ def validate_contract_plan(
     *,
     max_dispatches: Optional[int],
     requested_files: Iterable[str] = (),
+    workspace_evidence: Any = None,
+    workspace: Optional[str | Path] = None,
+    access_grants: Any = None,
 ) -> Dict[str, Any]:
     """Validate Requirement → Role → File → Work Unit BEFORE any dispatch."""
     reasons: List[str] = []
@@ -756,6 +1147,30 @@ def validate_contract_plan(
 
     if not units:
         reasons.append("plan has no implementation work units")
+
+    # Phase 2D: an outside write needs a human write grant for that boundary.
+    if workspace:
+        for node in units:
+            for target in node.target_files:
+                if (
+                    is_outside_workspace(target, workspace)
+                    and not _granted_for_write(target, workspace, access_grants)
+                ):
+                    reasons.append(
+                        f"node {node.node_id} targets {target}, which is outside "
+                        "the workspace and has no write grant"
+                    )
+
+    # Phase 2A: with discovery evidence available, a target derived from a
+    # requirement id is proof that planning ignored the workspace.
+    if workspace_evidence is not None:
+        for node in units:
+            for target in node.target_files:
+                if is_requirement_id_target(target):
+                    reasons.append(
+                        f"node {node.node_id} targets {target}, which is derived "
+                        "from a requirement id instead of workspace discovery"
+                    )
 
     # Every mandatory requirement has an explicit, role-correct assignment.
     for req_id, files in contract.requirement_map.items():

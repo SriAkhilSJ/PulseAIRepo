@@ -329,7 +329,7 @@ class EngineeringTaskNode:
     file_role: str = "SOURCE"
     contract: Dict[str, Any] = field(default_factory=dict)
     contract_hash: str = ""
-    status: str = "PENDING"  # PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED
+    status: str = "PENDING"  # PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED, BLOCKED, CANCELLED
     error_message: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
@@ -517,6 +517,10 @@ class DeliveryContract:
     #: Increment 3: canonical receipts (token-free) folded into the turn receipt.
     approval_receipts: List[Dict[str, Any]] = field(default_factory=list)
     mutation_receipts: List[Dict[str, Any]] = field(default_factory=list)
+    #: Phase 2A: read-only workspace discovery evidence (paths/reasons only).
+    workspace_discovery: Dict[str, Any] = field(default_factory=dict)
+    #: Phase 2D: outside-workspace access requests and human decisions.
+    outside_workspace_access: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -546,5 +550,7 @@ class DeliveryContract:
             "generation_recoveries": self.generation_recoveries,
             "approval_receipts": self.approval_receipts,
             "mutation_receipts": self.mutation_receipts,
+            "workspace_discovery": self.workspace_discovery,
+            "outside_workspace_access": self.outside_workspace_access,
         }
 

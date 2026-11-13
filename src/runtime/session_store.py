@@ -43,16 +43,12 @@ import time
 from pathlib import Path
 from typing import Any, Literal, Optional
 
+from src.runtime.app_paths import session_db_path
+
 # Same env resolution as the subagent store so tests and containers can
 # redirect the whole conversation state with one variable.
 def _default_db_path() -> Path:
-    custom = os.getenv("CRUSORAI_SESSIONS_DB") or os.getenv("CRUSORAI_SESSIONS_DB_PATH")
-    if custom:
-        return Path(custom).expanduser()
-    home_override = os.getenv("CRUSORAI_HOME")
-    if home_override:
-        return Path(home_override).expanduser() / "sessions.db"
-    return Path.home() / ".crusorai" / "sessions.db"
+    return session_db_path()
 
 
 _TITLE_MAX_CHARS = 200

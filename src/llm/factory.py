@@ -1005,6 +1005,48 @@ class RetryLLMProxy:
             self._llm.with_structured_output(*args, **kwargs)
         )
 
+    def stream(self, *args, **kwargs):
+        """Native provider stream for callers that consume deltas incrementally.
+
+        Single attempt by design: a mid-stream retry would duplicate already
+        painted output, and the engineering adapter already enforces one metered
+        dispatch per call. Cancellation is checked between chunks so Stop stops
+        consumption immediately, and the abort handle stays registered for the
+        whole stream (the same lifecycle ``invoke`` uses).
+        """
+        from src.finops.invocation_context import assert_governed_for_acceptance
+
+        assert_governed_for_acceptance()
+        self._raise_if_cancelled()
+        # Same acceptance gate as `invoke`: a streaming dispatch must claim a
+        # slot too, or the meter would under-count a real provider request.
+        from src.llm.acceptance_guard import claim_dispatch
+
+        claim_dispatch(stage="retry_llm_proxy_stream", model=str(self.model or ""))
+        sid = active_session()
+        abort_handle = self.abort
+        if sid is not None:
+            turn_controls.register_abort(sid, abort_handle)
+        try:
+            for chunk in self._llm.stream(*args, **kwargs):
+                self._raise_if_cancelled()
+                yield chunk
+        finally:
+            if sid is not None:
+                try:
+                    turn_controls.unregister_abort(sid, abort_handle)
+                except Exception:
+                    pass
+
+    @property
+    def supports_streaming(self) -> bool:
+        """Honest capability report: does the wrapped client really stream?
+
+        Test doubles and non-streaming providers do not. Callers must fall back
+        to ``invoke`` rather than discover this through AttributeError.
+        """
+        return callable(getattr(self._llm, "stream", None))
+
     def __getattr__(self, name: str):
         return getattr(self._llm, name)
 

@@ -1,8 +1,9 @@
 
-from src.runtime.app_paths import app_data_root
+from src.runtime.app_paths import app_data_root, checkpoint_db_path
 import json
 import os
 import re
+from pathlib import Path
 
 import contextvars
 import sqlite3
@@ -5271,6 +5272,7 @@ def engineering_task_node(state: AgentState, config: RunnableConfig):
         ExecutionLimits,
     )
     from src.orchestration.orchestrator import EngineeringExecutionOrchestrator
+    from src.orchestration.progress_events import EngineeringProgressReporter
     from src.runtime.turn_control import turn_controls
 
     configurable = (config or {}).get("configurable", {}) or {}
@@ -5349,6 +5351,42 @@ def engineering_task_node(state: AgentState, config: RunnableConfig):
             "workspace": workspace,
         }
 
+    # Live progress: the orchestrator's stage snapshots are projected onto the
+    # existing activity card and plan event (same bus, same cards, same
+    # renderer). Stages never impersonate tool/file/test/verification/cost
+    # events -- those keep their own authoritative sources.
+    progress = EngineeringProgressReporter(
+        session_id=thread_id,
+        turn_id=turn_id,
+        cancelled=_cancelled,
+    )
+
+    # In-flight generation facts (elapsed time, characters received) ride the
+    # SAME activity card while the provider is streaming. They are ephemeral:
+    # the bridge must not journal a heartbeat as a durable card, because the
+    # stage reporter's snapshots are the replayable record.
+    def _generation_activity(update) -> None:
+        if update.phase not in {"started", "delta", "heartbeat"}:
+            return
+        try:
+            # The node is generating: mark it in the plan so the plan card and
+            # the activity card agree. Only at "started" — this is a status
+            # annotation of the last real snapshot, not a new stage.
+            if update.phase == "started" and getattr(update, "node_id", ""):
+                progress.mark_generating(update.node_id)
+            from src.orchestration.generation_progress import generation_card
+
+            card = generation_card(update, session_id=thread_id, turn_id=turn_id)
+            event_bus.emit("agent.card", {
+                "card": card,
+                "session_id": thread_id,
+                "thread_id": thread_id,
+                "turn_id": turn_id,
+                "ephemeral": True,
+            })
+        except Exception:
+            pass
+
     task_id = f"turn_{turn_id}"
     max_dispatch_env = os.environ.get("CRUSORAI_ACCEPTANCE_MAX_DISPATCHES", "").strip()
     output_cap_env = os.environ.get("CRUSORAI_MAX_OUTPUT_TOKENS_PER_NODE", "").strip()
@@ -5381,7 +5419,11 @@ def engineering_task_node(state: AgentState, config: RunnableConfig):
             workspace_root=workspace,
             tenant_id="default_tenant",
             limits=limits,
-            storage_dir=str(app_data_root(workspace) / "orchestration"),
+            # Per-turn storage: the state machine, authoritative context and
+            # journal are task-scoped. A shared directory made the next turn
+            # load the previous turn's terminal state ("cannot move from
+            # COMPLETED to UNDERSTANDING") and its completed steps.
+            storage_dir=str(app_data_root(workspace) / "orchestration" / task_id),
             provider=configurable.get("provider"),
             model=configurable.get("model"),
             mock_mode=request.mock_mode,
@@ -5390,9 +5432,11 @@ def engineering_task_node(state: AgentState, config: RunnableConfig):
             session_id=thread_id,
             cancellation_checker=_cancelled,
             turn_id=turn_id,
+            generation_observer=_generation_activity,
         )
         delivery = orchestrator.run_task_request(
             request,
+            on_progress=progress,
             cancellation_checker=_cancelled,
         )
         payload = delivery.to_dict()
@@ -8224,24 +8268,66 @@ def get_context_engine(
 # so for a module-level saver we hold a direct connection instead.
 # check_same_thread=False is required: the dashboard server runs the graph
 # from worker threads, and sqlite connections are thread-bound by default.
-_CHECKPOINT_DB = os.path.join(os.path.expanduser("~"), ".crusorai", "sessions.db")
-os.makedirs(os.path.dirname(_CHECKPOINT_DB), exist_ok=True)
-_checkpoint_conn = sqlite3.connect(_CHECKPOINT_DB, check_same_thread=False)
-# Windows field failure (2026-09-04): the turn died BETWEEN finalize's return
-# and the stream generator ending - the state commit / post-loop checkpoint
-# reads. Default rollback-journal SQLite lets one writer EXCLUDE all readers
-# during a commit and vice versa; with several threads on this one shared
-# connection that is a stall class, not a crash. WAL makes readers and the
-# writer concurrent; an explicit busy_timeout turns any residual contention
-# into a bounded wait instead of an instant error.
-try:
-    _checkpoint_conn.execute("PRAGMA journal_mode=WAL")
-    _checkpoint_conn.execute("PRAGMA busy_timeout=10000")
-    _checkpoint_conn.execute("PRAGMA synchronous=NORMAL")
-except Exception:
-    pass  # an unhardened checkpointer still works; never block graph compile
+# The connection is LAZY: importing this module must not create or open a
+# database. Tests (and isolated runs) set CRUSORAI_CHECKPOINT_DB /
+# CRUSORAI_CHECKPOINT_HOME / CRUSORAI_SESSIONS_DB / CRUSORAI_HOME before the
+# import; the first checkpoint read/write opens that path. Defaults are
+# unchanged: ~/.crusorai/sessions.db.
+_CHECKPOINT_DB = str(checkpoint_db_path())
+
+
+class _LazySqliteConnection:
+    """A sqlite3.Connection-shaped proxy that opens on first use.
+
+    SqliteSaver stores ``conn`` and calls ``execute``/``executescript``/
+    ``cursor``/``commit``. Forwarding through ``__getattr__`` keeps that
+    contract while deferring the file creation, parent mkdir and PRAGMAs to
+    the first actual checkpoint operation.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        self._conn: sqlite3.Connection | None = None
+        self._lock = threading.Lock()
+
+    def _get(self) -> sqlite3.Connection:
+        if self._conn is None:
+            with self._lock:
+                if self._conn is None:
+                    path = Path(self._db_path)
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    conn = sqlite3.connect(self._db_path, check_same_thread=False)
+                    # Windows field failure (2026-09-04): the turn died BETWEEN
+                    # finalize's return and the stream generator ending - the
+                    # state commit / post-loop checkpoint reads. Default
+                    # rollback-journal SQLite lets one writer EXCLUDE all
+                    # readers during a commit and vice versa; with several
+                    # threads on this one shared connection that is a stall
+                    # class, not a crash. WAL makes readers and the writer
+                    # concurrent; an explicit busy_timeout turns any residual
+                    # contention into a bounded wait instead of an instant
+                    # error.
+                    try:
+                        conn.execute("PRAGMA journal_mode=WAL")
+                        conn.execute("PRAGMA busy_timeout=10000")
+                        conn.execute("PRAGMA synchronous=NORMAL")
+                    except Exception:
+                        pass  # an unhardened checkpointer still works
+                    self._conn = conn
+        return self._conn
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+    def __enter__(self):
+        return self._get().__enter__()
+
+    def __exit__(self, *args):
+        return self._get().__exit__(*args)
+
+
+_checkpoint_conn = _LazySqliteConnection(_CHECKPOINT_DB)
 memory = SqliteSaver(_checkpoint_conn)
-memory.setup()
 
 graph = builder.compile(
     checkpointer=memory

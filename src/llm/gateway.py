@@ -25,6 +25,30 @@ from typing import Any, Callable, Mapping
 from src.llm.factory import TurnCancelledError, provider_response_info
 
 
+def _message_text(message: Any) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(block.get("text") or "") for block in content if isinstance(block, dict)
+        )
+    return str(content or "")
+
+
+def _can_stream(llm: Any) -> bool:
+    """Honest capability check before opting into incremental delivery.
+
+    ``RetryLLMProxy`` reports the wrapped client's real capability; a bare
+    client is judged by the presence of a callable ``stream``. Test doubles that
+    only implement ``invoke`` keep the non-streaming path.
+    """
+    advertised = getattr(llm, "supports_streaming", None)
+    if isinstance(advertised, bool):
+        return advertised
+    return callable(getattr(llm, "stream", None))
+
+
 @dataclass(frozen=True)
 class InvocationContext:
     """Correlation identity for one provider invocation."""
@@ -59,6 +83,10 @@ class InvocationResult:
     context: InvocationContext
     elapsed_s: float
     usage: dict[str, Any]
+    #: Incremental-delivery facts when the caller opted into `on_token`.
+    streamed_chunks: int = 0
+    streamed_chars: int = 0
+    first_token_s: float | None = None
 
     @property
     def text(self) -> str:
@@ -105,8 +133,15 @@ def invoke_model(
     timeout_s: float | None = None,
     record_telemetry: bool = False,
     invoke_kwargs: Mapping[str, Any] | None = None,
+    on_token: Callable[[str], None] | None = None,
+    invocation_id: str | None = None,
 ) -> InvocationResult:
     """Invoke one provider call with correlation metadata attached.
+
+    ``on_token`` opts the call into incremental delivery: the provider's deltas
+    are forwarded through a ``TokenTap`` while the client streams, and the call
+    still returns the same accumulated response. Callers that omit it keep the
+    exact non-streaming behaviour they had.
 
     ``timeout_s`` is advisory metadata for the single timeout owner
     (RetryLLMProxy / provider SDK); it is never enforced by a second watchdog
@@ -117,10 +152,15 @@ def invoke_model(
         raise TurnCancelledError("LLM request cancelled by the user (Stop pressed).")
 
     # One provider invocation gets exactly one correlation id, even when a
-    # caller reuses a context object across calls.
+    # caller reuses a context object across calls. A caller that already
+    # published the id (the engineering adapter's generation activity) passes
+    # it explicitly so the live updates and the settled ledger row agree.
     from dataclasses import replace as _replace
 
-    context = _replace(context, invocation_id=f"inv-{uuid.uuid4().hex[:16]}")
+    context = _replace(
+        context,
+        invocation_id=invocation_id or f"inv-{uuid.uuid4().hex[:16]}",
+    )
 
     call_config: dict[str, Any] = dict(config or {})
     metadata = dict(call_config.get("metadata") or {})
@@ -134,14 +174,67 @@ def invoke_model(
     )
 
     started = time.monotonic()
-    try:
-        response = llm.invoke(messages, config=call_config, **dict(invoke_kwargs or {}))
-    except TypeError as exc:
-        # Test doubles and older clients may not accept LangChain's `config`
-        # keyword. Retry once without it; anything else is a real error.
-        if "config" not in str(exc):
-            raise
-        response = llm.invoke(messages, **dict(invoke_kwargs or {}))
+    streamed_chunks = 0
+    streamed_chars = 0
+    first_token_s: float | None = None
+    response: Any = None
+
+    if on_token is not None and _can_stream(llm):
+        # Incremental delivery: consume the provider's native stream so the
+        # callback receives deltas AS THEY ARRIVE and cancellation can stop
+        # consumption between chunks. The chunks are merged back into one
+        # response, so callers that need a complete message keep working.
+        aggregate: Any = None
+        produced = False
+
+        def _chunks():
+            try:
+                yield from llm.stream(messages, config=call_config, **dict(invoke_kwargs or {}))
+            except TypeError as exc:
+                if "config" not in str(exc) or produced:
+                    raise
+                yield from llm.stream(messages, **dict(invoke_kwargs or {}))
+
+        try:
+            for chunk in _chunks():
+                produced = True
+                text = _message_text(chunk)
+                if text:
+                    if first_token_s is None:
+                        first_token_s = time.monotonic() - started
+                    streamed_chunks += 1
+                    streamed_chars += len(text)
+                    try:
+                        on_token(text)
+                    except TurnCancelledError:
+                        raise
+                    except Exception:
+                        # Presentation must never break a paid generation.
+                        pass
+                aggregate = chunk if aggregate is None else aggregate + chunk
+                if cancellation_checker is not None and cancellation_checker():
+                    raise TurnCancelledError(
+                        "LLM request cancelled by the user (Stop pressed during streaming)."
+                    )
+        except (AttributeError, NotImplementedError):
+            # The client advertised a stream but cannot provide one (a test
+            # double behind a proxy, an older adapter). Fall back to invoke
+            # exactly as a non-streaming caller would.
+            if produced:
+                raise
+            aggregate = None
+        if aggregate is not None:
+            response = aggregate
+
+    if response is None:
+        try:
+            response = llm.invoke(messages, config=call_config, **dict(invoke_kwargs or {}))
+        except TypeError as exc:
+            # Test doubles and older clients may not accept LangChain's `config`
+            # keyword. Retry once without it; anything else is a real error.
+            if "config" not in str(exc):
+                raise
+            response = llm.invoke(messages, **dict(invoke_kwargs or {}))
     elapsed = time.monotonic() - started
 
     try:
@@ -207,4 +300,7 @@ def invoke_model(
         context=context,
         elapsed_s=elapsed,
         usage=usage,
+        streamed_chunks=streamed_chunks,
+        streamed_chars=streamed_chars,
+        first_token_s=first_token_s,
     )

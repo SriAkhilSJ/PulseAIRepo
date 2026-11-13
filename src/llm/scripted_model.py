@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import time
 from typing import Any
 
 from langchain_core.messages import AIMessage, AIMessageChunk
@@ -25,6 +27,54 @@ from langchain_core.messages import AIMessage, AIMessageChunk
 # must continue the SAME script, not restart it, or the turn repeats step 1.
 # Cursor is keyed by script identity + session/turn metadata from the gateway.
 _SCRIPT_CURSORS: dict[str, int] = {}
+
+# Test-only pacing. Explicitly off unless a scripted fixture is active.
+_PACING_ENV = "CRUSORAI_TEST_CHUNK_DELAY_MS"
+_PACING_MAX_MS = 500  # hard ceiling; 20-30 ms is the documented experimental range
+
+
+def _pacing_delay_s() -> float:
+    """Chunk spacing for the scripted seam, or 0.0 when pacing is not authorized.
+
+    Authorization is deliberately strict: pacing applies only when the scripted
+    fixture seam is active (``CRUSORAI_TEST_MODE=1`` + a script). A delay set in
+    a real-provider run is ignored, never applied.
+    """
+    raw = os.environ.get(_PACING_ENV, "").strip()
+    if not raw or not scripted_model_active():
+        return 0.0
+    try:
+        ms = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{_PACING_ENV} must be an integer number of milliseconds") from exc
+    if ms < 0 or ms > _PACING_MAX_MS:
+        raise RuntimeError(f"{_PACING_ENV} must be between 0 and {_PACING_MAX_MS} ms")
+    return ms / 1000.0
+
+
+def _sleep_unless_on_event_loop(delay_s: float) -> None:
+    """Pace only on the turn's worker thread.
+
+    The bridge runs each turn on a dedicated thread, so a bounded sleep here
+    paces the stream without touching the renderer, the Electron main process
+    or the bridge's asyncio read loop. If this code ever executes *on* a
+    running loop thread, sleeping would stall the loop, so pacing is skipped
+    and the condition is reported instead of blocked.
+    """
+    if delay_s <= 0:
+        return
+    try:
+        import asyncio
+        asyncio.get_running_loop()
+    except RuntimeError:
+        time.sleep(delay_s)
+        return
+    print(
+        f"[scripted-model] {_PACING_ENV} ignored: called on an asyncio loop thread "
+        "(pacing would block the event loop)",
+        file=sys.stderr,
+        flush=True,
+    )
 
 
 class ScriptedChatModel:
@@ -121,13 +171,21 @@ class ScriptedChatModel:
         return list(raw) if isinstance(raw, (list, tuple)) else [raw]
 
     def _emit_stream(self, chunks: list[str], config: Any) -> bool:
-        """Deliver provider-style token callbacks before the aggregate return."""
+        """Deliver provider-style token callbacks before the aggregate return.
+
+        Chunk text and order are preserved exactly. When the test-only pacing
+        delay is authorized, callbacks are spaced in real time on the turn's
+        worker thread so the renderer observes a realistic provider cadence.
+        """
         emitted = False
+        delay_s = _pacing_delay_s()
         for handler in self._callback_handlers(config):
             callback = getattr(handler, "on_llm_new_token", None)
             if not callable(callback):
                 continue
-            for chunk in chunks:
+            for index, chunk in enumerate(chunks):
+                if index:
+                    _sleep_unless_on_event_loop(delay_s)
                 callback(chunk)
                 emitted = True
         return emitted
@@ -144,8 +202,20 @@ class ScriptedChatModel:
         message = self._next(config)
         chunks = getattr(self, "_last_chunks", [])
         if chunks and not message.tool_calls:
-            for chunk in chunks:
+            delay_s = _pacing_delay_s()
+            for index, chunk in enumerate(chunks):
+                if index:
+                    _sleep_unless_on_event_loop(delay_s)
                 yield AIMessageChunk(content=chunk)
+            # A real provider closes a stream with a metadata-only chunk:
+            # usage and finish_reason live there, not in the content deltas.
+            # Without it a streaming consumer would lose the usage receipt that
+            # the non-streaming `invoke` carries.
+            yield AIMessageChunk(
+                content="",
+                usage_metadata=getattr(message, "usage_metadata", None),
+                response_metadata=dict(getattr(message, "response_metadata", {}) or {}),
+            )
             return
         yield message
 

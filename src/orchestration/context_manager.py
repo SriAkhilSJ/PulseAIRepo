@@ -25,7 +25,7 @@ from src.impact.models import ChangeImpactReport
 from src.intelligence.architecture_models import ArchitectureBlueprint
 from src.intelligence.models import ProjectKnowledge
 from src.intelligence.requirement_models import ProjectSpecification
-from src.orchestration.models import EngineeringPlanDAG
+from src.orchestration.models import EngineeringPlanDAG, EngineeringTaskNode
 from src.regression.models import RegressionReport, TestBaseline
 
 log = logging.getLogger("crusor.orchestration.context_manager")
@@ -49,6 +49,11 @@ class AuthoritativeTaskContext:
     completed_steps: List[str] = field(default_factory=list)
     pending_steps: List[str] = field(default_factory=list)
     outstanding_failures: List[str] = field(default_factory=list)
+    #: Work that never ran because a dependency or an earlier failure halted
+    #: the pipeline. Distinct from a genuine execution failure.
+    blocked_steps: List[str] = field(default_factory=list)
+    #: Work interrupted by a user cancellation (the turn was cancelled).
+    cancelled_steps: List[str] = field(default_factory=list)
     latest_regression_report: Optional[RegressionReport] = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -138,13 +143,110 @@ class AdaptiveContextManager:
         self.save()
 
     def record_task_completion(self, node_id: str) -> None:
-        """Mark task node completed."""
+        """Mark task node completed (idempotent).
+
+        Called only after the scheduler reports the node's real settled
+        outcome as ``COMPLETED``. A repeat call (retry, replay, duplicate
+        callback) never appends a second entry. A node that previously
+        failed, was blocked or cancelled leaves those buckets: a later
+        successful retry is genuinely completed.
+        """
         if node_id in self.context.pending_steps:
             self.context.pending_steps.remove(node_id)
+        self._drop(node_id, self.context.outstanding_failures)
+        self._drop(node_id, self.context.blocked_steps)
+        self._drop(node_id, self.context.cancelled_steps)
         if node_id not in self.context.completed_steps:
             self.context.completed_steps.append(node_id)
         self.context.updated_at = time.time()
         self.save()
+
+    def record_task_failure(self, node_id: str) -> None:
+        """Mark a task node as attempted and failed.
+
+        The node leaves pending work and joins ``outstanding_failures``. A
+        node that already completed is never downgraded: the scheduler settles
+        each node once, so this is only a guard against late/duplicate
+        callbacks. A later failure also leaves the blocked/cancelled buckets.
+        """
+        if node_id in self.context.pending_steps:
+            self.context.pending_steps.remove(node_id)
+        if node_id in self.context.completed_steps:
+            return
+        self._drop(node_id, self.context.blocked_steps)
+        self._drop(node_id, self.context.cancelled_steps)
+        if node_id not in self.context.outstanding_failures:
+            self.context.outstanding_failures.append(node_id)
+        self.context.updated_at = time.time()
+        self.save()
+
+    def record_task_blocked(self, node_id: str) -> None:
+        """Mark work that could not run (dependency or upstream failure).
+
+        This is never a completion and never a failure of the node itself:
+        the work was not attempted. A completed node is never downgraded.
+        """
+        if node_id in self.context.pending_steps:
+            self.context.pending_steps.remove(node_id)
+        if node_id in self.context.completed_steps:
+            return
+        self._drop(node_id, self.context.outstanding_failures)
+        self._drop(node_id, self.context.cancelled_steps)
+        if node_id not in self.context.blocked_steps:
+            self.context.blocked_steps.append(node_id)
+        self.context.updated_at = time.time()
+        self.save()
+
+    def record_task_cancelled(self, node_id: str) -> None:
+        """Mark work interrupted by the user's Stop (never a completion)."""
+        if node_id in self.context.pending_steps:
+            self.context.pending_steps.remove(node_id)
+        if node_id in self.context.completed_steps:
+            return
+        self._drop(node_id, self.context.outstanding_failures)
+        self._drop(node_id, self.context.blocked_steps)
+        if node_id not in self.context.cancelled_steps:
+            self.context.cancelled_steps.append(node_id)
+        self.context.updated_at = time.time()
+        self.save()
+
+    @staticmethod
+    def _drop(node_id: str, bucket: List[str]) -> None:
+        if node_id in bucket:
+            bucket.remove(node_id)
+
+    def record_task_outcome(self, node: EngineeringTaskNode) -> Optional[str]:
+        """Record one settled scheduler outcome; return the recorded state.
+
+        Only the node's REAL settled status counts:
+
+        * ``COMPLETED`` -> completed (the executor returned success);
+        * ``FAILED`` -> attempted and failed;
+        * ``SKIPPED`` / ``BLOCKED`` -> could not run (dependency/upstream halt);
+        * ``CANCELLED`` -> interrupted by the user;
+        * ``PENDING`` / ``IN_PROGRESS`` -> nothing (a start is not an outcome).
+
+        This is the single place the orchestrator's scheduler callback and the
+        tests both go through, so no outcome can be inferred from a stage
+        label or from the task reaching ``DELIVERED``.
+        """
+        node_id = str(getattr(node, "node_id", "") or "")
+        if not node_id:
+            return None
+        status = str(getattr(node, "status", "") or "").upper()
+        if status == "COMPLETED":
+            self.record_task_completion(node_id)
+            return "COMPLETED"
+        if status == "FAILED":
+            self.record_task_failure(node_id)
+            return "FAILED"
+        if status in {"SKIPPED", "BLOCKED"}:
+            self.record_task_blocked(node_id)
+            return "BLOCKED"
+        if status == "CANCELLED":
+            self.record_task_cancelled(node_id)
+            return "CANCELLED"
+        return None
 
     def get_focused_prompt_context(self, max_tokens: int = 4000) -> Dict[str, Any]:
         """
@@ -185,6 +287,8 @@ class AdaptiveContextManager:
             "completed_steps": self.context.completed_steps,
             "pending_steps": self.context.pending_steps,
             "outstanding_failures": self.context.outstanding_failures,
+            "blocked_steps": self.context.blocked_steps,
+            "cancelled_steps": self.context.cancelled_steps,
         }
 
     def save(self) -> None:
@@ -200,6 +304,8 @@ class AdaptiveContextManager:
             "completed_steps": self.context.completed_steps,
             "pending_steps": self.context.pending_steps,
             "outstanding_failures": self.context.outstanding_failures,
+            "blocked_steps": self.context.blocked_steps,
+            "cancelled_steps": self.context.cancelled_steps,
             "test_baseline_summary": self.context.test_baseline_summary,
             "created_at": self.context.created_at,
             "updated_at": self.context.updated_at,
@@ -228,6 +334,8 @@ class AdaptiveContextManager:
             self.context.completed_steps = data.get("completed_steps", [])
             self.context.pending_steps = data.get("pending_steps", [])
             self.context.outstanding_failures = data.get("outstanding_failures", [])
+            self.context.blocked_steps = data.get("blocked_steps", [])
+            self.context.cancelled_steps = data.get("cancelled_steps", [])
             self.context.test_baseline_summary = data.get("test_baseline_summary", {})
             self.context.created_at = data.get("created_at", time.time())
             self.context.updated_at = data.get("updated_at", time.time())

@@ -68,15 +68,57 @@ class WorkspaceMutationBroker:
         self,
         workspace_root: str,
         tenant_id: str = "default_tenant",
+        access_grants: Any = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
+        #: Phase 2D-2: turn-scoped human grants for exact paths outside the
+        #: workspace. ``None`` keeps the historical workspace-only behaviour.
+        self.access_grants = access_grants
 
         self.baseline_mgr = WorkspaceBaselineManager(str(self.workspace_root))
         self.ledger = WorkspaceChangeLedger(str(self.workspace_root), tenant_id=tenant_id)
         self.risk_gate = RiskApprovalGate()
         self._path_locks: Dict[str, threading.RLock] = {}
         self._global_lock = threading.RLock()
+
+    def set_access_grants(self, access_grants: Any) -> None:
+        """Install (or clear) the current turn's outside-workspace grants."""
+        self.access_grants = access_grants
+
+    def _inside_workspace(self, path: Path) -> bool:
+        try:
+            root = os.path.normcase(str(self.workspace_root))
+            candidate = os.path.normcase(str(path))
+        except Exception:  # pragma: no cover - defensive
+            return False
+        return candidate == root or candidate.startswith(root + os.sep)
+
+    def _resolve_mutation_target(self, path: str) -> Tuple[Path, str]:
+        """Resolve a mutation target: inside the workspace, or a granted boundary.
+
+        Outside the workspace the path must be absolute, must be covered by a
+        ``write`` grant approved by the human this turn, and must not be a
+        sensitive location. Traversal/UNC/device rules still come from
+        ``PathSafetyValidator``.
+        """
+        try:
+            safe_path = PathSafetyValidator.resolve_and_verify(self.workspace_root, path)
+            return safe_path, PathSafetyValidator.get_relative_normalized(
+                self.workspace_root, safe_path
+            )
+        except PathSecurityViolation:
+            candidate = Path(str(path))
+            if not candidate.is_absolute() or self.access_grants is None:
+                raise
+            from src.workspace.access_grants import WRITE, is_sensitive_external_path
+
+            canonical = PathSafetyValidator.canonical_path(candidate)
+            if is_sensitive_external_path(canonical):
+                raise
+            if not self.access_grants.allows(canonical, WRITE):
+                raise
+            return canonical, canonical.as_posix()
 
     @classmethod
     def get_instance(cls, workspace_root: str, tenant_id: str = "default_tenant") -> WorkspaceMutationBroker:
@@ -175,8 +217,13 @@ class WorkspaceMutationBroker:
         Create a new file in the workspace.
         Refuses to silently overwrite existing user files without explicit authorization.
         """
-        safe_path = PathSafetyValidator.resolve_and_verify(self.workspace_root, path)
-        rel_path = PathSafetyValidator.get_relative_normalized(self.workspace_root, safe_path)
+        safe_path, rel_path = self._resolve_mutation_target(path)
+        external = not self._inside_workspace(safe_path)
+        if external and not approval_token:
+            raise MutationAuthorizationError(
+                f"Refusing to write '{rel_path}' outside the workspace without an "
+                "approved mutation token."
+            )
 
         with self._get_path_lock(safe_path):
             file_exists = safe_path.exists()
@@ -275,8 +322,13 @@ class WorkspaceMutationBroker:
         Surgically modify an existing file.
         Enforces optimistic concurrency checks and safe replacement.
         """
-        safe_path = PathSafetyValidator.resolve_and_verify(self.workspace_root, path)
-        rel_path = PathSafetyValidator.get_relative_normalized(self.workspace_root, safe_path)
+        safe_path, rel_path = self._resolve_mutation_target(path)
+        external = not self._inside_workspace(safe_path)
+        if external and not approval_token:
+            raise MutationAuthorizationError(
+                f"Refusing to modify '{rel_path}' outside the workspace without an "
+                "approved mutation token."
+            )
 
         with self._get_path_lock(safe_path):
             if not safe_path.exists():

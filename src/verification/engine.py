@@ -86,6 +86,13 @@ class IndependentVerificationEngine:
         self.invalidation_mgr = VerificationInvalidationManager(self.authority)
         self.visibility = DesktopVerificationVisibility(event_sink=event_sink)
 
+    def set_access_grants(self, access_grants: Any) -> None:
+        """Phase 2D-2: let the read-only verifier inspect granted external files."""
+        try:
+            self.authority.set_access_grants(access_grants)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
     def verify_task(
         self,
         task_id: str,

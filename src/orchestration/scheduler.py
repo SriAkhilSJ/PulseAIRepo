@@ -71,13 +71,35 @@ class DependencyAwareScheduler:
         plan: EngineeringPlanDAG,
         executor_func: Callable[[EngineeringTaskNode], bool],
         on_progress: Optional[Callable[[EngineeringTaskNode], None]] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> bool:
         """
         Executes plan waves in dependency order.
-        Propagates failure immediately to all dependent tasks.
+
+        Settled node states are truthful:
+
+        * ``COMPLETED`` — the executor returned success;
+        * ``FAILED`` — the executor returned False or raised;
+        * ``BLOCKED`` — a dependency failed/was cancelled, or the pipeline
+          halted before this node ran;
+        * ``CANCELLED`` — the user's Stop interrupted this node.
+
+        ``is_cancelled`` is the turn's real cancellation predicate. It is
+        checked before every node so a Stop that lands between waves never
+        lets more work start.
         """
         waves = self.schedule_waves(plan)
         failed_nodes: Set[str] = set()
+        cancelled_nodes: Set[str] = set()
+        halted = False
+
+        def cancelled_now() -> bool:
+            if is_cancelled is None:
+                return False
+            try:
+                return bool(is_cancelled())
+            except Exception:  # noqa: BLE001 - a broken predicate must not run work
+                return False
 
         for wave_idx, wave in enumerate(waves):
             log.info(f"Executing wave {wave_idx + 1}/{len(waves)} with tasks: {wave}")
@@ -85,12 +107,25 @@ class DependencyAwareScheduler:
             for node_id in wave:
                 node = plan.nodes[node_id]
 
-                # Check if any dependency failed
+                if cancelled_now():
+                    node.status = "CANCELLED"
+                    node.error_message = "Cancelled by user"
+                    cancelled_nodes.add(node_id)
+                    halted = True
+                    if on_progress:
+                        on_progress(node)
+                    continue
+
+                # Check if any dependency failed or was cancelled
                 prereq_failed = any(dep in failed_nodes for dep in node.dependencies)
-                if prereq_failed:
-                    node.status = "SKIPPED"
-                    node.error_message = "Prerequisite task failed"
-                    failed_nodes.add(node_id)
+                prereq_cancelled = any(dep in cancelled_nodes for dep in node.dependencies)
+                if prereq_failed or prereq_cancelled:
+                    node.status = "BLOCKED"
+                    node.error_message = (
+                        "Prerequisite task failed"
+                        if prereq_failed else "Prerequisite task was cancelled"
+                    )
+                    halted = True
                     if on_progress:
                         on_progress(node)
                     continue
@@ -105,30 +140,57 @@ class DependencyAwareScheduler:
                     if success:
                         node.status = "COMPLETED"
                         node.finished_at = time.time()
+                    elif cancelled_now():
+                        node.status = "CANCELLED"
+                        node.finished_at = time.time()
+                        node.error_message = node.error_message or "Cancelled by user"
+                        cancelled_nodes.add(node_id)
+                        halted = True
                     else:
                         node.status = "FAILED"
                         node.finished_at = time.time()
                         node.error_message = node.error_message or "Task execution returned False"
                         failed_nodes.add(node_id)
+                        halted = True
                 except Exception as e:
-                    node.status = "FAILED"
                     node.finished_at = time.time()
                     node.error_message = str(e)
-                    failed_nodes.add(node_id)
+                    if cancelled_now():
+                        node.status = "CANCELLED"
+                        node.error_message = node.error_message or "Cancelled by user"
+                        cancelled_nodes.add(node_id)
+                        halted = True
+                    else:
+                        node.status = "FAILED"
+                        failed_nodes.add(node_id)
+                        halted = True
                     log.error(f"Task node {node_id} failed with exception: {e}")
                     # Approval denial/cancellation is a security verdict, not
                     # a generic node failure: it must reach the delegated
                     # caller as ApprovalDenied so the graph can report a
                     # cancelled turn with an untouched workspace.
                     if isinstance(e, PermissionError):
+                        if cancelled_now():
+                            # A Stop that abandoned the approval wait is a
+                            # cancellation of THIS node, not a denial of its
+                            # work. Publish that before the verdict leaves.
+                            node.status = "CANCELLED"
+                            node.error_message = node.error_message or "Cancelled by user"
+                            cancelled_nodes.add(node_id)
+                            halted = True
+                            if on_progress:
+                                on_progress(node)
                         raise
 
                 if on_progress:
                     on_progress(node)
 
-            if failed_nodes:
-                log.warning(f"Wave {wave_idx + 1} experienced failures: {failed_nodes}. Halting pipeline.")
+            if halted:
+                log.warning(
+                    f"Wave {wave_idx + 1} halted: "
+                    f"failed={failed_nodes} cancelled={cancelled_nodes}"
+                )
                 break
 
-        return len(failed_nodes) == 0
+        return not (failed_nodes or cancelled_nodes or halted)
 

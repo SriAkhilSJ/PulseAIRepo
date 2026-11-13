@@ -95,11 +95,15 @@ def test_renderer_boundary_is_browser_safe_and_text_only():
     assert "cancelRequested" in service
     assert "frame.cancel_requested" in service
     assert "Stopping." in renderer
-    assert "Run cancelled" in renderer
-    # Terminal mapping uses the frame's real cancel flag: an ended-incomplete
-    # run (completed:false, cancelled:false) must NOT paint "Run cancelled" —
-    # the task verdict already landed in-band via finalize's trailing receipt.
-    assert "frame.cancelled ? 'cancelled' : 'completed'" in service
+    # Terminal outcome is authoritative (B-LIVE-002): cancellation wins, then a
+    # canonical receipt status, then the bridge's `completed` flag. Missing
+    # evidence is UNKNOWN -- the old "not cancelled means completed" rule is
+    # exactly what painted an engineering failure as a successful answer.
+    outcomes = _text("common", "crusorAITurnOutcome.ts")
+    assert "Run cancelled" in outcomes
+    assert "Outcome not recorded" in outcomes
+    assert "terminalTurnOutcome({" in service
+    assert "frame.cancelled ? 'cancelled' : 'completed'" not in service
     assert "scheduleRestart" in service
     assert "restartAttempts >= 3" in service
     assert "requestAnimationFrame" in service

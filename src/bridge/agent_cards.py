@@ -16,6 +16,9 @@ CARD_EVENT_NAME = "agent_card"
 
 CARD_TYPES = frozenset({
     "activity",
+    "thinking",
+    "read",
+    "search",
     "plan",
     "file_change",
     "approval",

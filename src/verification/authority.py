@@ -30,10 +30,21 @@ class VerificationAuthority:
     the target software workspace, and computes cryptographic state bindings.
     """
 
-    def __init__(self, workspace_root: str, tenant_id: str = "default_tenant") -> None:
+    def __init__(
+        self,
+        workspace_root: str,
+        tenant_id: str = "default_tenant",
+        access_grants: Any = None,
+    ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.tenant_id = tenant_id
         self._is_read_only = True
+        #: Phase 2D: read grants also let the READ-ONLY verifier inspect an
+        #: approved external file. The verifier never gains write authority.
+        self.access_grants = access_grants
+
+    def set_access_grants(self, access_grants: Any) -> None:
+        self.access_grants = access_grants
 
     @property
     def is_read_only(self) -> bool:
@@ -89,12 +100,30 @@ class VerificationAuthority:
     def inspect_file(self, rel_path: str) -> Optional[str]:
         """Directly and independently reads file contents from the workspace."""
         self.assert_read_only_boundary()
-        target = (self.workspace_root / rel_path).resolve()
-        # Prevent path traversal outside workspace
-        if not str(target).startswith(str(self.workspace_root)):
+        from src.workspace.path_safety import PathSafetyValidator
+
+        try:
+            root = PathSafetyValidator.canonical_path(self.workspace_root)
+            target = PathSafetyValidator.canonical_path(self.workspace_root / rel_path)
+        except Exception as exc:  # pragma: no cover - defensive
             raise VerificationAuthorityViolationError(
-                f"Path traversal detected in verifier: '{rel_path}' is outside workspace root."
-            )
+                f"Unable to resolve verification target '{rel_path}': {exc}"
+            ) from exc
+        inside = target == root or root in target.parents
+        if not inside:
+            # Phase 2D-2: a write grant for this turn also authorises the
+            # read-only verifier to inspect that exact external file.
+            allowed = False
+            grants = self.access_grants
+            if grants is not None:
+                try:
+                    allowed = bool(grants.allows(target, "read") or grants.allows(target, "write"))
+                except Exception:
+                    allowed = False
+            if not allowed:
+                raise VerificationAuthorityViolationError(
+                    f"Path traversal detected in verifier: '{rel_path}' is outside workspace root."
+                )
         if not target.exists() or not target.is_file():
             return None
         return target.read_text(encoding="utf-8", errors="replace")
