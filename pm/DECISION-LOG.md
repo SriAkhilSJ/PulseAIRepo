@@ -36,6 +36,9 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-12 | D-027 | T-06 complete: observability module moved into the package as `receipts.py`, re-exported; F-06 fixed at the import layer | EM | **DONE-VERIFIED** (import OK; 4/4 tests) | commit `823aa7cf` + follow-up |
 | 2026-11-12 | D-028 | T-17 part 1 complete: `deduplicate_streaming_usage` implemented; collection 5,012 tests / 0 errors (was 4,986 / 3). T-18 (CI gate) is the next unblocked ticket | EM | **DONE-VERIFIED** (22/22 modules, collection 0 errors) | commit `19682792` |
 
+| 2026-11-12 | D-029 | **T-22 created** (next free ID) and resolved: the 7 pre-existing failures are two product regressions plus one security-relevant ordering bug, none caused by R2 (same 7 fail at `7e4bb7ad`). Fixed: turn resets no longer clobber `task_action`/`task_status`/`task_completed`; tool names are canonicalized before the mutation boundary; the alias `run terminal` is now denied instead of reaching a confirmation prompt | Founder (authorised) + EM | **DONE-VERIFIED** (73 passed, 7 skipped; regression guard added) | commit `242decbb` |
+| 2026-11-12 | D-030 | Linux CI runtime qualification **not performed**: no WSL distribution and no Docker on this host. The 30-minute workflow timeout therefore remains unvalidated for Linux; Windows runtime (>40 min) must not be presented as Linux evidence | EM | **BLOCKED (environment)** | `AGENTS.md` §14 |
+
 ## Rejected proposals
 
 | Date | Proposal | Why rejected | Revisit when |

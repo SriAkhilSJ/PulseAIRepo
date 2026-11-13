@@ -366,3 +366,15 @@ concealment, and red-on-red is proven. Green-on-green is blocked by `test_copilo
 started. Do not claim a green full suite or a GitHub-hosted run until both are resolved and a real Actions run
 exists.
 
+
+
+## 15. T-22 outcome (2026-11-12)
+
+Seven pre-existing failures were fixed in `242decbb`. Two lessons are now invariants for future work:
+
+1. Never expand a reset/defaults dict after setting explicit keys in the same dict literal — the expansion wins.
+2. Canonicalize tool names **before** any policy/boundary check, and deny by the canonical name; otherwise an
+   alias can bypass a block or reach an approval prompt it should never have reached.
+
+Linux CI runtime remains unmeasured (no WSL distribution, no Docker on this host).
+

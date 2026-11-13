@@ -240,6 +240,26 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 
 ---
 
+## W7 — Failure triage (T-22 · added 2026-11-12)
+
+### T-22 · Triage seven pre-existing suite failures
+- **Objective:** classify and fix the failures that blocked T-18's green gate, without folding product changes into a CI ticket.
+- **Components:** `src/graphs/chat_graph.py` (`_turn_scoped_resets`, `task_manager_node`, `SafeToolNode`), `src/tests/test_user_interest.py`, `src/tests/test_unknown_tool_validation.py`.
+- **Evidence of origin:** the same 7 tests fail in a clean worktree at `7e4bb7ad` (before R2), so **R2 did not cause them**.
+- **Findings:**
+
+| Failure | Root cause | Classification |
+| --- | --- | --- |
+| 6 × `test_user_interest` | `_turn_scoped_resets()` returned `task_action=""`, `task_status`, `task_completed`, and every branch expanded it **after** setting the real values — the reset overwrote them. `after_task_manager` therefore saw `""` and could not route `plan_cancelled`, `approval_without_plan`, `execute_approved_plan`, `revise_plan`. | **Product regression** (routing) — fixed |
+| 1 × `test_unknown_tool_validation` (repair) | `SafeToolNode` classified names for the mutation boundary **before** `_repair_tool_call_names`, so a dialect alias was judged under a name it never had and history kept the alias. | **Product bug** — fixed |
+| 1 × `test_unknown_tool_validation` (alias safety) | The alias `run terminal` bypassed `_GRAPH_MUTATION_BLOCKED` (raw name not in the set), was repaired, and reached a **confirmation prompt** instead of being denied. | **Security-relevant regression** — fixed; test strengthened to require outright denial |
+
+- **Fixes:** removed the three keys from `_turn_scoped_resets` (each branch sets them; three branches gained explicit values); moved name canonicalization above the side-effect boundary; the denial path now keeps the repaired assistant message in history. Both alias and canonical names are in the blocked set, so the reorder is fail-closed.
+- **Testing:** 73 passed, 7 skipped across the affected modules, including a new regression guard `test_turn_scoped_resets_do_not_clobber_task_action`.
+- **Dependencies:** blocks T-18 green gate; informs T-02 (routing depends on `task_action`).
+- **Effort:** ~4h actual.
+- **DoD:** all 7 pass; related modules green; no security weakening; evidence recorded.
+
 ## Summary
 
 | WS | Tickets | Effort |
@@ -250,9 +270,9 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 | D Autonomy UI | T-14…T-16 | 6.5h |
 | E Truth gate | T-17…T-18 | 3.5h |
 | F Fixtures/QA | T-19…T-21 | 6.5h |
-| **Total** | **21 tickets** | **≈42.5–43.5h** |
+| **Total** | **22 tickets** (T-22 added) | **≈46.5–47.5h** |
 
-42.5–43.5 hours is more than 16 hours of working time. **That is the honest number, and it is why Day 1 has a
+46.5–47.5 hours is more than 16 hours of working time. **That is the honest number, and it is why Day 1 has a
 Go/No-Go.** The two-day plan assumes parallel agent sessions (A–F run concurrently); a single sequential
 session cannot deliver all 21 tickets in 16 hours. The reduced scope if only one session is available is in
 `09-ENGINEERING-EXECUTION-PLAN.md` §6 NO-GO cut table.

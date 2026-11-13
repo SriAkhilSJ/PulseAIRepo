@@ -610,3 +610,19 @@ duplicate guard; missing usage coerced to zero; `error` text unredacted; write f
 **Next:** triage the 7 failures (product behaviour, likely from the R2 task-manager changes), then measure the
 suite on a real Linux runner. Do not start T-07 until the gate is met or the founder authorises past it.
 
+
+
+---
+
+## 2026-11-12 (T-22)
+
+**Commit:** `242decbb`. Seven failures fixed; origin proven to pre-date R2.
+
+**Two regressions worth remembering:**
+1. A `**` expansion placed after explicit keys silently overwrote them (`task_action` became `""` every turn).
+2. Policy classified tool names before canonicalization, letting an alias reach an approval prompt instead of a
+   denial. Canonicalize first; deny by the canonical name.
+
+**Linux runtime:** unmeasured (no WSL distro, no Docker). Do not claim the 30-minute CI timeout is safe.
+**T-18:** PARTIAL until the full suite is green. **T-07:** still gated.
+

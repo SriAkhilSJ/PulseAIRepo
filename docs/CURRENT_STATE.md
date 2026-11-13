@@ -1303,3 +1303,29 @@ pre-existing failures (two Windows mode-bit assertions and one echo
 - Product requirement for the full change-review experience recorded in
   `pm/09-AGENTIC-CHANGE-REVIEW-REQUIREMENT.md` (CR-1…CR-9); CR-5…CR-8 explicitly out of T-18.
 
+
+
+---
+
+## 2026-11-12 (T-22) — seven failures triaged and fixed
+
+**Commit:** `242decbb` · **Tests:** 73 passed, 7 skipped across affected modules
+
+- **Origin proven, not assumed:** all 7 tests also fail in a clean worktree at `7e4bb7ad` (before R2).
+  R2 did not cause them.
+- **Root cause 1 (6 failures, product regression):** `_turn_scoped_resets()` returned
+  `task_action=""`, `task_status`, `task_completed`, and every `task_manager_node` branch expanded it
+  **after** setting the real values. The reset overwrote them, so `after_task_manager` always saw `""` and
+  `plan_cancelled`, `approval_without_plan`, `execute_approved_plan`, `revise_plan` were unreachable.
+  Fixed by removing the three keys from the reset and giving three branches explicit values.
+- **Root cause 2 (2 failures, one security-relevant):** `SafeToolNode` classified names for the mutation
+  boundary **before** `_repair_tool_call_names`. The alias `run terminal` therefore bypassed
+  `_GRAPH_MUTATION_BLOCKED` (raw name not in the set) and reached a **confirmation prompt** instead of being
+  denied. Names are now canonicalized first; both alias and canonical names are in the blocked set, so the
+  reorder is fail-closed. The denial keeps the repaired assistant message in history.
+- **Tests updated only where the old assertion encoded the weaker behaviour**, each with a comment naming the
+  reason; a regression guard `test_turn_scoped_resets_do_not_clobber_task_action` was added.
+- **Linux CI qualification: NOT PERFORMED.** No WSL distribution and no Docker on this host. The 30-minute
+  workflow timeout is unvalidated for Linux; the Windows run must not be cited as Linux evidence.
+- **T-18 remains PARTIAL.** Full-suite green is being re-run after these fixes.
+
