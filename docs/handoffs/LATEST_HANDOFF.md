@@ -671,3 +671,14 @@ This needs its own focused session plus a security review, not a tail-end patch.
 
 **Linux:** still unmeasured. Do not claim green from Windows.
 
+
+
+---
+
+## 2026-11-13 (T-23 closure)
+
+Operation contract fixed in `f7992f74` (92 passed, 1 skipped). P4 `b151a746`. P5 `f2660e9f`. CI `5414ee16`.
+
+**Remaining T-18 blockers:** genuine Linux run; shell-boundary tests pending T-10/T-11; P2/P3/P6/P7/P8/P9
+classes from the T-23 inventory; T-24 performance work (separate). No push.
+

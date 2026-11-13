@@ -49,6 +49,10 @@ Nothing is recorded here until the founder approves it. Proposed items live in `
 | 2026-11-13 | D-037 | **T-24 created** (finalization performance). Measured: 4–7 audits per finalize, repo root >120 s, `desktop/` is the cost centre — the 936 MB `bench-results` attribution was wrong (1.29 s). Recommendation: prune + cache + fail-closed bound | Founder (authorised) + EM | **TICKET OPEN** | `pm/em/10-TASK-BREAKDOWN.md` W9 |
 | 2026-11-13 | D-038 | CI qualification plan prepared, not executed: pin the job to Python 3.14 (matches `.python-version` and all local evidence), install esbuild + the aliased typescript (`tsc6`) so desktop parity fails loudly instead of skipping, add `--durations=50`, add `permissions: contents: read`, leave `timeout-minutes` at 30 until a real Linux run measures it. Publication plan prepared; push NOT executed | EM | **PREPARED** | Worker C report |
 
+| 2026-11-13 | D-039 | P4 closed by re-pinning tests to the two-region contract (keep `09462482`); 5-vs-6 reconciled (sixth block is whitespace-only and skipped) | Founder (decision) + EM | **DONE-VERIFIED** (79 passed) | `b151a746` |
+| 2026-11-13 | D-040 | Approval operation contract fixed: `write_file` routes existing targets to MODIFY and new targets to CREATE; graph derives the operation from the payload action and fails closed on unknown/inconsistent; `require_digest` keys on the token present (review R2) | Founder (authorised) + EM | **DONE-VERIFIED** (92 passed, 1 skipped; file_state 16 passed) | `f7992f74` |
+| 2026-11-13 | D-041 | Independent security review verdict SAFE-WITH-CONDITIONS: R2 fixed in the same change; R1 (non-canonical callers keep documented historical broker semantics) accepted and recorded, not silently changed | EM | **RECORDED** | Worker B review |
+
 ## Rejected proposals
 
 | Date | Proposal | Why rejected | Revisit when |

@@ -298,6 +298,14 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 - **Effort:** 2–3 dev-days. **Owner:** graph/gates owner. **Depends on:** T-18 (degraded-memory workaround), mutation-broker write hook.
 - **Explicitly not in T-18.**
 
+- **Disposition update 2026-11-13:** P4 **DONE** (`b151a746`, 79 passed; tests re-pinned to the two-region
+  contract, cache suite untouched and green). P5 **DONE** (`f2660e9f`). Approval-token operation contract
+  **DONE** (`f7992f74`): `write_file` classifies CREATE vs MODIFY from observed existence, re-checks at the write
+  edge, and the graph derives the minted operation from the validated payload action; digest binding tightened
+  per review finding R2. Evidence: `test_file_state` 16 passed (was 5 failed); security qualification +
+  end-to-end + increment2/3 + orchestrator approval = 92 passed, 1 skipped, exit 0. CI prepared (`5414ee16`),
+  not executed. P1 stays blocked by design; P2/P3/P6/P7/P8/P9 remain open.
+
 ## Summary
 
 | WS | Tickets | Effort |

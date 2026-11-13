@@ -1411,3 +1411,23 @@ register accidentally truncated by a workspace copy)
 - **T-24** stays separate; no audit behaviour changed.
 - **Linux remains unmeasured. T-18 PARTIAL. T-07 gated.**
 
+
+
+---
+
+## 2026-11-13 (T-23 closure) — operation contract fixed
+
+**Commit:** `f7992f74`
+
+- `write_file` now classifies **CREATE vs MODIFY from observed existence**, re-checks existence at the write
+  edge (state flip → fail closed), and routes existing targets to `modify_file`.
+- The graph derives the minted operation from the validated payload `action`; missing/unknown/inconsistent →
+  no token, fail closed. `require_digest` now keys on the token actually present (review R2).
+- Broker, HMAC, expiry, single-use, path containment: untouched.
+- **Evidence:** `test_file_state` **16 passed** (was 5 failed); security qualification + end-to-end +
+  increment2/3 + orchestrator approval = **92 passed, 1 skipped, exit 0**.
+- **Independent review:** SAFE-WITH-CONDITIONS. R2 fixed; R1 (non-canonical callers keep documented historical
+  semantics) recorded, not changed.
+- P4 `b151a746` (79 passed). P5 `f2660e9f`. CI `5414ee16` prepared, not executed.
+- Linux still unmeasured; T-18 PARTIAL; T-07 gated.
+
