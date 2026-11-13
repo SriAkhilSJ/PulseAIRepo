@@ -117,16 +117,26 @@ def test_ai_node_grace_call_when_exhausted(monkeypatch):
     assert llm.bound is not None, "bind_tools still prepared a bound client"
     assert llm.sent_messages is not None, "unbound proxy served the grace call"
     assert llm.bound.sent_messages is None, "bound client must NOT have been invoked"
-    # Hermes shape (handle_max_iterations :2119): the summary request rides
-    # as a USER message appended to the history — the system stays one fused
-    # block, and the model can SEE its work.
+    # Two-region shape: ONE stable head (persona survives the fuse) + the
+    # hermes user-role summary request + ONE trailing volatile system block.
     assert any("PERSONA" in str(m.content) for m in llm.sent_messages), "persona survives the fuse"
     summary_requests = [
         m for m in llm.sent_messages
         if m.type == "human" and "maximum number of tool-calling iterations" in str(m.content)
     ]
     assert summary_requests, "hermes' user-role summary request must ride the grace call"
-    assert len([m for m in llm.sent_messages if m.type == "system"]) == 1, "one system block out the door"
+    system_rows = [m for m in llm.sent_messages if m.type == "system"]
+    assert len(system_rows) == 2, "one stable head + one volatile tail"
+    head, tail = system_rows
+    assert head.response_metadata.get("prompt_cache_region") == "stable_prefix"
+    assert str(head.content).startswith("PERSONA")
+    assert "=== SAFETY GUARD ===" in str(head.content)
+    assert tail.response_metadata.get("prompt_cache_region") == "volatile_tail"
+    assert tail.response_metadata.get("volatile") is True
+    assert str(tail.content).startswith("=== CRUSOR CONTEXT MISSING ===")
+    # the volatile tail is appended after the summary request
+    assert llm.sent_messages[-1] is tail
+    assert llm.sent_messages[-2] is summary_requests[-1]
     assert out["iteration_used"] == 2
     assert out["grace_done"] == 1
     assert "token_usage" in out
@@ -143,7 +153,15 @@ def test_ai_node_reserves_last_slot_for_tool_free_final_response(monkeypatch):
 
     assert llm.sent_messages is not None, "unbound model must serve the final slot"
     assert llm.bound.sent_messages is None, "tools must be disabled in the final slot"
-    assert str(llm.sent_messages[-1].content) == bg._FINAL_RESPONSE_RESERVE_REQUEST
+    # The closing instruction is the last HUMAN row; the volatile tail rides
+    # after it, so it is index -2 rather than the final message.
+    assert str(llm.sent_messages[-2].content) == bg._FINAL_RESPONSE_RESERVE_REQUEST
+    assert llm.sent_messages[-2].type == "human"
+    assert llm.sent_messages[-1].type == "system"
+    assert llm.sent_messages[-1].response_metadata.get("prompt_cache_region") == "volatile_tail"
+    assert llm.sent_messages[-1].response_metadata.get("volatile") is True
+    assert str(llm.sent_messages[-1].content).startswith("=== CRUSOR CONTEXT MISSING ===")
+    assert llm.sent_messages[0].response_metadata.get("prompt_cache_region") == "stable_prefix"
     assert out["iteration_used"] == 3
     assert out["grace_done"] == 1
     assert out["wrap_summary"] == 0, "missing evidence remains a budget cut"

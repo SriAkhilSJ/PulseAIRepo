@@ -100,18 +100,29 @@ def test_summary_request_is_hermes_verbatim():
 
 def test_grace_keeps_full_history_and_appends_user_request(monkeypatch):
     """THE pin for the screenshot bug: the model must SEE its work. Tool
-    traffic stays in the request; the summary request rides LAST as a human
-    message; the summary itself is the only message returned to state."""
+    traffic stays in the request; the summary request rides as a human
+    message; the summary itself is the only message returned to state.
+
+    Two-region contract: the volatile tail is appended AFTER the summary
+    request, so the request is the closing human row at index -2, not the last
+    row. That displacement is asserted explicitly rather than hidden."""
     llm = _patch(monkeypatch, replies=["Fixed the <Html> bug; build still red on X."])
     out = cg.ai_node(_state(), _config())
 
     assert len(llm.calls) == 1
     sent = llm.calls[0][0]
     types = [m.type for m in sent]
-    assert types == ["system", "human", "ai", "tool", "human"], (
-        "full history (tool pair INCLUDED) + trailing summary request"
+    assert types == ["system", "human", "ai", "tool", "human", "system"], (
+        "full history (tool pair INCLUDED) + summary request + volatile tail"
     )
-    assert sent[-1].content == HERMES_VERBATIM
+    assert sent[0].response_metadata.get("prompt_cache_region") == "stable_prefix"
+    assert str(sent[0].content).startswith("PERSONA")
+    assert sent[-2].type == "human"
+    assert sent[-2].content == HERMES_VERBATIM
+    assert sent[-1].type == "system"
+    assert sent[-1].response_metadata.get("prompt_cache_region") == "volatile_tail"
+    assert sent[-1].response_metadata.get("volatile") is True
+    assert HERMES_VERBATIM not in str(sent[-1].content), "the nudge is not smeared into the tail"
     # the unbound proxy served the call (same object bind_tools returned) —
     # no tool schemas were attached to the summary request
     assert llm.calls and llm.calls[0][0] is not None

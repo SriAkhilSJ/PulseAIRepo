@@ -21,12 +21,12 @@ def test_lazy_memory_does_not_construct_until_first_method_call():
 
 
 def test_fuse_system_head_merges_every_system_block(monkeypatch):
-    """Hermes :2657 shape: exactly one system message leaves the door, no
-    matter which node injected guidance — leading prefixes AND mid-history
-    blocks (the tool cycle's progress reflection, out-of-band steers) fold
-    into the head in original order; EXACT duplicate texts collapse so the
-    head never accumulates the reflection prompt N times; empty system
-    blocks vanish; the kill-switch restores the legacy request."""
+    """Two-region shape: leading prefixes AND mid-history STABLE blocks (the
+    tool cycle's progress reflection, out-of-band steers) fold into ONE stable
+    head system message in original order; EXACT duplicate texts collapse so
+    the head never accumulates the reflection prompt N times; empty system
+    blocks vanish; volatile guidance would ride a trailing system message (see
+    the volatile-tail pins); the kill-switch restores the legacy request."""
     from src.graphs import chat_graph
 
     monkeypatch.delenv("CRUSORAI_CONTEXT_MULTI_SYSTEM", raising=False)
@@ -49,7 +49,22 @@ def test_fuse_system_head_merges_every_system_block(monkeypatch):
         merged.index("PROGRESS REFLECTION") < merged.index("OUT-OF-BAND")
     assert merged.count("PROGRESS REFLECTION") == 1, "duplicate collapsed"
     assert out[0].response_metadata["layers"] == ["persona"]
-    assert out[0].response_metadata["fused_system_blocks"] == 6
+    # The head counts STABLE blocks only. This input carries six source system
+    # messages, but the sixth is the whitespace-only block, which vanishes
+    # (empty blocks never fuse) instead of moving to a volatile tail. The five
+    # counted blocks are PERSONA, SAFETY GUARD, PROGRESS REFLECTION (counted,
+    # then deduped against its twin) and OUT-OF-BAND USER STEER.
+    assert out[0].response_metadata["fused_system_blocks"] == 5
+    assert out[0].response_metadata["prompt_cache_region"] == "stable_prefix"
+    assert [m for m in out if m.type == "system"] == [out[0]], (
+        "exactly one stable head, and no volatile tail when no volatile "
+        "content was supplied"
+    )
+    assert not any(
+        (getattr(m, "response_metadata", {}) or {}).get("prompt_cache_region")
+        == "volatile_tail"
+        for m in out
+    )
 
     # a single leading system is already hermes-shaped: untouched
     one = chat_graph._fuse_system_head(
@@ -65,6 +80,57 @@ def test_fuse_system_head_merges_every_system_block(monkeypatch):
          HumanMessage(content="hi")]
     )
     assert [m.type for m in legacy] == ["system", "system", "human"]
+
+
+def test_stable_head_is_byte_identical_when_only_volatile_context_changes(monkeypatch):
+    """Two-region contract: a request whose only difference is volatile
+    context must ship a byte-identical stable head, so the provider prefix
+    cache survives across turns. Volatile blocks (phase, workspace context,
+    todos) are carried by exactly one trailing system message."""
+    from src.graphs import chat_graph
+
+    monkeypatch.delenv("CRUSORAI_CONTEXT_MULTI_SYSTEM", raising=False)
+    monkeypatch.delenv("CRUSORAI_FUSE_VOLATILE_SYSTEM", raising=False)
+
+    def request(phase, workspace, todo):
+        msgs = [
+            SystemMessage(content="PERSONA"),
+            SystemMessage(content="=== SAFETY GUARD ==="),
+            HumanMessage(content="build the app"),
+        ]
+        chat_graph._insert_system_prefix(msgs, phase, volatile=True)
+        chat_graph._insert_system_prefix(msgs, workspace, volatile=True)
+        msgs.append(SystemMessage(content=todo, additional_kwargs={"volatile": True}))
+        return chat_graph._fuse_system_head(msgs)
+
+    first = request(
+        "=== RUNTIME EXECUTION PHASE: scaffold ===\nPlan the structure.",
+        "=== CRUSOR WORKSPACE CONTEXT ===\nActive project: ProfileApp",
+        "=== ACTIVE TASK LIST ===\n- [ ] scaffold",
+    )
+    second = request(
+        "=== RUNTIME EXECUTION PHASE: execute ===\nImplement the components.",
+        "=== CRUSOR WORKSPACE CONTEXT ===\nActive project: ProfileApp\nModified: a.py",
+        "=== ACTIVE TASK LIST ===\n- [x] scaffold\n- [ ] implement",
+    )
+
+    # Head is byte-identical and carries no volatile text in either request.
+    assert first[0].content == second[0].content == "PERSONA\n\n=== SAFETY GUARD ==="
+    assert first[0].response_metadata["prompt_cache_region"] == "stable_prefix"
+    assert second[0].response_metadata["prompt_cache_region"] == "stable_prefix"
+    for out in (first, second):
+        assert [m.type for m in out] == ["system", "human", "system"]
+        assert out[1].content == "build the app", "human instruction rides between regions"
+        assert "=== RUNTIME EXECUTION PHASE" not in out[0].content
+        assert "=== CRUSOR WORKSPACE CONTEXT" not in out[0].content
+        assert "=== ACTIVE TASK LIST" not in out[0].content
+        tail = out[-1]
+        assert tail.response_metadata["prompt_cache_region"] == "volatile_tail"
+        assert tail.response_metadata["volatile"] is True
+        assert tail.response_metadata["fused_volatile_blocks"] == 3
+    # The volatile tail really did change; only it differs between turns.
+    assert first[-1].content != second[-1].content
+    assert "scaffold" in first[-1].content and "execute" in second[-1].content
 
 
 def test_lazy_memory_constructs_on_first_method_call():
@@ -275,18 +341,35 @@ def test_ai_node_builds_expected_first_sarvam_request_without_provider_call(tmp_
 
     assert captured["tools"] == ["write_file"]
     assert {"max_tokens": 4096} in captured["binds"]
-    # Hermes request shape (run_agent.py:2657): ONE system message + the
-    # conversation. Runtime prefixes (CopilotKit guard, safety guard, Windows
-    # terminal platform) fuse into the head block before the provider call.
+    # Two-region request shape: ONE stable head system block (runtime prefixes
+    # fused), the conversation, then ONE trailing volatile system block. The
+    # closing human instruction is therefore displaced from the last slot by
+    # the volatile tail — that is the documented contract, asserted here.
     assert [message.type for message in captured["messages"]] == [
-        "system", "human"
+        "system", "human", "system"
     ]
-    assert len([m for m in captured["messages"] if m.type == "system"]) == 1
-    system_block = captured["messages"][0]
+    stable_heads = [
+        m for m in captured["messages"]
+        if (m.response_metadata or {}).get("prompt_cache_region") == "stable_prefix"
+    ]
+    volatile_tails = [
+        m for m in captured["messages"]
+        if (m.response_metadata or {}).get("prompt_cache_region") == "volatile_tail"
+    ]
+    assert len(stable_heads) == 1, "exactly one stable head"
+    assert len(volatile_tails) == 1, "exactly one volatile tail"
+    assert captured["messages"][0] is stable_heads[0]
+    assert captured["messages"][-1] is volatile_tails[0]
+    assert volatile_tails[0].response_metadata.get("volatile") is True
+    system_block = stable_heads[0]
     assert "runs commands through bash (git-bash / MSYS)" in system_block.content
     assert "Windows cmd.exe" not in system_block.content
     assert system_block.response_metadata.get("fused_system_blocks", 1) >= 3
-    assert captured["messages"][-1].content == task
+    # Volatile runtime guidance lives only in the tail, never in the head.
+    assert "=== RUNTIME EXECUTION PHASE" not in system_block.content
+    assert "=== RUNTIME EXECUTION PHASE" in volatile_tails[0].content
+    # The instruction rides before the tail (displaced from last position).
+    assert captured["messages"][-2].content == task
     assert result["iteration_used"] == 1
 
 
@@ -424,9 +507,22 @@ def test_incomplete_tool_call_is_rejected_then_observed_by_request_two(tmp_path,
     request_two = chat_graph.ai_node(second_state, config)
 
     assert len(requests) == 2
-    assert requests[1][-1].type == "tool"
-    assert requests[1][-1].tool_call_id == "truncated-call"
-    assert "NOT executed" in requests[1][-1].content
+    second = requests[1]
+    # Two-region contract: stable head, conversation, then the volatile tail.
+    # The rejected tool row is observed at index 3 — the volatile tail follows
+    # it, so it is not the last message.
+    assert [m.type for m in second] == [
+        "system", "human", "ai", "tool", "system"
+    ]
+    tool_rows = [m for m in second if m.type == "tool"]
+    assert len(tool_rows) == 1, "the paired error is fed to request two"
+    assert tool_rows[0].tool_call_id == "truncated-call"
+    assert "NOT executed" in tool_rows[0].content
+    assert second[3] is tool_rows[0]
+    assert second[0].response_metadata.get("prompt_cache_region") == "stable_prefix"
+    assert second[-1].type == "system"
+    assert second[-1].response_metadata.get("prompt_cache_region") == "volatile_tail"
+    assert second[-1].response_metadata.get("volatile") is True
     assert request_two["messages"][0].content.startswith("continuing")
     assert request_two["iteration_used"] == 2
     assert request_two["incomplete_response_retries"] == 0

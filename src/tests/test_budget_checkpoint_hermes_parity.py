@@ -203,7 +203,17 @@ def test_iteration_leg_summary_request_stays_hermes_verbatim(monkeypatch):
         _config(),
     )
     sent = llm.sent_messages
-    assert str(sent[-1].content) == bg._MAX_ITERATIONS_SUMMARY_REQUEST
+    # Two-region shape: the verbatim hermes request is the closing HUMAN row,
+    # then the volatile tail. Assert it at index -2 (where the contract puts
+    # it) instead of assuming the request is the last message.
+    assert sent[-2].type == "human"
+    assert str(sent[-2].content) == bg._MAX_ITERATIONS_SUMMARY_REQUEST
+    assert sent[-1].type == "system"
+    assert sent[-1].response_metadata.get("prompt_cache_region") == "volatile_tail"
+    assert sent[-1].response_metadata.get("volatile") is True
+    assert str(sent[-1].content).startswith("=== CRUSOR CONTEXT MISSING ===")
+    assert str(bg._MAX_ITERATIONS_SUMMARY_REQUEST) not in str(sent[-1].content)
+    assert sent[0].response_metadata.get("prompt_cache_region") == "stable_prefix"
 
 
 # ── 3. honest verdict for a budget-cut turn ────────────────────────────────
