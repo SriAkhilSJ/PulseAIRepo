@@ -283,6 +283,21 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 - **Dependencies:** T-18 green gate; T-02 (shell + write paths).
 - **Effort:** inventory ~3h (done). Fix waves estimated 3–5 days.
 
+## W9 — Finalization performance (T-24 · added 2026-11-13)
+
+### T-24 · Bound `audit_workspace` cost at finalization
+- **Objective:** make finalization-time workspace auditing cost-bounded and once-per-turn without weakening any verification verdict.
+- **Measured evidence (this repo, repo venv, read-only):**
+  - `_source_files` uses `root.rglob("*")` and filters `_SKIP_DIRS` **after** enumeration (`workspace_integrity.py:95-108`), then reads every `.ts/.js/.mjs` in full (`:266-279`). No size, file-count or byte bound exists.
+  - `finalize_node` calls the audit **4–7 times per finalize** (`chat_graph.py:3284, 3376, 3605, 3611, 3341, 3355, 3785`), plus 1–2 per router step via `gates.py:903 → 1095-1121`. No caching anywhere on the path.
+  - **Repo root: >120 s** (killed twice). `desktop/vscode`: >118 s. `bench-results` (892.6 MB, 3,806 files): **1.29 s**.
+  - **The 936 MB attribution was wrong:** `bench-results` is ~1% of the cost; the vendored `desktop/` tree (≥27,891 source files) dominates.
+- **Options and risk:** prune during walk (zero semantic change, insufficient alone); cache per (workspace, manifest digest) with broker invalidation (4–7 audits → 1); extend `_SKIP_DIRS` (risks hiding a user's real directory); hard file-count bound returning explicit `not_audited` (must be treated as missing, never pass); off-turn execution (stale-verdict risk).
+- **Recommendation:** prune + cache + fail-closed bound. Do not adopt skip-list or off-turn as the primary fix.
+- **Acceptance:** ≤5 s cold and ≤50 ms warm on the repo root; identical `IntegrityIssue` set for existing fixtures; exactly one audit per finalize (counter test); bounded case reports `not_audited` and the turn is **not** `verified`; a broken import added after a cached pass still fails the turn.
+- **Effort:** 2–3 dev-days. **Owner:** graph/gates owner. **Depends on:** T-18 (degraded-memory workaround), mutation-broker write hook.
+- **Explicitly not in T-18.**
+
 ## Summary
 
 | WS | Tickets | Effort |
@@ -293,7 +308,7 @@ DoD is defined once in `09-ENGINEERING-EXECUTION-PLAN.md` §7 and applies to all
 | D Autonomy UI | T-14…T-16 | 6.5h |
 | E Truth gate | T-17…T-18 | 3.5h |
 | F Fixtures/QA | T-19…T-21 | 6.5h |
-| **Total** | **23 tickets** (T-22, T-23 added) | **≈49.5–50.5h** |
+| **Total** | **24 tickets** (T-22…T-24 added) | **≈52–53h** |
 
 46.5–47.5 hours is more than 16 hours of working time. **That is the honest number, and it is why Day 1 has a
 Go/No-Go.** The two-day plan assumes parallel agent sessions (A–F run concurrently); a single sequential

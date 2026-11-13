@@ -1358,3 +1358,29 @@ register accidentally truncated by a workspace copy)
   (`list.py`) was moved out of the repo; `req_001/002` are tracked files that were modified, not untracked.
 - **T-18 remains PARTIAL. T-07 remains gated.**
 
+
+
+---
+
+## 2026-11-13 (T-23 continuation) — P5 fixed, P4 stopped, T-24 opened
+
+**Commits:** `f2660e9f` (P5) · T-24 added to the register · decisions D-034…D-038
+
+- **P1 policy recorded (D-034):** uncontained shell stays blocked; security-denial tests stay active; narrowly
+  scoped `xfail(strict=True)` only for future positive contained-shell tests with a recorded T-10/T-11
+  dependency, owner and removal condition.
+- **P4 (prompt shape): STOPPED with no code change.** The code implements the two-region cache design from
+  `09462482`; four test modules pin the older single-system shape from `eacdf6c3`. Forcing the legacy path makes
+  7 shape tests pass and breaks 7 prompt-cache tests. Founder choice required: re-pin the tests or revert the
+  cache split deliberately.
+- **P5 fixed (`f2660e9f`):** the D28 syntax receipt now runs only when the target file exists, so a new `.py`
+  skeleton is no longer rejected as "was valid, now broken". Existing-file protection unchanged.
+  Evidence: `test_review_autopsy_fixes` + `test_edit_file` = **24 passed, 1 skipped, exit 0**.
+  The 5 `test_file_state` failures are the separate overwrite-refusal defect and remain open.
+- **T-24 opened (D-037):** finalization audits the workspace 4–7× per turn; repo root **>120 s**; the cost centre
+  is `desktop/`, not the 936 MB `bench-results` (1.29 s). Recommendation: prune + cache + fail-closed bound.
+- **CI plan prepared (D-038), not executed:** pin py3.14, install esbuild + aliased typescript so parity fails
+  loudly instead of skipping, add `--durations=50`, add `permissions: contents: read`, leave the 30-minute
+  timeout unchanged until a real Linux run measures it.
+- **Linux remains unmeasured. T-18 PARTIAL. T-07 gated. Nothing pushed.**
+

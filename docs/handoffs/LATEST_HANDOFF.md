@@ -644,3 +644,15 @@ Baseline: 105 failures / 41 modules at HEAD vs 100 / 40 at `7e4bb7ad`; R2 caused
 
 **Do not claim Linux verification from a Windows run.**
 
+
+
+---
+
+## 2026-11-13 (T-23 continuation)
+
+**P5 fixed:** `f2660e9f`. **P4 blocked on a founder decision:** re-pin shape tests vs revert `09462482`.
+**T-24 opened:** finalization audit cost (4–7 audits/turn; repo root >120 s; `desktop/` is the cost centre).
+
+**Before any push:** decide P4, then run one focused wave (P5 done; next are the write-refusal/approval-token
+defect and the prompt-shape choice), then a real Linux run. 30-minute timeout stays unvalidated.
+
