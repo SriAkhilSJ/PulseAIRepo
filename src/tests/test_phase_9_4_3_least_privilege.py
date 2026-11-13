@@ -18,6 +18,18 @@ Verifies:
 
 from __future__ import annotations
 
+# Platform gate: these modules exercise Windows kernel containment APIs
+# (AppContainer, Job Objects, WinDLL). On a POSIX runner the module-level
+# ctypes.WinDLL lookup raises AttributeError during collection, which aborts the
+# whole suite before a single test runs. Skip the module instead: the capability
+# is genuinely absent on that platform, not failing.
+import sys as _sys
+
+if _sys.platform != "win32":
+    import pytest as _pytest
+
+    _pytest.skip("Windows-only AppContainer sandbox test", allow_module_level=True)
+
 import ctypes
 import os
 import shutil
