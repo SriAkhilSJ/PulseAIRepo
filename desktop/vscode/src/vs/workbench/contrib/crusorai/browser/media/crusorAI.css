@@ -392,6 +392,12 @@
 .crusorai-permission-once:hover { opacity: .88; }
 .crusorai-permission-once .crusorai-approval-kbd, .crusorai-permission-deny .crusorai-approval-kbd { opacity: .55; }
 .crusorai-permission-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 17px; min-width: 0; }
+/* Founder 2026-11-12 (Option B): the approval dock shows the proposed change.
+   Read-only presentation -- the accept/reject controls stay in the bar above. */
+.crusorai-approval-diff-preview { margin-top: 6px; border: 1px solid var(--vscode-panel-border, transparent); border-radius: 6px; overflow: hidden; background: var(--vscode-textCodeBlock-background); }
+.crusorai-approval-diff-header { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: var(--crusorai-text-meta); color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border, transparent); }
+.crusorai-approval-diff-title { font-weight: 600; color: var(--vscode-foreground); }
+.crusorai-approval-diff-preview .crusorai-diff-body { max-height: 220px; overflow: auto; }
 .crusorai-permission-hint { color: var(--vscode-descriptionForeground); font-size: var(--crusorai-text-body-lg); line-height: 1.45; overflow-wrap: anywhere; min-width: 0; }
 .crusorai-permission-hint.is-risk { color: var(--vscode-foreground); }
 .crusorai-permission-command {

@@ -17,7 +17,12 @@ def degraded(monkeypatch):
     return cg
 
 
-def test_finalize_node_survives_degraded_memory(degraded):
+def test_finalize_node_survives_degraded_memory(degraded, tmp_path):
+    # T-18: this test is about memory degradation, not workspace auditing. It used
+    # to pass "." as the workspace, so finalize_node -> _verification_receipt_status
+    # -> audit_workspace read every source file in the repository and never
+    # returned. A bounded workspace keeps the same code path and finishes.
+    (tmp_path / "app.py").write_text("import os\n\nprint(os.name)\n", encoding="utf-8")
     state = {
         "current_task": "ship feature",
         "steps_completed": ["created file"],
@@ -26,7 +31,7 @@ def test_finalize_node_survives_degraded_memory(degraded):
         "messages": [],
         "recovery_attempts": 0,
         "replan_count": 0,
-        "workspace": ".",
+        "workspace": str(tmp_path),
     }
     # config added in D1: finalize_node needs thread_id to reach the
     # session-scoped engine registry.

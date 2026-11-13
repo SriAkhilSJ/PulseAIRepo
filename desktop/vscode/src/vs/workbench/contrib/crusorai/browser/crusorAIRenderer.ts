@@ -3352,7 +3352,27 @@ function approvalDock(model: CrusorAIRenderModel, host: CrusorAIRenderHost): HTM
 		if (reviewButton) { sub.append(reviewButton); }
 	}
 	bar.append(sub);
-	dock.append(bar);
+	// Founder 2026-11-12 (Option B): the dock must SHOW the proposed change, not
+	// only offer a button that opens the editor. Display-only by construction --
+	// no click handler and no approval side effect lives in this block. Accepting
+	// still goes through the same buttons and the same safety token above, and
+	// "Review change" still opens the native multi-diff for full review.
+	if (hasFileDiff && diffString) {
+		const preview = element('div', 'crusorai-approval-diff-preview');
+		const previewHeader = element('div', 'crusorai-approval-diff-header',
+			element('span', 'crusorai-approval-diff-title', 'Proposed change'),
+		);
+		if (diffStatistics && (diffStatistics.added > 0 || diffStatistics.removed > 0)) {
+			const stats = element('span', 'crusorai-diff-count');
+			if (diffStatistics.added > 0) { stats.append(element('span', 'is-added', `+${diffStatistics.added}`)); }
+			if (diffStatistics.removed > 0) { stats.append(element('span', 'is-removed', `\u2212${diffStatistics.removed}`)); }
+			previewHeader.append(stats);
+		}
+		preview.append(previewHeader, diffPreview(diffString, commandText));
+		dock.append(bar, preview);
+	} else {
+		dock.append(bar);
+	}
 	if (!isInstallApproval) { dock.append(overlay); }
 	return dock;
 }
