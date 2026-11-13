@@ -1329,3 +1329,32 @@ pre-existing failures (two Windows mode-bit assertions and one echo
   workflow timeout is unvalidated for Linux; the Windows run must not be cited as Linux evidence.
 - **T-18 remains PARTIAL.** Full-suite green is being re-run after these fixes.
 
+
+
+---
+
+## 2026-11-12 (T-23) — baseline classified; one in-range regression fixed
+
+**Commits:** `20a5cbe0` (regression fix) · `702d6f3f` + `8b2fad9e` (T-23 docs; the latter restores a
+register accidentally truncated by a workspace copy)
+
+- **Four read-only workers** produced one inventory: **105 failures / 41 modules at HEAD** vs **100 / 40 at
+  `7e4bb7ad`**. R2 accounts for exactly **one** (`test_agent_cards`).
+- **Classes:** 18 PRODUCT_BUG modules (~55 failures), 8 ENVIRONMENT_DEPENDENT (~30), 6 TEST_DEFECT (~8),
+  2 DEPENDENCY_OR_CONFIGURATION (~2), 2 UNRESOLVED (~4).
+- **Root causes:** P1 terminal boundary (~15), P2 AppContainer × uv trampoline (~17), P3 SSRF loopback (~8),
+  P4 prompt-shape drift (~11), P5 write_file over-refusal (~6), P6 POSIX-only assertions, P7 stale tests,
+  P8 no device/provider (~20), P9 isolated product regressions (~18).
+- **Fixed in-range:** the T-22 reorder let truncated provider responses reach name repair; the incomplete guard
+  now runs first (`20a5cbe0`). `test_autonomous_runtime_contract` loses its `_tools_by_name` failure.
+- **Ambiguous, awaiting founder:** P1. `run_terminal` is blocked by design; tests encode T-10/T-12.
+  Recommendation: `xfail(strict=True)` with a T-10 reference — no deletion, no re-enabling before T-11/T-10.
+- **CI:** workflow valid; no `permissions:` block; py3.11 vs `.python-version` 3.14 drift; no `pytest-timeout`;
+  desktop parity modules skip on Linux (no `node_modules`), so they cannot gate PRs; 30-minute timeout marginal.
+- **Runtime:** one session-scoped fixture in 339 modules; cold interpreter probes; 936 MB `bench-results` walked;
+  fixed ports 45780/45781/8931; guard scratch in repo root — all block sharding.
+- **Linux: still unmeasured** (no WSL distro, no Docker). No GitHub-hosted run exists.
+- **Preservation:** 0 of the 189 original untracked paths are missing on disk; a stray worker scratch file
+  (`list.py`) was moved out of the repo; `req_001/002` are tracked files that were modified, not untracked.
+- **T-18 remains PARTIAL. T-07 remains gated.**
+

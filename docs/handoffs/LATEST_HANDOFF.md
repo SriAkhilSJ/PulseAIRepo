@@ -626,3 +626,21 @@ suite on a real Linux runner. Do not start T-07 until the gate is met or the fou
 **Linux runtime:** unmeasured (no WSL distro, no Docker). Do not claim the 30-minute CI timeout is safe.
 **T-18:** PARTIAL until the full suite is green. **T-07:** still gated.
 
+
+
+---
+
+## 2026-11-12 (T-23)
+
+**Commits:** `20a5cbe0`, `702d6f3f`, `8b2fad9e`.
+Baseline: 105 failures / 41 modules at HEAD vs 100 / 40 at `7e4bb7ad`; R2 caused one.
+
+**Next minimum for a defensible T-18 gate:**
+1. Decide P1 (shell boundary): xfail-with-T-10-reference vs re-enable after T-11/T-10.
+2. Fix P5 (write refusal) and P4 (prompt shape) — both product, both independent.
+3. Add `pytest-timeout` and `--durations` to get attributed runtime.
+4. Install desktop node deps in CI so parity modules fail instead of skipping.
+5. Obtain a real Linux run before claiming green; 30-minute timeout is unvalidated.
+
+**Do not claim Linux verification from a Windows run.**
+

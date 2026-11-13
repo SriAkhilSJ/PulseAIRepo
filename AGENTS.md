@@ -378,3 +378,11 @@ Seven pre-existing failures were fixed in `242decbb`. Two lessons are now invari
 
 Linux CI runtime remains unmeasured (no WSL distribution, no Docker on this host).
 
+
+
+## 16. T-23 (2026-11-12)
+
+The suite baseline is **105 failures / 41 modules** at HEAD; only one is post-R2. Do not treat a Windows run as
+Linux evidence, and do not claim green until the product-defect wave is fixed and a real Linux run exists.
+P1 (shell blocked by design) needs a founder decision before any test is xfailed or any shell path is opened.
+
