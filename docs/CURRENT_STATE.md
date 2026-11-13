@@ -1451,3 +1451,21 @@ register accidentally truncated by a workspace copy)
   hits all previously verified synthetic/doc strings. Branch pushed; `main` untouched.
 - **Linux qualification run triggered** on py3.14 with parity deps and `--durations`; result pending.
 
+
+
+---
+
+## 2026-11-13 (Linux CI, attempt 3) — two real failures found and fixed
+
+- **Run 43404607498 failed before tests:** the parity dependency step ran `npm install` inside
+  `desktop/vscode`, which pulled the fork's full tree; `kerberos` failed under node-gyp (no krb5 headers).
+  Fixed by installing `esbuild@0.25.0` and the aliased `typescript@6.0.2` in `RUNNER_TEMP` and copying only
+  those packages into `desktop/vscode/node_modules` (`421ee543`).
+- **Run 43405180775 failed at collection (exit 2):** four Windows-only modules touch `ctypes.WinDLL` at import
+  time, which does not exist on POSIX, so pytest aborted before running anything. They now skip at module level
+  on non-Windows (`c973549f`). This is platform gating for genuinely absent kernel APIs; they still run on
+  Windows. It is **not** a hidden product failure.
+- **Run 43405656459 (HEAD `c973549f`) is in progress.** No Linux result is claimed until it completes.
+- Open: **T-26** (non-canonical overwrite: require a token for user-owned provenance?) and **T-27** (Windows ACL
+  + atomic key creation for the R6 secret).
+

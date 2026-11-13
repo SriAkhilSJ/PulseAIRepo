@@ -696,3 +696,15 @@ R6 `d6c98847`. Push `bd43fe12..d6c98847`. Run 43404607498 (in progress).
 **Linux result must be read from the run**, not inferred. T-18 stays PARTIAL until it is green and the
 known-red classes are dispositioned.
 
+
+
+---
+
+## 2026-11-13 (Linux CI, attempt 3)
+
+Runs 43404607498 and 43405180775 failed for infrastructure reasons (node-gyp kerberos; Windows-only imports at
+collection). Both fixed in `421ee543` and `c973549f`. Run 43405656459 is in progress on `c973549f`.
+
+**Do not report a Linux verdict until that run finishes.** If it goes green on collection, expect product
+failures from the T-23 inventory (P1 shell boundary, P2 environment, P3 SSRF, P6–P9).
+
