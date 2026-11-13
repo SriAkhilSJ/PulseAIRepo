@@ -35,6 +35,11 @@ from src.observability.monitor import (
     DesktopPerformanceMonitor,
     get_performance_monitor,
 )
+from src.observability.receipts import (
+    enabled,
+    record_turn_receipt,
+    sink_path,
+)
 
 __all__ = [
     "SecretRedactor",
@@ -58,5 +63,8 @@ __all__ = [
     "DesktopPerformanceMonitor",
     "BASELINE_TARGETS",
     "get_performance_monitor",
+    "enabled",
+    "record_turn_receipt",
+    "sink_path",
 ]
 
