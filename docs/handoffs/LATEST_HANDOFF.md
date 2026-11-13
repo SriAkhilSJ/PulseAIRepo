@@ -656,3 +656,18 @@ Baseline: 105 failures / 41 modules at HEAD vs 100 / 40 at `7e4bb7ad`; R2 caused
 **Before any push:** decide P4, then run one focused wave (P5 done; next are the write-refusal/approval-token
 defect and the prompt-shape choice), then a real Linux run. 30-minute timeout stays unvalidated.
 
+
+
+---
+
+## 2026-11-13 (T-23 finalization)
+
+**P4:** `b151a746` (79 passed). **P5:** `f2660e9f`. **Token policy tests:** `fe5faf14`. **CI prep:** `5414ee16`.
+
+**Next blocker:** the write-refusal defect needs a two-file security change — `file_tools.py` must route an
+existing target to `modify_file`, and `chat_graph.py` must derive `CREATE`/`MODIFY` from `payload["action"]`.
+Landing only one of them breaks canonical-runtime writes; relaxing the broker breaks two security suites.
+This needs its own focused session plus a security review, not a tail-end patch.
+
+**Linux:** still unmeasured. Do not claim green from Windows.
+

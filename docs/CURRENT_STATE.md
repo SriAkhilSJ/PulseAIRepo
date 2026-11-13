@@ -1384,3 +1384,30 @@ register accidentally truncated by a workspace copy)
   timeout unchanged until a real Linux run measures it.
 - **Linux remains unmeasured. T-18 PARTIAL. T-07 gated. Nothing pushed.**
 
+
+
+---
+
+## 2026-11-13 (T-23 finalization) — P4 re-pinned, P5 done, CI prepared, token defect open
+
+**Commits:** `b151a746` (P4) · `fe5faf14` (token-policy tests) · `5414ee16` (CI prep)
+
+- **P4 — DONE.** Kept `09462482`. Seven legacy assertions across four modules now assert the two-region
+  contract: one `stable_prefix` head, one `volatile_tail`, explicit ordering, required instruction text, and a
+  new test proving the stable head is byte-identical when only volatile context changes. The 5-vs-6 question is
+  reconciled: the sixth source block is whitespace-only and is **skipped**, not moved to the tail.
+  Evidence: four modules + `test_prompt_cache_stabilization` = **79 passed, exit 0**.
+  The 4 `test_hermes_prompt_parity` failures are pre-existing and untouched.
+- **P5 — DONE** (`f2660e9f`): new files are no longer subject to the "don't leave an existing .py worse" gate.
+- **Approval-token defect — OPEN, precisely located.** `write_file` labels a full-content overwrite of an
+  existing file as `CREATE` (`file_tools.py:524`) and the minting path hard-codes `CREATE`
+  (`chat_graph.py:6832`). Correct fix: route existing targets to `modify_file` and derive the operation from
+  `payload["action"]`. Relaxing the broker instead breaks `test_phase_12_1_1_security_qualification` (2) and
+  `test_phase_12_1_end_to_end_acceptance` (4). Six policy regression tests added and passing; the 5 original
+  failures stand (5 failed, 11 passed).
+- **CI — PREPARED, not executed** (`5414ee16`): py3.14, pinned esbuild + aliased typescript so parity runs
+  instead of skipping, `--durations=50`, `permissions: contents: read`, timeout unchanged at 30.
+  YAML validated. No push, no workflow trigger.
+- **T-24** stays separate; no audit behaviour changed.
+- **Linux remains unmeasured. T-18 PARTIAL. T-07 gated.**
+

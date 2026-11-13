@@ -386,3 +386,12 @@ The suite baseline is **105 failures / 41 modules** at HEAD; only one is post-R2
 Linux evidence, and do not claim green until the product-defect wave is fixed and a real Linux run exists.
 P1 (shell blocked by design) needs a founder decision before any test is xfailed or any shell path is opened.
 
+
+
+## 17. T-23 finalization (2026-11-13)
+
+P4 is resolved by re-pinning tests to the two-region prompt contract — never by re-enabling
+`CRUSORAI_FUSE_VOLATILE_SYSTEM`. The approval-token defect is **not** fixed: do not relax
+`WorkspaceMutationBroker` ownership checks to make `test_file_state` pass; route existing targets to
+`modify_file` and derive the operation from the payload instead.
+
