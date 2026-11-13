@@ -14,6 +14,12 @@ import pytest
 
 from src.tools import file_state
 from src.tools.file_tools import read_file, write_file, edit_file
+from src.workspace.approval_digest import content_digest, precondition_digest
+from src.workspace.models import WorkspaceOperationType
+from src.workspace.mutation_broker import (
+    MutationAuthorizationError,
+    WorkspaceMutationBroker,
+)
 
 READ = read_file.func
 WRITE = write_file.func
@@ -163,3 +169,146 @@ def test_programmatic_api_independent_of_tools(tmp_path):
     assert file_state.check_stale(B, f) is None  # writer checks self
     file_state.record_read(A, f)
     assert file_state.check_stale(A, f) is None  # caught up
+
+
+# ---------------------------------------------------------------------------
+# Founder approval-token policy pins at the mutation edge.
+#
+# These are broker-level pins (the production contract): a token is bound to
+# workspace identity + canonical path + operation + original hash + proposed
+# hash, is single-use, expires, and fails closed when missing, invalid,
+# reused, stale or mismatched. They exist so the D32 overwrite-refusal work
+# cannot be fixed by weakening the approval boundary.
+# ---------------------------------------------------------------------------
+
+POLICY_TASK = "t-policy"
+
+
+def _policy_broker(ws: str) -> WorkspaceMutationBroker:
+    broker = WorkspaceMutationBroker(str(ws))
+    # shared.py predates the broker: it is pre-existing user work.
+    broker.baseline_mgr.capture_baseline(force_refresh=True)
+    return broker
+
+
+def _policy_token(
+    broker: WorkspaceMutationBroker,
+    ws: str,
+    rel_path: str,
+    operation: WorkspaceOperationType,
+    proposed: str,
+    pre_image: str | None,
+) -> str:
+    return broker.risk_gate.generate_approval_token(
+        POLICY_TASK,
+        str(Path(ws).resolve()),
+        rel_path,
+        operation,
+        content_digest=content_digest(proposed),
+        precondition_digest=precondition_digest(pre_image is not None, pre_image),
+    )
+
+
+def _policy_modify(broker, rel_path, content, token=None):
+    return broker.modify_file(
+        path=rel_path,
+        new_content=content,
+        task_id=POLICY_TASK,
+        approval_token=token,
+        require_approval=True,
+        require_digest=token is not None,
+    )
+
+
+def test_policy_valid_approval_applies_exact_bytes(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    original = (Path(ws) / TARGET).read_text()
+    proposed = "X = 'approved'\n"
+    token = _policy_token(
+        broker, ws, TARGET, WorkspaceOperationType.MODIFY, proposed, original
+    )
+    record = _policy_modify(broker, TARGET, proposed, token)
+    assert record.status.value == "APPLIED"
+    assert (Path(ws) / TARGET).read_text() == proposed
+    assert [r.file_path for r in broker.ledger.get_records(POLICY_TASK)] == [TARGET]
+
+
+def test_policy_missing_token_fails_closed_without_mutation(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    with pytest.raises(MutationAuthorizationError):
+        _policy_modify(broker, TARGET, "X = 'no approval'\n")
+    assert (Path(ws) / TARGET).read_text() == "X = 'original'\n"
+
+
+def test_policy_token_is_single_use(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    original = (Path(ws) / TARGET).read_text()
+    proposed = "X = 'first'\n"
+    token = _policy_token(
+        broker, ws, TARGET, WorkspaceOperationType.MODIFY, proposed, original
+    )
+    _policy_modify(broker, TARGET, proposed, token)
+    with pytest.raises(MutationAuthorizationError, match="consumed|replay"):
+        _policy_modify(broker, TARGET, "X = 'second'\n", token)
+    assert (Path(ws) / TARGET).read_text() == proposed
+
+
+def test_policy_changed_original_invalidates_token(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    original = (Path(ws) / TARGET).read_text()
+    proposed = "X = 'approved'\n"
+    token = _policy_token(
+        broker, ws, TARGET, WorkspaceOperationType.MODIFY, proposed, original
+    )
+    # The file changes between approval and mutation.
+    (Path(ws) / TARGET).write_text("X = 'external edit'\n")
+    with pytest.raises(MutationAuthorizationError):
+        _policy_modify(broker, TARGET, proposed, token)
+    assert (Path(ws) / TARGET).read_text() == "X = 'external edit'\n"
+
+
+def test_policy_changed_proposed_content_invalidates_token(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    original = (Path(ws) / TARGET).read_text()
+    token = _policy_token(
+        broker, ws, TARGET, WorkspaceOperationType.MODIFY, "X = 'approved'\n", original
+    )
+    with pytest.raises(MutationAuthorizationError):
+        _policy_modify(broker, TARGET, "X = 'swapped in after approval'\n", token)
+    assert (Path(ws) / TARGET).read_text() == original
+
+
+def test_policy_token_cannot_authorize_another_file_or_operation(tmp_path):
+    ws = _ws(tmp_path)
+    broker = _policy_broker(ws)
+    original = (Path(ws) / TARGET).read_text()
+    proposed = "X = 'approved'\n"
+    # An edit token for shared.py must not authorize other.py.
+    edit_token = _policy_token(
+        broker, ws, TARGET, WorkspaceOperationType.MODIFY, proposed, original
+    )
+    with pytest.raises(MutationAuthorizationError):
+        broker.create_file(
+            path="other.py",
+            content=proposed,
+            task_id=POLICY_TASK,
+            approval_token=edit_token,
+            require_approval=True,
+            require_digest=True,
+        )
+    assert not (Path(ws) / "other.py").exists()
+    # ...and it must not authorize a different operation on its own path.
+    with pytest.raises(MutationAuthorizationError):
+        broker.delete_file(
+            path=TARGET,
+            task_id=POLICY_TASK,
+            approval_token=edit_token,
+            require_approval=True,
+            require_digest=True,
+        )
+    assert (Path(ws) / TARGET).read_text() == original
